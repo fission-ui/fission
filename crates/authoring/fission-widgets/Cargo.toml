@@ -1,0 +1,15 @@
+[package]
+name = "fission-widgets"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+fission-macros = { path = "../fission-macros" }
+fission-core = { path = "../../core/fission-core" }
+fission-ir = { path = "../../core/fission-ir" }
+fission-semantics = { path = "../../core/fission-semantics" }
+serde = { version = "1.0", features = ["derive"] }
+lazy_static = "1.4"
+
+[dev-dependencies]
+serde_json = "1.0"

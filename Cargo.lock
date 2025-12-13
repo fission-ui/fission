@@ -68,6 +68,14 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3a3076410a55c90011c298b04d0cfa770b00fa04e1e3c97d3f6c9de105a03844"
 
 [[package]]
+name = "fission"
+version = "0.1.0"
+dependencies = [
+ "fission-core",
+ "fission-widgets",
+]
+
+[[package]]
 name = "fission-core"
 version = "0.1.0"
 dependencies = [
@@ -103,11 +111,61 @@ dependencies = [
 ]
 
 [[package]]
+name = "fission-macros"
+version = "0.1.0"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
+]
+
+[[package]]
+name = "fission-render"
+version = "0.1.0"
+
+[[package]]
+name = "fission-render-skia"
+version = "0.1.0"
+
+[[package]]
 name = "fission-semantics"
 version = "0.1.0"
 dependencies = [
  "fission-ir",
  "serde",
+]
+
+[[package]]
+name = "fission-shell"
+version = "0.1.0"
+
+[[package]]
+name = "fission-shell-desktop"
+version = "0.1.0"
+
+[[package]]
+name = "fission-shell-mobile"
+version = "0.1.0"
+
+[[package]]
+name = "fission-shell-web"
+version = "0.1.0"
+
+[[package]]
+name = "fission-test"
+version = "0.1.0"
+
+[[package]]
+name = "fission-widgets"
+version = "0.1.0"
+dependencies = [
+ "fission-core",
+ "fission-ir",
+ "fission-macros",
+ "fission-semantics",
+ "lazy_static",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

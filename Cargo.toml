@@ -1,9 +1,18 @@
 [workspace]
 members = [
-  "crates/core/*",
-  #"crates/authoring/*",
-  #"crates/rendering/*",
-  #"crates/shell/*",
-  #"crates/tools/*",
+  "crates/core/fission-ir",
+  "crates/core/fission-semantics",
+  "crates/core/fission-layout",
+  "crates/core/fission-core",
+  "crates/authoring/fission-macros",
+  "crates/authoring/fission-widgets",
+  "crates/authoring/fission",
+  "crates/rendering/fission-render",
+  "crates/rendering/fission-render-skia",
+  "crates/shell/fission-shell",
+  "crates/shell/fission-shell-desktop",
+  "crates/shell/fission-shell-mobile",
+  "crates/shell/fission-shell-web",
+  "crates/tools/fission-test",
 ]
 resolver = "2"

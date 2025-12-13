@@ -1,0 +1,6 @@
+[package]
+name = "fission-render-skia"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]

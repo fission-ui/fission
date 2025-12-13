@@ -1,0 +1,8 @@
+[package]
+name = "fission"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+fission-core = { path = "../../core/fission-core" }
+fission-widgets = { path = "../fission-widgets" }
