@@ -183,10 +183,17 @@ dependencies = [
 name = "fission-test"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "fission-core",
  "fission-ir",
  "fission-layout",
  "fission-render",
+ "fission-semantics",
+ "fission-shell",
+ "fission-widgets",
+ "lazy_static",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

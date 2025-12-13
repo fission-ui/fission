@@ -7,6 +7,13 @@ edition = "2021"
 fission-core = { path = "../../core/fission-core" }
 fission-ir = { path = "../../core/fission-ir" }
 fission-layout = { path = "../../core/fission-layout" }
-fission-render = { path = "../../rendering/fission-render" } # Corrected path
+fission-render = { path = "../../rendering/fission-render" }
+fission-shell = { path = "../../shell/fission-shell" }
+fission-widgets = { path = "../../authoring/fission-widgets" }
+fission-semantics = { path = "../../core/fission-semantics" }
+anyhow = "1.0"
+serde = { version = "1.0", features = ["derive"] }
+lazy_static = "1.4"
 
 [dev-dependencies]
+serde_json = "1.0"
