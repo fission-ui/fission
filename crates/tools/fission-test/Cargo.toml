@@ -4,3 +4,9 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+fission-core = { path = "../../core/fission-core" }
+fission-ir = { path = "../../core/fission-ir" }
+fission-layout = { path = "../../core/fission-layout" }
+fission-render = { path = "../../rendering/fission-render" } # Corrected path
+
+[dev-dependencies]

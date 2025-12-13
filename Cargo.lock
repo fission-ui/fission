@@ -122,10 +122,20 @@ dependencies = [
 [[package]]
 name = "fission-render"
 version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "fission-ir",
+ "fission-layout",
+ "serde",
+ "serde_json",
+]
 
 [[package]]
 name = "fission-render-skia"
 version = "0.1.0"
+dependencies = [
+ "fission-render",
+]
 
 [[package]]
 name = "fission-semantics"
@@ -133,27 +143,48 @@ version = "0.1.0"
 dependencies = [
  "fission-ir",
  "serde",
+ "serde_json",
 ]
 
 [[package]]
 name = "fission-shell"
 version = "0.1.0"
+dependencies = [
+ "fission-core",
+ "fission-ir",
+ "fission-render",
+]
 
 [[package]]
 name = "fission-shell-desktop"
 version = "0.1.0"
+dependencies = [
+ "fission-shell",
+]
 
 [[package]]
 name = "fission-shell-mobile"
 version = "0.1.0"
+dependencies = [
+ "fission-shell",
+]
 
 [[package]]
 name = "fission-shell-web"
 version = "0.1.0"
+dependencies = [
+ "fission-shell",
+]
 
 [[package]]
 name = "fission-test"
 version = "0.1.0"
+dependencies = [
+ "fission-core",
+ "fission-ir",
+ "fission-layout",
+ "fission-render",
+]
 
 [[package]]
 name = "fission-widgets"

@@ -6,3 +6,6 @@ edition = "2021"
 [dependencies]
 fission-ir = { path = "../fission-ir" }
 serde = { version = "1.0", features = ["derive"] }
+
+[dev-dependencies]
+serde_json = "1.0"
