@@ -150,9 +150,12 @@ dependencies = [
 name = "fission-shell"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "fission-core",
  "fission-ir",
  "fission-render",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
