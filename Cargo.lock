@@ -344,6 +344,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "counter"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "fission",
+ "fission-core",
+ "fission-macros",
+ "fission-shell-desktop",
+ "fission-widgets",
+ "lazy_static",
+ "serde",
+]
+
+[[package]]
 name = "crc32fast"
 version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
