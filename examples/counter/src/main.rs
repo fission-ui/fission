@@ -80,6 +80,7 @@ impl LowerDyn for StatusIndicatorLowerer {
                 fill: Some(Fill { color }),
                 stroke: None,
                 corner_radius: 10.0, // Circle
+                shadow: None, // Added
             }), 
             vec![]
         );

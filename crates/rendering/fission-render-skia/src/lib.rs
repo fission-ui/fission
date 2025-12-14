@@ -1,9 +1,9 @@
 use fission_render::{Renderer, DisplayList, DisplayOp, Color, LayoutRect, LayoutPoint, LayoutUnit, BoxShadow, TextMeasurer};
-use skia_safe::{Canvas, Paint, Rect, Color as SkColor, FontMgr, MaskFilter, RRect, BlurStyle}; 
+use skia_safe::{Canvas, Paint, Rect, Color as SkColor, FontMgr, MaskFilter, RRect, BlurStyle, Vector}; 
 use skia_safe::font::Font;
 use skia_safe::font_style::FontStyle;
 use skia_safe::Typeface; 
-use skia_safe::wrapper::NativeTransmutableWrapper; 
+use skia_safe::wrapper::NativeTransmutableWrapper; // For unwrap
 use anyhow::Result;
 
 pub struct SkiaRenderer<'a> {
@@ -74,7 +74,7 @@ impl<'a> Renderer for SkiaRenderer<'a> {
                             false,
                         ));
                         
-                        let shadow_rect: Rect = sk_rect.offset(s.offset);
+                        let shadow_rect: Rect = sk_rect.with_offset(s.offset);
                         let shadow_rrect = RRect::new_rect_xy(&shadow_rect, *corner_radius, *corner_radius);
                         self.canvas.draw_rrect(&shadow_rrect, &shadow_paint);
                     }
