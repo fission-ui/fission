@@ -13,7 +13,7 @@ use anyhow::Result;
 
 use fission_shell::Platform;
 use fission_render::{Renderer, DisplayList, LayoutRect, LayoutPoint, LayoutUnit, Color as RenderColor};
-use fission_render_skia::{SkiaRenderer, SkiaTextMeasurer}; // Added SkiaTextMeasurer
+use fission_render_skia::{SkiaRenderer, SkiaTextMeasurer};
 use fission_core::{Runtime, Clock, Action, ActionId, AppState, BuildCtx, Env, InputEvent, PointerEvent, PointerButton, Widget, View, Node, Lower};
 use fission_core::lowering::{build_layout_tree, LoweringContext};
 use fission_layout::{LayoutEngine, LayoutSize, LayoutInputNode, LayoutSnapshot};
@@ -181,6 +181,13 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                         }
                         WindowEvent::CursorMoved { position, .. } => {
                             last_cursor_position = Some(position);
+                            // Update Hover State
+                            if let (Some(ir), Some(snapshot)) = (last_ir.as_ref(), last_snapshot.as_ref()) {
+                                let point = LayoutPoint::new(position.x as f32, position.y as f32);
+                                let event = InputEvent::Pointer(PointerEvent::Move { point });
+                                runtime.handle_input(event, ir, snapshot).unwrap();
+                                window.request_redraw(); // Request redraw to reflect hover changes
+                            }
                         }
                         WindowEvent::MouseInput { state, button, .. } => {
                             if let Some(pointer_button) = map_mouse_button(button) {

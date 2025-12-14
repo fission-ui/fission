@@ -177,6 +177,45 @@ impl Runtime {
         layout: &LayoutSnapshot,
     ) -> Result<()> {
         match event {
+            InputEvent::Pointer(PointerEvent::Move { point, .. }) => { // Added Move handling
+                let hit = hit_test(ir, layout, point);
+                
+                // 1. Calculate new hover set
+                let mut new_hovered = std::collections::HashSet::new();
+                if let Some(mut node_id) = hit {
+                    // Walk up from hit node to root
+                    loop {
+                        new_hovered.insert(node_id);
+                        if let Some(node) = ir.nodes.get(&node_id) {
+                            if let Some(parent) = node.parent {
+                                node_id = parent;
+                            } else {
+                                break;
+                            }
+                        } else {
+                            break;
+                        }
+                    }
+                }
+                
+                // 2. Update interaction state (Simple clear and set for v1)
+                // In a real app we would diff to avoid redraws if unchanged.
+                // For now, we update the map.
+                
+                // We need to know which nodes were previously hovered to clear them.
+                // Or we can just iterate the map? 
+                // RuntimeState::interaction::hovered is HashMap<NodeId, bool>.
+                
+                // Clear old hovered
+                self.runtime_state.interaction.hovered.clear();
+                
+                // Set new hovered
+                for id in new_hovered {
+                    self.runtime_state.interaction.set_hovered(id, true);
+                }
+                
+                // TODO: Return true if changed?
+            }
             InputEvent::Pointer(PointerEvent::Down { point, .. }) => {
                 if let Some(hit_node_id) = hit_test(ir, layout, point) {
                     // Update Interaction State
@@ -208,13 +247,10 @@ impl Runtime {
                     }
                 }
             }
-            InputEvent::Pointer(PointerEvent::Up { point, .. }) => {
-                // Clear pressed state?
-                // Ideally we track which node was pressed.
-                // For now, clear all pressed? or just the hit one?
-                // V1 simplified.
+            InputEvent::Pointer(PointerEvent::Up { point: _, .. }) => { // Ignored point for now
+                // Clear all pressed state on Up
+                self.runtime_state.interaction.pressed.clear();
             }
-            // TODO: PointerMove for Hover
             _ => {}
         }
         Ok(())
