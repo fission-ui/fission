@@ -36,6 +36,8 @@ pub struct Stroke {
     pub width: LayoutUnit,
 }
 
+// Removed BoxShadow struct
+
 // Paint bounds for a DisplayOp, typically derived from LayoutRect but can be expanded for effects.
 pub type PaintBounds = LayoutRect;
 
@@ -54,7 +56,7 @@ pub enum DisplayOp {
     ClipRect(LayoutRect), // Restrict drawing to this rectangle
 
     // Drawing operations
-    DrawRect { rect: LayoutRect, fill: Option<Fill>, stroke: Option<Stroke>, bounds: PaintBounds, node_id: Option<NodeId> },
+    DrawRect { rect: LayoutRect, fill: Option<Fill>, stroke: Option<Stroke>, corner_radius: LayoutUnit, /* Removed shadow: Option<BoxShadow>, */ bounds: PaintBounds, node_id: Option<NodeId> }, 
     DrawText {
         text: String,
         position: LayoutPoint, // Top-left corner of the text

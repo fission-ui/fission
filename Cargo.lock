@@ -676,6 +676,7 @@ dependencies = [
  "fission-core",
  "fission-ir",
  "fission-macros",
+ "fission-theme",
  "lazy_static",
  "serde",
  "serde_json",

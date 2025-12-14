@@ -1,5 +1,5 @@
 use fission_render::{Renderer, DisplayList, DisplayOp, Color, LayoutRect, LayoutPoint, LayoutUnit};
-use skia_safe::{Canvas, Paint, Rect, Color as SkColor, FontMgr};
+use skia_safe::{Canvas, Paint, Rect, Color as SkColor, FontMgr, RRect};
 use skia_safe::font::Font;
 use skia_safe::font_style::FontStyle;
 use skia_safe::Typeface; 
@@ -46,14 +46,18 @@ impl<'a> Renderer for SkiaRenderer<'a> {
 
         for op in &display_list.ops {
             match op {
-                DisplayOp::DrawRect { rect, fill, stroke, .. } => {
+                DisplayOp::DrawRect { rect, fill, stroke, corner_radius, /* shadow removed */ bounds, node_id } => {
                     let sk_rect = to_skia_rect(rect);
                     
+                    let rrect = RRect::new_rect_xy(&sk_rect, *corner_radius, *corner_radius);
+
+                    // Removed shadow drawing code
+
                     if let Some(f) = fill {
                         let mut paint = Paint::default();
                         paint.set_color(to_skia_color(&f.color));
                         paint.set_style(skia_safe::paint::Style::Fill);
-                        self.canvas.draw_rect(sk_rect, &paint);
+                        self.canvas.draw_rrect(&rrect, &paint);
                     }
 
                     if let Some(s) = stroke {
@@ -61,7 +65,7 @@ impl<'a> Renderer for SkiaRenderer<'a> {
                         paint.set_color(to_skia_color(&s.color));
                         paint.set_style(skia_safe::paint::Style::Stroke);
                         paint.set_stroke_width(s.width);
-                        self.canvas.draw_rect(sk_rect, &paint);
+                        self.canvas.draw_rrect(&rrect, &paint);
                     }
                 }
                 DisplayOp::DrawText { text, position, size, color, bounds, .. } => {
@@ -102,6 +106,5 @@ impl<'a> Renderer for SkiaRenderer<'a> {
                 }
             }
         }
-        Ok(())
-    }
+        Ok(())}
 }

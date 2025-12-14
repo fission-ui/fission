@@ -97,11 +97,15 @@ pub struct Stroke {
     pub width: LayoutUnit,
 }
 
+// Removed BoxShadow struct
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum PaintOp {
     DrawRect { 
         fill: Option<Fill>,
         stroke: Option<Stroke>,
+        corner_radius: LayoutUnit,
+        // shadow: Option<BoxShadow>, // Removed
     },
     DrawText {
         text: String,

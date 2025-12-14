@@ -12,16 +12,16 @@ use anyhow::Result;
 use fission_shell::Platform;
 use fission_render::{Renderer, DisplayList, LayoutRect, LayoutPoint, LayoutUnit, Color as RenderColor};
 use fission_render_skia::SkiaRenderer;
-use fission_core::{Runtime, Clock, Action, ActionId, AppState, BuildCtx, Env}; // Added Env
+use fission_core::{Runtime, Clock, Action, ActionId, AppState, BuildCtx, Env};
 use fission_core::lowering::{Desugar, build_layout_tree, LoweringContext};
 use fission_layout::{LayoutEngine, LayoutSize, LayoutInputNode};
-use fission_ir::{NodeId, Op, PaintOp, Color as IrColor};
+use fission_ir::{NodeId, Op, PaintOp, Color as IrColor, FlexDirection};
 
 pub struct DesktopApp<S: AppState, W: Desugar> {
     runtime: Runtime,
     layout_engine: LayoutEngine,
     root_widget: W,
-    env: Env, // Added
+    env: Env,
     _phantom: std::marker::PhantomData<S>,
 }
 
@@ -34,7 +34,7 @@ impl<S: AppState + Default, W: Desugar + 'static> DesktopApp<S, W> {
         runtime.add_app_state(Box::new(S::default())).unwrap();
         runtime.absorb_registry(ctx.registry);
         
-        let env = Env::default(); // Initialize default Env
+        let env = Env::default();
 
         Self {
             runtime,
@@ -105,6 +105,7 @@ impl<S: AppState + Default, W: Desugar + 'static> DesktopApp<S, W> {
                                                         color: RenderColor { r: 255, g: 0, b: 0, a: 255 }, 
                                                         width: 2.0 
                                                     }),
+                                                    corner_radius: 0.0, // Added
                                                     bounds: geom.rect,
                                                     node_id: Some(node_id)
                                                 });
@@ -119,6 +120,7 @@ impl<S: AppState + Default, W: Desugar + 'static> DesktopApp<S, W> {
                                                         color: RenderColor { r: 0, g: 255, b: 0, a: 255 }, 
                                                         width: 2.0 
                                                     }),
+                                                    corner_radius: 0.0, // Added
                                                     bounds: geom.rect,
                                                     node_id: Some(node_id)
                                                 });
