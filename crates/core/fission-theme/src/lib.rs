@@ -1,4 +1,4 @@
-use fission_ir::op::Color;
+use fission_ir::op::{Color, BoxShadow};
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -64,11 +64,49 @@ impl Default for RadiusTokens {
     }
 }
 
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ElevationTokens {
+    pub level0: Option<BoxShadow>,
+    pub level1: Option<BoxShadow>,
+    pub level2: Option<BoxShadow>,
+    pub level3: Option<BoxShadow>,
+    pub level4: Option<BoxShadow>,
+    pub level5: Option<BoxShadow>,
+}
+
+impl Default for ElevationTokens {
+    fn default() -> Self {
+        let black_alpha = |a| Color { r: 0, g: 0, b: 0, a };
+        
+        Self {
+            level0: None,
+            level1: Some(BoxShadow { 
+                color: black_alpha(40), 
+                offset: (0.0, 1.0),
+                blur_radius: 2.0 
+            }),
+            level2: Some(BoxShadow { 
+                color: black_alpha(60), 
+                offset: (0.0, 2.0),
+                blur_radius: 4.0 
+            }),
+            level3: Some(BoxShadow { 
+                color: black_alpha(60),
+                offset: (0.0, 4.0),
+                blur_radius: 8.0 
+            }),
+            level4: None, 
+            level5: None,
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Default, Serialize, Deserialize)]
 pub struct Tokens {
     pub colors: ColorTokens,
     pub typography: TypographyTokens,
     pub radii: RadiusTokens,
+    pub elevations: ElevationTokens,
 }
 
 // --- Component Themes ---
@@ -79,6 +117,9 @@ pub struct ButtonTheme {
     pub padding_horizontal: f32,
     pub radius: f32,
     pub text_size: f32,
+    pub elevation_rest: Option<BoxShadow>,
+    pub elevation_hover: Option<BoxShadow>,
+    pub elevation_pressed: Option<BoxShadow>,
 }
 
 impl ButtonTheme {
@@ -88,6 +129,9 @@ impl ButtonTheme {
             padding_horizontal: 24.0,
             radius: tokens.radii.full,
             text_size: tokens.typography.label_large_size,
+            elevation_rest: tokens.elevations.level1,
+            elevation_hover: tokens.elevations.level2,
+            elevation_pressed: tokens.elevations.level0,
         }
     }
 }

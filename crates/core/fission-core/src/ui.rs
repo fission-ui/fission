@@ -240,24 +240,16 @@ impl Button {
         let is_hovered = interaction.is_hovered(self_id);
         let is_pressed = interaction.is_pressed(self_id);
 
-        let bg_color = tokens.primary; // Keep primary color consistent
+        let bg_color = tokens.primary;
 
         let text_color = tokens.on_primary;
 
         let shadow = if is_pressed {
-            None // Pressed: No shadow (flat)
+            default_style.elevation_pressed
         } else if is_hovered {
-            Some(BoxShadow { // Hover: Larger shadow
-                color: IrColor { r: 0, g: 0, b: 0, a: 60 },
-                blur_radius: 4.0,
-                offset: (0.0, 2.0),
-            })
+            default_style.elevation_hover
         } else {
-            Some(BoxShadow { // Rest: Small shadow
-                color: IrColor { r: 0, g: 0, b: 0, a: 40 },
-                blur_radius: 2.0,
-                offset: (0.0, 1.0),
-            })
+            default_style.elevation_rest
         };
 
         ButtonStyleResolved {
