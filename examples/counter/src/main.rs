@@ -1,5 +1,5 @@
-use fission_widgets::{Button, Text, Row, TextContent, Node, Widget, View, BuildCtx, Selector, CustomNode}; 
-use fission_core::{Action, AppState, ActionEnvelope, ActionId, op::Color as IrColor, LoweringContext, LowerDyn}; 
+use fission_core::ui::{Button, Text, Row, Column, Scroll, Image, TextContent, Node, CustomNode};
+use fission_core::{Action, AppState, ActionEnvelope, ActionId, op::Color as IrColor, LoweringContext, LowerDyn, FlexDirection, Widget, View, BuildCtx, Selector}; 
 use fission_core::{Op, NodeId, op::{LayoutOp, PaintOp, Fill}}; 
 use fission_macros::Action;
 use fission_shell_desktop::DesktopApp;
@@ -23,7 +23,6 @@ fn on_increment(state: &mut CounterState, _action: Increment) {
     println!("Counter incremented to: {}", state.value);
 }
 
-// 1. Define a Selector (View Model)
 struct CounterVM {
     label: String,
     is_even: bool,
@@ -40,7 +39,6 @@ impl Selector<CounterState> for CounterVM {
     }
 }
 
-// 2. Define a Custom Widget using Node::Custom and LowerDyn
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct StatusIndicator {
     active: bool,
@@ -65,27 +63,24 @@ impl LowerDyn for StatusIndicatorLowerer {
         let layout_id = cx.next_node_id();
         let color = if self.active { IrColor::GREEN } else { IrColor::RED };
         
-        // 1. Emit LayoutOp::Box (container)
         cx.add_node(
             layout_id,
             Op::Layout(LayoutOp::Box { width: Some(20.0), height: Some(20.0), padding: [0.0; 4] }), 
             vec![]
         );
         
-        // 2. Emit PaintOp::DrawRect (circle)
         let paint_id = cx.next_node_id();
         cx.add_node(
             paint_id, 
             Op::Paint(PaintOp::DrawRect {
                 fill: Some(Fill { color }),
                 stroke: None,
-                corner_radius: 10.0, // Circle
-                shadow: None, // Added
+                corner_radius: 10.0,
+                shadow: None, 
             }), 
             vec![]
         );
         
-        // 3. Manually link parent/child
         if let Some(node) = cx.ir.nodes.get_mut(&layout_id) {
             node.children.push(paint_id);
         }
@@ -97,41 +92,59 @@ impl LowerDyn for StatusIndicatorLowerer {
     }
 }
 
-// 3. Update App Widget
 struct CounterApp;
 
 impl Widget<CounterState> for CounterApp {
     fn build(&self, ctx: &mut BuildCtx<CounterState>, view: &View<CounterState>) -> Node {
-        // Use Selector
         let vm = view.select::<CounterVM>();
 
-        Row {
-            children: vec![
-                Text { 
-                    content: TextContent::Literal(vm.label), // Use VM data
-                    // Removed width/height to test intrinsic sizing!
-                    // But Taffy might collapse if no size? 
-                    // No, TextMeasurer handles it.
-                    // Text { ... }.into()
+        let mut children = vec![
+            Image {
+                source: "docs/fission_logo.png".into(),
+                width: Some(150.0),
+                height: Some(150.0),
+                ..Default::default()
+            }.into(),
+            
+            Text { 
+                content: TextContent::Literal(vm.label),
+                font_size: Some(24.0),
+                ..Default::default() 
+            }.into(),
+            
+            StatusIndicator { active: vm.is_even }.build(ctx, view),
+            
+            Button { 
+                on_press: Some(ctx.bind(Increment, on_increment)), 
+                child: Some(Box::new(Text { 
+                    content: TextContent::Literal("Increment".into()), 
+                    color: Some(IrColor::WHITE),
                     ..Default::default() 
-                }.into(),
-                
-                // Add Custom Widget
-                StatusIndicator { active: vm.is_even }.build(ctx, view),
-                
-                Button { 
-                    on_press: Some(ctx.bind(Increment, on_increment)), 
-                    child: Some(Box::new(Text { 
-                        content: TextContent::Literal("Inc".into()), 
-                        // Intrinsic size
-                        ..Default::default() 
-                    }.into())),
-                    // Intrinsic size
-                    ..Default::default() 
-                }.into(),
-            ],
-            // Add some spacing to Row? 
-            // Currently Row doesn't support gap.
+                }.into())),
+                width: Some(120.0),
+                ..Default::default() 
+            }.into(),
+            
+            Text { content: TextContent::Literal("Scroll down to see more...".into()), ..Default::default() }.into(),
+        ];
+
+        // Filler content
+        for i in 0..20 {
+            children.push(Text { 
+                content: TextContent::Literal(format!("Item {}", i)), 
+                ..Default::default() 
+            }.into());
+        }
+
+        Scroll {
+            direction: FlexDirection::Column,
+            width: Some(600.0), // Constrained width
+            height: Some(400.0), // Constrained height to enable scrolling
+            child: Some(Box::new(Column {
+                children,
+                flex_grow: 1.0,
+                ..Default::default()
+            }.into())),
             ..Default::default()
         }.into()
     }
