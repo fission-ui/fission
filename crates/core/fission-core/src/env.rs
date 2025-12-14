@@ -2,6 +2,8 @@ use fission_theme::Theme;
 use fission_i18n::{I18nRegistry, Locale};
 use fission_ir::NodeId;
 use std::collections::HashMap;
+use serde::{Deserialize, Serialize};
+use crate::action::AppState;
 
 // Static environment data (Theme, I18n)
 #[derive(Clone, Debug, Default)]
@@ -17,6 +19,7 @@ pub struct RuntimeState {
     pub interaction: InteractionStateMap,
     pub scroll: ScrollStateMap,
     pub animation: AnimationStateMap,
+    pub video: VideoStateMap,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -87,4 +90,48 @@ impl InteractionStateMap {
     pub fn set_focused(&mut self, id: Option<NodeId>) {
         self.focused = id;
     }
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct VideoStateMap {
+    pub states: HashMap<NodeId, VideoState>,
+}
+
+impl AppState for VideoStateMap {}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct VideoState {
+    pub status: VideoStatus,
+    pub position_ms: u64,
+    pub duration_ms: Option<u64>,
+    pub rate: f32,
+    pub volume: f32,
+    pub looped: bool,
+    pub asset_source: String,
+    pub surface_id: Option<u64>,
+}
+
+impl Default for VideoState {
+    fn default() -> Self {
+        Self {
+            status: VideoStatus::Stopped,
+            position_ms: 0,
+            duration_ms: None,
+            rate: 1.0,
+            volume: 1.0,
+            looped: false,
+            asset_source: String::new(),
+            surface_id: None,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub enum VideoStatus {
+    Stopped,
+    Playing,
+    Paused,
+    Buffering,
+    Ended,
+    Error,
 }

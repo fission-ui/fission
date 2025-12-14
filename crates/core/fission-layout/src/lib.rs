@@ -4,7 +4,6 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
 use taffy::prelude::*;
-// use taffy::NodeId as TaffyNodeId; // Taffy 0.3 has Node as NodeId? No, Node.
 use taffy::node::Node as TaffyNodeId;
 
 pub use fission_ir::{LayoutOp, FlexDirection};
@@ -64,6 +63,7 @@ impl LayoutRect {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct LayoutNodeGeometry {
     pub rect: LayoutRect,
+    pub content_size: LayoutSize,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
@@ -215,8 +215,14 @@ impl LayoutEngine {
                     IrFlexDirection::Row => taffy::style::FlexDirection::Row,
                     IrFlexDirection::Column => taffy::style::FlexDirection::Column,
                 };
-                // Removed overflow property for Taffy 0.3 compatibility
                 
+                style.size = taffy::geometry::Size {
+                    width: Dimension::Auto,
+                    height: Dimension::Auto,
+                };
+            },
+            LayoutOp::Embed { .. } => {
+                style.display = Display::Flex;
                 style.size = taffy::geometry::Size {
                     width: node.width.map(Dimension::Points).unwrap_or(Dimension::Auto),
                     height: node.height.map(Dimension::Points).unwrap_or(Dimension::Auto),
@@ -283,15 +289,26 @@ impl LayoutEngine {
     ) {
         let taffy_id = taffy_map.get(&node_id).unwrap();
         let layout = taffy.layout(*taffy_id).unwrap();
+        let node = node_map.get(&node_id).unwrap();
 
         let absolute_x = parent_absolute_pos.x + layout.location.x;
         let absolute_y = parent_absolute_pos.y + layout.location.y;
         
-        let rect = LayoutRect::new(absolute_x, absolute_y, layout.size.width, layout.size.height);
-        
-        geometries.insert(node_id, LayoutNodeGeometry { rect });
+        let mut width = layout.size.width;
+        let mut height = layout.size.height;
+        let content_width = width;
+        let content_height = height;
 
-        let node = node_map.get(&node_id).unwrap();
+        if let LayoutOp::Scroll { .. } = &node.op {
+            if let Some(w) = node.width { width = w; }
+            if let Some(h) = node.height { height = h; }
+        }
+        
+        let rect = LayoutRect::new(absolute_x, absolute_y, width, height);
+        let content_size = LayoutSize::new(content_width, content_height);
+        
+        geometries.insert(node_id, LayoutNodeGeometry { rect, content_size });
+
         for child_id in &node.children_ids {
             self.extract_geometry_recursive(
                 *child_id, 

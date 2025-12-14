@@ -16,13 +16,14 @@ pub mod ui;
 pub mod view;
 
 pub use action::{Action, ActionId, AppState, ActionEnvelope};
+pub use action::video::{VideoPlay, VideoPause, VIDEO_PLAY_ID, VIDEO_PAUSE_ID};
 pub use time::{Clock, CurrentTime};
 pub use lowering::{LoweringContext};
 pub use event::{InputEvent, PointerEvent, PointerButton, KeyEvent, KeyCode, LifecycleEvent};
 pub use fission_ir::op; 
 pub use fission_ir::{Op, NodeId}; 
 pub use registry::{BuildCtx, ActionRegistry, Handler};
-pub use env::{Env, RuntimeState, InteractionStateMap, ScrollStateMap, ActiveAnimation, AnimationStateMap};
+pub use env::{Env, RuntimeState, InteractionStateMap, ScrollStateMap, ActiveAnimation, AnimationStateMap, VideoStateMap, VideoStatus};
 pub use ui::{Node, Row, Column, Text, Button, CustomNode, Lower, LowerDyn};
 pub use view::{View, Selector, Widget};
 pub use fission_layout::{LayoutSnapshot, LayoutPoint, LayoutSize, LayoutRect, LayoutUnit, LayoutOp, FlexDirection};
@@ -75,25 +76,16 @@ impl Default for Runtime {
         };
         
         runtime.add_app_state(Box::new(Clock::default())).expect("Failed to add Clock state");
+        runtime.add_app_state(Box::new(VideoStateMap::default())).expect("Failed to add VideoStateMap");
 
-        runtime.register_reducer::<Clock>(*TICK_ACTION_ID, |state: &mut Clock, action: &ActionEnvelope, _target| {
-            let tick_action: Tick = serde_json::from_slice(&action.payload).map_err(|e| anyhow!("Failed to deserialize Tick: {}", e))?;
-            state.advance_by(tick_action.dt)
-        }).expect("Failed to register Tick reducer");
-
-        runtime.register_reducer::<Clock>(*ADVANCE_TO_ACTION_ID, |state: &mut Clock, action: &ActionEnvelope, _target| {
-            let advance_action: AdvanceTo = serde_json::from_slice(&action.payload).map_err(|e| anyhow!("Failed to deserialize AdvanceTo: {}", e))?;
-            state.set_to(advance_action.time)
-        }).expect("Failed to register AdvanceTo reducer");
+        runtime.register_base_reducers();
         
         runtime
     }
 }
 
 impl Runtime {
-    pub fn clear_reducers(&mut self) {
-        self.reducers.clear();
-        
+    pub fn register_base_reducers(&mut self) {
         self.register_reducer::<Clock>(*TICK_ACTION_ID, |state: &mut Clock, action: &ActionEnvelope, _target| {
             let tick_action: Tick = serde_json::from_slice(&action.payload).map_err(|e| anyhow!("Failed to deserialize Tick: {}", e))?;
             state.advance_by(tick_action.dt)
@@ -103,6 +95,25 @@ impl Runtime {
             let advance_action: AdvanceTo = serde_json::from_slice(&action.payload).map_err(|e| anyhow!("Failed to deserialize AdvanceTo: {}", e))?;
             state.set_to(advance_action.time)
         }).expect("Failed to register AdvanceTo reducer");
+
+        self.register_reducer::<VideoStateMap>(*VIDEO_PLAY_ID, |state: &mut VideoStateMap, _action: &ActionEnvelope, target| {
+            if let Some(video_state) = state.states.get_mut(&target) {
+                video_state.status = VideoStatus::Playing;
+            }
+            Ok(())
+        }).expect("Failed to register VideoPlay reducer");
+
+        self.register_reducer::<VideoStateMap>(*VIDEO_PAUSE_ID, |state: &mut VideoStateMap, _action: &ActionEnvelope, target| {
+            if let Some(video_state) = state.states.get_mut(&target) {
+                video_state.status = VideoStatus::Paused;
+            }
+            Ok(())
+        }).expect("Failed to register VideoPause reducer");
+    }
+
+    pub fn clear_reducers(&mut self) {
+        self.reducers.clear();
+        self.register_base_reducers();
     }
 
     pub fn absorb_registry<S: AppState>(&mut self, registry: ActionRegistry<S>) {
@@ -200,6 +211,28 @@ impl Runtime {
             self.runtime_state.animation.active.remove(i);
         }
         
+        // Update Video State
+        if let Some(video_map) = self.get_app_state_mut::<VideoStateMap>() {
+            for (_, state) in video_map.states.iter_mut() {
+                if state.status == VideoStatus::Playing {
+                    // Advance position by dt * rate
+                    let advance = (dt as f32 * state.rate) as u64;
+                    state.position_ms += advance;
+                    
+                    if let Some(duration) = state.duration_ms {
+                        if state.position_ms >= duration {
+                            if state.looped {
+                                state.position_ms %= duration;
+                            } else {
+                                state.position_ms = duration;
+                                state.status = VideoStatus::Ended;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        
         Ok(())
     }
 
@@ -217,7 +250,14 @@ impl Runtime {
                         if let Some(node) = ir.nodes.get(&node_id) {
                             if let Op::Layout(op::LayoutOp::Scroll { .. }) = &node.op {
                                 let current_offset = self.runtime_state.scroll.get_offset(node_id);
-                                let new_offset = current_offset + delta.y; // Assuming vertical scroll
+                                let mut new_offset = current_offset + delta.y; // Assuming vertical scroll
+                                
+                                // Clamping logic
+                                if let Some(geom) = layout.get_node_geometry(node_id) {
+                                    let max_offset = (geom.content_size.height - geom.rect.height()).max(0.0);
+                                    new_offset = new_offset.clamp(0.0, max_offset);
+                                }
+
                                 self.runtime_state.scroll.set_offset(node_id, new_offset);
                                 break; 
                             }

@@ -85,6 +85,12 @@ pub enum DisplayOp {
         bounds: PaintBounds,
         node_id: Option<NodeId>,
     },
+    DrawSurface {
+        rect: LayoutRect,
+        surface_id: u64,
+        bounds: PaintBounds,
+        node_id: Option<NodeId>,
+    },
 }
 
 // The DisplayList itself, an ordered sequence of drawing operations.

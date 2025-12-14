@@ -1,4 +1,4 @@
-use fission_core::ui::{Button, Text, Row, Column, Scroll, Image, TextContent, Node, CustomNode};
+use fission_core::ui::{Button, Text, Row, Column, Scroll, Image, Video, TextContent, Node, CustomNode};
 use fission_core::{Action, AppState, ActionEnvelope, ActionId, op::Color as IrColor, LoweringContext, LowerDyn, FlexDirection, Widget, View, BuildCtx, Selector}; 
 use fission_core::{Op, NodeId, op::{LayoutOp, PaintOp, Fill}}; 
 use fission_macros::Action;
@@ -103,6 +103,15 @@ impl Widget<CounterState> for CounterApp {
                 source: "docs/fission_logo.png".into(),
                 width: Some(150.0),
                 height: Some(150.0),
+                ..Default::default()
+            }.into(),
+            
+            Video {
+                source: "docs/video1.mp4".into(),
+                width: Some(300.0),
+                height: Some(200.0),
+                autoplay: true,
+                loop_playback: true,
                 ..Default::default()
             }.into(),
             

@@ -135,6 +135,20 @@ impl<'a> Renderer for SkiaRenderer<'a> {
                         eprintln!("Failed to read image file: {}", source);
                     }
                 }
+                DisplayOp::DrawSurface { rect, surface_id, .. } => {
+                    let mut paint = Paint::default();
+                    paint.set_color(SkColor::from_argb(255, 0, 0, 0)); // Black
+                    let dst_rect = to_skia_rect(rect);
+                    self.canvas.draw_rect(dst_rect, &paint);
+                    
+                    // Draw Label
+                    let font_manager = FontMgr::new();
+                    let typeface = load_typeface(&font_manager);
+                    let font = Font::new(typeface, 14.0);
+                    let mut text_paint = Paint::default();
+                    text_paint.set_color(SkColor::WHITE);
+                    self.canvas.draw_str(format!("Video Surface {}", surface_id), (dst_rect.x() + 10.0, dst_rect.y() + 20.0), &font, &text_paint);
+                }
                 DisplayOp::Save => {
                     self.canvas.save();
                 }

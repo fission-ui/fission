@@ -28,6 +28,13 @@ impl Default for FlexDirection {
     fn default() -> Self { FlexDirection::Row }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub enum EmbedKind {
+    Video,
+    Web,
+    Custom,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum LayoutOp {
     Box { 
@@ -43,6 +50,9 @@ pub enum LayoutOp {
     },
     Scroll {
         direction: FlexDirection, // Axis
+    },
+    Embed {
+        kind: EmbedKind,
     },
     AbsoluteFill,
     Grid,

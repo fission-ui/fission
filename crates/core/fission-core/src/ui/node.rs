@@ -3,7 +3,7 @@ use std::sync::Arc;
 use crate::lowering::LoweringContext;
 use fission_ir::NodeId;
 use super::traits::{Lower, LowerDyn};
-use super::widgets::{Button, Text, Row, Column, Scroll, Image};
+use super::widgets::{Button, Text, Row, Column, Scroll, Image, Video};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum Node {
@@ -13,6 +13,7 @@ pub enum Node {
     Button(Button),
     Scroll(Scroll),
     Image(Image),
+    Video(Video),
     Custom(CustomNode),
 }
 
@@ -25,6 +26,7 @@ impl Node {
             Node::Button(w) => w.lower(cx),
             Node::Scroll(w) => w.lower(cx),
             Node::Image(w) => w.lower(cx),
+            Node::Video(w) => w.lower(cx),
             Node::Custom(w) => w.lowerer.as_ref().expect("CustomNode lowerer must be set").lower_dyn(cx),
         }
     }
@@ -36,6 +38,7 @@ impl From<Text> for Node { fn from(w: Text) -> Self { Node::Text(w) } }
 impl From<Button> for Node { fn from(w: Button) -> Self { Node::Button(w) } }
 impl From<Scroll> for Node { fn from(w: Scroll) -> Self { Node::Scroll(w) } }
 impl From<Image> for Node { fn from(w: Image) -> Self { Node::Image(w) } }
+impl From<Video> for Node { fn from(w: Video) -> Self { Node::Video(w) } }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct CustomNode {
