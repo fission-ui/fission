@@ -14,7 +14,6 @@ pub enum PointerEvent {
     Down { point: LayoutPoint, button: PointerButton },
     Up { point: LayoutPoint, button: PointerButton },
     Move { point: LayoutPoint },
-    // ... hover, scroll, etc.
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -23,6 +22,7 @@ pub enum KeyCode {
     Enter,
     Escape,
     Backspace,
+    Tab, // Added
     Left,
     Right,
     Up,

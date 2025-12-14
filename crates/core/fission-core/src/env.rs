@@ -31,6 +31,9 @@ impl InteractionStateMap {
     pub fn is_pressed(&self, id: NodeId) -> bool {
         self.pressed.get(&id).copied().unwrap_or(false)
     }
+    pub fn is_focused(&self, id: NodeId) -> bool {
+        self.focused == Some(id)
+    }
     
     pub fn set_hovered(&mut self, id: NodeId, value: bool) {
         if value {
@@ -46,5 +49,9 @@ impl InteractionStateMap {
         } else {
             self.pressed.remove(&id);
         }
+    }
+
+    pub fn set_focused(&mut self, id: Option<NodeId>) {
+        self.focused = id;
     }
 }

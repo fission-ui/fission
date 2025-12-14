@@ -1,4 +1,4 @@
-use fission_ir::op::{Color, BoxShadow};
+use fission_ir::op::{Color, BoxShadow, Stroke};
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -120,6 +120,7 @@ pub struct ButtonTheme {
     pub elevation_rest: Option<BoxShadow>,
     pub elevation_hover: Option<BoxShadow>,
     pub elevation_pressed: Option<BoxShadow>,
+    pub focus_stroke: Option<Stroke>,
 }
 
 impl ButtonTheme {
@@ -132,6 +133,10 @@ impl ButtonTheme {
             elevation_rest: tokens.elevations.level1,
             elevation_hover: tokens.elevations.level2,
             elevation_pressed: tokens.elevations.level0,
+            focus_stroke: Some(Stroke { 
+                color: tokens.colors.on_background, 
+                width: 2.0 
+            }),
         }
     }
 }

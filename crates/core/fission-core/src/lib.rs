@@ -1,5 +1,5 @@
 use anyhow::{anyhow, Result};
-use fission_ir::CoreIR; // Removed NodeId, Op
+use fission_ir::CoreIR; 
 use fission_layout::{LayoutSnapshot, LayoutPoint};
 use std::any::{Any, TypeId};
 use std::collections::HashMap;
@@ -21,14 +21,14 @@ pub use time::{Clock, CurrentTime};
 pub use lowering::{LoweringContext};
 pub use event::{InputEvent, PointerEvent, PointerButton, KeyEvent, KeyCode, LifecycleEvent};
 pub use fission_ir::op; 
-pub use fission_ir::{Op, NodeId}; // Export Op and NodeId
+pub use fission_ir::{Op, NodeId}; 
 pub use registry::{BuildCtx, ActionRegistry, Handler};
 pub use env::{Env, RuntimeState, InteractionStateMap};
 pub use ui::{Node, Row, Column, Text, Button, CustomNode, Lower, LowerDyn};
 pub use view::{View, Selector, Widget};
-use hit_test::hit_test;
+use hit_test::{hit_test, find_next_focus_node};
 
-// ... Rest unchanged
+// ... Rest unchanged (Actions, Runtime struct)
 // Concrete Action implementations for clock control
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Tick {
@@ -177,13 +177,44 @@ impl Runtime {
         layout: &LayoutSnapshot,
     ) -> Result<()> {
         match event {
-            InputEvent::Pointer(PointerEvent::Move { point, .. }) => { // Added Move handling
+            InputEvent::Keyboard(KeyEvent::Down { key_code, modifiers }) => {
+                match key_code {
+                    KeyCode::Tab => {
+                        let reverse = (modifiers & 1) != 0; // Shift
+                        let next = find_next_focus_node(ir, self.runtime_state.interaction.focused, reverse);
+                        self.runtime_state.interaction.set_focused(next);
+                    }
+                    KeyCode::Enter | KeyCode::Space => {
+                        if let Some(focused_id) = self.runtime_state.interaction.focused {
+                            let mut current_id = Some(focused_id);
+                            while let Some(node_id) = current_id {
+                                if let Some(node) = ir.nodes.get(&node_id) {
+                                    if let Op::Semantics(semantics) = &node.op {
+                                        if let Some(action_entry) = semantics.actions.entries.first() {
+                                            if let Some(payload) = &action_entry.payload_data {
+                                                let envelope = ActionEnvelope {
+                                                    id: ActionId::from_u128(action_entry.action_id),
+                                                    payload: payload.clone(),
+                                                };
+                                                return self.dispatch(envelope, node_id);
+                                            }
+                                        }
+                                    }
+                                    current_id = node.parent;
+                                } else {
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            InputEvent::Pointer(PointerEvent::Move { point, .. }) => { 
                 let hit = hit_test(ir, layout, point);
                 
-                // 1. Calculate new hover set
                 let mut new_hovered = std::collections::HashSet::new();
                 if let Some(mut node_id) = hit {
-                    // Walk up from hit node to root
                     loop {
                         new_hovered.insert(node_id);
                         if let Some(node) = ir.nodes.get(&node_id) {
@@ -198,27 +229,40 @@ impl Runtime {
                     }
                 }
                 
-                // 2. Update interaction state (Simple clear and set for v1)
-                // In a real app we would diff to avoid redraws if unchanged.
-                // For now, we update the map.
-                
-                // We need to know which nodes were previously hovered to clear them.
-                // Or we can just iterate the map? 
-                // RuntimeState::interaction::hovered is HashMap<NodeId, bool>.
-                
-                // Clear old hovered
                 self.runtime_state.interaction.hovered.clear();
                 
-                // Set new hovered
                 for id in new_hovered {
                     self.runtime_state.interaction.set_hovered(id, true);
                 }
-                
-                // TODO: Return true if changed?
             }
             InputEvent::Pointer(PointerEvent::Down { point, .. }) => {
                 if let Some(hit_node_id) = hit_test(ir, layout, point) {
-                    // 1. Update Interaction State (Bubble up pressed)
+                    // Update Focus (if focusable)
+                    // Walk up to find nearest focusable
+                    let mut focus_candidate = Some(hit_node_id);
+                    while let Some(node_id) = focus_candidate {
+                        if let Some(node) = ir.nodes.get(&node_id) {
+                            if let Op::Semantics(s) = &node.op {
+                                if s.focusable {
+                                    self.runtime_state.interaction.set_focused(Some(node_id));
+                                    break; // Found focus
+                                }
+                            }
+                            focus_candidate = node.parent;
+                        } else {
+                            break;
+                        }
+                    }
+                    // If no focusable found, clear focus? Or keep previous?
+                    // Typically click outside clears focus or keeps if not focusable.
+                    // Let's clear if background is clicked.
+                    if focus_candidate.is_none() {
+                        // Check if we hit anything at all. Yes we hit hit_node_id.
+                        // If root is not focusable, maybe clear focus.
+                        // self.runtime_state.interaction.set_focused(None); 
+                    }
+
+                    // Propagate pressed
                     let mut current_pressed_id = Some(hit_node_id);
                     while let Some(node_id) = current_pressed_id {
                         self.runtime_state.interaction.set_pressed(node_id, true);
@@ -229,7 +273,7 @@ impl Runtime {
                         }
                     }
 
-                    // 2. Dispatch Action
+                    // Dispatch Action
                     let mut current_id = Some(hit_node_id);
                     while let Some(node_id) = current_id {
                         if let Some(node) = ir.nodes.get(&node_id) {
@@ -253,10 +297,12 @@ impl Runtime {
                             break;
                         }
                     }
+                } else {
+                    // Clicked outside everything -> Clear focus
+                    self.runtime_state.interaction.set_focused(None);
                 }
             }
-            InputEvent::Pointer(PointerEvent::Up { point: _, .. }) => { // Ignored point for now
-                // Clear all pressed state on Up
+            InputEvent::Pointer(PointerEvent::Up { point: _, .. }) => {
                 self.runtime_state.interaction.pressed.clear();
             }
             _ => {}

@@ -25,17 +25,13 @@ fn hit_test_recursive(
     let mut current_is_hit = false;
     if let Some(geom) = layout.get_node_geometry(node_id) {
         if geom.rect.contains(point) {
-            current_is_hit = true; // Bounding box hit
+            current_is_hit = true; 
 
-            // Refine hit check based on the actual Op
             if let Some(node_ir) = ir.nodes.get(&node_id) {
                 match &node_ir.op {
                     Op::Paint(PaintOp::DrawRect { corner_radius, .. }) => {
-                        // Perform rounded rect hit test
                         current_is_hit = is_point_in_rounded_rect(point, geom.rect, *corner_radius);
                     }
-                    // For other ops or layout ops, keep bounding box hit for now.
-                    // More complex shapes could have custom hit-testing here.
                     _ => {}
                 }
             }
@@ -46,7 +42,6 @@ fn hit_test_recursive(
         *last_hit = Some(node_id);
     }
 
-    // Recurse into children
     if let Some(node) = ir.nodes.get(&node_id) {
         for child_id in &node.children {
             hit_test_recursive(*child_id, ir, layout, point, last_hit);
@@ -55,39 +50,79 @@ fn hit_test_recursive(
 }
 
 fn is_point_in_rounded_rect(p: LayoutPoint, r: LayoutRect, radius: LayoutUnit) -> bool {
-    // Translate point to local coordinates of the rectangle
     let local_p_x = p.x - r.x();
     let local_p_y = p.y - r.y();
 
     let (width, height) = (r.width(), r.height());
 
-    // Handle zero or negative radius (effectively a normal rect)
     if radius <= 0.0 {
-        return true; // Already checked by geom.rect.contains(point)
+        return true; 
     }
 
-    // Clamp radius to half of the smallest dimension to prevent self-intersection
     let clamped_radius = radius.min(width / 2.0).min(height / 2.0);
 
-    // Check corners
-    // Top-left corner region
     if local_p_x < clamped_radius && local_p_y < clamped_radius {
         return (local_p_x - clamped_radius).powi(2) + (local_p_y - clamped_radius).powi(2) <= clamped_radius.powi(2);
     }
-    // Top-right corner region
     if local_p_x > width - clamped_radius && local_p_y < clamped_radius {
         return (local_p_x - (width - clamped_radius)).powi(2) + (local_p_y - clamped_radius).powi(2) <= clamped_radius.powi(2);
     }
-    // Bottom-left corner region
     if local_p_x < clamped_radius && local_p_y > height - clamped_radius {
         return (local_p_x - clamped_radius).powi(2) + (local_p_y - (height - clamped_radius)).powi(2) <= clamped_radius.powi(2);
     }
-    // Bottom-right corner region
     if local_p_x > width - clamped_radius && local_p_y > height - clamped_radius {
         return (local_p_x - (width - clamped_radius)).powi(2) + (local_p_y - (height - clamped_radius)).powi(2) <= clamped_radius.powi(2);
     }
 
-    // If not in a corner region (or radius is 0), and within bounding box, it's a hit.
-    // The outer check `geom.rect.contains(point)` already handles this.
     true
+}
+
+pub fn find_next_focus_node(ir: &CoreIR, current_focus: Option<NodeId>, reverse: bool) -> Option<NodeId> {
+    let mut focusable_nodes = Vec::new();
+    if let Some(root) = ir.root {
+        collect_focusable_nodes(root, ir, &mut focusable_nodes);
+    }
+    
+    if focusable_nodes.is_empty() {
+        return None;
+    }
+    
+    if let Some(curr) = current_focus {
+        if let Some(idx) = focusable_nodes.iter().position(|&id| id == curr) {
+            if reverse {
+                if idx == 0 {
+                    return Some(*focusable_nodes.last().unwrap());
+                } else {
+                    return Some(focusable_nodes[idx - 1]);
+                }
+            } else {
+                if idx == focusable_nodes.len() - 1 {
+                    return Some(focusable_nodes[0]);
+                } else {
+                    return Some(focusable_nodes[idx + 1]);
+                }
+            }
+        }
+    }
+    
+    // Default to first (or last if reverse)
+    if reverse {
+        Some(*focusable_nodes.last().unwrap())
+    } else {
+        Some(focusable_nodes[0])
+    }
+}
+
+fn collect_focusable_nodes(node_id: NodeId, ir: &CoreIR, list: &mut Vec<NodeId>) {
+    if let Some(node) = ir.nodes.get(&node_id) {
+        if let Op::Semantics(s) = &node.op {
+            if s.focusable {
+                list.push(node_id);
+            }
+        }
+        
+        for child in &node.children {
+            collect_focusable_nodes(*child, ir, list);
+        }
+    }
 }
