@@ -44,6 +44,8 @@ impl<S: AppState + Default, W: Desugar + 'static> DesktopApp<S, W> {
 
         println!("Softbuffer surface created");
 
+        window.request_redraw();
+
         event_loop.run(move |event, elwt| {
             // Use ControlFlow::Wait to reduce CPU usage. Redraws are now explicit.
             elwt.set_control_flow(ControlFlow::Wait); 
@@ -80,7 +82,7 @@ impl<S: AppState + Default, W: Desugar + 'static> DesktopApp<S, W> {
                             ) {
                                 if let Some(geom) = snapshot.nodes.get(&node_id) {
                                     if let Some(node) = ir.nodes.get(&node_id) {
-                                        println!("Drawing {:?} {:?}", node_id, geom.rect);
+                                        // println!("Drawing {:?} {:?}", node_id, geom.rect);
                                         match &node.op {
                                             fission_ir::Op::Layout(fission_ir::LayoutOp::Flex { .. }) => {
                                                 list.push(fission_render::DisplayOp::DrawRect { 

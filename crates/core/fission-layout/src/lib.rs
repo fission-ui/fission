@@ -173,6 +173,10 @@ impl LayoutEngine {
             },
             _ => {
                 style.display = Display::Flex;
+                style.size = taffy::geometry::Size {
+                    width: Dimension::Percent(1.0),
+                    height: Dimension::Percent(1.0),
+                };
             }
         }
 
