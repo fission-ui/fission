@@ -57,6 +57,9 @@ pub enum LayoutOp {
         flex_grow: LayoutUnit,
         flex_shrink: LayoutUnit,
     },
+    // A node that absolutely fills its parent (used for content layers like paint).
+    AbsoluteFill,
+    
     // Placeholder for grid layout
     Grid,
     // Placeholder for stack layout (overlapping children)

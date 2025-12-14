@@ -55,8 +55,9 @@ pub fn build_layout_tree(ir: &CoreIR) -> Vec<LayoutInputNode> {
         let (layout_op_variant, width, height, flex_grow, flex_shrink) = match &node.op {
             Op::Layout(LayoutOp::Box { width, height }) => (LayoutOp::Box { width: *width, height: *height }, *width, *height, 0.0, 0.0),
             Op::Layout(LayoutOp::Flex { direction, flex_grow, flex_shrink }) => (LayoutOp::Flex { direction: *direction, flex_grow: *flex_grow, flex_shrink: *flex_shrink }, None, None, *flex_grow, *flex_shrink),
-            // For other ops, convert to a default layout op or handle specifically
-            _ => (LayoutOp::Box { width: None, height: None }, None, None, 0.0, 0.0), // Default to a simple box
+            Op::Paint(_) => (LayoutOp::AbsoluteFill, None, None, 0.0, 0.0), // Paint nodes fill parent
+            // Semantics and others default to Box (flow layout)
+            _ => (LayoutOp::Box { width: None, height: None }, None, None, 0.0, 0.0), 
         };
         
         input_nodes.push(LayoutInputNode {

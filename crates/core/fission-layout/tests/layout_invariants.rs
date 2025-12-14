@@ -23,7 +23,7 @@ fn test_taffy_integration_simple_box() {
     ];
 
     let viewport = LayoutSize::new(800.0, 600.0);
-    let snapshot = engine.compute_layout(&input_nodes, viewport).unwrap();
+    let snapshot = engine.compute_layout(&input_nodes, root_id, viewport).unwrap();
 
     let geom = snapshot.get_node_geometry(root_id).unwrap();
     assert_eq!(geom.rect.width(), 100.0);
@@ -75,7 +75,7 @@ fn test_taffy_integration_flex_row() {
     ];
 
     let viewport = LayoutSize::new(800.0, 600.0);
-    let snapshot = engine.compute_layout(&input_nodes, viewport).unwrap();
+    let snapshot = engine.compute_layout(&input_nodes, root_id, viewport).unwrap();
 
     let root_geom = snapshot.get_node_geometry(root_id).unwrap();
     assert_eq!(root_geom.rect.width(), 200.0);

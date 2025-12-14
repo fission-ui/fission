@@ -97,17 +97,24 @@ impl TestHarness {
         // 1. Lowering
         let mut layout_input_nodes = Vec::new();
         
+        let mut root_id = None;
         if let Some(root) = &self.root_widget {
             let mut cx = LoweringContext::new();
-            let _root_id = root.desugar(&mut cx);
+            let desugared_root = root.desugar(&mut cx);
+            cx.ir.root = Some(desugared_root);
             
             layout_input_nodes = build_layout_tree(&cx.ir);
+            root_id = Some(desugared_root);
             self.last_ir = Some(cx.ir); 
         }
 
+        let root_id = root_id.ok_or_else(|| anyhow::anyhow!("pump() called without a root widget"))?;
+
         // 2. Layout
         let viewport = LayoutSize { width: 800.0, height: 600.0 };
-        let snapshot = self.layout_engine.compute_layout(&layout_input_nodes, viewport)?;
+        let snapshot = self
+            .layout_engine
+            .compute_layout(&layout_input_nodes, root_id, viewport)?;
         self.last_snapshot = Some(snapshot.clone());
 
         // 3. Render

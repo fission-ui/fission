@@ -69,7 +69,10 @@ impl<S: AppState + Default, W: Desugar + 'static> DesktopApp<S, W> {
                         let layout_input_nodes = build_layout_tree(&cx.ir);
 
                         let viewport = LayoutSize { width: layout_width, height: layout_height };
-                        let snapshot = self.layout_engine.compute_layout(&layout_input_nodes, viewport).unwrap();
+                        let snapshot = self
+                            .layout_engine
+                            .compute_layout(&layout_input_nodes, root_id, viewport)
+                            .unwrap();
 
                         let mut display_list = DisplayList::new(fission_render::LayoutRect::new(0.0, 0.0, layout_width, layout_height));
                         
@@ -82,7 +85,7 @@ impl<S: AppState + Default, W: Desugar + 'static> DesktopApp<S, W> {
                             ) {
                                 if let Some(geom) = snapshot.nodes.get(&node_id) {
                                     if let Some(node) = ir.nodes.get(&node_id) {
-                                        // println!("Drawing {:?} {:?}", node_id, geom.rect);
+                                        println!("Drawing {:?} {:?}", node_id, geom.rect);
                                         match &node.op {
                                             fission_ir::Op::Layout(fission_ir::LayoutOp::Flex { .. }) => {
                                                 list.push(fission_render::DisplayOp::DrawRect { 

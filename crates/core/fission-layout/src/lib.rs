@@ -105,13 +105,23 @@ impl LayoutEngine {
     pub fn compute_layout(
         &self,
         input_nodes: &[LayoutInputNode],
+        root_node_id: NodeId,
         viewport_size: LayoutSize,
     ) -> Result<LayoutSnapshot> {
         let mut taffy = TaffyTree::new();
         let mut taffy_node_map: HashMap<NodeId, TaffyNodeId> = HashMap::new();
         
         let node_map: HashMap<NodeId, &LayoutInputNode> = input_nodes.iter().map(|n| (n.id, n)).collect();
-        let root_node_id = input_nodes.first().map(|n| n.id).ok_or_else(|| anyhow::anyhow!("No root node"))?;
+        if node_map.is_empty() {
+            return Err(anyhow::anyhow!("No layout nodes provided"));
+        }
+
+        if !node_map.contains_key(&root_node_id) {
+            return Err(anyhow::anyhow!(
+                "Root node {:?} missing from layout input set",
+                root_node_id
+            ));
+        }
 
         // 1. Build Taffy Tree
         self.build_taffy_tree(root_node_id, &mut taffy, &mut taffy_node_map, &node_map)?;
@@ -146,11 +156,9 @@ impl LayoutEngine {
         
         let mut style = Style::default();
         
-        // Apply common flex properties from LayoutInputNode
         style.flex_grow = node.flex_grow;
         style.flex_shrink = node.flex_shrink;
 
-        // Apply Op-specific styles
         match &node.op {
             LayoutOp::Box { width, height } => {
                 style.display = Display::Flex;
@@ -165,18 +173,25 @@ impl LayoutEngine {
                     IrFlexDirection::Row => taffy::style::FlexDirection::Row,
                     IrFlexDirection::Column => taffy::style::FlexDirection::Column,
                 };
-                // Explicit size constraints from node properties (e.g. from widgets)
                 style.size = taffy::geometry::Size {
                     width: node.width.map(Dimension::Length).unwrap_or(Dimension::Auto),
                     height: node.height.map(Dimension::Length).unwrap_or(Dimension::Auto),
                 };
             },
+            LayoutOp::AbsoluteFill => {
+                style.display = Display::Flex;
+                style.position = Position::Absolute;
+                style.inset = taffy::geometry::Rect {
+                    left: length(0.0), right: length(0.0),
+                    top: length(0.0), bottom: length(0.0),
+                };
+                style.size = taffy::geometry::Size {
+                    width: Dimension::Auto,
+                    height: Dimension::Auto,
+                };
+            },
             _ => {
                 style.display = Display::Flex;
-                style.size = taffy::geometry::Size {
-                    width: Dimension::Percent(1.0),
-                    height: Dimension::Percent(1.0),
-                };
             }
         }
 
@@ -209,7 +224,6 @@ impl LayoutEngine {
         let absolute_y = parent_absolute_pos.y + layout.location.y;
         
         let rect = LayoutRect::new(absolute_x, absolute_y, layout.size.width, layout.size.height);
-        // println!("Node {:?} Taffy Layout: {:?} -> Abs Rect: {:?}", node_id, layout, rect);
         
         geometries.insert(node_id, LayoutNodeGeometry { rect });
 
