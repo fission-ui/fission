@@ -1,6 +1,5 @@
 use anyhow::{anyhow, Result};
 use fission_ir::CoreIR; 
-use fission_layout::{LayoutSnapshot, LayoutPoint};
 use std::any::{Any, TypeId};
 use std::collections::HashMap;
 use lazy_static::lazy_static;
@@ -23,13 +22,12 @@ pub use event::{InputEvent, PointerEvent, PointerButton, KeyEvent, KeyCode, Life
 pub use fission_ir::op; 
 pub use fission_ir::{Op, NodeId}; 
 pub use registry::{BuildCtx, ActionRegistry, Handler};
-pub use env::{Env, RuntimeState, InteractionStateMap};
+pub use env::{Env, RuntimeState, InteractionStateMap, ScrollStateMap, ActiveAnimation, AnimationStateMap};
 pub use ui::{Node, Row, Column, Text, Button, CustomNode, Lower, LowerDyn};
 pub use view::{View, Selector, Widget};
+pub use fission_layout::{LayoutSnapshot, LayoutPoint, LayoutSize, LayoutRect, LayoutUnit, LayoutOp, FlexDirection};
 use hit_test::{hit_test, find_next_focus_node};
 
-// ... Rest unchanged (Actions, Runtime struct)
-// Concrete Action implementations for clock control
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Tick {
     pub dt: CurrentTime,
@@ -170,6 +168,41 @@ impl Runtime {
         Ok(())
     }
 
+    pub fn tick(&mut self, dt: CurrentTime) -> Result<()> {
+        let action = Tick { dt };
+        let envelope: ActionEnvelope = action.into();
+        self.dispatch(envelope, NodeId::derived(0, &[0]))?;
+        
+        let current_time = self.clock().current_time();
+        
+        let mut finished_indices = Vec::new();
+        let mut new_values = HashMap::new();
+        
+        for (i, anim) in self.runtime_state.animation.active.iter().enumerate() {
+            let elapsed = current_time.saturating_sub(anim.start_time);
+            let progress = (elapsed as f32 / anim.duration as f32).min(1.0);
+            
+            // Linear easing
+            let current_value = anim.start_value + (anim.end_value - anim.start_value) * progress;
+            
+            new_values.insert((anim.node_id, anim.property.clone()), current_value);
+            
+            if progress >= 1.0 {
+                finished_indices.push(i);
+            }
+        }
+        
+        for (k, v) in new_values {
+            self.runtime_state.animation.values.insert(k, v);
+        }
+        
+        for i in finished_indices.into_iter().rev() {
+            self.runtime_state.animation.active.remove(i);
+        }
+        
+        Ok(())
+    }
+
     pub fn handle_input(
         &mut self,
         event: InputEvent,
@@ -177,10 +210,28 @@ impl Runtime {
         layout: &LayoutSnapshot,
     ) -> Result<()> {
         match event {
+            InputEvent::Pointer(PointerEvent::Scroll { point, delta }) => {
+                if let Some(hit_node_id) = hit_test(ir, layout, point) {
+                    let mut current_id = Some(hit_node_id);
+                    while let Some(node_id) = current_id {
+                        if let Some(node) = ir.nodes.get(&node_id) {
+                            if let Op::Layout(op::LayoutOp::Scroll { .. }) = &node.op {
+                                let current_offset = self.runtime_state.scroll.get_offset(node_id);
+                                let new_offset = current_offset + delta.y; // Assuming vertical scroll
+                                self.runtime_state.scroll.set_offset(node_id, new_offset);
+                                break; 
+                            }
+                            current_id = node.parent;
+                        } else {
+                            break;
+                        }
+                    }
+                }
+            }
             InputEvent::Keyboard(KeyEvent::Down { key_code, modifiers }) => {
                 match key_code {
                     KeyCode::Tab => {
-                        let reverse = (modifiers & 1) != 0; // Shift
+                        let reverse = (modifiers & 1) != 0; 
                         let next = find_next_focus_node(ir, self.runtime_state.interaction.focused, reverse);
                         self.runtime_state.interaction.set_focused(next);
                     }
@@ -237,15 +288,13 @@ impl Runtime {
             }
             InputEvent::Pointer(PointerEvent::Down { point, .. }) => {
                 if let Some(hit_node_id) = hit_test(ir, layout, point) {
-                    // Update Focus (if focusable)
-                    // Walk up to find nearest focusable
                     let mut focus_candidate = Some(hit_node_id);
                     while let Some(node_id) = focus_candidate {
                         if let Some(node) = ir.nodes.get(&node_id) {
                             if let Op::Semantics(s) = &node.op {
                                 if s.focusable {
                                     self.runtime_state.interaction.set_focused(Some(node_id));
-                                    break; // Found focus
+                                    break; 
                                 }
                             }
                             focus_candidate = node.parent;
@@ -253,16 +302,10 @@ impl Runtime {
                             break;
                         }
                     }
-                    // If no focusable found, clear focus? Or keep previous?
-                    // Typically click outside clears focus or keeps if not focusable.
-                    // Let's clear if background is clicked.
                     if focus_candidate.is_none() {
-                        // Check if we hit anything at all. Yes we hit hit_node_id.
-                        // If root is not focusable, maybe clear focus.
                         // self.runtime_state.interaction.set_focused(None); 
                     }
 
-                    // Propagate pressed
                     let mut current_pressed_id = Some(hit_node_id);
                     while let Some(node_id) = current_pressed_id {
                         self.runtime_state.interaction.set_pressed(node_id, true);
@@ -273,7 +316,6 @@ impl Runtime {
                         }
                     }
 
-                    // Dispatch Action
                     let mut current_id = Some(hit_node_id);
                     while let Some(node_id) = current_id {
                         if let Some(node) = ir.nodes.get(&node_id) {
@@ -298,7 +340,6 @@ impl Runtime {
                         }
                     }
                 } else {
-                    // Clicked outside everything -> Clear focus
                     self.runtime_state.interaction.set_focused(None);
                 }
             }

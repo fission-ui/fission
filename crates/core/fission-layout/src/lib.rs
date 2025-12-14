@@ -123,7 +123,7 @@ impl LayoutEngine {
         root_node_id: NodeId,
         viewport_size: LayoutSize,
     ) -> Result<LayoutSnapshot> {
-        let mut taffy = Taffy::new(); // Taffy::new() in 0.3
+        let mut taffy = Taffy::new();
         let mut taffy_node_map: HashMap<NodeId, TaffyNodeId> = HashMap::new();
         
         let node_map: HashMap<NodeId, &LayoutInputNode> = input_nodes.iter().map(|n| (n.id, n)).collect();
@@ -204,6 +204,19 @@ impl LayoutEngine {
                     bottom: points(padding[3]),
                 };
 
+                style.size = taffy::geometry::Size {
+                    width: node.width.map(Dimension::Points).unwrap_or(Dimension::Auto),
+                    height: node.height.map(Dimension::Points).unwrap_or(Dimension::Auto),
+                };
+            },
+            LayoutOp::Scroll { direction } => {
+                style.display = Display::Flex;
+                style.flex_direction = match direction {
+                    IrFlexDirection::Row => taffy::style::FlexDirection::Row,
+                    IrFlexDirection::Column => taffy::style::FlexDirection::Column,
+                };
+                // Removed overflow property for Taffy 0.3 compatibility
+                
                 style.size = taffy::geometry::Size {
                     width: node.width.map(Dimension::Points).unwrap_or(Dimension::Auto),
                     height: node.height.map(Dimension::Points).unwrap_or(Dimension::Auto),

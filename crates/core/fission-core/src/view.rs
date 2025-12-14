@@ -1,4 +1,4 @@
-use crate::{AppState, RuntimeState, Env, BuildCtx, ui::{Node, Row, Column, Text, Button}};
+use crate::{AppState, RuntimeState, Env, BuildCtx, ui::{Node, Row, Column, Text, Button, Scroll, Image}};
 use fission_theme::Theme;
 use fission_i18n::I18nRegistry;
 
@@ -59,5 +59,17 @@ impl<S: AppState> Widget<S> for Text {
 impl<S: AppState> Widget<S> for Button {
     fn build(&self, _ctx: &mut BuildCtx<S>, _view: &View<S>) -> Node {
         Node::Button(self.clone())
+    }
+}
+
+impl<S: AppState> Widget<S> for Scroll {
+    fn build(&self, _ctx: &mut BuildCtx<S>, _view: &View<S>) -> Node {
+        Node::Scroll(self.clone())
+    }
+}
+
+impl<S: AppState> Widget<S> for Image {
+    fn build(&self, _ctx: &mut BuildCtx<S>, _view: &View<S>) -> Node {
+        Node::Image(self.clone())
     }
 }

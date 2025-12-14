@@ -33,13 +33,16 @@ pub enum LayoutOp {
     Box { 
         width: Option<LayoutUnit>,
         height: Option<LayoutUnit>,
-        padding: [LayoutUnit; 4],
+        padding: [LayoutUnit; 4], // [left, right, top, bottom]
     },
     Flex {
         direction: FlexDirection,
         flex_grow: LayoutUnit,
         flex_shrink: LayoutUnit,
         padding: [LayoutUnit; 4],
+    },
+    Scroll {
+        direction: FlexDirection, // Axis
     },
     AbsoluteFill,
     Grid,
@@ -81,17 +84,29 @@ pub struct BoxShadow {
     pub offset: (LayoutUnit, LayoutUnit),
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub enum ImageFit {
+    Contain,
+    Cover,
+    Fill,
+    None,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum PaintOp {
     DrawRect { 
         fill: Option<Fill>,
         stroke: Option<Stroke>,
         corner_radius: LayoutUnit,
-        shadow: Option<BoxShadow>, // Added
+        shadow: Option<BoxShadow>,
     },
     DrawText {
         text: String,
         size: LayoutUnit,
         color: Color,
+    },
+    DrawImage {
+        source: String,
+        fit: ImageFit,
     },
 }

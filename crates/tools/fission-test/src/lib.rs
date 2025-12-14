@@ -1,9 +1,9 @@
 use anyhow::Result;
-use fission_core::{Runtime, Action, ActionId, AppState, CurrentTime, AdvanceTo, Tick, Lower, LoweringContext, InputEvent, ActionEnvelope, Env, Widget, View, Node, BuildCtx};
+use fission_core::{Runtime, Action, ActionId, AppState, CurrentTime, AdvanceTo, Tick, Lower, LoweringContext, InputEvent, ActionEnvelope, Env, Widget, View, Node, BuildCtx, ScrollStateMap, LayoutPoint, Clock}; 
 use fission_core::lowering::build_layout_tree;
 use fission_ir::{NodeId, CoreIR};
-use fission_layout::{LayoutSnapshot, LayoutSize, LayoutEngine};
-use fission_render::{Renderer, DisplayList, LayoutRect};
+use fission_layout::{LayoutSnapshot, LayoutSize, LayoutEngine, TextMeasurer};
+use fission_render::{Renderer, DisplayList, LayoutRect, DisplayOp, Color, Fill, Stroke, BoxShadow};
 use std::sync::{Arc, Mutex};
 
 // A mock renderer that captures the display list for inspection.
@@ -17,6 +17,13 @@ impl Renderer for MockRenderer {
         let mut lock = self.last_display_list.lock().unwrap();
         *lock = Some(display_list.clone());
         Ok(())
+    }
+}
+
+struct MockTextMeasurer;
+impl TextMeasurer for MockTextMeasurer {
+    fn measure(&self, text: &str, _font_size: f32, _avail: Option<f32>) -> (f32, f32) {
+        (text.len() as f32 * 10.0, 20.0)
     }
 }
 
@@ -34,12 +41,14 @@ pub struct TestHarness<S: AppState> {
 impl<S: AppState> TestHarness<S> {
     pub fn new(initial_state: S) -> Self {
         let mut runtime = Runtime::default();
-        runtime.add_app_state(Box::new(initial_state)).expect("Failed to add initial state");
+        if std::any::TypeId::of::<S>() != std::any::TypeId::of::<Clock>() {
+             runtime.add_app_state(Box::new(initial_state)).expect("Failed to add initial state");
+        }
         
         Self {
             runtime,
             renderer: MockRenderer::default(),
-            layout_engine: LayoutEngine::new(),
+            layout_engine: LayoutEngine::new().with_measurer(Arc::new(MockTextMeasurer)),
             last_snapshot: None,
             last_ir: None,
             root_widget: None,
@@ -121,7 +130,15 @@ impl<S: AppState> TestHarness<S> {
         }
 
         // 3. Render
-        let display_list = DisplayList::new(LayoutRect::new(0.0, 0.0, 800.0, 600.0));
+        let mut display_list = DisplayList::new(LayoutRect::new(0.0, 0.0, 800.0, 600.0));
+        
+        if let (Some(ir), Some(snapshot)) = (&self.last_ir, &self.last_snapshot) {
+             if let Some(root_id) = ir.root {
+                 let scroll_map = &self.runtime.runtime_state.scroll;
+                 generate_display_list(root_id, ir, snapshot, scroll_map, &mut display_list);
+             }
+        }
+
         self.renderer.render(&display_list)?;
 
         Ok(())
@@ -129,5 +146,78 @@ impl<S: AppState> TestHarness<S> {
     
     pub fn get_last_display_list(&self) -> Option<DisplayList> {
         self.renderer.last_display_list.lock().unwrap().clone()
+    }
+}
+
+fn generate_display_list(
+    node_id: NodeId,
+    ir: &CoreIR,
+    snapshot: &LayoutSnapshot,
+    scroll_map: &ScrollStateMap,
+    list: &mut DisplayList
+) {
+    if let Some(geom) = snapshot.nodes.get(&node_id) {
+        if let Some(node) = ir.nodes.get(&node_id) {
+            let mut pushed_clip = false;
+
+            match &node.op {
+                fission_ir::Op::Layout(fission_ir::LayoutOp::Scroll { .. }) => {
+                    let offset = scroll_map.get_offset(node_id);
+                    
+                    list.push(DisplayOp::Save);
+                    list.push(DisplayOp::ClipRect(geom.rect));
+                    list.push(DisplayOp::Translate(LayoutPoint::new(0.0, -offset)));
+                    pushed_clip = true;
+                },
+                fission_ir::Op::Paint(fission_ir::PaintOp::DrawRect { fill, stroke, corner_radius, shadow }) => {
+                    list.push(DisplayOp::DrawRect { 
+                        rect: geom.rect,
+                        fill: fill.map(|f| Fill { color: Color { r: f.color.r, g: f.color.g, b: f.color.b, a: f.color.a } }),
+                        stroke: stroke.map(|s| Stroke { color: Color { r: s.color.r, g: s.color.g, b: s.color.b, a: s.color.a }, width: s.width }),
+                        corner_radius: *corner_radius,
+                        shadow: shadow.map(|s| BoxShadow { 
+                            color: Color { r: s.color.r, g: s.color.g, b: s.color.b, a: s.color.a }, 
+                            blur_radius: s.blur_radius, 
+                            offset: s.offset 
+                        }),
+                        bounds: geom.rect,
+                        node_id: Some(node_id),
+                    });
+                },
+                fission_ir::Op::Paint(fission_ir::PaintOp::DrawText { text, size, color }) => {
+                    list.push(DisplayOp::DrawText { 
+                        text: text.clone(),
+                        position: geom.rect.origin, 
+                        size: *size,
+                        color: Color { r: color.r, g: color.g, b: color.b, a: color.a },
+                        bounds: geom.rect,
+                        node_id: Some(node_id),
+                    });
+                },
+                fission_ir::Op::Paint(fission_ir::PaintOp::DrawImage { source, fit }) => {
+                    list.push(DisplayOp::DrawImage { 
+                        rect: geom.rect,
+                        source: source.clone(),
+                        fit: match fit {
+                            fission_ir::op::ImageFit::Contain => fission_render::ImageFit::Contain,
+                            fission_ir::op::ImageFit::Cover => fission_render::ImageFit::Cover,
+                            fission_ir::op::ImageFit::Fill => fission_render::ImageFit::Fill,
+                            fission_ir::op::ImageFit::None => fission_render::ImageFit::None,
+                        },
+                        bounds: geom.rect,
+                        node_id: Some(node_id),
+                    });
+                },
+                _ => {}
+            }
+
+            for child in &node.children {
+                generate_display_list(*child, ir, snapshot, scroll_map, list);
+            }
+
+            if pushed_clip {
+                list.push(DisplayOp::Restore);
+            }
+        }
     }
 }

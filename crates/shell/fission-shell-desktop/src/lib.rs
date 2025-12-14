@@ -1,6 +1,6 @@
 use winit::{
     dpi::PhysicalPosition,
-    event::{ElementState, Event, MouseButton, WindowEvent},
+    event::{ElementState, Event, MouseButton, WindowEvent, MouseScrollDelta},
     event_loop::{ControlFlow, EventLoop},
     window::WindowBuilder,
 };
@@ -9,12 +9,13 @@ use skia_safe::{ColorType, AlphaType};
 use std::num::NonZeroU32;
 use std::rc::Rc;
 use std::sync::Arc;
+use std::time::Instant;
 use anyhow::Result;
 
 use fission_shell::Platform;
 use fission_render::{Renderer, DisplayList, LayoutRect, LayoutPoint, LayoutUnit, Color as RenderColor};
 use fission_render_skia::{SkiaRenderer, SkiaTextMeasurer};
-use fission_core::{Runtime, Clock, Action, ActionId, AppState, BuildCtx, Env, InputEvent, PointerEvent, PointerButton, Widget, View, Node, Lower};
+use fission_core::{Runtime, Clock, Action, ActionId, AppState, BuildCtx, Env, InputEvent, PointerEvent, PointerButton, Widget, View, Node, Lower, ScrollStateMap};
 use fission_core::lowering::{build_layout_tree, LoweringContext};
 use fission_layout::{LayoutEngine, LayoutSize, LayoutInputNode, LayoutSnapshot};
 use fission_ir::{NodeId, Op, PaintOp, Color as IrColor, FlexDirection, CoreIR};
@@ -67,11 +68,25 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
         let mut last_ir: Option<CoreIR> = None;
         let mut last_snapshot: Option<LayoutSnapshot> = None;
         let mut last_cursor_position: Option<PhysicalPosition<f64>> = None;
+        let mut last_frame_time = Instant::now();
 
         event_loop.run(move |event, elwt| {
-            elwt.set_control_flow(ControlFlow::Wait); 
+            elwt.set_control_flow(ControlFlow::Poll); 
 
             match event {
+                Event::AboutToWait => {
+                    let now = Instant::now();
+                    let dt = now.duration_since(last_frame_time);
+                    last_frame_time = now;
+                    
+                    let dt_millis = dt.as_millis() as u64;
+                    if dt_millis > 0 {
+                        if let Err(e) = runtime.tick(dt_millis) {
+                            eprintln!("Tick error: {:?}", e);
+                        }
+                    }
+                    window.request_redraw();
+                }
                 Event::WindowEvent { window_id, event } if window_id == window.id() => {
                     match event {
                         WindowEvent::RedrawRequested => {
@@ -109,17 +124,30 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                 let snapshot = layout_engine.compute_layout(&layout_input_nodes, root_id, viewport).unwrap();
 
                                 let mut display_list = DisplayList::new(fission_render::LayoutRect::new(0.0, 0.0, layout_width, layout_height));
-                                
+                                let scroll_map = &runtime.runtime_state.scroll;
+
                                 if let Some(root_id) = cx_ir.root {
                                     fn generate_display_list(
                                         node_id: fission_ir::NodeId,
                                         ir: &fission_ir::CoreIR,
                                         snapshot: &fission_layout::LayoutSnapshot,
+                                        scroll_map: &ScrollStateMap,
                                         list: &mut DisplayList
                                     ) {
                                         if let Some(geom) = snapshot.nodes.get(&node_id) {
                                             if let Some(node) = ir.nodes.get(&node_id) {
+                                                let mut pushed_clip = false;
+
                                                 match &node.op {
+                                                    fission_ir::Op::Layout(fission_ir::LayoutOp::Scroll { .. }) => {
+                                                        let offset = scroll_map.get_offset(node_id);
+                                                        
+                                                        list.push(fission_render::DisplayOp::Save);
+                                                        list.push(fission_render::DisplayOp::ClipRect(geom.rect));
+                                                        // Translate content up by offset (for vertical scroll)
+                                                        list.push(fission_render::DisplayOp::Translate(LayoutPoint::new(0.0, -offset)));
+                                                        pushed_clip = true;
+                                                    },
                                                     fission_ir::Op::Paint(fission_ir::PaintOp::DrawRect { fill, stroke, corner_radius, shadow }) => {
                                                         list.push(fission_render::DisplayOp::DrawRect { 
                                                             rect: geom.rect,
@@ -145,16 +173,34 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                                             node_id: Some(node_id),
                                                         });
                                                     },
+                                                    fission_ir::Op::Paint(fission_ir::PaintOp::DrawImage { source, fit }) => {
+                                                        list.push(fission_render::DisplayOp::DrawImage { 
+                                                            rect: geom.rect,
+                                                            source: source.clone(),
+                                                            fit: match fit {
+                                                                fission_ir::op::ImageFit::Contain => fission_render::ImageFit::Contain,
+                                                                fission_ir::op::ImageFit::Cover => fission_render::ImageFit::Cover,
+                                                                fission_ir::op::ImageFit::Fill => fission_render::ImageFit::Fill,
+                                                                fission_ir::op::ImageFit::None => fission_render::ImageFit::None,
+                                                            },
+                                                            bounds: geom.rect,
+                                                            node_id: Some(node_id),
+                                                        });
+                                                    },
                                                     _ => {}
                                                 }
 
                                                 for child in &node.children {
-                                                    generate_display_list(*child, ir, snapshot, list);
+                                                    generate_display_list(*child, ir, snapshot, scroll_map, list);
+                                                }
+
+                                                if pushed_clip {
+                                                    list.push(fission_render::DisplayOp::Restore);
                                                 }
                                             }
                                         }
                                     }
-                                    generate_display_list(root_id, &cx_ir, &snapshot, &mut display_list);
+                                    generate_display_list(root_id, &cx_ir, &snapshot, scroll_map, &mut display_list);
                                 }
 
                                 let image_info = skia_safe::ImageInfo::new(
@@ -217,13 +263,29 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                 }
                             }
                         }
+                        WindowEvent::MouseWheel { delta, .. } => {
+                            let delta_point = match delta {
+                                MouseScrollDelta::LineDelta(x, y) => LayoutPoint::new(-x * 20.0, -y * 20.0),
+                                MouseScrollDelta::PixelDelta(pos) => LayoutPoint::new(-pos.x as f32, -pos.y as f32),
+                            };
+                            
+                            if let (Some(cursor_pos), Some(ir), Some(snapshot)) = (last_cursor_position, last_ir.as_ref(), last_snapshot.as_ref()) {
+                                let point = LayoutPoint::new(cursor_pos.x as f32, cursor_pos.y as f32);
+                                let event = InputEvent::Pointer(PointerEvent::Scroll { point, delta: delta_point });
+                                
+                                if let Err(e) = runtime.handle_input(event, ir, snapshot) {
+                                    eprintln!("Scroll error: {:?}", e);
+                                } else {
+                                    window.request_redraw();
+                                }
+                            }
+                        }
                         WindowEvent::CloseRequested => {
                             elwt.exit();
                         }
                         _ => {}
                     }
                 }
-                Event::AboutToWait => {}
                 _ => {}
             }
         }).map_err(|e| anyhow::anyhow!("Event loop error: {}", e))

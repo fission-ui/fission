@@ -1,10 +1,11 @@
-use fission_render::{Renderer, DisplayList, DisplayOp, Color, LayoutRect, LayoutPoint, LayoutUnit, BoxShadow, TextMeasurer};
+use fission_render::{Renderer, DisplayList, DisplayOp, Color, LayoutRect, LayoutPoint, LayoutUnit, BoxShadow, TextMeasurer, ImageFit};
 use skia_safe::{Canvas, Paint, Rect, Color as SkColor, FontMgr, MaskFilter, RRect, BlurStyle, Vector}; 
 use skia_safe::font::Font;
 use skia_safe::font_style::FontStyle;
 use skia_safe::Typeface; 
 use skia_safe::wrapper::NativeTransmutableWrapper; // For unwrap
 use anyhow::Result;
+use std::fs;
 
 pub struct SkiaRenderer<'a> {
     canvas: &'a Canvas, 
@@ -116,6 +117,23 @@ impl<'a> Renderer for SkiaRenderer<'a> {
                         &font, 
                         &paint
                     );
+                }
+                DisplayOp::DrawImage { rect, source, fit: _, .. } => {
+                    if let Ok(bytes) = fs::read(source) {
+                        if let Some(image) = skia_safe::Image::from_encoded(skia_safe::Data::new_copy(&bytes)) {
+                            let mut paint = Paint::default();
+                            paint.set_anti_alias(true);
+                            
+                            let src_rect = Rect::from_wh(image.width() as f32, image.height() as f32);
+                            let dst_rect = to_skia_rect(rect);
+                            
+                            self.canvas.draw_image_rect(&image, Some((&src_rect, skia_safe::canvas::SrcRectConstraint::Strict)), dst_rect, &paint);
+                        } else {
+                            eprintln!("Failed to decode image: {}", source);
+                        }
+                    } else {
+                        eprintln!("Failed to read image file: {}", source);
+                    }
                 }
                 DisplayOp::Save => {
                     self.canvas.save();

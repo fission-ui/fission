@@ -33,12 +33,22 @@ impl Lower for Row {
                 flex_shrink: self.flex_shrink,
                 padding: [0.0; 4],
             }),
-            child_ids,
+            child_ids.clone(),
         );
+
+        for child_id in &child_ids {
+            if let Some(node) = cx.ir.nodes.get_mut(child_id) {
+                node.parent = Some(layout_id);
+            }
+        }
 
         if let Some(s) = &self.semantics {
             let semantics_id = cx.next_node_id();
             cx.add_node(semantics_id, Op::Semantics(s.clone()), vec![layout_id]);
+            // Semantic node becomes parent of layout node
+            if let Some(node) = cx.ir.nodes.get_mut(&layout_id) {
+                node.parent = Some(semantics_id);
+            }
             return semantics_id;
         }
 
@@ -72,12 +82,21 @@ impl Lower for Column {
                 flex_shrink: self.flex_shrink,
                 padding: [0.0; 4],
             }),
-            child_ids,
+            child_ids.clone(),
         );
+
+        for child_id in &child_ids {
+            if let Some(node) = cx.ir.nodes.get_mut(child_id) {
+                node.parent = Some(layout_id);
+            }
+        }
 
         if let Some(s) = &self.semantics {
             let semantics_id = cx.next_node_id();
             cx.add_node(semantics_id, Op::Semantics(s.clone()), vec![layout_id]);
+            if let Some(node) = cx.ir.nodes.get_mut(&layout_id) {
+                node.parent = Some(semantics_id);
+            }
             return semantics_id;
         }
 

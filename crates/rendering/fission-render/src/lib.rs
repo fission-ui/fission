@@ -43,6 +43,14 @@ pub struct BoxShadow {
     pub offset: (LayoutUnit, LayoutUnit),
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub enum ImageFit {
+    Contain,
+    Cover,
+    Fill,
+    None,
+}
+
 // Paint bounds for a DisplayOp, typically derived from LayoutRect but can be expanded for effects.
 pub type PaintBounds = LayoutRect;
 
@@ -68,6 +76,13 @@ pub enum DisplayOp {
         size: LayoutUnit,
         color: Color,
         bounds: LayoutRect, // Bounding box for the text, for layout/clipping
+        node_id: Option<NodeId>,
+    },
+    DrawImage {
+        rect: LayoutRect,
+        source: String,
+        fit: ImageFit,
+        bounds: PaintBounds,
         node_id: Option<NodeId>,
     },
 }

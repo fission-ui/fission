@@ -15,6 +15,39 @@ pub struct Env {
 #[derive(Clone, Debug, Default)]
 pub struct RuntimeState {
     pub interaction: InteractionStateMap,
+    pub scroll: ScrollStateMap,
+    pub animation: AnimationStateMap,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct AnimationStateMap {
+    pub values: HashMap<(NodeId, String), f32>, 
+    pub active: Vec<ActiveAnimation>,
+}
+
+#[derive(Clone, Debug)]
+pub struct ActiveAnimation {
+    pub node_id: NodeId,
+    pub property: String,
+    pub start_value: f32,
+    pub end_value: f32,
+    pub start_time: u64,
+    pub duration: u64,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct ScrollStateMap {
+    pub offsets: HashMap<NodeId, f32>,
+}
+
+impl ScrollStateMap {
+    pub fn get_offset(&self, id: NodeId) -> f32 {
+        *self.offsets.get(&id).unwrap_or(&0.0)
+    }
+    
+    pub fn set_offset(&mut self, id: NodeId, offset: f32) {
+        self.offsets.insert(id, offset);
+    }
 }
 
 #[derive(Clone, Debug, Default)]
