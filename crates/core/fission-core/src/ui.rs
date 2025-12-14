@@ -240,11 +240,11 @@ impl Button {
         let is_pressed = interaction.is_pressed(self_id);
 
         let bg_color = if is_pressed {
-            tokens.primary 
+            IrColor::BLACK // Obvious dark color for press
         } else if is_hovered {
-            tokens.surface
+            tokens.error // Use error (Red) for hover just to be VERY obvious it works
         } else {
-            tokens.primary
+            tokens.primary // Purple for rest
         };
 
         let text_color = tokens.on_primary;
@@ -289,9 +289,8 @@ impl Lower for Button {
 
         let resolved_style = self.resolve_style(cx.env, &cx.runtime_state.interaction, button_id);
 
-        let button_layout_id = cx.next_node_id();
         cx.add_node(
-            button_layout_id,
+            button_id,
             Op::Layout(LayoutOp::Box {
                 width: self.width,
                 height: self.height.or(Some(resolved_style.height)),
@@ -316,10 +315,10 @@ impl Lower for Button {
             vec![],
         );
 
-        if let Some(layout_node) = cx.ir.nodes.get_mut(&button_layout_id) {
+        if let Some(layout_node) = cx.ir.nodes.get_mut(&button_id) {
             layout_node.children.push(background_id);
             if let Some(bg_node) = cx.ir.nodes.get_mut(&background_id) {
-                bg_node.parent = Some(button_layout_id);
+                bg_node.parent = Some(button_id);
             }
         }
 
@@ -333,22 +332,22 @@ impl Lower for Button {
             }
         }
 
-        if let Some(layout_node) = cx.ir.nodes.get_mut(&button_layout_id) {
+        if let Some(layout_node) = cx.ir.nodes.get_mut(&button_id) {
             layout_node.children.extend(child_node_ids.iter().cloned());
             for child_id in &child_node_ids {
                 if let Some(child_node) = cx.ir.nodes.get_mut(child_id) {
-                    child_node.parent = Some(button_layout_id);
+                    child_node.parent = Some(button_id);
                 }
             }
         }
 
         if let Some(semantics_op) = self.build_semantics() {
-            let semantics_id = self.id.unwrap_or_else(|| cx.next_node_id()); 
-            cx.add_node(semantics_id, Op::Semantics(semantics_op), vec![button_layout_id]);
+            let semantics_id = cx.next_node_id(); 
+            cx.add_node(semantics_id, Op::Semantics(semantics_op), vec![button_id]);
             return semantics_id;
         }
 
-        button_layout_id
+        button_id
     }
 }
 
