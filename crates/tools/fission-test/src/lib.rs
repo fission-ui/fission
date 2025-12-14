@@ -1,5 +1,5 @@
 use anyhow::Result;
-use fission_core::{Runtime, Action, ActionId, AppState, CurrentTime, AdvanceTo, Tick, Desugar, LoweringContext, InputEvent, ActionEnvelope, Env};
+use fission_core::{Runtime, Action, ActionId, AppState, CurrentTime, AdvanceTo, Tick, Lower, LoweringContext, InputEvent, ActionEnvelope, Env, Widget, View, Node, BuildCtx};
 use fission_core::lowering::build_layout_tree;
 use fission_ir::{NodeId, CoreIR};
 use fission_layout::{LayoutSnapshot, LayoutSize, LayoutEngine};
@@ -20,46 +20,40 @@ impl Renderer for MockRenderer {
     }
 }
 
-pub struct TestHarness {
+pub struct TestHarness<S: AppState> {
     pub runtime: Runtime,
     pub renderer: MockRenderer,
     pub layout_engine: LayoutEngine,
     pub last_snapshot: Option<LayoutSnapshot>,
     pub last_ir: Option<CoreIR>, 
-    pub root_widget: Option<Box<dyn Desugar>>,
-    pub env: Env, // Added
+    pub root_widget: Option<Box<dyn Widget<S>>>,
+    pub env: Env,
+    _phantom: std::marker::PhantomData<S>,
 }
 
-impl Default for TestHarness {
-    fn default() -> Self {
+impl<S: AppState> TestHarness<S> {
+    pub fn new(initial_state: S) -> Self {
+        let mut runtime = Runtime::default();
+        runtime.add_app_state(Box::new(initial_state)).expect("Failed to add initial state");
+        
         Self {
-            runtime: Runtime::default(),
+            runtime,
             renderer: MockRenderer::default(),
             layout_engine: LayoutEngine::new(),
             last_snapshot: None,
             last_ir: None,
             root_widget: None,
             env: Env::default(),
+            _phantom: std::marker::PhantomData,
         }
     }
-}
 
-impl TestHarness {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    pub fn with_app_state<S: AppState + 'static>(mut self, state: S) -> Self {
-        self.runtime.add_app_state(Box::new(state)).expect("Failed to add app state");
-        self
-    }
-
-    pub fn with_root_widget<W: Desugar + 'static>(mut self, widget: W) -> Self {
+    pub fn with_root_widget<W: Widget<S> + 'static>(mut self, widget: W) -> Self {
         self.root_widget = Some(Box::new(widget));
         self
     }
 
-    pub fn register_reducer<S: AppState + 'static>(
+    pub fn register_reducer(
         mut self,
         action_id: ActionId,
         reducer: fn(&mut S, &ActionEnvelope, NodeId) -> Result<()>,
@@ -96,27 +90,34 @@ impl TestHarness {
     }
 
     pub fn pump(&mut self) -> Result<()> {
-        // 1. Lowering
+        // 1. Build & Lower
         let mut layout_input_nodes = Vec::new();
         
         if let Some(root) = &self.root_widget {
+            // Build
+            let node_tree = {
+                let state = self.runtime.get_app_state::<S>().expect("App state missing");
+                let view = View::new(state, &self.runtime.runtime_state, &self.env);
+                let mut ctx = BuildCtx::new();
+                let tree = root.build(&mut ctx, &view);
+                
+                self.runtime.clear_reducers();
+                self.runtime.absorb_registry(ctx.registry);
+                tree
+            };
+
+            // Lower
             let mut cx = LoweringContext::new(&self.env, &self.runtime.runtime_state);
-            let root_id = root.desugar(&mut cx);
-            cx.ir.root = Some(root_id); // Ensure root is set
+            let root_id = node_tree.lower(&mut cx);
+            cx.ir.root = Some(root_id);
             
             layout_input_nodes = build_layout_tree(&cx.ir);
             self.last_ir = Some(cx.ir); 
-        }
-
-        // 2. Layout
-        let viewport = LayoutSize { width: 800.0, height: 600.0 };
-        // We need root_id for compute_layout. Where is it?
-        // It's in last_ir.root.
-        if let Some(ir) = &self.last_ir {
-            if let Some(root_id) = ir.root {
-                let snapshot = self.layout_engine.compute_layout(&layout_input_nodes, root_id, viewport)?;
-                self.last_snapshot = Some(snapshot.clone());
-            }
+            
+            // 2. Layout
+            let viewport = LayoutSize { width: 800.0, height: 600.0 };
+            let snapshot = self.layout_engine.compute_layout(&layout_input_nodes, root_id, viewport)?;
+            self.last_snapshot = Some(snapshot.clone());
         }
 
         // 3. Render

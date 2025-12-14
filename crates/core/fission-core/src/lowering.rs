@@ -2,11 +2,11 @@ use fission_ir::{NodeId, Op, CoreIR, LayoutOp, FlexDirection};
 use fission_layout::{
     LayoutInputNode, LayoutPoint, LayoutSize, LayoutUnit
 };
-use crate::env::{Env, RuntimeState}; // Import Env/RuntimeState
+use crate::env::{Env, RuntimeState}; 
 use std::fmt::Debug;
 use std::collections::HashMap;
 
-// Context passed down during the desugaring phase.
+// Context passed down during the lowering phase.
 pub struct LoweringContext<'a> {
     pub next_node_id_seed: u128,
     pub ir: CoreIR,
@@ -34,14 +34,6 @@ impl<'a> LoweringContext<'a> {
     }
 }
 
-// Default trait cannot be implemented easily if we need references.
-// Removing impl Default for LoweringContext.
-
-// The trait that Authoring Widgets must implement to convert themselves into Core IR.
-pub trait Desugar: Send + Sync + Debug {
-    fn desugar(&self, cx: &mut LoweringContext) -> NodeId;
-}
-
 pub fn build_layout_tree(ir: &CoreIR) -> Vec<LayoutInputNode> {
     let mut input_nodes = Vec::new();
     
@@ -57,7 +49,6 @@ pub fn build_layout_tree(ir: &CoreIR) -> Vec<LayoutInputNode> {
             Op::Layout(LayoutOp::Box { width, height }) => (LayoutOp::Box { width: *width, height: *height }, *width, *height, 0.0, 0.0),
             Op::Layout(LayoutOp::Flex { direction, flex_grow, flex_shrink }) => (LayoutOp::Flex { direction: *direction, flex_grow: *flex_grow, flex_shrink: *flex_shrink }, None, None, *flex_grow, *flex_shrink),
             Op::Paint(_) => (LayoutOp::AbsoluteFill, None, None, 0.0, 0.0), // Paint nodes fill parent
-            // Semantics and others default to Box (flow layout)
             _ => (LayoutOp::Box { width: None, height: None }, None, None, 0.0, 0.0), 
         };
         
