@@ -8,6 +8,7 @@ use anyhow::Result;
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 use std::collections::hash_map::DefaultHasher;
+use fission_ir::op::EmbedKind;
 
 pub struct Pipeline {
     pub prev_ir: Option<CoreIR>,
@@ -40,8 +41,11 @@ impl Pipeline {
         renderer: &mut (impl Renderer + 'r + ?Sized)
     ) -> Result<PipelineStats> {
         let dirty_set = if let Some(prev) = &self.prev_ir {
-            diff_ir(prev, &next_ir).dirty_structural
+            let diff = diff_ir(prev, &next_ir);
+            // println!("Diff: {} dirty nodes", diff.dirty_structural.len());
+            diff.dirty_structural
         } else {
+            // println!("Diff: Full Rebuild");
             next_ir.nodes.keys().cloned().collect()
         };
         
@@ -161,6 +165,18 @@ impl Pipeline {
                             fission_ir::op::ImageFit::Fill => ImageFit::Fill,
                             fission_ir::op::ImageFit::None => ImageFit::None,
                         },
+                        bounds: geom.rect,
+                        node_id: Some(node_id),
+                    });
+                },
+                fission_ir::Op::Layout(fission_ir::LayoutOp::Embed { kind: EmbedKind::Video }) => {
+                     // For now, draw placeholder for video since we removed video map from pipeline signature
+                     segment.push(DisplayOp::DrawRect { 
+                        rect: geom.rect,
+                        fill: Some(Fill { color: RenderColor { r: 0, g: 0, b: 0, a: 255 } }),
+                        stroke: None,
+                        corner_radius: 0.0,
+                        shadow: None,
                         bounds: geom.rect,
                         node_id: Some(node_id),
                     });
