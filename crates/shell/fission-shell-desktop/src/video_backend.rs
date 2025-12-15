@@ -22,7 +22,6 @@ mod mac {
     use std::path::Path;
     use std::sync::atomic::{AtomicU64, Ordering};
     use std::sync::{Arc, Mutex};
-    use std::time::Instant;
     use winit::window::Window;
 
     #[derive(Clone)]
@@ -137,8 +136,6 @@ mod mac {
                 registry: Arc::clone(&self.registry),
                 player_id,
                 ready_sent: false,
-                play_start_time: None,
-                accumulated: 0,
             })
         }
 
@@ -176,12 +173,11 @@ mod mac {
     }
 
     struct VideoLayer {
-        widget_id: WidgetNodeId,
         layer: RetainedId,
     }
 
     impl VideoLayer {
-        fn new(widget_id: WidgetNodeId, player: &RetainedId, ctx: &LayerContext) -> Self {
+        fn new(_widget_id: WidgetNodeId, player: &RetainedId, ctx: &LayerContext) -> Self {
             unsafe {
                 let layer: id =
                     msg_send![class!(AVPlayerLayer), playerLayerWithPlayer: player.as_id()];
@@ -191,7 +187,6 @@ mod mac {
                 let () = msg_send![layer, setContentsScale: ctx.scale_factor];
                 let () = msg_send![ctx.root_layer, addSublayer: layer];
                 Self {
-                    widget_id,
                     layer: RetainedId::new(layer),
                 }
             }
@@ -207,10 +202,6 @@ mod mac {
                 let () = msg_send![ctx.root_layer, addSublayer: layer_id];
             }
         }
-    }
-
-    fn widget_id_placeholder() -> &'static str {
-        "?"
     }
 
     struct PlayerRegistry {
@@ -248,8 +239,6 @@ mod mac {
         registry: Arc<PlayerRegistry>,
         player_id: u64,
         ready_sent: bool,
-        play_start_time: Option<Instant>,
-        accumulated: u64,
     }
 
     impl Drop for MacVideoPlayer {
@@ -265,15 +254,9 @@ mod mac {
                     let () = msg_send![player.as_id(), play];
                 }
             }
-            if self.play_start_time.is_none() {
-                self.play_start_time = Some(Instant::now());
-            }
         }
 
         fn pause(&mut self) {
-            if let Some(start) = self.play_start_time.take() {
-                self.accumulated += start.elapsed().as_millis() as u64;
-            }
             if let Some(player) = self.registry.get(self.player_id) {
                 unsafe {
                     let () = msg_send![player.as_id(), pause];
@@ -282,8 +265,6 @@ mod mac {
         }
 
         fn stop(&mut self) {
-            self.play_start_time = None;
-            self.accumulated = 0;
             if let Some(player) = self.registry.get(self.player_id) {
                 unsafe {
                     let () = msg_send![player.as_id(), pause];
@@ -294,16 +275,20 @@ mod mac {
         }
 
         fn position(&self) -> u64 {
-            let running = if let Some(start) = self.play_start_time {
-                start.elapsed().as_millis() as u64
-            } else {
-                0
-            };
-            self.accumulated + running
+            if let Some(player) = self.registry.get(self.player_id) {
+                if let Some(ms) = unsafe { current_time_ms(player.as_id()) } {
+                    return ms;
+                }
+            }
+            0
         }
 
         fn duration(&self) -> Option<u64> {
-            None
+            if let Some(player) = self.registry.get(self.player_id) {
+                unsafe { item_duration_ms(player.as_id()) }
+            } else {
+                None
+            }
         }
 
         fn surface_id(&self) -> u64 {
@@ -338,6 +323,20 @@ mod mac {
         }
     }
 
+    unsafe fn current_time_ms(player: id) -> Option<u64> {
+        let current: CMTime = msg_send![player, currentTime];
+        current.to_millis()
+    }
+
+    unsafe fn item_duration_ms(player: id) -> Option<u64> {
+        let item: id = msg_send![player, currentItem];
+        if item == nil {
+            return None;
+        }
+        let duration: CMTime = msg_send![item, duration];
+        duration.to_millis()
+    }
+
     fn cg_rect_from_layout(rect: LayoutRect, ctx: &LayerContext) -> CGRect {
         let inv_scale = if ctx.scale_factor == 0.0 {
             1.0
@@ -368,6 +367,23 @@ mod mac {
                 flags: 0,
                 epoch: 0,
             }
+        }
+
+        fn from_millis(ms: u64) -> Self {
+            Self {
+                value: ms as i64,
+                timescale: 1000,
+                flags: 0,
+                epoch: 0,
+            }
+        }
+
+        fn to_millis(&self) -> Option<u64> {
+            if self.timescale <= 0 {
+                return None;
+            }
+            let seconds = self.value as f64 / self.timescale as f64;
+            Some((seconds * 1000.0) as u64)
         }
     }
 }

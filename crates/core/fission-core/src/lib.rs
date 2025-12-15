@@ -2,6 +2,7 @@ use anyhow::{anyhow, Result};
 use downcast_rs::Downcast;
 use fission_ir::CoreIR;
 use lazy_static::lazy_static;
+use serde_json;
 use std::any::{Any, TypeId};
 use std::collections::{HashMap, HashSet};
 

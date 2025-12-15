@@ -131,13 +131,37 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                 for event in player.poll_events() {
                                     match event {
                                         VideoEvent::Ready { duration } => {
-                                            state.duration_ms = Some(duration);
+                                            if duration > 0 {
+                                                state.duration_ms = Some(duration);
+                                                needs_redraw = true;
+                                            }
                                         }
                                         VideoEvent::Ended => {
-                                            state.status = VideoStatus::Stopped;
+                                            if state.looped {
+                                                player.stop();
+                                                player.play();
+                                                state.position_ms = 0;
+                                                state.status = VideoStatus::Playing;
+                                            } else {
+                                                state.status = VideoStatus::Ended;
+                                            }
+                                            needs_redraw = true;
+                                        }
+                                        VideoEvent::Error(message) => {
+                                            state.status = VideoStatus::Error;
+                                            eprintln!("Video error for {:?}: {}", id, message);
                                             needs_redraw = true;
                                         }
                                         _ => {}
+                                    }
+                                }
+
+                                if state.duration_ms.is_none() {
+                                    if let Some(duration) = player.duration() {
+                                        if duration > 0 {
+                                            state.duration_ms = Some(duration);
+                                            needs_redraw = true;
+                                        }
                                     }
                                 }
 
@@ -145,6 +169,20 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                 if state.position_ms != new_pos {
                                     state.position_ms = new_pos;
                                     needs_redraw = true;
+                                }
+
+                                if let Some(duration) = state.duration_ms {
+                                    if duration > 0 && new_pos >= duration {
+                                        if state.looped && state.status == VideoStatus::Playing {
+                                            player.stop();
+                                            player.play();
+                                            state.position_ms = 0;
+                                            needs_redraw = true;
+                                        } else if state.status != VideoStatus::Ended {
+                                            state.status = VideoStatus::Ended;
+                                            needs_redraw = true;
+                                        }
+                                    }
                                 }
                             }
                         }
