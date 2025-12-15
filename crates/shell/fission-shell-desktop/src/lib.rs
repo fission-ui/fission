@@ -209,6 +209,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                         LoweringContext::new(&env, &runtime.runtime_state);
                                     let root_id = node_tree.lower(&mut lower_cx);
                                     lower_cx.ir.root = Some(root_id);
+                                    let lowered_nodes = lower_cx.ir.nodes.len();
                                     let cx_ir = lower_cx.ir;
 
                                     let viewport = LayoutSize {
@@ -236,18 +237,29 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
 
                                         let video_map = &runtime.runtime_state.video;
 
-                                        let stats = pipeline.render(
-                                            cx_ir,
-                                            viewport,
-                                            &mut layout_engine,
-                                            &runtime.runtime_state.scroll,
-                                            &mut *renderer,
-                                            video_map,
-                                        );
-
-                                        if let Err(e) = stats {
+                                    match pipeline.render(
+                                        cx_ir,
+                                        viewport,
+                                        &mut layout_engine,
+                                        &runtime.runtime_state.scroll,
+                                        &mut *renderer,
+                                        video_map,
+                                    ) {
+                                        Ok(stats) => {
+                                            println!(
+                                                "Frame stats: lowered={} layout_dirty={} paint_hits={} paint_misses={} video_surfaces={} active_anims={}",
+                                                lowered_nodes,
+                                                stats.dirty_nodes,
+                                                stats.paint_hits,
+                                                stats.paint_misses,
+                                                stats.video_surfaces,
+                                                runtime.runtime_state.animation.active.len()
+                                            );
+                                        }
+                                        Err(e) => {
                                             eprintln!("Render pipeline error: {:?}", e);
                                         }
+                                    }
                                     } else {
                                         eprintln!("Failed to wrap pixels");
                                     }

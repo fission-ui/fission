@@ -1,7 +1,7 @@
 use super::traits::{Lower, LowerDyn};
 use super::widgets::{Button, Column, Image, Row, Scroll, Text, Video};
 use crate::lowering::LoweringContext;
-use fission_ir::NodeId;
+use fission_ir::{NodeId, Op, StructuralOp};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
@@ -27,11 +27,19 @@ impl Node {
             Node::Scroll(w) => w.lower(cx),
             Node::Image(w) => w.lower(cx),
             Node::Video(w) => w.lower(cx),
-            Node::Custom(w) => w
-                .lowerer
-                .as_ref()
-                .expect("CustomNode lowerer must be set")
-                .lower_dyn(cx),
+            Node::Custom(w) => {
+                let lowerer = w.lowerer.as_ref().expect("CustomNode lowerer must be set");
+                let child_id = lowerer.lower_dyn(cx);
+                let wrapper = cx.next_node_id();
+                let mut builder = crate::lowering::NodeBuilder::new(
+                    wrapper,
+                    Op::Structural(StructuralOp::Group {
+                        stable_hash: lowerer.stable_key(),
+                    }),
+                );
+                builder.add_child(child_id);
+                builder.build(cx)
+            }
         }
     }
 }

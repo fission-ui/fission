@@ -14,7 +14,7 @@ pub enum Op {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum StructuralOp {
-    Group,
+    Group { stable_hash: u64 },
 }
 
 pub type LayoutUnit = f32;

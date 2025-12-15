@@ -26,6 +26,8 @@ pub struct PipelineStats {
     pub dirty_nodes: usize,
     pub layout_updates: usize,
     pub paint_misses: usize,
+    pub paint_hits: usize,
+    pub video_surfaces: usize,
 }
 
 impl Pipeline {
@@ -67,6 +69,7 @@ impl Pipeline {
         let mut display_list =
             DisplayList::new(LayoutRect::new(0.0, 0.0, viewport.width, viewport.height));
         let mut paint_misses = 0;
+        let mut paint_hits = 0;
 
         self.generate_display_list_recursive(
             root_id,
@@ -75,11 +78,13 @@ impl Pipeline {
             scroll_map,
             &mut display_list,
             &mut paint_misses,
+            &mut paint_hits,
             video_map,
         );
 
         renderer.render(&display_list)?;
 
+        let video_surface_count = self.video_surfaces.len();
         self.last_snapshot = Some(snapshot);
         self.paint_cache
             .retain(|k, _| next_ir.nodes.contains_key(k));
@@ -89,6 +94,8 @@ impl Pipeline {
             dirty_nodes: dirty_count,
             layout_updates: dirty_count,
             paint_misses,
+            paint_hits,
+            video_surfaces: video_surface_count,
         })
     }
 
@@ -104,6 +111,7 @@ impl Pipeline {
         scroll_map: &ScrollStateMap,
         out_list: &mut DisplayList,
         miss_count: &mut usize,
+        hit_count: &mut usize,
         video_map: &VideoStateMap,
     ) {
         if let (Some(node), Some(geom)) = (ir.nodes.get(&node_id), snapshot.nodes.get(&node_id)) {
@@ -125,6 +133,7 @@ impl Pipeline {
 
             if let Some((cached_hash, cached_ops)) = self.paint_cache.get(&node_id) {
                 if *cached_hash == hash {
+                    *hit_count += 1;
                     for op in cached_ops {
                         out_list.push(op.clone());
                     }
@@ -261,6 +270,7 @@ impl Pipeline {
                     scroll_map,
                     &mut temp_dl,
                     miss_count,
+                    hit_count,
                     video_map,
                 );
             }

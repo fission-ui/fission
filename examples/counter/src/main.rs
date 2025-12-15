@@ -25,7 +25,6 @@ lazy_static! {
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
 struct CounterState {
     value: i32,
-    pulse_generation: u64,
 }
 
 impl AppState for CounterState {}
@@ -35,7 +34,6 @@ struct Increment;
 
 fn on_increment(state: &mut CounterState, _action: Increment) {
     state.value += 1;
-    state.pulse_generation += 1;
     println!("Counter incremented to: {}", state.value);
 }
 
@@ -43,7 +41,6 @@ struct CounterVM {
     label: String,
     is_even: bool,
     anim_val: f32,
-    pulse_generation: u64,
 }
 
 impl Selector<CounterState> for CounterVM {
@@ -56,7 +53,6 @@ impl Selector<CounterState> for CounterVM {
             label: format!("Count: {}", view.state.value),
             is_even: view.state.value % 2 == 0,
             anim_val,
-            pulse_generation: view.state.pulse_generation,
         }
     }
 }
@@ -123,6 +119,14 @@ impl LowerDyn for StatusIndicatorLowerer {
         );
         layout_builder.add_child(paint_id);
         layout_builder.build(cx)
+    }
+
+    fn stable_key(&self) -> u64 {
+        let mut key = self.id.as_u128();
+        if self.active {
+            key ^= 1;
+        }
+        u64::from_le_bytes(key.to_le_bytes()[0..8].try_into().unwrap())
     }
 }
 
