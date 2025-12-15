@@ -32,7 +32,9 @@ mod mac {
 
     impl RetainedId {
         unsafe fn new(ptr: id) -> Self {
-            Self(StrongPtr::new(ptr))
+            // Take a strong reference to an Objective-C object that may be
+            // returned autoreleased by Cocoa APIs.
+            Self(StrongPtr::retain(ptr))
         }
 
         fn as_id(&self) -> id {
@@ -61,9 +63,6 @@ mod mac {
     impl MacVideoBackend {
         pub fn new(window: &Window) -> Self {
             let ns_view = ns_view_from_window(window);
-            unsafe {
-                let _: () = msg_send![ns_view, retain];
-            }
             Self {
                 view: unsafe { RetainedId::new(ns_view) },
                 layers: Mutex::new(HashMap::new()),
@@ -172,6 +171,22 @@ mod mac {
         }
     }
 
+    impl Drop for MacVideoBackend {
+        fn drop(&mut self) {
+            // Ensure layers are detached and no longer reference players or the view.
+            if let Ok(mut layers) = self.layers.lock() {
+                for layer in layers.values() {
+                    unsafe {
+                        let layer_id = layer.layer.as_id();
+                        let () = msg_send![layer_id, setPlayer: nil];
+                        let () = msg_send![layer_id, removeFromSuperlayer];
+                    }
+                }
+                layers.clear();
+            }
+        }
+    }
+
     struct VideoLayer {
         layer: RetainedId,
     }
@@ -243,6 +258,13 @@ mod mac {
 
     impl Drop for MacVideoPlayer {
         fn drop(&mut self) {
+            // Pause/stop before releasing to avoid teardown race with layers.
+            if let Some(player) = self.registry.get(self.player_id) {
+                unsafe {
+                    let () = msg_send![player.as_id(), pause];
+                    let () = msg_send![player.as_id(), setRate: 0.0f32];
+                }
+            }
             self.registry.unregister(self.player_id);
         }
     }
@@ -268,8 +290,7 @@ mod mac {
             if let Some(player) = self.registry.get(self.player_id) {
                 unsafe {
                     let () = msg_send![player.as_id(), pause];
-                    let zero = CMTime::zero();
-                    let () = msg_send![player.as_id(), seekToTime: zero];
+                    seek_to_ms(player.as_id(), 0);
                 }
             }
         }
@@ -307,8 +328,7 @@ mod mac {
         fn seek_to(&mut self, position_ms: u64) {
             if let Some(player) = self.registry.get(self.player_id) {
                 unsafe {
-                    let time = CMTime::from_millis(position_ms);
-                    let () = msg_send![player.as_id(), seekToTime: time];
+                    seek_to_ms(player.as_id(), position_ms);
                 }
             }
         }
@@ -341,7 +361,8 @@ mod mac {
     unsafe fn create_av_player(source: &str) -> StrongPtr {
         let url = file_url_from_path(source);
         let player: id = msg_send![class!(AVPlayer), playerWithURL: url];
-        StrongPtr::new(player)
+        // playerWithURL returns an autoreleased object; retain to own it.
+        StrongPtr::retain(player)
     }
 
     fn file_url_from_path(path: &str) -> id {
@@ -368,6 +389,13 @@ mod mac {
         }
         let duration: CMTime = msg_send![item, duration];
         duration.to_millis()
+    }
+
+    unsafe fn seek_to_ms(player: id, position_ms: u64) {
+        let time = CMTime::from_millis(position_ms);
+        let zeroA = CMTime::zero();
+        let zeroB = CMTime::zero();
+        let () = msg_send![player, seekToTime: time toleranceBefore: zeroA toleranceAfter: zeroB];
     }
 
     fn cg_rect_from_layout(rect: LayoutRect, ctx: &LayerContext) -> CGRect {
@@ -397,7 +425,7 @@ mod mac {
             Self {
                 value: 0,
                 timescale: 1,
-                flags: 0,
+                flags: 1, // kCMTimeFlags_Valid
                 epoch: 0,
             }
         }
@@ -406,7 +434,7 @@ mod mac {
             Self {
                 value: ms as i64,
                 timescale: 1000,
-                flags: 0,
+                flags: 1, // kCMTimeFlags_Valid
                 epoch: 0,
             }
         }

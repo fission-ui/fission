@@ -119,24 +119,47 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                     if state.status == VideoStatus::Playing {
                                         state.status = VideoStatus::Buffering;
                                     }
+                                    println!("[video] created player {:?}", id);
                                     players.insert(*id, player);
                                 }
                             }
 
                             if let Some(player) = players.get_mut(id) {
+                                let mut should_play = matches!(state.status, VideoStatus::Playing);
+
                                 match state.status {
-                                    VideoStatus::Playing => player.play(),
                                     VideoStatus::Paused => player.pause(),
                                     VideoStatus::Stopped => player.stop(),
-                                    _ => {}
+                                    VideoStatus::Buffering => player.pause(),
+                                    VideoStatus::Ended | VideoStatus::Error => {}
+                                    VideoStatus::Playing => {}
                                 }
 
-                                if let Some(seek_pos) = state.pending_seek.take() {
-                                    player.seek_to(seek_pos);
-                                    state.position_ms = seek_pos;
+                                if let Some(target) = state.pending_seek {
+                                    player.seek_to(target);
+                                    let actual = player.position();
+                                    println!(
+                                        "[video] pending seek {:?} target {} actual {}",
+                                        id, target, actual
+                                    );
+                                    if (actual as i64 - target as i64).abs() <= 30 {
+                                        state.pending_seek = None;
+                                        state.position_ms = actual;
+                                        println!("[video] seek complete {:?}", id);
+                                    } else {
+                                        should_play = false;
+                                    }
                                 }
 
-                                player.set_rate(state.rate);
+                                if should_play && state.pending_seek.is_none() {
+                                    player.play();
+                                }
+
+                                let target_rate = match state.status {
+                                    VideoStatus::Playing => state.rate,
+                                    _ => 0.0,
+                                };
+                                player.set_rate(target_rate);
                                 player.set_volume(state.volume);
                                 player.set_muted(state.muted);
 
@@ -146,6 +169,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                             if duration > 0 {
                                                 state.duration_ms = Some(duration);
                                                 needs_redraw = true;
+                                                println!("[video] duration {:?} -> {}", id, duration);
                                             }
                                             state.status = match state.status {
                                                 VideoStatus::Playing | VideoStatus::Buffering => {
@@ -157,9 +181,10 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                         VideoEvent::Ended => {
                                             if state.looped {
                                                 player.stop();
-                                                player.play();
+                                                state.pending_seek = Some(0);
                                                 state.position_ms = 0;
-                                                state.status = VideoStatus::Playing;
+                                                state.status = VideoStatus::Buffering;
+                                                println!("[video] loop restart {:?}", id);
                                             } else {
                                                 state.status = VideoStatus::Ended;
                                             }
@@ -179,6 +204,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                         if duration > 0 {
                                             state.duration_ms = Some(duration);
                                             needs_redraw = true;
+                                            println!("[video] duration {:?} -> {}", id, duration);
                                         }
                                     }
                                 }
@@ -186,6 +212,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                 let new_pos = player.position();
                                 if state.position_ms != new_pos {
                                     state.position_ms = new_pos;
+                                    println!("[video] position {:?} -> {}", id, new_pos);
                                     needs_redraw = true;
                                 }
 
