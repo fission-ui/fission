@@ -1,6 +1,7 @@
 pub mod node_id;
 pub mod op;
 pub mod semantics;
+pub mod widget_id;
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -8,6 +9,7 @@ use std::collections::HashMap;
 pub use node_id::NodeId;
 pub use op::{Color, EmbedKind, FlexDirection, LayoutOp, Op, PaintOp, StructuralOp};
 pub use semantics::{ActionEntry, ActionSet, Role, Semantics};
+pub use widget_id::WidgetNodeId;
 
 pub const IR_VERSION: u32 = 1;
 

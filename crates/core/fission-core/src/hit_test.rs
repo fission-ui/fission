@@ -1,5 +1,5 @@
 use crate::env::ScrollStateMap;
-use fission_ir::{CoreIR, NodeId, Op, PaintOp, LayoutOp};
+use fission_ir::{CoreIR, LayoutOp, NodeId, Op, PaintOp};
 use fission_layout::{LayoutPoint, LayoutRect, LayoutSnapshot, LayoutUnit};
 
 pub fn hit_test(ir: &CoreIR, layout: &LayoutSnapshot, point: LayoutPoint) -> Option<NodeId> {
@@ -61,8 +61,7 @@ fn hit_test_recursive(
     if let Some(node) = ir.nodes.get(&node_id) {
         let mut child_point = point;
 
-        if let (Some(map), Op::Layout(LayoutOp::Scroll { direction, .. })) =
-            (scroll_map, &node.op)
+        if let (Some(map), Op::Layout(LayoutOp::Scroll { direction, .. })) = (scroll_map, &node.op)
         {
             let offset = map.get_offset(node_id);
             match direction {

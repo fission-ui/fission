@@ -4,7 +4,7 @@ use fission_core::env::VideoStateMap;
 use fission_core::lowering::{build_layout_tree, LoweringContext};
 use fission_core::{LayoutPoint, ScrollStateMap};
 use fission_ir::op::EmbedKind;
-use fission_ir::{CoreIR, NodeId};
+use fission_ir::{CoreIR, NodeId, WidgetNodeId};
 use fission_layout::{LayoutEngine, LayoutRect, LayoutSize, LayoutSnapshot};
 use fission_render::{
     BoxShadow, Color as RenderColor, DisplayList, DisplayOp, Fill, ImageFit, Renderer, Stroke,
@@ -216,10 +216,12 @@ impl Pipeline {
                 }
                 fission_ir::Op::Layout(fission_ir::LayoutOp::Embed {
                     kind: EmbedKind::Video,
+                    widget_id,
                 }) => {
-                    if let Some(state) = video_map.states.get(&node_id) {
+                    if let Some(state) = video_map.states.get(widget_id) {
                         if let Some(surface_id) = state.surface_id {
                             self.video_surfaces.push(VideoSurfaceFrame {
+                                widget_id: *widget_id,
                                 surface_id,
                                 rect: geom.rect,
                             });

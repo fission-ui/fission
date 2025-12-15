@@ -1,4 +1,6 @@
-use fission_core::{hit_test::hit_test_with_scroll, LayoutPoint, LayoutRect, LayoutSize, LayoutSnapshot, Runtime};
+use fission_core::{
+    hit_test::hit_test_with_scroll, LayoutPoint, LayoutRect, LayoutSize, LayoutSnapshot, Runtime,
+};
 use fission_ir::{CoreIR, FlexDirection, LayoutOp, NodeId, Op, PaintOp};
 use fission_layout::LayoutNodeGeometry;
 use std::collections::HashMap;
@@ -81,7 +83,12 @@ fn test_scroll_hit_test_logic() {
 
     // Case 1: No Scroll. Click at 60. Should hit Column (if not Button).
     // Button is at 150. Click at 60 misses Button.
-    let hit = hit_test_with_scroll(&ir, &snapshot, &runtime.runtime_state.scroll, LayoutPoint::new(50.0, 60.0));
+    let hit = hit_test_with_scroll(
+        &ir,
+        &snapshot,
+        &runtime.runtime_state.scroll,
+        LayoutPoint::new(50.0, 60.0),
+    );
     // Should hit column (ID 2) or Scroll (ID 1) if column is transparent?
     // Hit test returns deepest node.
     // Column contains point.
@@ -92,7 +99,12 @@ fn test_scroll_hit_test_logic() {
     // Button is at 150..170. Should hit Button.
     runtime.runtime_state.scroll.set_offset(scroll_id, 100.0);
 
-    let hit = hit_test_with_scroll(&ir, &snapshot, &runtime.runtime_state.scroll, LayoutPoint::new(50.0, 60.0));
+    let hit = hit_test_with_scroll(
+        &ir,
+        &snapshot,
+        &runtime.runtime_state.scroll,
+        LayoutPoint::new(50.0, 60.0),
+    );
 
     if hit != Some(button_id) {
         println!("Expected Button {:?}, got {:?}", button_id, hit);

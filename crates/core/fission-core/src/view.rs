@@ -1,10 +1,10 @@
 use crate::{
-    registry::VideoRegistration,
+    registry::{AnimationPropertyId, VideoRegistration},
     ui::{Button, Column, Image, Node, Row, Scroll, Text, Video},
     AppState, BuildCtx, Env, RuntimeState,
 };
-use fission_ir::NodeId;
 use fission_i18n::I18nRegistry;
+use fission_ir::WidgetNodeId;
 use fission_theme::Theme;
 
 pub struct View<'a, S: AppState> {
@@ -33,9 +33,16 @@ impl<'a, S: AppState> View<'a, S> {
         T::select(self)
     }
 
-    pub fn animation_value(&self, node_id: fission_ir::NodeId, property: &str) -> Option<f32> {
-        let key = (node_id, property.to_string());
-        self.runtime.animation.values.get(&key).copied()
+    pub fn animation_value(
+        &self,
+        widget_id: WidgetNodeId,
+        property: &AnimationPropertyId,
+    ) -> Option<f32> {
+        self.runtime
+            .animation
+            .values
+            .get(&(widget_id, property.clone()))
+            .copied()
     }
 }
 
@@ -97,7 +104,7 @@ impl<S: AppState> Widget<S> for Video {
         let mut video = self.clone();
         let id = video
             .id
-            .unwrap_or_else(|| NodeId::explicit(&video.source));
+            .unwrap_or_else(|| WidgetNodeId::explicit(&video.source));
         video.id = Some(id);
 
         ctx.register_video(VideoRegistration {

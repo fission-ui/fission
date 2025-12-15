@@ -1,8 +1,10 @@
 use crate::{Action, ActionEnvelope, ActionId, AppState, BoxedReducer};
 use anyhow::{anyhow, Result};
-use fission_ir::NodeId;
+use fission_ir::{NodeId, WidgetNodeId};
+use serde::{Deserialize, Serialize};
 use std::any::TypeId;
 use std::collections::{BTreeMap, HashMap};
+use std::sync::Arc;
 
 pub type Handler<S, A> = fn(&mut S, A);
 
@@ -76,19 +78,37 @@ impl<S: AppState> ActionRegistry<S> {
     }
 }
 
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct AnimationPropertyId(Arc<str>);
+
+impl AnimationPropertyId {
+    pub fn new(name: impl Into<String>) -> Self {
+        Self(Arc::from(name.into()))
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+#[derive(Clone, Debug)]
+pub enum AnimationStartValue {
+    Explicit(f32),
+    Current,
+}
+
 #[derive(Clone, Debug)]
 pub struct AnimationRequest {
-    pub key: String,
-    pub target: NodeId,
-    pub property: String,
-    pub from: f32,
+    pub target: WidgetNodeId,
+    pub property: AnimationPropertyId,
+    pub from: AnimationStartValue,
     pub to: f32,
     pub duration_ms: u64,
 }
 
 #[derive(Clone, Debug)]
 pub struct VideoRegistration {
-    pub node_id: NodeId,
+    pub node_id: WidgetNodeId,
     pub source: String,
     pub autoplay: bool,
     pub loop_playback: bool,

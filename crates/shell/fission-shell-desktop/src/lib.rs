@@ -6,7 +6,6 @@ use std::num::NonZeroU32;
 use std::rc::Rc;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use raw_window_handle::HasRawWindowHandle;
 use winit::{
     dpi::PhysicalPosition,
     event::{ElementState, Event, KeyEvent, MouseButton, MouseScrollDelta, WindowEvent},
@@ -22,7 +21,7 @@ use fission_core::{
     KeyEvent as FissionKeyEvent, Lower, Node, PointerButton, PointerEvent, Runtime, ScrollStateMap,
     View, Widget,
 };
-use fission_ir::{Color as IrColor, CoreIR, FlexDirection, NodeId, Op, PaintOp};
+use fission_ir::{Color as IrColor, CoreIR, FlexDirection, NodeId, Op, PaintOp, WidgetNodeId};
 use fission_layout::{LayoutEngine, LayoutInputNode, LayoutSize, LayoutSnapshot};
 use fission_render::{
     Color as RenderColor, DisplayList, LayoutPoint, LayoutRect, LayoutUnit, Renderer,
@@ -93,7 +92,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
         let env = self.env;
         let mut pipeline = self.pipeline;
         let video_backend = self.video_backend;
-        let mut players: HashMap<NodeId, Box<dyn VideoPlayer>> = HashMap::new();
+        let mut players: HashMap<WidgetNodeId, Box<dyn VideoPlayer>> = HashMap::new();
 
         let mut last_cursor_position: Option<PhysicalPosition<f64>> = None;
         let mut last_frame_time = Instant::now();
@@ -194,17 +193,17 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                         let mut ctx = BuildCtx::new();
                                         let tree = root_widget.build(&mut ctx, &view);
 
-                                    runtime.clear_reducers();
-                                    let animation_requests = ctx.take_animation_requests();
-                                    let video_nodes = ctx.take_video_registrations();
-                                    runtime.absorb_registry(ctx.registry);
-                                    for request in animation_requests {
-                                        runtime.enqueue_animation(request);
-                                    }
+                                        runtime.clear_reducers();
+                                        let animation_requests = ctx.take_animation_requests();
+                                        let video_nodes = ctx.take_video_registrations();
+                                        runtime.absorb_registry(ctx.registry);
+                                        for request in animation_requests {
+                                            runtime.enqueue_animation(request);
+                                        }
 
-                                    runtime.sync_video_nodes(&video_nodes);
-                                    tree
-                                };
+                                        runtime.sync_video_nodes(&video_nodes);
+                                        tree
+                                    };
 
                                     let mut lower_cx =
                                         LoweringContext::new(&env, &runtime.runtime_state);

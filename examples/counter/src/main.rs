@@ -5,8 +5,9 @@ use fission_core::ui::{
     Button, Column, CustomNode, Image, Node, Row, Scroll, Text, TextContent, Video,
 };
 use fission_core::{
-    op::Color as IrColor, ActionEnvelope, AnimationRequest, AppState, BuildCtx,
-    FlexDirection, LowerDyn, LoweringContext, NodeBuilder, NodeId, Selector, View, Widget,
+    op::Color as IrColor, ActionEnvelope, AnimationPropertyId, AnimationRequest,
+    AnimationStartValue, AppState, BuildCtx, FlexDirection, LowerDyn, LoweringContext, NodeBuilder,
+    NodeId, Selector, View, Widget, WidgetNodeId,
 };
 use fission_macros::Action;
 use fission_shell_desktop::DesktopApp;
@@ -15,8 +16,10 @@ use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
 lazy_static! {
-    static ref STATUS_NODE_ID: NodeId = NodeId::explicit("status_indicator");
-    static ref DEMO_VIDEO_ID: NodeId = NodeId::explicit("demo_video");
+    static ref STATUS_WIDGET_ID: WidgetNodeId = WidgetNodeId::explicit("status_indicator");
+    static ref DEMO_VIDEO_WIDGET_ID: WidgetNodeId = WidgetNodeId::explicit("demo_video");
+    static ref STATUS_PULSE_PROPERTY: AnimationPropertyId =
+        AnimationPropertyId::new("pulse_intensity");
 }
 
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -48,7 +51,7 @@ impl Selector<CounterState> for CounterVM {
 
     fn select(view: &View<CounterState>) -> Self::Output {
         let anim_val = view
-            .animation_value(*STATUS_NODE_ID, "pulse")
+            .animation_value(*STATUS_WIDGET_ID, &STATUS_PULSE_PROPERTY)
             .unwrap_or(0.0);
 
         CounterVM {
@@ -62,7 +65,7 @@ impl Selector<CounterState> for CounterVM {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct StatusIndicator {
-    id: NodeId,
+    id: WidgetNodeId,
     active: bool,
     anim_val: f32,
 }
@@ -82,14 +85,14 @@ impl Widget<CounterState> for StatusIndicator {
 
 #[derive(Debug)]
 struct StatusIndicatorLowerer {
-    id: NodeId,
+    id: WidgetNodeId,
     active: bool,
     anim_val: f32,
 }
 
 impl LowerDyn for StatusIndicatorLowerer {
     fn lower_dyn(&self, cx: &mut LoweringContext) -> NodeId {
-        let layout_id = self.id;
+        let layout_id = cx.widget_node_id(self.id);
         let base_color = if self.active {
             IrColor::GREEN
         } else {
@@ -102,7 +105,7 @@ impl LowerDyn for StatusIndicatorLowerer {
         let color = IrColor { r, g, b, a: 255 };
 
         let paint_id = NodeBuilder::new(
-            NodeId::explicit("status_anim"),
+            NodeId::derived(layout_id.as_u128(), &[1]),
             fission_core::Op::Paint(PaintOp::DrawRect {
                 fill: Some(fission_core::op::Fill { color }),
                 stroke: None,
@@ -132,10 +135,9 @@ impl Widget<CounterState> for CounterApp {
         let vm = view.select::<CounterVM>();
 
         ctx.request_animation(AnimationRequest {
-            key: format!("status-pulse-{}", vm.pulse_generation),
-            target: *STATUS_NODE_ID,
-            property: "pulse".into(),
-            from: vm.anim_val,
+            target: *STATUS_WIDGET_ID,
+            property: STATUS_PULSE_PROPERTY.clone(),
+            from: AnimationStartValue::Current,
             to: if vm.is_even { 1.0 } else { 0.0 },
             duration_ms: 250,
         });
@@ -149,7 +151,7 @@ impl Widget<CounterState> for CounterApp {
             }
             .into(),
             Video {
-                id: Some(*DEMO_VIDEO_ID),
+                id: Some(*DEMO_VIDEO_WIDGET_ID),
                 source: "docs/video1.mp4".into(),
                 width: Some(300.0),
                 height: Some(200.0),
@@ -165,7 +167,7 @@ impl Widget<CounterState> for CounterApp {
             }
             .into(),
             StatusIndicator {
-                id: *STATUS_NODE_ID,
+                id: *STATUS_WIDGET_ID,
                 active: vm.is_even,
                 anim_val: vm.anim_val,
             }
@@ -212,11 +214,11 @@ impl Widget<CounterState> for CounterApp {
                     flex_grow: 1.0,
                     ..Default::default()
                 }
-                    .into(),
+                .into(),
             )),
             ..Default::default()
         }
-            .into()
+        .into()
     }
 }
 

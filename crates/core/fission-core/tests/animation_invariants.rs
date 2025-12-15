@@ -1,23 +1,28 @@
-use fission_core::{env::ActiveAnimation, NodeId, Runtime};
+use fission_core::{env::ActiveAnimation, AnimationPropertyId, Runtime, WidgetNodeId};
 
 #[test]
 fn test_animation_tick() {
     let mut runtime = Runtime::default();
 
     // Manually add an active animation
+    let widget_id = WidgetNodeId::explicit("test_anim");
+    let property = AnimationPropertyId::new("opacity");
     runtime
         .runtime_state
         .animation
-        .active
-        .push(ActiveAnimation {
-            key: "pulse-0".into(),
-            node_id: NodeId::from_u128(1),
-            property: "opacity".into(),
+        .values
+        .insert((widget_id, property.clone()), 0.0);
+    runtime.runtime_state.animation.active.insert(
+        (widget_id, property.clone()),
+        ActiveAnimation {
+            target: widget_id,
+            property: property.clone(),
             start_value: 0.0,
             end_value: 1.0,
-            start_time: 0, // Starts at 0
+            start_time: 0,
             duration: 1000,
-        });
+        },
+    );
 
     // Tick 500ms
     runtime.tick(500).unwrap();
@@ -27,7 +32,7 @@ fn test_animation_tick() {
         .runtime_state
         .animation
         .values
-        .get(&(NodeId::from_u128(1), "opacity".into()))
+        .get(&(widget_id, property.clone()))
         .unwrap();
     assert_eq!(*val, 0.5);
 
@@ -37,7 +42,7 @@ fn test_animation_tick() {
         .runtime_state
         .animation
         .values
-        .get(&(NodeId::from_u128(1), "opacity".into()))
+        .get(&(widget_id, property))
         .unwrap();
     assert_eq!(*val, 1.0);
 

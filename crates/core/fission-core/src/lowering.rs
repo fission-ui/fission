@@ -1,6 +1,6 @@
 use crate::env::{Env, RuntimeState};
 use blake3;
-use fission_ir::{CoreIR, FlexDirection, LayoutOp, NodeId, Op, PaintOp};
+use fission_ir::{CoreIR, FlexDirection, LayoutOp, NodeId, Op, PaintOp, WidgetNodeId};
 use fission_layout::{LayoutInputNode, LayoutPoint, LayoutSize, LayoutUnit};
 use serde_json;
 use std::collections::HashMap;
@@ -27,6 +27,10 @@ impl<'a> LoweringContext<'a> {
     pub fn next_node_id(&mut self) -> NodeId {
         self.next_node_id_seed += 1;
         NodeId::derived(0, &[self.next_node_id_seed as u32])
+    }
+
+    pub fn widget_node_id(&self, widget_id: WidgetNodeId) -> NodeId {
+        widget_id.into()
     }
 
     fn insert_node(&mut self, node_id: NodeId, op: Op, children: Vec<NodeId>) {
@@ -155,9 +159,16 @@ pub fn build_layout_tree(ir: &CoreIR) -> Vec<LayoutInputNode> {
                 0.0,
                 0.0,
             ),
-            Op::Layout(LayoutOp::Embed { kind }) => {
-                (LayoutOp::Embed { kind: *kind }, None, None, 0.0, 0.0)
-            }
+            Op::Layout(LayoutOp::Embed { kind, widget_id }) => (
+                LayoutOp::Embed {
+                    kind: *kind,
+                    widget_id: *widget_id,
+                },
+                None,
+                None,
+                0.0,
+                0.0,
+            ),
 
             Op::Paint(PaintOp::DrawText { text, size, .. }) => {
                 text_content = Some(text.clone());

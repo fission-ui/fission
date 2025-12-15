@@ -1,4 +1,5 @@
 use super::semantics::Semantics;
+use super::widget_id::WidgetNodeId;
 use serde::{Deserialize, Serialize};
 
 // The fundamental operations that can be performed in the Core IR.
@@ -59,6 +60,7 @@ pub enum LayoutOp {
     },
     Embed {
         kind: EmbedKind,
+        widget_id: WidgetNodeId,
     },
     AbsoluteFill,
     Grid,

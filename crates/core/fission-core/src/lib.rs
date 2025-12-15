@@ -16,21 +16,24 @@ pub mod time;
 pub mod ui;
 pub mod view;
 
+use crate::env::ActiveAnimation;
 pub use action::{Action, ActionEnvelope, ActionId, AppState};
 pub use env::{Env, InteractionStateMap, RuntimeState, ScrollStateMap};
 pub use event::{InputEvent, KeyCode, KeyEvent, LifecycleEvent, PointerButton, PointerEvent};
 pub use fission_ir::op;
-pub use fission_ir::{EmbedKind, NodeId, Op};
+pub use fission_ir::{EmbedKind, NodeId, Op, WidgetNodeId};
 pub use fission_layout::{
     FlexDirection, LayoutOp, LayoutPoint, LayoutRect, LayoutSize, LayoutSnapshot, LayoutUnit,
 };
 use hit_test::{find_next_focus_node, hit_test, hit_test_with_scroll};
 pub use lowering::{LoweringContext, NodeBuilder};
-pub use registry::{ActionRegistry, AnimationRequest, BuildCtx, Handler, VideoRegistration};
+pub use registry::{
+    ActionRegistry, AnimationPropertyId, AnimationRequest, AnimationStartValue, BuildCtx, Handler,
+    VideoRegistration,
+};
 pub use time::{Clock, CurrentTime};
 pub use ui::{Button, Column, CustomNode, Lower, LowerDyn, Node, Row, Text};
 pub use view::{Selector, View, Widget};
-use crate::env::ActiveAnimation;
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Tick {
@@ -220,7 +223,7 @@ impl Runtime {
         let current_time = self.clock().current_time();
 
         let mut finished = Vec::new();
-        for (idx, anim) in self.runtime_state.animation.active.iter().enumerate() {
+        for ((target, property), anim) in self.runtime_state.animation.active.iter_mut() {
             let elapsed = current_time.saturating_sub(anim.start_time);
             let progress = if anim.duration == 0 {
                 1.0
@@ -231,52 +234,45 @@ impl Runtime {
             self.runtime_state
                 .animation
                 .values
-                .insert((anim.node_id, anim.property.clone()), value);
+                .insert((*target, property.clone()), value);
             if progress >= 1.0 {
-                finished.push(idx);
+                finished.push((*target, property.clone()));
             }
         }
 
-        for idx in finished.into_iter().rev() {
-            self.runtime_state.animation.active.remove(idx);
+        for key in finished {
+            self.runtime_state.animation.active.remove(&key);
         }
 
         Ok(())
     }
 
     pub fn enqueue_animation(&mut self, request: AnimationRequest) {
-        if self
-            .runtime_state
-            .animation
-            .triggered
-            .contains(&request.key)
-        {
-            return;
-        }
+        let key = (request.target, request.property.clone());
+        let current_value = self.runtime_state.animation.values.get(&key).copied();
+        let start_value = match request.from {
+            AnimationStartValue::Explicit(v) => v,
+            AnimationStartValue::Current => current_value.unwrap_or(request.to),
+        };
 
-        self.runtime_state
-            .animation
-            .triggered
-            .insert(request.key.clone());
-
-        self.runtime_state.animation.values.insert(
-            (request.target, request.property.clone()),
-            request.from,
-        );
-
-        self.runtime_state.animation.active.push(ActiveAnimation {
-            key: request.key,
-            node_id: request.target,
-            property: request.property,
-            start_value: request.from,
+        let anim = ActiveAnimation {
+            target: request.target,
+            property: request.property.clone(),
+            start_value,
             end_value: request.to,
             start_time: self.clock().current_time(),
             duration: request.duration_ms,
-        });
+        };
+
+        self.runtime_state
+            .animation
+            .values
+            .insert(key.clone(), start_value);
+        self.runtime_state.animation.active.insert(key, anim);
     }
 
     pub fn sync_video_nodes(&mut self, registrations: &[VideoRegistration]) {
-        let mut seen: HashSet<NodeId> = HashSet::new();
+        let mut seen: HashSet<WidgetNodeId> = HashSet::new();
 
         for reg in registrations {
             seen.insert(reg.node_id);
@@ -307,7 +303,9 @@ impl Runtime {
     ) -> Result<()> {
         match event {
             InputEvent::Pointer(PointerEvent::Scroll { point, delta }) => {
-                if let Some(hit_node_id) = hit_test_with_scroll(ir, layout, &self.runtime_state.scroll, point) {
+                if let Some(hit_node_id) =
+                    hit_test_with_scroll(ir, layout, &self.runtime_state.scroll, point)
+                {
                     let mut current_id = Some(hit_node_id);
                     while let Some(node_id) = current_id {
                         if let Some(node) = ir.nodes.get(&node_id) {
@@ -393,7 +391,9 @@ impl Runtime {
                 }
             }
             InputEvent::Pointer(PointerEvent::Down { point, .. }) => {
-                if let Some(hit_node_id) = hit_test_with_scroll(ir, layout, &self.runtime_state.scroll, point) {
+                if let Some(hit_node_id) =
+                    hit_test_with_scroll(ir, layout, &self.runtime_state.scroll, point)
+                {
                     let mut focus_candidate = Some(hit_node_id);
                     while let Some(node_id) = focus_candidate {
                         if let Some(node) = ir.nodes.get(&node_id) {

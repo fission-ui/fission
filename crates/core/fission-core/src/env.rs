@@ -1,9 +1,9 @@
-use crate::action::AppState;
+use crate::{action::AppState, registry::AnimationPropertyId};
 use fission_i18n::{I18nRegistry, Locale};
-use fission_ir::NodeId;
+use fission_ir::{NodeId, WidgetNodeId};
 use fission_theme::Theme;
 use serde::{Deserialize, Serialize};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 // Static environment data (Theme, I18n)
 #[derive(Clone, Debug, Default)]
@@ -24,16 +24,14 @@ pub struct RuntimeState {
 
 #[derive(Clone, Debug, Default)]
 pub struct AnimationStateMap {
-    pub values: HashMap<(NodeId, String), f32>,
-    pub active: Vec<ActiveAnimation>,
-    pub triggered: HashSet<String>,
+    pub values: HashMap<(WidgetNodeId, AnimationPropertyId), f32>,
+    pub active: HashMap<(WidgetNodeId, AnimationPropertyId), ActiveAnimation>,
 }
 
 #[derive(Clone, Debug)]
 pub struct ActiveAnimation {
-    pub key: String,
-    pub node_id: NodeId,
-    pub property: String,
+    pub target: WidgetNodeId,
+    pub property: AnimationPropertyId,
     pub start_value: f32,
     pub end_value: f32,
     pub start_time: u64,
@@ -96,7 +94,7 @@ impl InteractionStateMap {
 
 #[derive(Clone, Debug, Default)]
 pub struct VideoStateMap {
-    pub states: HashMap<NodeId, VideoState>,
+    pub states: HashMap<WidgetNodeId, VideoState>,
 }
 
 impl AppState for VideoStateMap {}

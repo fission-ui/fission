@@ -7,10 +7,10 @@ use fission_core::{
 };
 use fission_ir::{CoreIR, NodeId};
 use fission_layout::{LayoutEngine, LayoutSize, LayoutSnapshot, TextMeasurer};
-use std::collections::HashSet;
 use fission_render::{
     BoxShadow, Color, DisplayList, DisplayOp, Fill, LayoutRect, Renderer, Stroke,
 };
+use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
 
 // A mock renderer that captures the display list for inspection.

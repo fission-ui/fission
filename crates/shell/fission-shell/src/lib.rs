@@ -1,4 +1,4 @@
-use fission_ir::NodeId;
+use fission_ir::{NodeId, WidgetNodeId};
 use fission_render::LayoutRect;
 use serde::{Deserialize, Serialize};
 
@@ -12,6 +12,7 @@ pub enum Platform {
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct VideoSurfaceFrame {
+    pub widget_id: WidgetNodeId,
     pub surface_id: u64,
     pub rect: LayoutRect,
 }
