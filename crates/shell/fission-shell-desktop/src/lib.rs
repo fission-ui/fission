@@ -32,6 +32,9 @@ use fission_shell::{Platform, VideoBackend, VideoEvent, VideoPlayer};
 mod pipeline;
 use pipeline::Pipeline;
 mod video_backend;
+#[cfg(target_os = "macos")]
+use video_backend::MacVideoBackend;
+#[cfg(not(target_os = "macos"))]
 use video_backend::MockVideoBackend;
 
 pub struct DesktopApp<S: AppState, W: Widget<S>> {
@@ -40,7 +43,6 @@ pub struct DesktopApp<S: AppState, W: Widget<S>> {
     root_widget: W,
     env: Env,
     pipeline: Pipeline,
-    video_backend: Arc<dyn VideoBackend>,
     _phantom: std::marker::PhantomData<S>,
 }
 
@@ -59,7 +61,6 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
             root_widget,
             env,
             pipeline: Pipeline::new(),
-            video_backend: Arc::new(MockVideoBackend::new()),
             _phantom: std::marker::PhantomData,
         }
     }
@@ -91,7 +92,11 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
         let root_widget = self.root_widget;
         let env = self.env;
         let mut pipeline = self.pipeline;
-        let video_backend = self.video_backend;
+
+        #[cfg(target_os = "macos")]
+        let video_backend: Arc<dyn VideoBackend> = Arc::new(MacVideoBackend::new(&window));
+        #[cfg(not(target_os = "macos"))]
+        let video_backend: Arc<dyn VideoBackend> = Arc::new(MockVideoBackend::new());
         let mut players: HashMap<WidgetNodeId, Box<dyn VideoPlayer>> = HashMap::new();
 
         let mut last_cursor_position: Option<PhysicalPosition<f64>> = None;
