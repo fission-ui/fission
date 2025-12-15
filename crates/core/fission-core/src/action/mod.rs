@@ -7,7 +7,9 @@ use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_json;
 use std::any::Any;
 
-//pub mod video;
+pub mod video;
+
+pub use video::{VideoPause, VideoPlay};
 
 // ActionId is a stable, globally unique identifier for an Action type.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug, Serialize, Deserialize, PartialOrd, Ord)]

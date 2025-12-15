@@ -164,7 +164,12 @@ pub fn build_layout_tree(ir: &CoreIR) -> Vec<LayoutInputNode> {
                 let mut height = None;
                 if let Some(parent_id) = parent_map.get(id) {
                     if let Some(parent_node) = ir.nodes.get(parent_id) {
-                        if let Op::Layout(LayoutOp::Box { width: w, height: h, .. }) = parent_node.op {
+                        if let Op::Layout(LayoutOp::Box {
+                            width: w,
+                            height: h,
+                            ..
+                        }) = parent_node.op
+                        {
                             width = w;
                             height = h;
                         }

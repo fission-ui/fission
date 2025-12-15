@@ -1,5 +1,6 @@
 use anyhow;
 use fission_core::action::{Action, ActionId};
+use fission_core::env::{VideoState, VideoStatus};
 use fission_core::op::PaintOp;
 use fission_core::ui::{
     Button, Column, CustomNode, Image, Node, Row, Scroll, Text, TextContent, Video,
@@ -143,6 +144,13 @@ impl Widget<CounterState> for CounterApp {
             duration_ms: 250,
         });
 
+        let video_state: VideoState = view
+            .video_state(*DEMO_VIDEO_WIDGET_ID)
+            .cloned()
+            .unwrap_or_default();
+
+        let video_controls = ctx.video_controls(*DEMO_VIDEO_WIDGET_ID);
+
         let mut children = vec![
             Image {
                 source: "docs/fission_logo.png".into(),
@@ -164,6 +172,46 @@ impl Widget<CounterState> for CounterApp {
             Text {
                 content: TextContent::Literal(vm.label.clone()),
                 font_size: Some(24.0),
+                ..Default::default()
+            }
+            .into(),
+            Row {
+                children: vec![
+                    Button {
+                        on_press: Some(video_controls.play()),
+                        child: Some(Box::new(
+                            Text {
+                                content: TextContent::Literal("Play Video".into()),
+                                ..Default::default()
+                            }
+                            .into(),
+                        )),
+                        width: Some(140.0),
+                        ..Default::default()
+                    }
+                    .into(),
+                    Button {
+                        on_press: Some(video_controls.pause()),
+                        child: Some(Box::new(
+                            Text {
+                                content: TextContent::Literal("Pause Video".into()),
+                                ..Default::default()
+                            }
+                            .into(),
+                        )),
+                        width: Some(140.0),
+                        ..Default::default()
+                    }
+                    .into(),
+                ],
+                ..Default::default()
+            }
+            .into(),
+            Text {
+                content: TextContent::Literal(format!(
+                    "Video status: {:?} at {}ms",
+                    video_state.status, video_state.position_ms
+                )),
                 ..Default::default()
             }
             .into(),

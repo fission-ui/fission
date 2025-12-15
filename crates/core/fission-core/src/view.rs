@@ -1,4 +1,5 @@
 use crate::{
+    env::VideoState,
     registry::{AnimationPropertyId, VideoRegistration},
     ui::{Button, Column, Image, Node, Row, Scroll, Text, Video},
     AppState, BuildCtx, Env, RuntimeState,
@@ -40,6 +41,10 @@ impl<'a, S: AppState> View<'a, S> {
             .get(&(widget_id, property.clone()))
             .copied()
             .unwrap_or_else(|| property.default_value())
+    }
+
+    pub fn video_state(&self, widget_id: WidgetNodeId) -> Option<&VideoState> {
+        self.runtime.video.states.get(&widget_id)
     }
 }
 

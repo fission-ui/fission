@@ -16,6 +16,7 @@ pub mod time;
 pub mod ui;
 pub mod view;
 
+use crate::action::video::{VideoPause, VideoPlay};
 use crate::env::ActiveAnimation;
 pub use action::{Action, ActionEnvelope, ActionId, AppState};
 pub use env::{Env, InteractionStateMap, RuntimeState, ScrollStateMap};
@@ -201,6 +202,24 @@ impl Runtime {
     }
 
     pub fn dispatch(&mut self, action: ActionEnvelope, target: NodeId) -> Result<()> {
+        if action.id == VideoPlay::static_id() {
+            let cmd: VideoPlay = serde_json::from_slice(&action.payload)
+                .map_err(|e| anyhow!("Failed to deserialize VideoPlay: {}", e))?;
+            if let Some(video_state) = self.runtime_state.video.states.get_mut(&cmd.target) {
+                video_state.status = env::VideoStatus::Playing;
+            }
+            return Ok(());
+        }
+
+        if action.id == VideoPause::static_id() {
+            let cmd: VideoPause = serde_json::from_slice(&action.payload)
+                .map_err(|e| anyhow!("Failed to deserialize VideoPause: {}", e))?;
+            if let Some(video_state) = self.runtime_state.video.states.get_mut(&cmd.target) {
+                video_state.status = env::VideoStatus::Paused;
+            }
+            return Ok(());
+        }
+
         // System Actions - Removed Animate dispatch
 
         let action_id = action.id;

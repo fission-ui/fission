@@ -183,7 +183,8 @@ mod mac {
     impl VideoLayer {
         fn new(widget_id: WidgetNodeId, player: &RetainedId, ctx: &LayerContext) -> Self {
             unsafe {
-                let layer: id = msg_send![class!(AVPlayerLayer), playerLayerWithPlayer: player.as_id()];
+                let layer: id =
+                    msg_send![class!(AVPlayerLayer), playerLayerWithPlayer: player.as_id()];
                 let gravity = NSString::alloc(nil).init_str("AVLayerVideoGravityResizeAspect");
                 let () = msg_send![layer, setVideoGravity: gravity];
                 let () = msg_send![layer, setMasksToBounds: YES];
@@ -227,7 +228,10 @@ mod mac {
 
         fn register(&self, player: StrongPtr) -> u64 {
             let id = self.next_id.fetch_add(1, Ordering::Relaxed);
-            self.map.lock().unwrap().insert(id, RetainedId::from(player));
+            self.map
+                .lock()
+                .unwrap()
+                .insert(id, RetainedId::from(player));
             id
         }
 

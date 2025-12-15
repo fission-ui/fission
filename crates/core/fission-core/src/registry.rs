@@ -1,4 +1,7 @@
-use crate::{Action, ActionEnvelope, ActionId, AppState, BoxedReducer};
+use crate::{
+    action::video::{VideoPause, VideoPlay},
+    Action, ActionEnvelope, ActionId, AppState, BoxedReducer,
+};
 use anyhow::{anyhow, Result};
 use fission_ir::{NodeId, WidgetNodeId};
 use serde::{Deserialize, Serialize};
@@ -187,6 +190,10 @@ impl<S: AppState> BuildCtx<S> {
     pub fn anim_for(&mut self, target: WidgetNodeId) -> AnimCtx<'_, S> {
         AnimCtx { target, ctx: self }
     }
+
+    pub fn video_controls(&self, target: WidgetNodeId) -> VideoControlCtx {
+        VideoControlCtx { target }
+    }
 }
 
 pub struct AnimCtx<'a, S: AppState> {
@@ -201,5 +208,32 @@ impl<'a, S: AppState> AnimCtx<'a, S> {
 
     pub fn request_for(&mut self, target: WidgetNodeId, request: AnimationRequest) {
         self.ctx.request_animation_for(target, request);
+    }
+}
+
+#[derive(Clone, Copy)]
+pub struct VideoControlCtx {
+    target: WidgetNodeId,
+}
+
+impl VideoControlCtx {
+    pub fn play(&self) -> ActionEnvelope {
+        let action = VideoPlay {
+            target: self.target,
+        };
+        ActionEnvelope {
+            id: VideoPlay::static_id(),
+            payload: action.encode(),
+        }
+    }
+
+    pub fn pause(&self) -> ActionEnvelope {
+        let action = VideoPause {
+            target: self.target,
+        };
+        ActionEnvelope {
+            id: VideoPause::static_id(),
+            payload: action.encode(),
+        }
     }
 }
