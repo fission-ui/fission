@@ -50,6 +50,7 @@ mod mac {
     struct LayerContext {
         root_layer: id,
         scale_factor: f64,
+        bounds_height: f64,
     }
 
     pub struct MacVideoBackend {
@@ -91,11 +92,13 @@ mod mac {
                     1.0
                 };
                 let () = msg_send![layer, setContentsScale: scale];
-                let () = msg_send![layer, setGeometryFlipped: YES];
+
+                let bounds: CGRect = msg_send![view, bounds];
 
                 LayerContext {
                     root_layer: layer,
                     scale_factor: if scale == 0.0 { 1.0 } else { scale },
+                    bounds_height: bounds.size.height,
                 }
             }
         }
@@ -107,9 +110,10 @@ mod mac {
             ctx: &LayerContext,
         ) {
             if let Some(player) = self.registry.get(frame.surface_id) {
+                let widget_id = frame.widget_id;
                 let entry = layer_map
-                    .entry(frame.widget_id)
-                    .or_insert_with(|| VideoLayer::new(&player, ctx));
+                    .entry(widget_id)
+                    .or_insert_with(|| VideoLayer::new(widget_id, &player, ctx));
                 entry.update(&player, ctx, frame.rect);
             }
         }
@@ -172,20 +176,21 @@ mod mac {
     }
 
     struct VideoLayer {
+        widget_id: WidgetNodeId,
         layer: RetainedId,
     }
 
     impl VideoLayer {
-        fn new(player: &RetainedId, ctx: &LayerContext) -> Self {
+        fn new(widget_id: WidgetNodeId, player: &RetainedId, ctx: &LayerContext) -> Self {
             unsafe {
                 let layer: id = msg_send![class!(AVPlayerLayer), playerLayerWithPlayer: player.as_id()];
                 let gravity = NSString::alloc(nil).init_str("AVLayerVideoGravityResizeAspect");
                 let () = msg_send![layer, setVideoGravity: gravity];
                 let () = msg_send![layer, setMasksToBounds: YES];
                 let () = msg_send![layer, setContentsScale: ctx.scale_factor];
-                let () = msg_send![layer, setGeometryFlipped: YES];
                 let () = msg_send![ctx.root_layer, addSublayer: layer];
                 Self {
+                    widget_id,
                     layer: RetainedId::new(layer),
                 }
             }
@@ -196,11 +201,15 @@ mod mac {
                 let layer_id = self.layer.as_id();
                 let () = msg_send![layer_id, setContentsScale: ctx.scale_factor];
                 let () = msg_send![layer_id, setPlayer: player.as_id()];
-                let cg_rect = cg_rect_from_layout(rect, ctx.scale_factor);
+                let cg_rect = cg_rect_from_layout(rect, ctx);
                 let () = msg_send![layer_id, setFrame: cg_rect];
                 let () = msg_send![ctx.root_layer, addSublayer: layer_id];
             }
         }
+    }
+
+    fn widget_id_placeholder() -> &'static str {
+        "?"
     }
 
     struct PlayerRegistry {
@@ -325,12 +334,18 @@ mod mac {
         }
     }
 
-    fn cg_rect_from_layout(rect: LayoutRect, scale: f64) -> CGRect {
-        let inv_scale = if scale == 0.0 { 1.0 } else { 1.0 / scale };
-        CGRect::new(
-            &CGPoint::new(rect.origin.x as f64 * inv_scale, rect.origin.y as f64 * inv_scale),
-            &CGSize::new(rect.size.width as f64 * inv_scale, rect.size.height as f64 * inv_scale),
-        )
+    fn cg_rect_from_layout(rect: LayoutRect, ctx: &LayerContext) -> CGRect {
+        let inv_scale = if ctx.scale_factor == 0.0 {
+            1.0
+        } else {
+            1.0 / ctx.scale_factor
+        };
+        let width = rect.size.width as f64 * inv_scale;
+        let height = rect.size.height as f64 * inv_scale;
+        let x = rect.origin.x as f64 * inv_scale;
+        let y = rect.origin.y as f64 * inv_scale;
+        let flipped_y = ctx.bounds_height - height - y;
+        CGRect::new(&CGPoint::new(x, flipped_y), &CGSize::new(width, height))
     }
 
     #[repr(C)]

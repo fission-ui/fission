@@ -159,16 +159,29 @@ pub fn build_layout_tree(ir: &CoreIR) -> Vec<LayoutInputNode> {
                 0.0,
                 0.0,
             ),
-            Op::Layout(LayoutOp::Embed { kind, widget_id }) => (
-                LayoutOp::Embed {
-                    kind: *kind,
-                    widget_id: *widget_id,
-                },
-                None,
-                None,
-                0.0,
-                0.0,
-            ),
+            Op::Layout(LayoutOp::Embed { kind, widget_id }) => {
+                let mut width = None;
+                let mut height = None;
+                if let Some(parent_id) = parent_map.get(id) {
+                    if let Some(parent_node) = ir.nodes.get(parent_id) {
+                        if let Op::Layout(LayoutOp::Box { width: w, height: h, .. }) = parent_node.op {
+                            width = w;
+                            height = h;
+                        }
+                    }
+                }
+
+                (
+                    LayoutOp::Embed {
+                        kind: *kind,
+                        widget_id: *widget_id,
+                    },
+                    width,
+                    height,
+                    0.0,
+                    0.0,
+                )
+            }
 
             Op::Paint(PaintOp::DrawText { text, size, .. }) => {
                 text_content = Some(text.clone());
