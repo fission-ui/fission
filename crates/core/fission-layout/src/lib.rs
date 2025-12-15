@@ -209,13 +209,20 @@ impl LayoutEngine {
                     height: node.height.map(Dimension::Points).unwrap_or(Dimension::Auto),
                 };
             },
-            LayoutOp::Scroll { direction, .. } => {
+            LayoutOp::Scroll { direction, padding, .. } => {
                 style.display = Display::Flex;
                 style.flex_direction = match direction {
                     IrFlexDirection::Row => taffy::style::FlexDirection::Row,
                     IrFlexDirection::Column => taffy::style::FlexDirection::Column,
                 };
                 
+                style.padding = taffy::geometry::Rect {
+                    left: points(padding[0]),
+                    right: points(padding[1]),
+                    top: points(padding[2]),
+                    bottom: points(padding[3]),
+                };
+
                 style.size = taffy::geometry::Size {
                     width: Dimension::Auto,
                     height: Dimension::Auto,

@@ -16,16 +16,20 @@ use anyhow::Result;
 use fission_shell::Platform;
 use fission_render::{Renderer, DisplayList, LayoutRect, LayoutPoint, LayoutUnit, Color as RenderColor};
 use fission_render_skia::{SkiaRenderer, SkiaTextMeasurer};
-use fission_core::{Runtime, Clock, Action, ActionId, AppState, BuildCtx, Env, InputEvent, PointerEvent, PointerButton, Widget, View, Node, Lower, ScrollStateMap, KeyCode, KeyEvent as FissionKeyEvent};
+use fission_core::{Runtime, Clock, Action, ActionId, AppState, BuildCtx, Env, InputEvent, PointerEvent, PointerButton, Widget, View, Node, Lower, ScrollStateMap, KeyCode, KeyEvent as FissionKeyEvent, VideoStateMap, VideoStatus};
 use fission_core::lowering::{build_layout_tree, LoweringContext};
 use fission_layout::{LayoutEngine, LayoutSize, LayoutInputNode, LayoutSnapshot};
 use fission_ir::{NodeId, Op, PaintOp, Color as IrColor, FlexDirection, CoreIR};
+
+mod pipeline;
+use pipeline::Pipeline;
 
 pub struct DesktopApp<S: AppState, W: Widget<S>> {
     runtime: Runtime,
     layout_engine: LayoutEngine,
     root_widget: W,
     env: Env,
+    pipeline: Pipeline,
     _phantom: std::marker::PhantomData<S>,
 }
 
@@ -43,6 +47,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
             layout_engine,
             root_widget,
             env,
+            pipeline: Pipeline::new(),
             _phantom: std::marker::PhantomData,
         }
     }
@@ -62,22 +67,24 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
         window.request_redraw();
 
         let mut runtime = self.runtime;
-        let mut layout_engine = self.layout_engine;
+        let layout_engine = self.layout_engine;
         let root_widget = self.root_widget;
         let env = self.env;
+        let mut pipeline = self.pipeline;
 
-        let mut last_ir: Option<CoreIR> = None;
-        let mut last_snapshot: Option<LayoutSnapshot> = None;
         let mut last_cursor_position: Option<PhysicalPosition<f64>> = None;
         let mut last_frame_time = Instant::now();
 
         event_loop.run(move |event, elwt| {
-            // Default to Wait to save CPU
             elwt.set_control_flow(ControlFlow::Wait);
 
             match event {
                 Event::AboutToWait => {
-                    let has_animations = !runtime.runtime_state.animation.active.is_empty();
+                    let video_playing = runtime.get_app_state::<VideoStateMap>()
+                        .map(|m| m.states.values().any(|s| s.status == VideoStatus::Playing))
+                        .unwrap_or(false);
+                    
+                    let has_animations = !runtime.runtime_state.animation.active.is_empty() || video_playing;
                     
                     if has_animations {
                         let now = Instant::now();
@@ -91,8 +98,6 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                             }
                         }
                         window.request_redraw();
-                        
-                        // Target ~60 FPS for animation
                         elwt.set_control_flow(ControlFlow::WaitUntil(Instant::now() + Duration::from_millis(16)));
                     } else {
                         last_frame_time = Instant::now();
@@ -110,7 +115,6 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                 let layout_width = size.width as f32;
                                 let layout_height = size.height as f32;
 
-                                // 1. Build Phase
                                 let node_tree = {
                                     let state = runtime.get_app_state::<S>().unwrap();
                                     let view = View::new(state, &runtime.runtime_state, &env);
@@ -122,129 +126,13 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                     tree
                                 };
 
-                                // 3. Lowering Phase
                                 let mut lower_cx = LoweringContext::new(&env, &runtime.runtime_state);
                                 let root_id = node_tree.lower(&mut lower_cx);
                                 lower_cx.ir.root = Some(root_id); 
                                 let cx_ir = lower_cx.ir;
                                 
-                                let layout_input_nodes = build_layout_tree(&cx_ir);
-
                                 let viewport = LayoutSize { width: layout_width, height: layout_height };
-                                let snapshot = layout_engine.compute_layout(&layout_input_nodes, root_id, viewport).unwrap();
-
-                                let mut display_list = DisplayList::new(fission_render::LayoutRect::new(0.0, 0.0, layout_width, layout_height));
-                                let scroll_map = &runtime.runtime_state.scroll;
-
-                                if let Some(root_id) = cx_ir.root {
-                                    fn generate_display_list(
-                                        node_id: fission_ir::NodeId,
-                                        ir: &fission_ir::CoreIR,
-                                        snapshot: &fission_layout::LayoutSnapshot,
-                                        scroll_map: &ScrollStateMap,
-                                        list: &mut DisplayList
-                                    ) {
-                                        if let Some(geom) = snapshot.nodes.get(&node_id) {
-                                            if let Some(node) = ir.nodes.get(&node_id) {
-                                                let mut pushed_clip = false;
-
-                                                match &node.op {
-                                                    fission_ir::Op::Layout(fission_ir::LayoutOp::Scroll { .. }) => {
-                                                        let offset = scroll_map.get_offset(node_id);
-                                                        list.push(fission_render::DisplayOp::Save);
-                                                        list.push(fission_render::DisplayOp::ClipRect(geom.rect));
-                                                        list.push(fission_render::DisplayOp::Translate(LayoutPoint::new(0.0, -offset)));
-                                                        pushed_clip = true;
-                                                    },
-                                                    fission_ir::Op::Paint(fission_ir::PaintOp::DrawRect { fill, stroke, corner_radius, shadow }) => {
-                                                        list.push(fission_render::DisplayOp::DrawRect { 
-                                                            rect: geom.rect,
-                                                            fill: fill.map(|f| fission_render::Fill { color: RenderColor { r: f.color.r, g: f.color.g, b: f.color.b, a: f.color.a } }),
-                                                            stroke: stroke.map(|s| fission_render::Stroke { color: RenderColor { r: s.color.r, g: s.color.g, b: s.color.b, a: s.color.a }, width: s.width }),
-                                                            corner_radius: *corner_radius,
-                                                            shadow: shadow.map(|s| fission_render::BoxShadow { 
-                                                                color: RenderColor { r: s.color.r, g: s.color.g, b: s.color.b, a: s.color.a }, 
-                                                                blur_radius: s.blur_radius, 
-                                                                offset: s.offset 
-                                                            }),
-                                                            bounds: geom.rect,
-                                                            node_id: Some(node_id),
-                                                        });
-                                                    },
-                                                    fission_ir::Op::Paint(fission_ir::PaintOp::DrawText { text, size, color }) => {
-                                                        list.push(fission_render::DisplayOp::DrawText { 
-                                                            text: text.clone(),
-                                                            position: geom.rect.origin, 
-                                                            size: *size,
-                                                            color: RenderColor { r: color.r, g: color.g, b: color.b, a: color.a },
-                                                            bounds: geom.rect,
-                                                            node_id: Some(node_id),
-                                                        });
-                                                    },
-                                                    fission_ir::Op::Paint(fission_ir::PaintOp::DrawImage { source, fit }) => {
-                                                        list.push(fission_render::DisplayOp::DrawImage { 
-                                                            rect: geom.rect,
-                                                            source: source.clone(),
-                                                            fit: match fit {
-                                                                fission_ir::op::ImageFit::Contain => fission_render::ImageFit::Contain,
-                                                                fission_ir::op::ImageFit::Cover => fission_render::ImageFit::Cover,
-                                                                fission_ir::op::ImageFit::Fill => fission_render::ImageFit::Fill,
-                                                                fission_ir::op::ImageFit::None => fission_render::ImageFit::None,
-                                                            },
-                                                            bounds: geom.rect,
-                                                            node_id: Some(node_id),
-                                                        });
-                                                    },
-                                                    _ => {}
-                                                }
-
-                                                for child in &node.children {
-                                                    generate_display_list(*child, ir, snapshot, scroll_map, list);
-                                                }
-
-                                                if pushed_clip {
-                                                    list.push(fission_render::DisplayOp::Restore);
-                                                    
-                                                    if let fission_ir::Op::Layout(fission_ir::LayoutOp::Scroll { show_scrollbar: true, .. }) = &node.op {
-                                                        let viewport_h = geom.rect.height();
-                                                        let content_h = geom.content_size.height;
-                                                        
-                                                        if content_h > viewport_h {
-                                                            let offset = scroll_map.get_offset(node_id);
-                                                            let ratio = viewport_h / content_h;
-                                                            let thumb_h = (viewport_h * ratio).max(20.0);
-                                                            
-                                                            // Thumb position (relative to viewport)
-                                                            let max_scroll = content_h - viewport_h;
-                                                            let scroll_fraction = if max_scroll > 0.0 { offset / max_scroll } else { 0.0 };
-                                                            let available_track = viewport_h - thumb_h;
-                                                            let thumb_y = available_track * scroll_fraction.clamp(0.0, 1.0);
-                                                            
-                                                            let thumb_rect = fission_render::LayoutRect::new(
-                                                                geom.rect.right() - 8.0, 
-                                                                geom.rect.y() + thumb_y,
-                                                                6.0,
-                                                                thumb_h
-                                                            );
-                                                            
-                                                            list.push(fission_render::DisplayOp::DrawRect {
-                                                                rect: thumb_rect,
-                                                                fill: Some(fission_render::Fill { color: RenderColor { r: 0, g: 0, b: 0, a: 100 } }),
-                                                                stroke: None,
-                                                                corner_radius: 3.0,
-                                                                shadow: None,
-                                                                bounds: thumb_rect,
-                                                                node_id: None,
-                                                            });
-                                                        }
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
-                                    generate_display_list(root_id, &cx_ir, &snapshot, scroll_map, &mut display_list);
-                                }
-
+                                
                                 let image_info = skia_safe::ImageInfo::new(
                                     (size.width as i32, size.height as i32),
                                     ColorType::BGRA8888, 
@@ -261,20 +149,29 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                 ) {
                                     let canvas = sk_surface.canvas();
                                     let mut renderer = SkiaRenderer::new(canvas);
-                                    renderer.render(&display_list).unwrap();
+                                    
+                                    let video_map = runtime.get_app_state::<VideoStateMap>().unwrap();
+
+                                    if let Err(e) = pipeline.render(
+                                        cx_ir,
+                                        viewport,
+                                        &layout_engine,
+                                        &runtime.runtime_state.scroll,
+                                        video_map,
+                                        &mut renderer
+                                    ) {
+                                        eprintln!("Render pipeline error: {:?}", e);
+                                    }
                                 } else {
                                     eprintln!("Failed to wrap pixels");
                                 }
-                                
-                                last_ir = Some(cx_ir);
-                                last_snapshot = Some(snapshot);
 
                                 buffer.present().unwrap();
                             }
                         }
                         WindowEvent::CursorMoved { position, .. } => {
                             last_cursor_position = Some(position);
-                            if let (Some(ir), Some(snapshot)) = (last_ir.as_ref(), last_snapshot.as_ref()) {
+                            if let (Some(ir), Some(snapshot)) = (&pipeline.prev_ir, &pipeline.prev_snapshot) {
                                 let point = LayoutPoint::new(position.x as f32, position.y as f32);
                                 let event = InputEvent::Pointer(PointerEvent::Move { point });
                                 if let Ok(_) = runtime.handle_input(event, ir, snapshot) {
@@ -286,8 +183,8 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                             if let Some(pointer_button) = map_mouse_button(button) {
                                 if let (Some(position), Some(ir), Some(snapshot)) = (
                                     last_cursor_position.as_ref(),
-                                    last_ir.as_ref(),
-                                    last_snapshot.as_ref(),
+                                    &pipeline.prev_ir,
+                                    &pipeline.prev_snapshot,
                                 ) {
                                     if let Some(input_event) = build_pointer_event(
                                         state,
@@ -307,7 +204,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                 MouseScrollDelta::PixelDelta(pos) => LayoutPoint::new(-pos.x as f32, -pos.y as f32),
                             };
                             
-                            if let (Some(cursor_pos), Some(ir), Some(snapshot)) = (last_cursor_position, last_ir.as_ref(), last_snapshot.as_ref()) {
+                            if let (Some(cursor_pos), Some(ir), Some(snapshot)) = (last_cursor_position, &pipeline.prev_ir, &pipeline.prev_snapshot) {
                                 let point = LayoutPoint::new(cursor_pos.x as f32, cursor_pos.y as f32);
                                 let event = InputEvent::Pointer(PointerEvent::Scroll { point, delta: delta_point });
                                 
@@ -331,7 +228,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                     FissionKeyEvent::Up { key_code: code, modifiers: 0 }
                                 };
                                 
-                                if let (Some(ir), Some(snapshot)) = (last_ir.as_ref(), last_snapshot.as_ref()) {
+                                if let (Some(ir), Some(snapshot)) = (&pipeline.prev_ir, &pipeline.prev_snapshot) {
                                     if let Ok(_) = runtime.handle_input(InputEvent::Keyboard(fission_event), ir, snapshot) {
                                         window.request_redraw();
                                     }

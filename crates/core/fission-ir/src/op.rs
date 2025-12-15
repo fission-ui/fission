@@ -40,7 +40,7 @@ pub enum LayoutOp {
     Box { 
         width: Option<LayoutUnit>,
         height: Option<LayoutUnit>,
-        padding: [LayoutUnit; 4], // [left, right, top, bottom]
+        padding: [LayoutUnit; 4], 
     },
     Flex {
         direction: FlexDirection,
@@ -49,8 +49,11 @@ pub enum LayoutOp {
         padding: [LayoutUnit; 4],
     },
     Scroll {
-        direction: FlexDirection, // Axis
+        direction: FlexDirection, 
         show_scrollbar: bool,
+        width: Option<LayoutUnit>,
+        height: Option<LayoutUnit>,
+        padding: [LayoutUnit; 4],
     },
     Embed {
         kind: EmbedKind,

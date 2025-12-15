@@ -1,13 +1,13 @@
 pub mod node_id;
 pub mod op;
-pub mod semantics; // New module
+pub mod semantics;
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 pub use node_id::NodeId;
 pub use op::{Op, StructuralOp, LayoutOp, PaintOp, FlexDirection, Color};
-pub use semantics::{Role, Semantics, ActionSet, ActionEntry}; // Added ActionEntry
+pub use semantics::{Role, Semantics, ActionSet, ActionEntry};
 
 pub const IR_VERSION: u32 = 1;
 
@@ -17,6 +17,7 @@ pub struct CoreNode {
     pub op: Op,
     pub children: Vec<NodeId>,
     pub parent: Option<NodeId>,
+    pub hash: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
@@ -31,16 +32,15 @@ impl CoreIR {
     }
 
     pub fn add_node(&mut self, id: NodeId, op: Op, children: Vec<NodeId>) {
-        // Store the node
         let mut core_node = CoreNode {
             id,
             op,
             children: children.clone(),
-            parent: None, 
+            parent: None,
+            hash: 0,
         };
         self.nodes.insert(id, core_node);
 
-        // Update parent pointers in children
         for child_id in children {
             if let Some(child_node) = self.nodes.get_mut(&child_id) {
                 child_node.parent = Some(id);

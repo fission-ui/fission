@@ -5,6 +5,8 @@ use fission_layout::{
 use crate::env::{Env, RuntimeState}; 
 use std::fmt::Debug;
 use std::collections::HashMap;
+use blake3;
+use serde_json;
 
 // Context passed down during the lowering phase.
 pub struct LoweringContext<'a> {
@@ -30,7 +32,30 @@ impl<'a> LoweringContext<'a> {
     }
 
     pub fn add_node(&mut self, node_id: NodeId, op: Op, children: Vec<NodeId>) {
+        let mut hasher = blake3::Hasher::new();
+        // Hash Op
+        if let Ok(op_bytes) = serde_json::to_vec(&op) {
+            hasher.update(&op_bytes);
+        } else {
+            panic!("Failed to serialize op for hashing: {:?}", op);
+        }
+        
+        // Hash Children Hashes (Merkle)
+        for child_id in &children {
+            if let Some(child) = self.ir.nodes.get(child_id) {
+                hasher.update(&child.hash.to_le_bytes());
+            } else {
+            }
+        }
+        
+        let hash_bytes = hasher.finalize();
+        let hash = u64::from_le_bytes(hash_bytes.as_bytes()[0..8].try_into().unwrap());
+
         self.ir.add_node(node_id, op, children);
+        
+        if let Some(node) = self.ir.nodes.get_mut(&node_id) {
+            node.hash = hash;
+        }
     }
 }
 
@@ -51,7 +76,8 @@ pub fn build_layout_tree(ir: &CoreIR) -> Vec<LayoutInputNode> {
         let (layout_op_variant, width, height, flex_grow, flex_shrink) = match &node.op {
             Op::Layout(LayoutOp::Box { width, height, padding }) => (LayoutOp::Box { width: *width, height: *height, padding: *padding }, *width, *height, 0.0, 0.0),
             Op::Layout(LayoutOp::Flex { direction, flex_grow, flex_shrink, padding }) => (LayoutOp::Flex { direction: *direction, flex_grow: *flex_grow, flex_shrink: *flex_shrink, padding: *padding }, None, None, *flex_grow, *flex_shrink),
-            Op::Layout(LayoutOp::Scroll { direction, show_scrollbar }) => (LayoutOp::Scroll { direction: *direction, show_scrollbar: *show_scrollbar }, None, None, 0.0, 0.0),
+            Op::Layout(LayoutOp::Scroll { direction, show_scrollbar, width, height, padding }) => (LayoutOp::Scroll { direction: *direction, show_scrollbar: *show_scrollbar, width: *width, height: *height, padding: *padding }, *width, *height, 0.0, 0.0),
+            Op::Layout(LayoutOp::Embed { kind }) => (LayoutOp::Embed { kind: *kind }, None, None, 0.0, 0.0),
             
             Op::Paint(PaintOp::DrawText { text, size, .. }) => {
                 text_content = Some(text.clone());
