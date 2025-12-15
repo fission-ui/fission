@@ -6,7 +6,7 @@ fn test_animation_tick() {
 
     // Manually add an active animation
     let widget_id = WidgetNodeId::explicit("test_anim");
-    let property = AnimationPropertyId::new("opacity");
+    let property = AnimationPropertyId::opacity();
     runtime
         .runtime_state
         .animation

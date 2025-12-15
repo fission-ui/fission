@@ -33,16 +33,13 @@ impl<'a, S: AppState> View<'a, S> {
         T::select(self)
     }
 
-    pub fn animation_value(
-        &self,
-        widget_id: WidgetNodeId,
-        property: &AnimationPropertyId,
-    ) -> Option<f32> {
+    pub fn animation_value(&self, widget_id: WidgetNodeId, property: &AnimationPropertyId) -> f32 {
         self.runtime
             .animation
             .values
             .get(&(widget_id, property.clone()))
             .copied()
+            .unwrap_or_else(|| property.default_value())
     }
 }
 

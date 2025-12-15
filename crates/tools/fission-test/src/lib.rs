@@ -127,7 +127,13 @@ impl<S: AppState> TestHarness<S> {
                 let tree = root.build(&mut ctx, &view);
 
                 self.runtime.clear_reducers();
+                let animation_requests = ctx.take_animation_requests();
+                let video_nodes = ctx.take_video_registrations();
                 self.runtime.absorb_registry(ctx.registry);
+                for (target, request) in animation_requests {
+                    self.runtime.enqueue_animation(target, request);
+                }
+                self.runtime.sync_video_nodes(&video_nodes);
                 tree
             };
 

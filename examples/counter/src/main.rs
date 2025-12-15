@@ -19,7 +19,7 @@ lazy_static! {
     static ref STATUS_WIDGET_ID: WidgetNodeId = WidgetNodeId::explicit("status_indicator");
     static ref DEMO_VIDEO_WIDGET_ID: WidgetNodeId = WidgetNodeId::explicit("demo_video");
     static ref STATUS_PULSE_PROPERTY: AnimationPropertyId =
-        AnimationPropertyId::new("pulse_intensity");
+        AnimationPropertyId::custom("pulse_intensity");
 }
 
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -50,9 +50,7 @@ impl Selector<CounterState> for CounterVM {
     type Output = CounterVM;
 
     fn select(view: &View<CounterState>) -> Self::Output {
-        let anim_val = view
-            .animation_value(*STATUS_WIDGET_ID, &STATUS_PULSE_PROPERTY)
-            .unwrap_or(0.0);
+        let anim_val = view.animation_value(*STATUS_WIDGET_ID, &STATUS_PULSE_PROPERTY);
 
         CounterVM {
             label: format!("Count: {}", view.state.value),
@@ -134,8 +132,7 @@ impl Widget<CounterState> for CounterApp {
     fn build(&self, ctx: &mut BuildCtx<CounterState>, view: &View<CounterState>) -> Node {
         let vm = view.select::<CounterVM>();
 
-        ctx.request_animation(AnimationRequest {
-            target: *STATUS_WIDGET_ID,
+        ctx.anim_for(*STATUS_WIDGET_ID).request(AnimationRequest {
             property: STATUS_PULSE_PROPERTY.clone(),
             from: AnimationStartValue::Current,
             to: if vm.is_even { 1.0 } else { 0.0 },

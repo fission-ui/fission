@@ -247,16 +247,22 @@ impl Runtime {
         Ok(())
     }
 
-    pub fn enqueue_animation(&mut self, request: AnimationRequest) {
-        let key = (request.target, request.property.clone());
-        let current_value = self.runtime_state.animation.values.get(&key).copied();
+    pub fn enqueue_animation(&mut self, target: WidgetNodeId, request: AnimationRequest) {
+        let key = (target, request.property.clone());
+        let current_value = self
+            .runtime_state
+            .animation
+            .values
+            .get(&key)
+            .copied()
+            .unwrap_or_else(|| request.property.default_value());
         let start_value = match request.from {
             AnimationStartValue::Explicit(v) => v,
-            AnimationStartValue::Current => current_value.unwrap_or(request.to),
+            AnimationStartValue::Current => current_value,
         };
 
         let anim = ActiveAnimation {
-            target: request.target,
+            target,
             property: request.property.clone(),
             start_value,
             end_value: request.to,

@@ -197,8 +197,8 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                         let animation_requests = ctx.take_animation_requests();
                                         let video_nodes = ctx.take_video_registrations();
                                         runtime.absorb_registry(ctx.registry);
-                                        for request in animation_requests {
-                                            runtime.enqueue_animation(request);
+                                        for (target, request) in animation_requests {
+                                            runtime.enqueue_animation(target, request);
                                         }
 
                                         runtime.sync_video_nodes(&video_nodes);

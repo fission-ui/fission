@@ -79,15 +79,46 @@ impl<S: AppState> ActionRegistry<S> {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub struct AnimationPropertyId(Arc<str>);
+pub enum AnimationPropertyId {
+    Opacity,
+    TranslateX,
+    TranslateY,
+    Scale,
+    Rotation,
+    Custom(Arc<str>),
+}
 
 impl AnimationPropertyId {
-    pub fn new(name: impl Into<String>) -> Self {
-        Self(Arc::from(name.into()))
+    pub fn opacity() -> Self {
+        Self::Opacity
     }
 
-    pub fn as_str(&self) -> &str {
-        &self.0
+    pub fn translate_x() -> Self {
+        Self::TranslateX
+    }
+
+    pub fn translate_y() -> Self {
+        Self::TranslateY
+    }
+
+    pub fn scale() -> Self {
+        Self::Scale
+    }
+
+    pub fn rotation() -> Self {
+        Self::Rotation
+    }
+
+    pub fn custom(name: impl Into<String>) -> Self {
+        Self::Custom(Arc::from(name.into()))
+    }
+
+    pub fn default_value(&self) -> f32 {
+        match self {
+            Self::Opacity => 1.0,
+            Self::Scale => 1.0,
+            Self::TranslateX | Self::TranslateY | Self::Rotation | Self::Custom(_) => 0.0,
+        }
     }
 }
 
@@ -99,7 +130,6 @@ pub enum AnimationStartValue {
 
 #[derive(Clone, Debug)]
 pub struct AnimationRequest {
-    pub target: WidgetNodeId,
     pub property: AnimationPropertyId,
     pub from: AnimationStartValue,
     pub to: f32,
@@ -116,7 +146,7 @@ pub struct VideoRegistration {
 
 pub struct BuildCtx<S: AppState> {
     pub registry: ActionRegistry<S>,
-    pub animation_requests: Vec<AnimationRequest>,
+    pub animation_requests: Vec<(WidgetNodeId, AnimationRequest)>,
     pub video_nodes: Vec<VideoRegistration>,
 }
 
@@ -138,19 +168,38 @@ impl<S: AppState> BuildCtx<S> {
         }
     }
 
-    pub fn request_animation(&mut self, request: AnimationRequest) {
-        self.animation_requests.push(request);
+    pub fn request_animation_for(&mut self, target: WidgetNodeId, request: AnimationRequest) {
+        self.animation_requests.push((target, request));
     }
 
     pub fn register_video(&mut self, registration: VideoRegistration) {
         self.video_nodes.push(registration);
     }
 
-    pub fn take_animation_requests(&mut self) -> Vec<AnimationRequest> {
+    pub fn take_animation_requests(&mut self) -> Vec<(WidgetNodeId, AnimationRequest)> {
         std::mem::take(&mut self.animation_requests)
     }
 
     pub fn take_video_registrations(&mut self) -> Vec<VideoRegistration> {
         std::mem::take(&mut self.video_nodes)
+    }
+
+    pub fn anim_for(&mut self, target: WidgetNodeId) -> AnimCtx<'_, S> {
+        AnimCtx { target, ctx: self }
+    }
+}
+
+pub struct AnimCtx<'a, S: AppState> {
+    target: WidgetNodeId,
+    ctx: &'a mut BuildCtx<S>,
+}
+
+impl<'a, S: AppState> AnimCtx<'a, S> {
+    pub fn request(&mut self, request: AnimationRequest) {
+        self.ctx.request_animation_for(self.target, request);
+    }
+
+    pub fn request_for(&mut self, target: WidgetNodeId, request: AnimationRequest) {
+        self.ctx.request_animation_for(target, request);
     }
 }
