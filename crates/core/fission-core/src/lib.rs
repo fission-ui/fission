@@ -102,6 +102,122 @@ impl Default for Runtime {
 }
 
 impl Runtime {
+    fn approx_text_width(s: &str, font_size: f32) -> f32 {
+        // Simple heuristic to align with SkiaTextMeasurer (len * size * 0.6)
+        (s.chars().count() as f32) * font_size * 0.6
+    }
+
+    fn find_scroll_row_and_text(ir: &CoreIR, root: NodeId) -> Option<(NodeId, NodeId)> {
+        // Find first Row scroll + the DrawText under it (main text, not placeholder).
+        let mut stack = vec![root];
+        while let Some(id) = stack.pop() {
+            if let Some(n) = ir.nodes.get(&id) {
+                if let Op::Layout(op::LayoutOp::Scroll { direction, .. }) = &n.op {
+                    if *direction == op::FlexDirection::Row {
+                        // Find text paint inside this scroll subtree
+                        let mut q = vec![id];
+                        while let Some(cid) = q.pop() {
+                            if let Some(cn) = ir.nodes.get(&cid) {
+                                if let Op::Paint(fission_ir::PaintOp::DrawText { .. }) = cn.op {
+                                    return Some((id, cid));
+                                }
+                                for &gc in &cn.children { q.push(gc); }
+                            }
+                        }
+                        return None;
+                    }
+                }
+                for &c in &n.children { stack.push(c); }
+            }
+        }
+        None
+    }
+
+    fn find_caret_in_scroll(ir: &CoreIR, scroll_id: NodeId) -> Option<NodeId> {
+        let mut q = vec![scroll_id];
+        while let Some(id) = q.pop() {
+            if let Some(n) = ir.nodes.get(&id) {
+                // Identify caret: a narrow Box(width=~2.0) that has a single DrawRect child
+                if let Op::Layout(op::LayoutOp::Box { width: Some(w), .. }) = &n.op {
+                    if (*w - 2.0).abs() < 0.01 {
+                        // Check child paint
+                        let mut has_paint = false;
+                        for &cid in &n.children {
+                            if let Some(cn) = ir.nodes.get(&cid) {
+                                if let Op::Paint(fission_ir::PaintOp::DrawRect { .. }) = cn.op {
+                                    has_paint = true;
+                                    break;
+                                }
+                            }
+                        }
+                        if has_paint { return Some(id); }
+                    }
+                }
+                for &c in &n.children { q.push(c); }
+            }
+        }
+        None
+    }
+
+    fn auto_scroll_textinput(&mut self, text_root: NodeId, ir: &CoreIR, layout: &LayoutSnapshot) {
+        if let Some((scroll_id, text_id)) = Self::find_scroll_row_and_text(ir, text_root) {
+            if let (Some(scroll_geom), Some(text_geom)) = (layout.get_node_geometry(scroll_id), layout.get_node_geometry(text_id)) {
+                let viewport_x = scroll_geom.rect.origin.x;
+                let viewport_w = scroll_geom.rect.size.width;
+                let content_w = scroll_geom.content_size.width.max(viewport_w);
+                let caret_abs_x = text_geom.rect.origin.x + text_geom.rect.size.width;
+                let mut offset = self.runtime_state.scroll.get_offset(scroll_id);
+                let caret_margin = 2.0f32;
+                let visible_rel_x = (caret_abs_x - offset) - viewport_x;
+                let offset_before = offset;
+                if visible_rel_x > (viewport_w - caret_margin) {
+                    offset = (caret_abs_x - (viewport_x + viewport_w - caret_margin)).max(0.0);
+                } else if visible_rel_x < 0.0 {
+                    offset = (caret_abs_x - (viewport_x + caret_margin)).max(0.0);
+                }
+                let max_offset = (content_w - viewport_w).max(0.0);
+                offset = offset.clamp(0.0, max_offset);
+                self.runtime_state.scroll.set_offset(scroll_id, offset);
+
+                // Emit targeted diagnostic to understand caret/viewport dynamics.
+                let text_len = if let Some(node) = ir.nodes.get(&text_id) {
+                    if let Op::Paint(fission_ir::PaintOp::DrawText { text, .. }) = &node.op { text.len() as u32 } else { 0 }
+                } else { 0 };
+                let line_h = text_geom.rect.size.height;
+                let (caret_left, caret_gap) = if let Some(caret_id) = Self::find_caret_in_scroll(ir, scroll_id) {
+                    if let Some(cg) = layout.get_node_geometry(caret_id) {
+                        let left = cg.rect.origin.x;
+                        (left, left - caret_abs_x)
+                    } else { (0.0, 0.0) }
+                } else { (0.0, 0.0) };
+                diag::emit(
+                    diag::DiagCategory::Layout,
+                    diag::DiagLevel::Debug,
+                    diag::DiagEventKind::TextInputAutoScroll {
+                        scroll_id: scroll_id.as_u128(),
+                        text_id: text_id.as_u128(),
+                        text_len,
+                        measured_w: text_geom.rect.size.width,
+                        line_h,
+                        viewport_x,
+                        viewport_w,
+                        content_w,
+                        caret_abs_x,
+                        offset_before,
+                        offset_after: offset,
+                    },
+                );
+                // Also emit as input event when a non-zero gap is observed (debug)
+                if caret_gap.abs() > 0.5 {
+                    diag::emit(
+                        diag::DiagCategory::Input,
+                        diag::DiagLevel::Debug,
+                        diag::DiagEventKind::InputEvent { kind: format!("caret_gap: {:.2} (caret_left={:.2} caret_abs_x={:.2})", caret_gap, caret_left, caret_abs_x), target: Some(scroll_id.as_u128()), position: None },
+                    );
+                }
+            }
+        }
+    }
     pub fn register_base_reducers(&mut self) {
         self.register_reducer::<Clock>(
             *TICK_ACTION_ID,
@@ -401,14 +517,18 @@ impl Runtime {
                     let mut current_id = Some(hit_node_id);
                     while let Some(node_id) = current_id {
                         if let Some(node) = ir.nodes.get(&node_id) {
-                            if let Op::Layout(op::LayoutOp::Scroll { .. }) = &node.op {
+                            if let Op::Layout(op::LayoutOp::Scroll { direction, .. }) = &node.op {
                                 let current_offset = self.runtime_state.scroll.get_offset(node_id);
-                                let mut new_offset = current_offset + delta.y; // Assuming vertical scroll
+                                let delta_val = match direction { op::FlexDirection::Row => delta.x, op::FlexDirection::Column => delta.y };
+                                let mut new_offset = current_offset + delta_val;
 
                                 // Clamping logic
                                 if let Some(geom) = layout.get_node_geometry(node_id) {
-                                    let max_offset =
-                                        (geom.content_size.height - geom.rect.height()).max(0.0);
+                                    let max_offset = if matches!(direction, op::FlexDirection::Row) {
+                                        (geom.content_size.width - geom.rect.width()).max(0.0)
+                                    } else {
+                                        (geom.content_size.height - geom.rect.height()).max(0.0)
+                                    };
                                     new_offset = new_offset.clamp(0.0, max_offset);
                                 }
 
@@ -428,8 +548,10 @@ impl Runtime {
             }) => match key_code {
                 KeyCode::Tab => {
                     let reverse = (modifiers & 1) != 0;
-                    let next =
-                        find_next_focus_node(ir, self.runtime_state.interaction.focused, reverse);
+                    let next = find_next_focus_node(ir, self.runtime_state.interaction.focused, reverse);
+                    if next != self.runtime_state.interaction.focused {
+                        self.runtime_state.ime_preedit = None;
+                    }
                     self.runtime_state.interaction.set_focused(next);
                 }
                 KeyCode::Enter | KeyCode::Space => {
@@ -471,7 +593,10 @@ impl Runtime {
                                                 id: ActionId::from_u128(action_entry.action_id),
                                                 payload,
                                             };
-                                            return self.dispatch(envelope, node_id);
+                                            let res = self.dispatch(envelope, node_id);
+                                            // Auto-scroll to keep caret visible using measured geometry
+                                            self.auto_scroll_textinput(node_id, ir, layout);
+                                            return res;
                                         }
                                     }
                                 }
@@ -499,7 +624,9 @@ impl Runtime {
                                                 id: ActionId::from_u128(action_entry.action_id),
                                                 payload,
                                             };
-                                            return self.dispatch(envelope, node_id);
+                                            let res = self.dispatch(envelope, node_id);
+                                            self.auto_scroll_textinput(node_id, ir, layout);
+                                            return res;
                                         }
                                     }
                                 }
@@ -530,7 +657,11 @@ impl Runtime {
                                                     id: ActionId::from_u128(action_entry.action_id),
                                                     payload,
                                                 };
-                                                return self.dispatch(envelope, node_id);
+                                                // Clear preedit and scroll to caret
+                                                self.runtime_state.ime_preedit = None;
+                                                let res = self.dispatch(envelope, node_id);
+                                                self.auto_scroll_textinput(node_id, ir, layout);
+                                                return res;
                                             }
                                         }
                                     }
@@ -541,7 +672,20 @@ impl Runtime {
                             }
                         }
                     }
-                    crate::event::ImeEvent::Preedit { .. } => {}
+                    crate::event::ImeEvent::Preedit { text } => {
+                        if let Some(focused_id) = self.runtime_state.interaction.focused {
+                            self.runtime_state.ime_preedit = Some((focused_id, text.clone()));
+                            // Auto-scroll including preedit
+                            if let Some(focused_node) = ir.nodes.get(&focused_id) {
+                                if let Op::Semantics(semantics) = &focused_node.op {
+                                    if semantics.role == fission_ir::semantics::Role::TextInput {
+                                        let current_text = semantics.value.as_deref().unwrap_or("");
+                                        self.auto_scroll_textinput(focused_id, ir, layout);
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
             }
             InputEvent::Pointer(PointerEvent::Move { point, .. }) => {
@@ -583,6 +727,9 @@ impl Runtime {
                         if let Some(node) = ir.nodes.get(&node_id) {
                             if let Op::Semantics(s) = &node.op {
                                 if s.focusable {
+                                    if Some(node_id) != self.runtime_state.interaction.focused {
+                                        self.runtime_state.ime_preedit = None;
+                                    }
                                     self.runtime_state.interaction.set_focused(Some(node_id));
                                     break;
                                 }

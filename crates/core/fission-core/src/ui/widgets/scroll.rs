@@ -6,7 +6,7 @@ use fission_ir::{
 };
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Default, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Scroll {
     pub id: Option<NodeId>,
     pub child: Option<Box<Node>>,
@@ -14,6 +14,19 @@ pub struct Scroll {
     pub width: Option<f32>,
     pub height: Option<f32>,
     pub show_scrollbar: bool,
+}
+
+impl Default for Scroll {
+    fn default() -> Self {
+        Self {
+            id: None,
+            child: None,
+            direction: FlexDirection::Column,
+            width: None,
+            height: None,
+            show_scrollbar: false,
+        }
+    }
 }
 
 impl Lower for Scroll {

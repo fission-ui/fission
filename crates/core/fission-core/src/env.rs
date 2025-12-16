@@ -20,6 +20,7 @@ pub struct RuntimeState {
     pub scroll: ScrollStateMap,
     pub animation: AnimationStateMap,
     pub video: VideoStateMap,
+    pub ime_preedit: Option<(NodeId, String)>,
 }
 
 #[derive(Clone, Debug, Default)]

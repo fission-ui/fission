@@ -132,6 +132,21 @@ pub enum DiagEventKind {
         duration_ms: Option<u64>,
         position_ms: Option<u64>,
     },
+
+    // Text input auto-scroll diagnostics
+    TextInputAutoScroll {
+        scroll_id: u128,
+        text_id: u128,
+        text_len: u32,
+        measured_w: f32,
+        line_h: f32,
+        viewport_x: f32,
+        viewport_w: f32,
+        content_w: f32,
+        caret_abs_x: f32,
+        offset_before: f32,
+        offset_after: f32,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]

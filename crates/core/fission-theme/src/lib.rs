@@ -202,3 +202,28 @@ impl Default for Theme {
         Self { tokens, components }
     }
 }
+
+// --- Fonts ---
+// Expose pinned, embedded font bytes for deterministic text measurement/rendering across platforms.
+// We start with Noto Sans Regular as the default UI font.
+
+#[allow(dead_code)]
+pub mod fonts {
+    /// Noto Sans Regular (static) bundled as part of the theme for deterministic metrics.
+    ///
+    /// Source: crates/core/fission-theme/fonts/Noto_Sans/static/NotoSans-Regular.ttf
+    pub const NOTO_SANS_REGULAR_TTF: &[u8] =
+        include_bytes!("../fonts/Noto_Sans/static/NotoSans-Regular.ttf");
+
+    /// Inter 24pt Regular (static). Useful for headings or future variations.
+    ///
+    /// Source: crates/core/fission-theme/fonts/Inter/static/Inter_24pt-Regular.ttf
+    pub const INTER_24PT_REGULAR_TTF: &[u8] =
+        include_bytes!("../fonts/Inter/static/Inter_24pt-Regular.ttf");
+
+    /// Returns the default UI font bytes to be used by measurement and rendering backends.
+    #[inline]
+    pub fn default_font_bytes() -> &'static [u8] {
+        NOTO_SANS_REGULAR_TTF
+    }
+}

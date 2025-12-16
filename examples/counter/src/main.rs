@@ -549,8 +549,8 @@ impl Widget<CounterState> for CounterApp {
         }
         Scroll {
             direction: FlexDirection::Column,
-            // width: Some(600.0),
-            // height: Some(600.0),
+            width: Some(600.0),
+            height: Some(600.0),
             show_scrollbar: true,
             child: Some(Box::new(
                 Column {

@@ -1,12 +1,15 @@
 use anyhow::Result;
 use fission_layout::TextMeasurer;
+use fission_theme::fonts;
 use fission_render::{
     BoxShadow, Color as RenderColor, DisplayList, DisplayOp, Fill, ImageFit, Renderer, Stroke,
 };
 use skia_safe::wrapper::NativeTransmutableWrapper;
 use skia_safe::{
-    BlurStyle, Canvas, Color as SkColor, FontMgr, MaskFilter, Paint, RRect, Rect, Vector,
+    BlurStyle, Canvas, Color as SkColor, Data, Font, FontArguments, FontMetrics, FontMgr,
+    MaskFilter, Paint, RRect, Rect, Typeface, Vector,
 };
+use once_cell::sync::OnceCell;
 use std::fs;
 
 pub struct SkiaRenderer<'a> {
@@ -25,9 +28,33 @@ impl<'a> SkiaRenderer<'a> {
 
 pub struct SkiaTextMeasurer;
 
+static DEFAULT_TYPEFACE: OnceCell<Typeface> = OnceCell::new();
+
+fn default_typeface() -> &'static Typeface {
+    DEFAULT_TYPEFACE.get_or_init(|| {
+        let fm = FontMgr::new();
+        fm.new_from_data(fission_theme::fonts::default_font_bytes(), None)
+            .expect("Failed to load bundled UI font")
+    })
+}
+
 impl TextMeasurer for SkiaTextMeasurer {
     fn measure(&self, text: &str, font_size: f32, _available_width: Option<f32>) -> (f32, f32) {
-        (text.len() as f32 * font_size * 0.6, font_size * 1.2)
+        // Use bundled, deterministic font to measure exactly what the renderer will draw.
+        // Fall back to a heuristic only if the font fails to load (should not happen in CI/strict).
+        // Prefer building a typeface directly from embedded TTF bytes.
+        let typeface = default_typeface().clone();
+        {
+            let font = Font::from_typeface(typeface, font_size);
+            let paint = Paint::default();
+            // Width: advance of the entire string.
+            #[allow(deprecated)]
+            let (advance, _bounds) = font.measure_str(text, Some(&paint));
+            // Height: derive from font metrics (ascent is typically negative in Skia).
+            let (_scale, metrics): (f32, FontMetrics) = font.metrics();
+            let line_height = (metrics.descent - metrics.ascent + metrics.leading).max(0.0);
+            (advance, line_height)
+        }
     }
 }
 
@@ -159,15 +186,15 @@ impl<'r> Renderer for SkiaRenderer<'r> {
                     paint.set_color(SkColor::from_argb(color.a, color.r, color.g, color.b));
                     paint.set_anti_alias(true);
 
-                    if let Some(typeface) = self
-                        .font_mgr
-                        .match_family_style("Arial", skia_safe::FontStyle::normal())
-                    {
-                        let font = skia_safe::Font::from_typeface(typeface, *size);
-                        let adjusted_y = position.y + size;
-                        self.canvas
-                            .draw_str(text, (position.x, adjusted_y), &font, &paint);
-                    }
+                    // Construct the font from the same bundled bytes we use for measurement.
+                    let typeface = default_typeface().clone();
+                    let font = Font::from_typeface(typeface, *size);
+                    // Align baseline using font metrics instead of y + size.
+                    let (_scale, metrics): (f32, FontMetrics) = font.metrics();
+                    // Skia ascent is typically negative; baseline = top_y - ascent.
+                    let baseline_y = position.y - metrics.ascent;
+                    self.canvas
+                        .draw_str(text, (position.x, baseline_y), &font, &paint);
                 }
                 DisplayOp::DrawImage {
                     rect,

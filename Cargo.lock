@@ -637,6 +637,8 @@ dependencies = [
  "anyhow",
  "fission-layout",
  "fission-render",
+ "fission-theme",
+ "once_cell",
  "skia-safe",
 ]
 

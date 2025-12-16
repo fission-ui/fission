@@ -404,14 +404,21 @@ impl Pipeline {
             let mut child_offset = accumulated_offset;
 
             match &node.op {
-                fission_ir::Op::Layout(fission_ir::LayoutOp::Scroll { show_scrollbar, .. }) => {
+                fission_ir::Op::Layout(fission_ir::LayoutOp::Scroll { direction, .. }) => {
                     let offset = scroll_map.get_offset(node_id);
                     segment.push(DisplayOp::Save);
                     segment.push(DisplayOp::ClipRect(geom.rect));
-                    segment.push(DisplayOp::Translate(LayoutPoint::new(0.0, -offset)));
+                    match direction {
+                        fission_ir::FlexDirection::Row => {
+                            segment.push(DisplayOp::Translate(LayoutPoint::new(-offset, 0.0)));
+                            child_offset = LayoutPoint::new(accumulated_offset.x - offset, accumulated_offset.y);
+                        }
+                        fission_ir::FlexDirection::Column => {
+                            segment.push(DisplayOp::Translate(LayoutPoint::new(0.0, -offset)));
+                            child_offset = LayoutPoint::new(accumulated_offset.x, accumulated_offset.y - offset);
+                        }
+                    }
                     pushed_clip = true;
-                    child_offset =
-                        LayoutPoint::new(accumulated_offset.x, accumulated_offset.y - offset);
                 }
                 fission_ir::Op::Paint(fission_ir::PaintOp::DrawRect {
                     fill,

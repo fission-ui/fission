@@ -39,22 +39,30 @@ impl Lower for TextInput {
         ).build(cx);
 
         // 2. Text (Paint)
-        let text_to_show = if self.value.is_empty() {
-            self.placeholder.as_deref().unwrap_or("")
-        } else {
-            &self.value
-        };
+        let mut display_text = String::new();
+        let mut using_placeholder = false;
+        let preedit_suffix = if is_focused {
+            if let Some((id, txt)) = &cx.runtime_state.ime_preedit {
+                if *id == input_id { Some(txt.clone()) } else { None }
+            } else { None }
+        } else { None };
+
+        // Main text is only the committed value (+ preedit when present).
+        // Placeholder is painted separately so it doesn't affect caret position.
+        display_text = self.value.clone();
+        if let Some(pre) = preedit_suffix.clone() {
+            display_text.push_str(&pre);
+        }
+        if display_text.is_empty() && preedit_suffix.is_none() {
+            using_placeholder = true;
+        }
         
-        let text_color = if self.value.is_empty() {
-            IrColor { r: 150, g: 150, b: 150, a: 255 }
-        } else {
-            IrColor::BLACK
-        };
+        let text_color = if preedit_suffix.is_some() { IrColor::BLUE } else { IrColor::BLACK };
 
         let text_id = NodeBuilder::new(
             cx.next_node_id(),
             Op::Paint(PaintOp::DrawText {
-                text: text_to_show.to_string(),
+                text: display_text,
                 size: 16.0,
                 color: text_color,
             })
@@ -63,21 +71,21 @@ impl Lower for TextInput {
         // Wrap Text in Layout Box to act as flex item
         let mut text_layout_builder = NodeBuilder::new(
             cx.next_node_id(),
-            Op::Layout(LayoutOp::Box { width: None, height: None, padding: [0.0; 4] })
+            Op::Layout(LayoutOp::Box { width: None, height: None, padding: [0.0, 0.0, 0.0, 0.0] })
         );
         text_layout_builder.add_child(text_id);
         let text_layout_id = text_layout_builder.build(cx);
 
-        // 3. Container (Flex Row)
+        // 3. Content container (Flex Row)
         let flex_id = cx.next_node_id();
         let mut flex_builder = NodeBuilder::new(
             flex_id,
             Op::Layout(LayoutOp::Flex {
                 direction: FlexDirection::Row,
-                flex_grow: 1.0, 
+                flex_grow: 1.0,
                 flex_shrink: 1.0,
-                padding: [0.0; 4],
-            })
+                padding: [0.0, 0.0, 0.0, 0.0],
+            }),
         );
         
         // Wrapper (Box) with layout and visuals
@@ -108,8 +116,8 @@ impl Lower for TextInput {
                 cx.next_node_id(),
                 Op::Layout(LayoutOp::Box {
                     width: Some(2.0),
-                    height: Some(20.0), // Fixed height cursor for now
-                    padding: [0.0; 4],
+                    height: Some(16.0 * 1.2), // approximate line height from text size
+                    padding: [0.0, 0.0, 0.0, 0.0],
                 })
              );
              cursor_layout_builder.add_child(cursor_paint_id);
@@ -119,9 +127,47 @@ impl Lower for TextInput {
         }
         
         let flex_node_id = flex_builder.build(cx);
+
+        // 3.5 Clip content using a horizontal Scroll viewport (no scrollbar). This keeps text/caret within bounds.
+        let scroll_id = cx.next_node_id();
+        // Compute inner viewport from wrapper padding and configured size
+        let outer_w = self.width.unwrap_or(200.0);
+        let outer_h = self.height.unwrap_or(40.0);
+        let inner_w = (outer_w - (8.0 + 8.0)).max(0.0);
+        let inner_h = (outer_h - (8.0 + 4.0)).max(0.0);
+        let mut scroll_builder = NodeBuilder::new(
+            scroll_id,
+            Op::Layout(LayoutOp::Scroll {
+                direction: FlexDirection::Row,
+                show_scrollbar: false,
+                width: Some(inner_w),
+                height: Some(inner_h),
+                padding: [0.0, 0.0, 0.0, 0.0],
+            }),
+        );
+        scroll_builder.add_child(flex_node_id);
+        let scroll_node_id = scroll_builder.build(cx);
         
         wrapper_builder.add_child(background_id); // Background first (z-index)
-        wrapper_builder.add_child(flex_node_id);  // Content on top
+        // Draw placeholder under the clipped content so it doesn't affect caret position
+        if using_placeholder {
+            let placeholder_id = NodeBuilder::new(
+                cx.next_node_id(),
+                Op::Paint(PaintOp::DrawText {
+                    text: self.placeholder.clone().unwrap_or_default(),
+                    size: 16.0,
+                    color: IrColor { r: 150, g: 150, b: 150, a: 255 },
+                })
+            ).build(cx);
+            // Place placeholder in a box so it positions like main text origin
+            let mut ph_box = NodeBuilder::new(
+                cx.next_node_id(),
+                Op::Layout(LayoutOp::Box { width: None, height: None, padding: [0.0;4] })
+            );
+            ph_box.add_child(placeholder_id);
+            wrapper_builder.add_child(ph_box.build(cx));
+        }
+        wrapper_builder.add_child(scroll_node_id);  // Clipped content on top
         
         let final_id = wrapper_builder.build(cx);
 

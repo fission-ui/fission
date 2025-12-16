@@ -383,8 +383,10 @@ impl LayoutEngine {
                 padding,
             } => {
                 style.display = Display::Flex;
+                // Vertically center by default, but keep left alignment horizontally
+                // so inline content (e.g., text + caret) does not drift from the start edge.
                 style.align_items = Some(AlignItems::Center);
-                style.justify_content = Some(JustifyContent::Center);
+                style.justify_content = Some(JustifyContent::FlexStart);
                 style.padding = taffy::geometry::Rect {
                     left: points(padding[0]),
                     right: points(padding[1]),
@@ -544,23 +546,16 @@ impl LayoutEngine {
 
         let mut width = layout.size.width;
         let mut height = layout.size.height;
-        let content_width = width;
-        let content_height = height;
 
+        // For Scroll, the rect is the viewport; width/height may be explicitly set on node.
         if let LayoutOp::Scroll { .. } = &node.op {
-            if let Some(w) = node.width {
-                width = w;
-            }
-            if let Some(h) = node.height {
-                height = h;
-            }
+            if let Some(w) = node.width { width = w; }
+            if let Some(h) = node.height { height = h; }
         }
 
         let rect = LayoutRect::new(absolute_x, absolute_y, width, height);
-        let content_size = LayoutSize::new(content_width, content_height);
 
-        geometries.insert(node_id, LayoutNodeGeometry { rect, content_size });
-
+        // Recurse children first so their geometry is available for content union.
         for child_id in &node.children_ids {
             self.extract_geometry_recursive_with_visited(
                 *child_id,
@@ -570,5 +565,24 @@ impl LayoutEngine {
                 visited,
             );
         }
+
+        // Compute content_size as union of children extents relative to this node.
+        let mut content_w = layout.size.width;
+        let mut content_h = layout.size.height;
+        if !node.children_ids.is_empty() {
+            let mut max_right = rect.origin.x;
+            let mut max_bottom = rect.origin.y;
+            for child_id in &node.children_ids {
+                if let Some(g) = geometries.get(child_id) {
+                    max_right = max_right.max(g.rect.right());
+                    max_bottom = max_bottom.max(g.rect.bottom());
+                }
+            }
+            content_w = (max_right - rect.origin.x).max(width);
+            content_h = (max_bottom - rect.origin.y).max(height);
+        }
+        let content_size = LayoutSize::new(content_w, content_h);
+
+        geometries.insert(node_id, LayoutNodeGeometry { rect, content_size });
     }
 }

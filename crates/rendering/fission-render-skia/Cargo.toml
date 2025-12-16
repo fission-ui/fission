@@ -6,7 +6,9 @@ edition = "2021"
 [dependencies]
 fission-render = { path = "../fission-render" }
 fission-layout = { path = "../../core/fission-layout" }
+fission-theme = { path = "../../core/fission-theme" }
 skia-safe = { version = "0.75", features = ["textlayout"] }
 anyhow = "1.0"
+once_cell = "1"
 
 [dev-dependencies]
