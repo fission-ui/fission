@@ -13,10 +13,10 @@ use fission_core::{
 };
 use fission_macros::Action;
 use fission_shell_desktop::DesktopApp;
+use fission_widgets::{canvas, checkbox, spacer, CheckboxProps, Portal};
 use lazy_static::lazy_static;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
-use fission_widgets::{canvas, checkbox, spacer, CheckboxProps, Portal};
 
 lazy_static! {
     static ref STATUS_WIDGET_ID: WidgetNodeId = WidgetNodeId::explicit("status_indicator");
@@ -50,18 +50,8 @@ fn on_increment(state: &mut CounterState, _action: Increment) {
 #[serde(transparent)]
 struct UpdateText(String);
 
-fn on_update_text(state: &mut CounterState, action: UpdateText) {
-    state.text_value = action.0;
-    println!("Text updated: {}", state.text_value);
-}
-
 #[derive(fission_macros::Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 struct ToggleChecked;
-
-fn on_toggle_checked(state: &mut CounterState, _action: ToggleChecked) {
-    state.checked = !state.checked;
-    println!("Checked: {}", state.checked);
-}
 
 #[derive(fission_macros::Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 struct ToggleModal;
@@ -201,7 +191,14 @@ impl Widget<CounterState> for CounterApp {
                 let r1 = NodeBuilder::new(
                     cx.next_node_id(),
                     fission_core::Op::Paint(PaintOp::DrawRect {
-                        fill: Some(Fill { color: IrColor { r: 30, g: 144, b: 255, a: 255 } }),
+                        fill: Some(Fill {
+                            color: IrColor {
+                                r: 30,
+                                g: 144,
+                                b: 255,
+                                a: 255,
+                            },
+                        }),
                         stroke: None,
                         corner_radius: 6.0,
                         shadow: None,
@@ -211,7 +208,14 @@ impl Widget<CounterState> for CounterApp {
                 let r2 = NodeBuilder::new(
                     cx.next_node_id(),
                     fission_core::Op::Paint(PaintOp::DrawRect {
-                        fill: Some(Fill { color: IrColor { r: 46, g: 204, b: 113, a: 255 } }),
+                        fill: Some(Fill {
+                            color: IrColor {
+                                r: 46,
+                                g: 204,
+                                b: 113,
+                                a: 255,
+                            },
+                        }),
                         stroke: None,
                         corner_radius: 6.0,
                         shadow: None,
@@ -242,7 +246,13 @@ impl Widget<CounterState> for CounterApp {
                     // Checkbox demo
                     checkbox(CheckboxProps {
                         checked: view.state.checked,
-                        on_toggle: Some(ctx.bind(ToggleChecked, on_toggle_checked)),
+                        on_toggle: Some(ctx.bind(
+                            ToggleChecked,
+                            |state: &mut CounterState, _action: ToggleChecked| {
+                                state.checked = !state.checked;
+                                println!("Checked: {}", state.checked);
+                            },
+                        )),
                         label: Some("Enable feature".into()),
                     }),
                     spacer(Some(16.0), None),
@@ -250,9 +260,11 @@ impl Widget<CounterState> for CounterApp {
                         on_press: Some(ctx.bind(ToggleModal, on_toggle_modal)),
                         child: Some(Box::new(
                             Text {
-                                content: TextContent::Literal(
-                                    if view.state.show_modal { "Hide Modal".into() } else { "Show Modal".into() }
-                                ),
+                                content: TextContent::Literal(if view.state.show_modal {
+                                    "Hide Modal".into()
+                                } else {
+                                    "Show Modal".into()
+                                }),
                                 ..Default::default()
                             }
                             .into(),
@@ -450,8 +462,14 @@ impl Widget<CounterState> for CounterApp {
             TextInput {
                 value: vm.text_value.clone(),
                 placeholder: Some("Type something...".into()),
-                on_change: Some(ctx.bind(UpdateText(String::new()), on_update_text)),
-                width: Some(300.0),
+                on_change: Some(ctx.bind(
+                    UpdateText(String::new()),
+                    |state: &mut CounterState, action: UpdateText| {
+                        state.text_value = action.0;
+                        println!("Text updated: {}", state.text_value);
+                    },
+                )),
+                width: Some(200.0),
                 ..Default::default()
             }
             .into(),
@@ -512,7 +530,12 @@ impl Widget<CounterState> for CounterApp {
                     ..Default::default()
                 })),
             };
-            children.push(Portal { child: Node::Overlay(modal) }.build(ctx, view));
+            children.push(
+                Portal {
+                    child: Node::Overlay(modal),
+                }
+                .build(ctx, view),
+            );
         }
 
         for i in 0..20 {
@@ -552,7 +575,14 @@ impl LowerDyn for ModalDimLowerer {
         let paint = NodeBuilder::new(
             cx.next_node_id(),
             fission_core::Op::Paint(PaintOp::DrawRect {
-                fill: Some(fission_core::op::Fill { color: IrColor { r: 0, g: 0, b: 0, a: 150 } }),
+                fill: Some(fission_core::op::Fill {
+                    color: IrColor {
+                        r: 0,
+                        g: 0,
+                        b: 0,
+                        a: 150,
+                    },
+                }),
                 stroke: None,
                 corner_radius: 0.0,
                 shadow: None,
@@ -577,7 +607,9 @@ impl LowerDyn for ModalBoxLowerer {
         let content = NodeBuilder::new(
             cx.next_node_id(),
             fission_core::Op::Paint(PaintOp::DrawRect {
-                fill: Some(fission_core::op::Fill { color: IrColor::WHITE }),
+                fill: Some(fission_core::op::Fill {
+                    color: IrColor::WHITE,
+                }),
                 stroke: None,
                 corner_radius: 8.0,
                 shadow: None,

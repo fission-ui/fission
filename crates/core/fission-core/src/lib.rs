@@ -1,4 +1,5 @@
 use anyhow::{anyhow, Result};
+use fission_diagnostics::prelude as diag;
 use downcast_rs::Downcast;
 use fission_ir::CoreIR;
 use lazy_static::lazy_static;
@@ -205,7 +206,11 @@ impl Runtime {
     }
 
     pub fn dispatch(&mut self, action: ActionEnvelope, target: NodeId) -> Result<()> {
-        println!("[dispatch] start id={:?} target={:?}", action.id, target);
+        diag::emit(
+            diag::DiagCategory::Input,
+            diag::DiagLevel::Debug,
+            diag::DiagEventKind::InputEvent { kind: "dispatch_start".into(), target: Some(target.as_u128()), position: None },
+        );
         if action.id == VideoPlay::static_id() {
             let cmd: VideoPlay = serde_json::from_slice(&action.payload)
                 .map_err(|e| anyhow!("Failed to deserialize VideoPlay: {}", e))?;
@@ -276,7 +281,11 @@ impl Runtime {
 
         let action_id = action.id;
         if let Some(reducers) = self.reducers.get_mut(&action_id) {
-            println!("[dispatch] reducers found: {}", reducers.len());
+            diag::emit(
+                diag::DiagCategory::Input,
+                diag::DiagLevel::Debug,
+                diag::DiagEventKind::InputEvent { kind: format!("reducers:{}", reducers.len()), target: Some(target.as_u128()), position: None },
+            );
             let mut temp_reducers: Vec<BoxedReducer> = reducers.drain(..).collect();
 
             for reducer_wrapper in temp_reducers.iter_mut() {
@@ -284,7 +293,11 @@ impl Runtime {
             }
             reducers.extend(temp_reducers);
         }
-        println!("[dispatch] end id={:?}", action_id);
+        diag::emit(
+            diag::DiagCategory::Input,
+            diag::DiagLevel::Debug,
+            diag::DiagEventKind::InputEvent { kind: "dispatch_end".into(), target: Some(target.as_u128()), position: None },
+        );
         Ok(())
     }
 
@@ -560,7 +573,11 @@ impl Runtime {
                 if let Some(hit_node_id) =
                     hit_test_with_scroll(ir, layout, &self.runtime_state.scroll, point)
                 {
-                    println!("[input] pointer down hit {:?}", hit_node_id);
+                    diag::emit(
+                        diag::DiagCategory::Input,
+                        diag::DiagLevel::Debug,
+                        diag::DiagEventKind::InputEvent { kind: "pointer_down_hit".into(), target: Some(hit_node_id.as_u128()), position: Some((point.x, point.y)) },
+                    );
                     let mut focus_candidate = Some(hit_node_id);
                     while let Some(node_id) = focus_candidate {
                         if let Some(node) = ir.nodes.get(&node_id) {
@@ -610,9 +627,10 @@ impl Runtime {
                                             id: ActionId::from_u128(action_entry.action_id),
                                             payload: payload.clone(),
                                         };
-                                        println!(
-                                            "[input] (up) dispatch action {:?} from node {:?}",
-                                            envelope.id, node_id
+                                        diag::emit(
+                                            diag::DiagCategory::Input,
+                                            diag::DiagLevel::Debug,
+                                            diag::DiagEventKind::InputEvent { kind: "pointer_up_dispatch".into(), target: Some(node_id.as_u128()), position: Some((point.x, point.y)) },
                                         );
                                         return self.dispatch(envelope, node_id);
                                     }

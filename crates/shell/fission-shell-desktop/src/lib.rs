@@ -28,6 +28,7 @@ use fission_render::{
 };
 use fission_render_skia::{SkiaRenderer, SkiaTextMeasurer};
 use fission_shell::{Platform, VideoBackend, VideoEvent, VideoPlayer};
+use fission_diagnostics::prelude as diag;
 
 mod pipeline;
 pub use pipeline::Pipeline;
@@ -66,7 +67,13 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
     }
 
     pub fn run(self) -> Result<()> {
-        println!("Starting DesktopApp::run");
+        diag::emit(
+            diag::DiagCategory::Frame,
+            diag::DiagLevel::Info,
+            diag::DiagEventKind::FrameStart { root: None },
+        );
+        // Initialize diagnostics from environment (no-op when not configured)
+        diag::init_from_env();
         let event_loop =
             EventLoop::new().map_err(|e| anyhow::anyhow!("Event loop error: {}", e))?;
         let window = Rc::new(
@@ -76,14 +83,22 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                 .map_err(|e| anyhow::anyhow!("Window build error: {}", e))?,
         );
 
-        println!("Window created: {:?}", window.id());
+        diag::emit(
+            diag::DiagCategory::Frame,
+            diag::DiagLevel::Info,
+            diag::DiagEventKind::InputEvent { kind: format!("window_created:{:?}", window.id()), target: None, position: None },
+        );
 
         let context = Context::new(window.clone())
             .map_err(|e| anyhow::anyhow!("Context creation failed: {:?}", e))?;
         let mut surface = Surface::new(&context, window.clone())
             .map_err(|e| anyhow::anyhow!("Surface creation failed: {:?}", e))?;
 
-        println!("Softbuffer surface created");
+        diag::emit(
+            diag::DiagCategory::Frame,
+            diag::DiagLevel::Info,
+            diag::DiagEventKind::InputEvent { kind: "surface_created".into(), target: None, position: None },
+        );
 
         window.request_redraw();
 
@@ -115,14 +130,23 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                             if !players.contains_key(id) {
                                 if !state.asset_source.is_empty() {
                                     let player = video_backend.create_player(&state.asset_source);
-                                    state.surface_id = Some(player.surface_id());
-                                    if state.status == VideoStatus::Playing {
-                                        state.status = VideoStatus::Buffering;
+                                        state.surface_id = Some(player.surface_id());
+                                        if state.status == VideoStatus::Playing {
+                                            state.status = VideoStatus::Buffering;
+                                        }
+                                    diag::emit(
+                                        diag::DiagCategory::Media,
+                                        diag::DiagLevel::Info,
+                                        diag::DiagEventKind::MediaEvent {
+                                            kind: "created_player".into(),
+                                            id: Some(id.as_u128()),
+                                            duration_ms: None,
+                                            position_ms: None,
+                                        },
+                                    );
+                                        players.insert(*id, player);
                                     }
-                                    println!("[video] created player {:?}", id);
-                                    players.insert(*id, player);
                                 }
-                            }
 
                             if let Some(player) = players.get_mut(id) {
                                 let mut should_play = matches!(state.status, VideoStatus::Playing);
@@ -138,14 +162,24 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                 if let Some(target) = state.pending_seek {
                                     player.seek_to(target);
                                     let actual = player.position();
-                                    println!(
-                                        "[video] pending seek {:?} target {} actual {}",
-                                        id, target, actual
+                                    diag::emit(
+                                        diag::DiagCategory::Media,
+                                        diag::DiagLevel::Debug,
+                                        diag::DiagEventKind::MediaEvent {
+                                            kind: format!("pending_seek:{}:{}", target, actual),
+                                            id: Some(id.as_u128()),
+                                            duration_ms: state.duration_ms.map(|d| d as u64),
+                                            position_ms: Some(actual as u64),
+                                        },
                                     );
                                     if (actual as i64 - target as i64).abs() <= 30 {
                                         state.pending_seek = None;
                                         state.position_ms = actual;
-                                        println!("[video] seek complete {:?}", id);
+                                        diag::emit(
+                                            diag::DiagCategory::Media,
+                                            diag::DiagLevel::Info,
+                                            diag::DiagEventKind::MediaEvent { kind: "seek_complete".into(), id: Some(id.as_u128()), duration_ms: state.duration_ms.map(|d| d as u64), position_ms: Some(actual as u64) },
+                                        );
                                     } else {
                                         should_play = false;
                                     }
@@ -169,7 +203,16 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                             if duration > 0 {
                                                 state.duration_ms = Some(duration);
                                                 needs_redraw = true;
-                                                println!("[video] duration {:?} -> {}", id, duration);
+                                                diag::emit(
+                                                    diag::DiagCategory::Media,
+                                                    diag::DiagLevel::Debug,
+                                                    diag::DiagEventKind::MediaEvent {
+                                                        kind: "ready".into(),
+                                                        id: Some(id.as_u128()),
+                                                        duration_ms: Some(duration as u64),
+                                                        position_ms: None,
+                                                    },
+                                                );
                                             }
                                             state.status = match state.status {
                                                 VideoStatus::Playing | VideoStatus::Buffering => {
@@ -184,7 +227,16 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                                 state.pending_seek = Some(0);
                                                 state.position_ms = 0;
                                                 state.status = VideoStatus::Buffering;
-                                                println!("[video] loop restart {:?}", id);
+                                                diag::emit(
+                                                    diag::DiagCategory::Media,
+                                                    diag::DiagLevel::Info,
+                                                    diag::DiagEventKind::MediaEvent {
+                                                        kind: "loop_restart".into(),
+                                                        id: Some(id.as_u128()),
+                                                        duration_ms: state.duration_ms.map(|d| d as u64),
+                                                        position_ms: Some(0),
+                                                    },
+                                                );
                                             } else {
                                                 state.status = VideoStatus::Ended;
                                             }
@@ -192,7 +244,16 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                         }
                                         VideoEvent::Error(message) => {
                                             state.status = VideoStatus::Error;
-                                            eprintln!("Video error for {:?}: {}", id, message);
+                                            diag::emit(
+                                                diag::DiagCategory::Media,
+                                                diag::DiagLevel::Error,
+                                                diag::DiagEventKind::MediaEvent {
+                                                    kind: format!("error:{}", message),
+                                                    id: Some(id.as_u128()),
+                                                    duration_ms: None,
+                                                    position_ms: None,
+                                                },
+                                            );
                                             needs_redraw = true;
                                         }
                                         _ => {}
@@ -204,7 +265,16 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                         if duration > 0 {
                                             state.duration_ms = Some(duration);
                                             needs_redraw = true;
-                                            println!("[video] duration {:?} -> {}", id, duration);
+                                            diag::emit(
+                                                diag::DiagCategory::Media,
+                                                diag::DiagLevel::Debug,
+                                                diag::DiagEventKind::MediaEvent {
+                                                    kind: "duration".into(),
+                                                    id: Some(id.as_u128()),
+                                                    duration_ms: Some(duration as u64),
+                                                    position_ms: None,
+                                                },
+                                            );
                                         }
                                     }
                                 }
@@ -212,7 +282,16 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                 let new_pos = player.position();
                                 if state.position_ms != new_pos {
                                     state.position_ms = new_pos;
-                                    //println!("[video] position {:?} -> {}", id, new_pos);
+                                    diag::emit(
+                                        diag::DiagCategory::Media,
+                                        diag::DiagLevel::Trace,
+                                        diag::DiagEventKind::MediaEvent {
+                                            kind: "position".into(),
+                                            id: Some(id.as_u128()),
+                                            duration_ms: state.duration_ms.map(|d| d as u64),
+                                            position_ms: Some(new_pos as u64),
+                                        },
+                                    );
                                     needs_redraw = true;
                                 }
 
@@ -247,7 +326,11 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                             let dt_millis = dt.as_millis() as u64;
                             if dt_millis > 0 {
                                 if let Err(e) = runtime.tick(dt_millis) {
-                                    eprintln!("Tick error: {:?}", e);
+                                    diag::emit(
+                                        diag::DiagCategory::Animation,
+                                        diag::DiagLevel::Error,
+                                        diag::DiagEventKind::InputEvent { kind: format!("tick_error:{:?}", e), target: None, position: None },
+                                    );
                                 }
                             }
                             window.request_redraw();
@@ -264,7 +347,8 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                     Event::WindowEvent { window_id, event } if window_id == window.id() => {
                         match event {
                             WindowEvent::RedrawRequested => {
-                                println!("[redraw] begin");
+                                // Diagnostics: mark frame start
+                                diag::begin_frame(None);
                                 let size = window.inner_size();
                                 if let (Some(width), Some(height)) =
                                     (NonZeroU32::new(size.width), NonZeroU32::new(size.height))
@@ -322,7 +406,6 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                     let root_id = node_tree.lower(&mut lower_cx);
                                     lower_cx.ir.root = Some(root_id);
                                     let lowered_nodes = lower_cx.ir.nodes.len();
-                                    println!("[redraw] lowered nodes: {}", lowered_nodes);
                                     let cx_ir = lower_cx.ir;
 
                                     let viewport = LayoutSize {
@@ -350,7 +433,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
 
                                         let video_map = &runtime.runtime_state.video;
 
-                                    println!("[redraw] render pipeline start");
+                                    // println!("[redraw] render pipeline start");
                                     match pipeline.render(
                                         cx_ir,
                                         viewport,
@@ -359,8 +442,19 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                         &mut *renderer,
                                         video_map,
                                     ) {
-                                        Ok(_stats) => {
-                                            println!("[redraw] render ok");
+                                        Ok(stats) => {
+                                            // optional media summary per frame
+                                            let vcount = runtime.runtime_state.video.states.len();
+                                            diag::emit(
+                                                diag::DiagCategory::Media,
+                                                diag::DiagLevel::Debug,
+                                                diag::DiagEventKind::MediaSummary {
+                                                    video_nodes: vcount as u32,
+                                                    audio_nodes: 0,
+                                                    embeds_total: vcount as u32,
+                                                },
+                                            );
+                                            // println!("[redraw] render ok");
                                             // println!(
                                             //     "Frame stats: lowered={} layout_dirty={} paint_hits={} paint_misses={} video_surfaces={} active_anims={}",
                                             //     lowered_nodes,
@@ -370,24 +464,51 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                             //     stats.video_surfaces,
                                             //     runtime.runtime_state.animation.active.len()
                                             // );
+                                            // Diagnostics: end frame with stats
+                                            diag::end_frame(diag::FrameStats {
+                                                dirty_nodes: stats.dirty_nodes as u32,
+                                                layout_updates: stats.layout_updates as u32,
+                                                paint_misses: stats.paint_misses as u32,
+                                                paint_hits: stats.paint_hits as u32,
+                                                video_surfaces: stats.video_surfaces as u32,
+                                            });
                                         }
                                         Err(e) => {
-                                        eprintln!("[redraw] pipeline error: {:?}", e);
+                                        diag::emit(
+                                            diag::DiagCategory::Frame,
+                                            diag::DiagLevel::Error,
+                                            diag::DiagEventKind::InputEvent { kind: format!("pipeline_error:{:?}", e), target: None, position: None },
+                                        );
+                                            // Even on error, close out the frame so tools see a consistent stream
+                                            diag::end_frame(diag::FrameStats::default());
                                         }
                                     }
                                     } else {
-                                        eprintln!("Failed to wrap pixels");
+                                        diag::emit(
+                                            diag::DiagCategory::Frame,
+                                            diag::DiagLevel::Error,
+                                            diag::DiagEventKind::InputEvent { kind: "wrap_pixels_failed".into(), target: None, position: None },
+                                        );
                                     }
 
                                     buffer.present().unwrap();
 
                                     let video_frames = pipeline.take_video_surfaces();
                                     video_backend.present_surfaces(&video_frames);
-                                    println!("[redraw] end");
+                                    // println!("[redraw] end");
                                 }
                             }
                             WindowEvent::CursorMoved { position, .. } => {
                                 last_cursor_position = Some(position);
+                                diag::emit(
+                                    diag::DiagCategory::Input,
+                                    diag::DiagLevel::Trace,
+                                    diag::DiagEventKind::InputEvent {
+                                        kind: "pointer_move".into(),
+                                        target: None,
+                                        position: Some((position.x as f32, position.y as f32)),
+                                    },
+                                );
                                 if let (Some(snapshot), Some(ir)) =
                                     (&pipeline.last_snapshot, &pipeline.prev_ir)
                                 {
@@ -406,6 +527,16 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                         &pipeline.prev_ir,
                                         &pipeline.last_snapshot,
                                     ) {
+                                        let kind = match state { ElementState::Pressed => "pointer_down", ElementState::Released => "pointer_up" };
+                                        diag::emit(
+                                            diag::DiagCategory::Input,
+                                            diag::DiagLevel::Debug,
+                                            diag::DiagEventKind::InputEvent {
+                                                kind: kind.into(),
+                                                target: None,
+                                                position: Some((position.x as f32, position.y as f32)),
+                                            },
+                                        );
                                         if let Some(input_event) =
                                             build_pointer_event(state, pointer_button, *position)
                                         {
@@ -427,6 +558,17 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                         LayoutPoint::new(-pos.x as f32, -pos.y as f32)
                                     }
                                 };
+                                if let Some(cursor_pos) = last_cursor_position {
+                                    diag::emit(
+                                        diag::DiagCategory::Input,
+                                        diag::DiagLevel::Debug,
+                                        diag::DiagEventKind::InputEvent {
+                                            kind: "pointer_scroll".into(),
+                                            target: None,
+                                            position: Some((cursor_pos.x as f32, cursor_pos.y as f32)),
+                                        },
+                                    );
+                                }
 
                                 if let (Some(cursor_pos), Some(ir), Some(snapshot)) = (
                                     last_cursor_position,
@@ -478,6 +620,12 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                 };
 
                                 if let Some(code) = key_code {
+                                    let kind = if event.state == ElementState::Pressed { "key_down" } else { "key_up" };
+                                    diag::emit(
+                                        diag::DiagCategory::Input,
+                                        diag::DiagLevel::Debug,
+                                        diag::DiagEventKind::InputEvent { kind: kind.into(), target: None, position: None },
+                                    );
                                     let fission_event = if event.state == ElementState::Pressed {
                                         FissionKeyEvent::Down {
                                             key_code: code,
@@ -507,6 +655,11 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                 if let Some(text) = event.text.as_ref() {
                                     for ch in text.chars() {
                                         if ch.is_control() { continue; }
+                                        diag::emit(
+                                            diag::DiagCategory::Input,
+                                            diag::DiagLevel::Debug,
+                                            diag::DiagEventKind::InputEvent { kind: format!("char:{}", ch), target: None, position: None },
+                                        );
                                         let fission_event = FissionKeyEvent::Down {
                                             key_code: KeyCode::Char(ch),
                                             modifiers: 0,
@@ -527,6 +680,11 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                             }
                             // IME commit path: feed committed string as Char events
                             WindowEvent::Ime(Ime::Commit(committed)) => {
+                                diag::emit(
+                                    diag::DiagCategory::Input,
+                                    diag::DiagLevel::Debug,
+                                    diag::DiagEventKind::InputEvent { kind: format!("ime_commit:{}", committed.len()), target: None, position: None },
+                                );
                                 let evt = InputEvent::Ime(fission_core::event::ImeEvent::Commit { text: committed.clone() });
                                 if let (Some(ir), Some(snapshot)) = (&pipeline.prev_ir, &pipeline.last_snapshot) {
                                     if let Ok(_) = runtime.handle_input(evt, ir, snapshot) {

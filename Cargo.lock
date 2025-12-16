@@ -559,6 +559,7 @@ dependencies = [
  "anyhow",
  "blake3",
  "downcast-rs",
+ "fission-diagnostics",
  "fission-i18n",
  "fission-ir",
  "fission-layout",
@@ -566,6 +567,17 @@ dependencies = [
  "fission-semantics",
  "fission-theme",
  "lazy_static",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "fission-diagnostics"
+version = "0.1.0"
+dependencies = [
+ "bitflags 2.10.0",
+ "once_cell",
+ "parking_lot",
  "serde",
  "serde_json",
 ]
@@ -592,6 +604,7 @@ name = "fission-layout"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "fission-diagnostics",
  "fission-ir",
  "serde",
  "taffy",
@@ -657,6 +670,7 @@ dependencies = [
  "cocoa",
  "core-graphics",
  "fission-core",
+ "fission-diagnostics",
  "fission-ir",
  "fission-layout",
  "fission-macros",
@@ -669,6 +683,7 @@ dependencies = [
  "objc",
  "raw-window-handle",
  "serde",
+ "serde_json",
  "skia-safe",
  "softbuffer",
  "winit",
@@ -962,6 +977,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "df1d3c3b53da64cf5760482273a98e575c651a67eec7f77df96b5b642de8f039"
 
 [[package]]
+name = "lock_api"
+version = "0.4.14"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "224399e74b87b5f3557511d98dff8b14089b3dadafcab6bb93eab67d3aace965"
+dependencies = [
+ "scopeguard",
+]
+
+[[package]]
 name = "log"
 version = "0.4.29"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1231,6 +1255,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "parking_lot"
+version = "0.12.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "93857453250e3077bd71ff98b6a65ea6621a19bb0f559a85248955ac12c45a1a"
+dependencies = [
+ "lock_api",
+ "parking_lot_core",
+]
+
+[[package]]
+name = "parking_lot_core"
+version = "0.9.12"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2621685985a2ebf1c516881c026032ac7deafcda1a2c9b7850dc81e3dfcb64c1"
+dependencies = [
+ "cfg-if",
+ "libc",
+ "redox_syscall 0.5.18",
+ "smallvec",
+ "windows-link",
+]
+
+[[package]]
 name = "percent-encoding"
 version = "2.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1425,6 +1472,12 @@ name = "scoped-tls"
 version = "1.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e1cf6437eb19a8f4a6cc0f7dca544973b0b78843adbfeb3683d1a94a0024a294"
+
+[[package]]
+name = "scopeguard"
+version = "1.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "94143f37725109f92c262ed2cf5e59bce7498c01bcc1502d7b9afe439a4e9f49"
 
 [[package]]
 name = "sctk-adwaita"

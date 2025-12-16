@@ -13,6 +13,7 @@ members = [
     "crates/shell/fission-shell-desktop",
     "crates/shell/fission-shell-mobile",
     "crates/shell/fission-shell-web",
+    "crates/tools/fission-diagnostics",
     "crates/tools/fission-test",
     "examples/*"
 ]

@@ -16,5 +16,6 @@ anyhow = "1.0"
 downcast-rs = "1.2"
 lazy_static = "1.4"
 blake3 = "1.5"
+fission-diagnostics = { path = "../../tools/fission-diagnostics" }
 
 [dev-dependencies]

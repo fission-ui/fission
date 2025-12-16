@@ -1,4 +1,5 @@
 use anyhow::Result;
+use fission_diagnostics::prelude as diag;
 use fission_ir::{FlexDirection as IrFlexDirection, NodeId, Op, PaintOp};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
@@ -196,9 +197,17 @@ impl LayoutEngine {
         // Pass 1: set styles/measurements for dirty nodes
         for id in &dirty_vec {
             if let Some(node) = node_map.get(id) {
-                eprintln!("[layout.update] begin id={:?} op={:?}", id, node.op);
+                diag::emit(
+                    diag::DiagCategory::Layout,
+                    diag::DiagLevel::Debug,
+                    diag::DiagEventKind::LayoutSummary { nodes: 0, dirty_count: 0, full_rebuild: false },
+                );
                 if node.children_ids.iter().any(|cid| cid == id) {
-                    eprintln!("[layout] ERROR: node {:?} contains itself as a child", id);
+                    diag::emit(
+                        diag::DiagCategory::Invariants,
+                        diag::DiagLevel::Error,
+                        diag::DiagEventKind::InvariantViolation { kind: "self_child".into(), node: Some(id.as_u128()), details: "node contains itself as child".into(), dump_ref: None },
+                    );
                     panic!("layout self-cycle at {:?}", id);
                 }
                 let t_id = *self.taffy_map.get(id).unwrap();
@@ -232,12 +241,24 @@ impl LayoutEngine {
                 let t_id = *self.taffy_map.get(id).unwrap();
                 let mut child_t_ids = Vec::with_capacity(node.children_ids.len());
                 for cid in &node.children_ids {
-                    if cid == id { eprintln!("[layout] ERROR: node {:?} lists itself as a child", id); panic!("layout self-cycle at {:?}", id); }
+                    if cid == id {
+                        diag::emit(
+                            diag::DiagCategory::Invariants,
+                            diag::DiagLevel::Error,
+                            diag::DiagEventKind::InvariantViolation { kind: "self_child".into(), node: Some(id.as_u128()), details: "node lists itself as child".into(), dump_ref: None },
+                        );
+                        panic!("layout self-cycle at {:?}", id);
+                    }
                     self.ensure_exists(*cid);
                     child_t_ids.push(*self.taffy_map.get(cid).unwrap());
                 }
                 self.taffy.set_children(t_id, &child_t_ids).unwrap();
-                eprintln!("[layout.update] set_children id={:?} children={} done", id, child_t_ids.len());
+                // optional: emit as layout debug if needed (too chatty by default)
+                diag::emit(
+                    diag::DiagCategory::Layout,
+                    diag::DiagLevel::Trace,
+                    diag::DiagEventKind::LayoutSummary { nodes: child_t_ids.len() as u32, dirty_count: 0, full_rebuild: false },
+                );
             }
         }
 
@@ -507,7 +528,11 @@ impl LayoutEngine {
     ) {
         if !visited.insert(node_id) {
             // Cycle detected; skip to avoid infinite recursion
-            eprintln!("[layout] cycle detected at node {:?}", node_id);
+            diag::emit(
+                diag::DiagCategory::Invariants,
+                diag::DiagLevel::Error,
+                diag::DiagEventKind::InvariantViolation { kind: "taffy_cycle".into(), node: Some(node_id.as_u128()), details: "cycle detected in layout graph".into(), dump_ref: None },
+            );
             return;
         }
         let taffy_id = self.taffy_map.get(&node_id).unwrap();

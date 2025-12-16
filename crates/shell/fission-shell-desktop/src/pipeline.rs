@@ -1,4 +1,8 @@
 use anyhow::Result;
+use fission_diagnostics::prelude as diag;
+use fission_diagnostics::{SnapshotProvider, SnapshotKind, SnapshotBlob};
+use std::fs::File;
+use std::io::Write as _;
 use fission_core::diff::diff_ir;
 use fission_core::env::VideoStateMap;
 use fission_core::lowering::{build_layout_tree, LoweringContext};
@@ -57,7 +61,16 @@ impl Pipeline {
         video_map: &VideoStateMap,
     ) -> Result<PipelineStats> {
         if let Some(cycle) = detect_ir_cycle(&next_ir) {
-            eprintln!("[ir] cycle detected ({} nodes). First few: {:?}", cycle.len(), &cycle[..cycle.len().min(6)]);
+            diag::emit(
+                diag::DiagCategory::Invariants,
+                diag::DiagLevel::Error,
+                diag::DiagEventKind::InvariantViolation {
+                    kind: "ir_cycle".into(),
+                    node: cycle.first().map(|n| n.as_u128()),
+                    details: format!("cycle_len={} first={:?}", cycle.len(), &cycle[..cycle.len().min(6)]),
+                    dump_ref: None,
+                },
+            );
             // Avoid crashing the frame; render nothing this frame.
             return Ok(PipelineStats {
                 dirty_nodes: 0,
@@ -75,20 +88,38 @@ impl Pipeline {
             for id in &diff.dirty_structural {
                 if let (Some(pn), Some(nn)) = (prev.nodes.get(id), next_ir.nodes.get(id)) {
                     if pn.children != nn.children {
-                        eprintln!(
-                            "[diff] children changed at {:?}: prev_children={} next_children={} op={:?}",
-                            id,
-                            pn.children.len(),
-                            nn.children.len(),
-                            nn.op
-                        );
                         logged += 1;
-                        if logged >= 20 { eprintln!("[diff] (truncated)"); break; }
+                        if logged <= 20 {
+                            diag::emit(
+                                diag::DiagCategory::Diff,
+                                diag::DiagLevel::Debug,
+                                diag::DiagEventKind::DiffSummary {
+                                    nodes_total: next_ir.nodes.len() as u32,
+                                    nodes_created: 0,
+                                    nodes_removed: 0,
+                                    nodes_changed: 1,
+                                    dirty_layout: diff.dirty_structural.len() as u32,
+                                    dirty_paint: 0,
+                                },
+                            );
+                        }
                     }
                 } else if prev.nodes.get(id).is_none() && next_ir.nodes.get(id).is_some() {
-                    eprintln!("[diff] new node {:?}", id);
                     logged += 1;
-                    if logged >= 20 { eprintln!("[diff] (truncated)"); break; }
+                    if logged <= 20 {
+                        diag::emit(
+                            diag::DiagCategory::Diff,
+                            diag::DiagLevel::Debug,
+                            diag::DiagEventKind::DiffSummary {
+                                nodes_total: next_ir.nodes.len() as u32,
+                                nodes_created: 1,
+                                nodes_removed: 0,
+                                nodes_changed: 0,
+                                dirty_layout: diff.dirty_structural.len() as u32,
+                                dirty_paint: 0,
+                            },
+                        );
+                    }
                 }
             }
             diff.dirty_structural
@@ -126,11 +157,39 @@ impl Pipeline {
         let use_full = dirty_count * 2 > total_nodes;
 
         let layout_input_nodes = build_layout_tree(&next_ir);
-        eprintln!("[render] layout update start ({} nodes)", layout_input_nodes.len());
+        diag::emit(
+            diag::DiagCategory::Layout,
+            diag::DiagLevel::Debug,
+            diag::DiagEventKind::LayoutSummary {
+                nodes: layout_input_nodes.len() as u32,
+                dirty_count: dirty_count as u32,
+                full_rebuild: use_full,
+            },
+        );
         // Invariant validation (fatal in debug/strict)
         if let Some(root) = next_ir.root {
             if let Err(e) = validate_layout_invariants(&layout_input_nodes, root) {
-                eprintln!("[layout.invariant] {}", e);
+                // Try to dump a snapshot for diagnostics
+                let dump_ref = if let Some(snap) = &self.last_snapshot {
+                    let path = std::env::temp_dir().join("fission_layout_snapshot.json");
+                    if let Ok(mut f) = File::create(&path) {
+                        if let Ok(json) = serde_json::to_string_pretty(snap) {
+                            let bytes = json.into_bytes();
+                            let _ = f.write_all(&bytes);
+                            Some(path.display().to_string())
+                        } else { None }
+                    } else { None }
+                } else { None };
+                diag::emit(
+                    diag::DiagCategory::Invariants,
+                    diag::DiagLevel::Error,
+                    diag::DiagEventKind::InvariantViolation {
+                        kind: "pre_update".into(),
+                        node: None,
+                        details: format!("{}", e),
+                        dump_ref,
+                    },
+                );
                 self.layout_invariant_violation_count += 1;
                 let strict = std::env::var("FISSION_LAYOUT_STRICT").ok().as_deref() == Some("1");
                 if cfg!(debug_assertions) || strict {
@@ -139,7 +198,15 @@ impl Pipeline {
                     // optional diagnostic rebuild
                     let allow_rebuild = std::env::var("FISSION_ALLOW_FULL_REBUILD").ok().as_deref() == Some("1");
                     if allow_rebuild {
-                        eprintln!("[fallback] full rebuild due to invariant violation");
+                        diag::emit(
+                            diag::DiagCategory::Layout,
+                            diag::DiagLevel::Warn,
+                            diag::DiagEventKind::LayoutSummary {
+                                nodes: layout_input_nodes.len() as u32,
+                                dirty_count: dirty_count as u32,
+                                full_rebuild: true,
+                            },
+                        );
                         layout_engine.rebuild(&layout_input_nodes)?;
                         self.layout_full_rebuild_count += 1;
                     } else {
@@ -155,12 +222,27 @@ impl Pipeline {
         } else {
             layout_engine.update(&layout_input_nodes, &dirty_closure);
         }
-        eprintln!("[render] layout update done");
+        // End of layout update; nothing to emit here (summary above)
 
         // Post-update verification
         if let Some(root) = next_ir.root {
             if let Err(e) = layout_engine.verify_post_update(&layout_input_nodes, root) {
-                eprintln!("[layout.post-verify] {}", e);
+                // Try to dump a snapshot for diagnostics
+                let dump_ref = if let Some(snap) = &self.last_snapshot {
+                    let path = std::env::temp_dir().join("fission_layout_snapshot.json");
+                    if let Ok(mut f) = File::create(&path) {
+                        if let Ok(json) = serde_json::to_string_pretty(snap) {
+                            let bytes = json.into_bytes();
+                            let _ = f.write_all(&bytes);
+                            Some(path.display().to_string())
+                        } else { None }
+                    } else { None }
+                } else { None };
+                diag::emit(
+                    diag::DiagCategory::Invariants,
+                    diag::DiagLevel::Error,
+                    diag::DiagEventKind::InvariantViolation { kind: "post_update".into(), node: None, details: format!("{}", e), dump_ref },
+                );
                 self.layout_invariant_violation_count += 1;
                 let strict = std::env::var("FISSION_LAYOUT_STRICT").ok().as_deref() == Some("1");
                 if cfg!(debug_assertions) || strict {
@@ -168,7 +250,11 @@ impl Pipeline {
                 } else {
                     let allow_rebuild = std::env::var("FISSION_ALLOW_FULL_REBUILD").ok().as_deref() == Some("1");
                     if allow_rebuild {
-                        eprintln!("[fallback] full rebuild due to post-update verify failure");
+                        diag::emit(
+                            diag::DiagCategory::Layout,
+                            diag::DiagLevel::Warn,
+                            diag::DiagEventKind::LayoutSummary { nodes: layout_input_nodes.len() as u32, dirty_count: dirty_count as u32, full_rebuild: true },
+                        );
                         layout_engine.rebuild(&layout_input_nodes)?;
                         self.layout_full_rebuild_count += 1;
                     } else {
@@ -179,16 +265,16 @@ impl Pipeline {
         }
 
         let root_id = next_ir.root.unwrap();
-        eprintln!("[render] compute_layout start");
+        // compute_layout
         let snapshot = layout_engine.compute_layout(&layout_input_nodes, root_id, viewport)?;
-        eprintln!("[render] compute_layout done");
+        // done
 
         let mut display_list =
             DisplayList::new(LayoutRect::new(0.0, 0.0, viewport.width, viewport.height));
         let mut paint_misses = 0;
         let mut paint_hits = 0;
 
-        eprintln!("[render] display_list start");
+        // display list generation
         self.generate_display_list_recursive(
             root_id,
             &next_ir,
@@ -200,7 +286,15 @@ impl Pipeline {
             video_map,
             LayoutPoint::new(0.0, 0.0),
         );
-        eprintln!("[render] display_list done (misses={}, hits={})", paint_misses, paint_hits);
+        diag::emit(
+            diag::DiagCategory::Paint,
+            diag::DiagLevel::Debug,
+            diag::DiagEventKind::PaintSummary {
+                segments_reused: paint_hits as u32,
+                segments_regenerated: paint_misses as u32,
+                paint_ops_total: display_list.ops.len() as u32,
+            },
+        );
 
         renderer.render(&display_list)?;
 
@@ -572,6 +666,20 @@ impl Pipeline {
                     child_offset,
                     visited,
                 );
+            }
+        }
+    }
+}
+
+impl SnapshotProvider for Pipeline {
+    fn snapshot(&self, kind: SnapshotKind) -> Option<SnapshotBlob> {
+        match kind {
+            SnapshotKind::Layout => {
+                self.last_snapshot.as_ref().and_then(|snap| {
+                    serde_json::to_string_pretty(snap)
+                        .ok()
+                        .map(|json| SnapshotBlob { kind, json })
+                })
             }
         }
     }
