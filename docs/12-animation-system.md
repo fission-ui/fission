@@ -1,212 +1,465 @@
-# 12. Animation System
+# Animation System Goals and Architecture (v1)
 
-This section defines the **Animation System** as a deterministic, action-driven mechanism for evolving state over explicit time.
-Animations are not callbacks or frame hooks; they are pure state transitions driven by data, ticks, and reducers.
-
-Animation answers one question only: *how state changes over time under explicit control*.
-
----
-
-## 12.1 Design Goals
-
-The animation system must:
-
-- be deterministic and replayable,
-- own time explicitly,
-- integrate with the action/reducer model,
-- affect layout and painting only via state,
-- be testable headlessly without frame loops.
-
-Animations must never depend on wall-clock time or renderer callbacks.
+This document defines the goals, scope, and architectural role of animations in the framework.  
+It clarifies what the animation system **is**, what it **is not**, and how external animation formats
+(e.g. Lottie) fit into the model without compromising determinism or testability.
 
 ---
 
-## 12.2 Animation as State, Not Behavior
+## 1. Primary Goal: Deterministic, State-Driven Animations
 
-Animations are modeled as **state machines**.
+The core goal of the animation system is:
 
-An animation consists of:
-- a target state field,
-- a start value,
-- an end value,
-- a duration,
-- an easing function,
-- a start tick.
+> **Animation is deterministic state evolution over an explicit, framework-owned clock.**
 
-There are no closures, callbacks, or implicit lifetimes.
+This goal follows directly from the framework’s core principles:
+- UI = f(State)
+- Determinism is non-negotiable
+- Headless execution and CI testing must be reliable
+- All runtime behavior must be observable and replayable
 
----
+### 1.1 What “deterministic animation” means
 
-## 12.3 Explicit Time Ownership
+- The framework **owns time**
+- Animation evaluation is pure and repeatable
+- No animation logic lives in the OS, renderer, or platform shell
+- Advancing time by the same amount always produces the same visual result
 
-Time advances only via explicit actions.
+Conceptually:
 
-Examples:
-- `Tick { dt }`
-- `AdvanceTo { time }`
+```text
+Animation = {
+  start_value,
+  end_value,
+  easing,
+  duration,
+  start_time
+}
 
-Rules:
-- no wall-clock time is consulted,
-- time units are fixed and versioned,
-- identical tick sequences produce identical results.
-
----
-
-## 12.4 Animation Actions
-
-Animations are created and controlled via actions.
-
-Examples:
-- `StartAnimation { id, params }`
-- `CancelAnimation { id }`
-- `SetAnimationProgress { id, t }`
-
-Actions are recorded, replayed, and inspected like any other.
-
----
-
-## 12.5 Reducer-Based Evaluation
-
-Reducers evaluate animations on each tick.
-
-Rules:
-- reducers are pure functions,
-- animation progress is computed deterministically,
-- completed animations transition to terminal states.
-
-There is no hidden scheduler.
-
----
-
-## 12.6 Easing Functions
-
-Easing functions are pure, deterministic functions.
-
-Rules:
-- easing functions are versioned,
-- numeric precision is explicit,
-- custom easings are data-defined, not closures.
-
-Examples include linear, cubic, spring (parameterized).
-
----
-
-## 12.7 Interaction With Layout and Painting
-
-Animations affect layout and painting only by mutating state.
-
-Examples:
-- animating opacity affects paint ops,
-- animating size affects layout on next pass,
-- animating transform affects painting transforms.
-
-No special animation pipeline exists.
-
----
-
-## 12.8 Composition and Overlap
-
-Multiple animations may target:
-
-- different fields (composable),
-- the same field (resolved explicitly).
-
-Conflict resolution rules:
-- last-write-wins,
-- additive composition,
-- explicit blending.
-
-Rules are explicit and testable.
-
----
-
-## 12.9 Interruptions and Reversals
-
-Animations can be interrupted deterministically.
-
-Rules:
-- interruption is an action,
-- current value is sampled explicitly,
-- new animation parameters are derived deterministically.
-
-There are no race conditions.
-
----
-
-## 12.10 Accessibility and Reduced Motion
-
-Accessibility preferences are explicit inputs.
-
-Rules:
-- reduced-motion is a configuration flag,
-- animations may be disabled or simplified,
-- behavior is deterministic and testable.
-
-Reduced motion never changes semantics, only transitions.
-
----
-
-## 12.11 Headless Testing of Animations
-
-Animations are fully testable headlessly.
-
-Example:
-
-```rust
-dispatch(StartAnimation { id: "fade", from: 0.0, to: 1.0, duration: 300 });
-dispatch(Tick { dt: 100 });
-assert_eq!(find("panel").opacity(), 0.333);
+value_at_time(t) = evaluate(animation, t)
 ```
 
-Tests assert exact numeric values.
+No callbacks, no hidden threads, no imperative timelines.
 
 ---
 
-## 12.12 Snapshot Representation
+## 2. What the Core Animation System Supports (v1)
 
-Animation state appears in snapshots:
+The built-in animation system is intended to support **UI and interaction animation**, including:
 
-- active animations,
-- progress values,
-- resolved animated fields.
+### 2.1 Property animations
+- Opacity
+- Position / translation
+- Size
+- Scale / transform
+- Color
+- Elevation / shadow parameters
 
-Snapshots allow diffing and replay of animation behavior.
+### 2.2 Layout-aware animations
+- Animated constraint changes
+- Animated flex/grid reflow
+- Animated intrinsic size changes
+
+### 2.3 Interaction-driven animations
+- Hover → pressed → released
+- Focus transitions
+- Enabled / disabled transitions
+
+### 2.4 Scroll physics
+- Scroll offsets as animated state
+- Velocity, friction, snapping
+- Driven by the same owned clock
+
+### 2.5 Test control
+Animations must be fully controllable in tests:
+
+```rust
+harness.advance_time(200.ms());
+assert_eq!(find("button").opacity(), 0.5);
+```
+
+This is a **hard requirement**, not a convenience feature.
+
+---
+
+## 3. Explicit Non-Goal: Replacing Lottie or Artist Pipelines
+
+The framework does **not** aim to replace Lottie, After Effects, or similar animation-authoring tools.
+
+Reasons:
+- Those tools are timeline-based and artist-oriented
+- They often produce platform-dependent results
+- They are difficult to snapshot, diff, and test deterministically
+- They introduce heavy runtime and asset dependencies
+
+Therefore:
+
+> **The framework is not a Lottie competitor.**
 
 ---
 
-## 12.13 Performance Considerations
+## 4. Correct Model: Lottie as an Embed, Not a Primitive
 
-Animation evaluation is lightweight:
+If Lottie (or similar formats) are supported, they must be treated as **media embeds**, not core primitives.
 
-- simple arithmetic per tick,
-- bounded state,
-- linear in number of active animations.
+### 4.1 Architectural position
 
-Parallelism is unnecessary and avoided.
+- Lottie lives behind `Node::Custom` or an `EmbedNode`
+- It is driven by the **same framework-owned clock**
+- It exposes explicit, testable state
+
+Conceptual model:
+
+```text
+LottieEmbed {
+  asset_id,
+  duration,
+  playback_state,
+  time_source: RuntimeClock,
+}
+```
+
+### 4.2 What Lottie embeds must provide
+
+- Intrinsic size
+- Deterministic frame evaluation
+- Progress (0.0 → 1.0) derived from framework time
+- Optional semantics (if interactive)
+
+### 4.3 What Lottie embeds must NOT do
+
+- Start their own timers
+- Advance frames internally
+- Depend on platform animation APIs
+- Bypass the framework’s clock or test harness
 
 ---
 
-## 12.14 Error Handling
+## 5. How Animations Integrate with the Core Architecture
 
-Animation errors include:
+### 5.1 Runtime ownership
 
-- invalid parameters,
-- numeric overflow,
-- conflicting targets without resolution rules.
+- Animations are **runtime state**, not authoring-time constructs
+- Widgets declare *what* animates, not *how time advances*
+- The runtime evaluates animation values each frame
 
-Errors are deterministic and surfaced immediately.
+### 5.2 Core IR interaction
+
+- Core IR references animated properties symbolically
+- Evaluation occurs before paint compilation
+- Display lists always see resolved values
+
+### 5.3 Custom widgets
+
+- Custom widgets may:
+  - register animations declaratively
+  - emit animated Core IR via `Node::Custom`
+- All custom animation logic must obey determinism constraints
+
+---
+
+## 6. Determinism Requirements for Animations
+
+All animations must obey the following:
+
+### Forbidden
+- Wall-clock time
+- OS animation frameworks
+- Renderer-driven animation
+- Randomness without explicit seeding
+
+### Required
+- Explicit start time
+- Explicit duration
+- Explicit easing
+- Evaluation based only on framework-owned clock
 
 ---
 
-## 12.15 Summary
+## 7. Summary
 
-The animation system:
+- **Primary goal**: deterministic, state-driven, testable UI animation
+- **Core animations**: first-class, owned by the runtime
+- **Lottie**: optional embed, not a primitive
+- **Key invariant**: the framework always owns time
 
-- treats time as explicit data,
-- evolves state deterministically,
-- integrates cleanly with reducers,
-- is fully testable and replayable.
+This model ensures:
+- reliable CI
+- replayable interaction traces
+- stable snapshots
+- consistent behavior across platforms
 
-Animations are data-driven transitions—not magic.
 
 ---
+
+
+# Animation API Refinement Spec (v1)
+
+This document refines the v1 animation API to:
+- remove string-key hacks (e.g., `pulse_generation`),
+- remove author-managed explicit node IDs for typical cases,
+- formalize deterministic semantics for animation creation, replacement, and sampling,
+- preserve compatibility with the retained / incremental pipeline.
+
+This spec assumes:
+- the runtime owns an explicit clock,
+- animations are sampled deterministically from that clock,
+- UI remains a pure function of explicit inputs (`View`).
+
+---
+
+## 1. Goals and Non-Goals
+
+### Goals
+- Make animations ergonomic for large apps without introducing closures or side effects.
+- Ensure deterministic replay and headless test control.
+- Ensure animations interact cleanly with incremental updates (localized paint dirtiness).
+- Eliminate the need for user-defined “unique keys” to retrigger animations.
+- Ensure stable targeting without requiring `NodeId::explicit("…")` in normal widget code.
+
+### Non-Goals (v1)
+- Multiple concurrent animations blending into the same property of the same node (v2).
+- Advanced timeline authoring (Lottie-like authoring remains an embed concern).
+- Platform-driven animation clocks.
+
+---
+
+## 2. Identity and Targeting
+
+### 2.1 Stable identity
+Animations are retained runtime state and must be keyed by stable identity.
+
+Introduce a stable identifier distinct from arena IDs:
+
+```rust
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct StableId(u64);
+```
+
+Rules:
+- `StableId` persists across frames for the “same logical node”.
+- `NodeId` (arena id) remains per-frame and must not be used for targeting animations.
+
+### 2.2 Automatic stable ids
+The framework assigns stable ids automatically during lowering:
+- keyed nodes: derived from explicit keys
+- unkeyed nodes: derived from deterministic structural identity rules
+
+Developers supply keys only when identity would otherwise be ambiguous (e.g., list reorder).
+
+### 2.3 Default targeting: “self”
+Most animations target the widget/node currently being built.
+
+The framework provides a way to request animations scoped to the current node:
+
+```rust
+ctx.anim().request(AnimationRequest { property: ..., ... });
+```
+
+Internally, `ctx` attaches the current node’s `StableId` as the target.
+
+Explicit targeting remains possible when needed:
+
+```rust
+ctx.anim().request_for(target_id, AnimationRequest { ... });
+```
+
+---
+
+## 3. Property Keys
+
+Avoid heap strings for properties.
+
+Introduce interned property atoms:
+
+```rust
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct AnimProp(u32);
+```
+
+Core property set (v1):
+- `opacity`
+- `translate_x`, `translate_y`
+- `scale`
+- `rotation`
+- `t` (generic driver value)
+- `custom("...")` via stable atom registration (optional)
+
+---
+
+## 4. Runtime Model and Semantics
+
+### 4.1 Single active driver per (target, property)
+The runtime maintains:
+
+```rust
+active: BTreeMap<(StableId, AnimProp), ActiveAnimation>
+```
+
+Semantics:
+- There is at most one active animation driving a given property on a given node.
+- A new request for the same (target, property) deterministically replaces the existing one.
+
+This does **not** restrict the number of animations in an app:
+- different nodes animate independently,
+- different properties on the same node animate independently.
+
+### 4.2 Start policies
+Animation requests specify how to choose the starting value:
+
+```rust
+pub enum StartFrom {
+    Explicit(f32),
+    Current, // runtime samples last resolved value directly
+}
+```
+
+This eliminates the need to feed `anim_val` back through the view to compute `from`.
+
+### 4.3 Replacement policy
+v1 policy:
+
+- `Replace`: new request replaces the existing animation immediately.
+
+Optionally, also support:
+- `IgnoreIfActive` (useful for spammy requests)
+- `Restart` (explicit restart semantics; equivalent to Replace with StartFrom::Explicit)
+
+For v1, implement `Replace` + `IgnoreIfActive` if needed.
+
+---
+
+## 5. API Surface
+
+### 5.1 AnimationRequest
+```rust
+pub struct AnimationRequest {
+    pub property: AnimProp,
+    pub from: StartFrom,
+    pub to: f32,
+    pub duration_ms: u32,
+    pub easing: Easing,         // v1: Linear only; extend later
+    pub policy: ReplacePolicy,  // v1 default: Replace
+}
+```
+
+### 5.2 Build-time request collection
+`BuildCtx` collects requests each build:
+
+```rust
+impl<S> BuildCtx<S> {
+    pub fn anim(&mut self) -> AnimCtx<'_, S>;
+}
+```
+
+`AnimCtx` methods:
+- `request(req)` targets current node
+- `request_for(target, req)` targets explicit node
+
+No string keys.
+
+### 5.3 Sampling in View
+`View` exposes sampled values:
+
+```rust
+impl<'a, S> View<'a, S> {
+    pub fn anim(&self, id: StableId, prop: AnimProp) -> f32;
+}
+```
+
+Note:
+- returns a value (no Option) because unknown animations resolve to defaults (see §6).
+- defaults are deterministic.
+
+---
+
+## 6. Defaults and Missing Animations
+
+If a property has no active animation and no stored value, the runtime returns a deterministic default:
+- opacity: 1.0
+- transforms: 0.0 (translate/rotation), 1.0 (scale)
+- generic driver `t`: 0.0
+
+This removes `Option` in typical usage.
+
+---
+
+## 7. Determinism and Hashing
+
+### 7.1 Animation values must not structural-dirty the tree
+Animation outputs are runtime-evaluated values that should:
+- not affect structural identity hashes,
+- not force layout invalidation unless explicitly animating layout-affecting properties.
+
+The runtime should route animation values into:
+- paint inputs hashes (localized),
+- transform/layer state (preferred for opacity/transform).
+
+### 7.2 Quantization for hashing
+When animation values contribute to paint hashes, quantize deterministically:
+
+```rust
+fn quantize_f32(x: f32) -> u16 { /* fixed-point */ }
+```
+
+Use quantized values for hashing to avoid floating noise.
+
+---
+
+## 8. Ergonomic Pattern: Triggering a Pulse Without `pulse_generation`
+
+Example: pulse opacity whenever the counter increments.
+
+```rust
+fn build(&self, ctx: &mut BuildCtx<AppState>, view: &View<AppState>) -> Node {
+    let vm = view.select::<CounterVM>();
+
+    // When state changes, build re-runs; request replaces existing animation.
+    ctx.anim().request(AnimationRequest {
+        property: AnimProp::opacity(),
+        from: StartFrom::Current,
+        to: 0.2,
+        duration_ms: 250,
+        easing: Easing::Linear,
+        policy: ReplacePolicy::Replace,
+    });
+
+    // Use sampled value
+    let opacity = view.anim(ctx.current_id(), AnimProp::opacity());
+
+    // Render using opacity...
+}
+```
+
+Key points:
+- No unique key strings.
+- No `pulse_generation`.
+- No explicit author-chosen stable id for the common case.
+- Runtime deterministically replaces the prior animation each time the request is issued.
+
+If “only trigger when value changed” is desired, add `ctx.anim().request_on_change(dep_hash, req)` as a future convenience, but it is not required for correctness.
+
+---
+
+## 9. Compatibility Notes
+
+### Migration from string-key requests
+- Remove `AnimationRequest.key: String`
+- Replace dedupe `HashSet<String>` with `(StableId, AnimProp)` map
+- Replace `from: vm.anim_val` with `StartFrom::Current`
+
+### Migration from `NodeId::explicit`
+- Replace explicit node IDs in animation APIs with `StableId`.
+- Continue supporting explicit keys at the authoring layer where stable identity must be specified (lists/reorder).
+
+---
+
+## 10. Summary
+
+This refinement:
+- removes “unique key” hacks and confusing counters like `pulse_generation`,
+- makes animation semantics deterministic and composable,
+- ensures stable targeting without author-managed IDs for typical cases,
+- preserves the retained pipeline by keeping animation dirtiness localized.
+
+v2 can extend this model with channels/priorities or blending, but v1 should ship with the simplest deterministic semantics described here.

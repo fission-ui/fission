@@ -1,223 +1,233 @@
-# 7. Action System
+# Action System (Revised and Canonical)
 
-This section defines the Action System: how user intent, accessibility interaction, and programmatic events are represented, validated, and executed.
-Actions are the sole mechanism by which interaction causes state change.
+This document defines the **canonical Action System** for the framework.
+It supersedes earlier descriptions and should be treated as the source of truth.
 
-There are no implicit callbacks or hidden side effects.
-
----
-
-## 7.1 Actions as First-Class Data
-
-An **Action** represents an intent to change state.
-
-Actions are:
-- explicit data structures,
-- declarative and inspectable,
-- serializable and replayable,
-- deterministic.
-
-Actions are not closures and do not capture environment.
+The action system is designed to be:
+- deterministic,
+- closure-free in the widget tree,
+- fully serializable and replayable,
+- ergonomic for humans and LLMs,
+- modular at scale (no monolithic reducers).
 
 ---
 
-## 7.2 Why an Action System (Not Callbacks)
+## 1. Core Principles
 
-Callback-based systems suffer from:
+1. **Actions are data, not behavior**
+   - Widgets never store closures or function pointers.
+   - Widgets store *descriptors* of intent only.
 
-- hidden control flow,
-- nondeterministic execution order,
-- poor testability,
-- tight coupling to runtime context.
+2. **Typed at authoring time, erased at runtime**
+   - Authors work with strongly typed Rust actions.
+   - The Core Runtime works with erased, canonical representations.
 
-The Action System replaces callbacks with:
-- explicit intent,
-- centralized routing,
-- deterministic reducers.
+3. **Handlers are registered, not embedded**
+   - Action handlers are registered during app construction.
+   - Registration is deterministic and owned by the runtime.
 
-This mirrors modern state-management systems while remaining UI-native.
+4. **Dispatch is synchronous and deterministic**
+   - No async pub/sub.
+   - No background delivery.
+   - No unordered fanout.
 
 ---
 
-## 7.3 Action Declaration
+## 2. Action Types (`#[derive(Action)]`)
 
-Actions are declared as part of semantics.
-
-Each action declaration includes:
-- a stable action identifier,
-- an optional payload schema,
-- enabled/disabled state,
-- semantic meaning.
-
-Example (conceptual):
+An action is defined as a pure data type.
 
 ```rust
-Action {
-    id: ActionId::Activate,
-    payload: None,
-    enabled: true,
+#[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+pub struct Increment;
+```
+
+The `#[derive(Action)]` macro generates:
+
+- a stable `ActionId`
+- canonical encoding/decoding logic
+- optional debug metadata (name, version)
+- compile-time linkage between type and identity
+
+Actions:
+- must be deterministic
+- must not capture environment
+- must be serializable via a canonical format
+
+---
+
+## 3. ActionEnvelope (Runtime Representation)
+
+All actions lower to a single, erased representation.
+
+```rust
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ActionEnvelope {
+    pub id: ActionId,
+    #[serde(with = "serde_bytes")]
+    pub payload: Vec<u8>,
+    pub target: Option<WidgetNodeId>,
 }
 ```
 
-Action identifiers are stable and versioned.
+Properties:
+- fully serializable
+- comparable and hashable
+- suitable for logging, replay, diffing
+- independent of Rust type system at runtime
+
+The widget tree stores **only** `ActionEnvelope` (or a thin alias such as `ActionBinding`).
 
 ---
 
-## 7.4 Action Identifiers
+## 4. Build-Time Binding (Ergonomic API)
 
-Action identifiers are:
-
-- strongly typed,
-- globally stable,
-- not stringly-typed at runtime.
-
-Identifiers may be:
-- built-in (e.g. Activate, Increment),
-- user-defined via derive macros (e.g. `#[derive(Action)]`).
-
-Derivation produces:
-- a stable identifier,
-- serialization metadata,
-- validation hooks.
-
----
-
-## 7.5 Action Payloads
-
-Actions may carry payloads.
-
-Payloads are:
-- structured and typed,
-- validated during dispatch,
-- serializable.
-
-Examples:
-- text input changes,
-- slider value updates,
-- selection indices.
-
-Payload schemas are part of the action definition.
-
----
-
-## 7.6 Action Routing
-
-Actions are routed deterministically:
-
-1. Action is invoked via semantics or input.
-2. Target node identity is resolved.
-3. Action is dispatched to the reducer.
-4. State update occurs.
-5. UI is rebuilt deterministically.
-
-There is no bubbling or capture unless explicitly modeled.
-
----
-
-## 7.7 Reducers
-
-Reducers are pure functions:
+Handlers are associated with actions during app construction via a **Build Context**.
 
 ```rust
-fn reduce(state: &mut AppState, action: Action, target: NodeId)
+pub type Handler<S, A> = fn(&mut S, A);
+
+pub struct BuildCtx<S> {
+    registry: ActionRegistry<S>,
+}
 ```
 
-Reducers:
-- are deterministic,
-- perform explicit state transitions,
-- have no side effects beyond state mutation.
-
-Reducers do not access UI structure directly.
-
----
-
-## 7.8 Validation and Enforcement
-
-The system validates that:
-
-- only declared actions may be invoked,
-- payloads match schemas,
-- disabled actions cannot be executed,
-- role/action combinations are valid.
-
-Violations are deterministic errors.
-
----
-
-## 7.9 Accessibility and Actions
-
-Accessibility systems invoke the same actions.
-
-There is no separate accessibility execution path.
-
-This guarantees:
-- identical behavior across input modalities,
-- testability of accessibility interaction,
-- semantic correctness.
-
----
-
-## 7.10 Testing Actions
-
-Actions are easily testable.
-
-Examples:
+Binding an action:
 
 ```rust
-find(role("button").label("Increment"))
-    .action("activate")
-    .invoke();
+fn on_increment(state: &mut CounterState, _: Increment) {
+    state.value += 1;
+}
 
-assert_eq!(state.count, 1);
+Button {
+    on_press: Some(ctx.bind::<Increment>(on_increment)),
+    ..Default::default()
+}
 ```
 
-Tests may also:
-- dispatch actions directly,
-- replay recorded action sequences,
-- assert state transitions.
+What `bind` does:
+
+1. Registers the handler under `Increment::ID` in the registry.
+2. Returns a pure `ActionEnvelope` with:
+   - `id = Increment::ID`
+   - `payload = Increment::encode(&Increment)`
+   - `target = None` (or filled automatically by the runtime)
+
+No side effects escape the build context.
 
 ---
 
-## 7.11 Instrumentation and Replay
+## 5. Handler Registration and Registry
 
-Actions can be:
-- logged,
-- recorded,
-- replayed deterministically.
+Internally, the runtime owns a deterministic registry:
+
+```rust
+struct ActionRegistry<S> {
+    handlers: BTreeMap<ActionId, Box<dyn Fn(&mut S, &ActionEnvelope)>>,
+}
+```
+
+Registration is:
+- deterministic
+- ordered
+- complete before runtime execution begins
+
+Multiple handlers per `ActionId` are discouraged but allowed if ordering is defined.
+
+---
+
+## 6. Dispatch Model
+
+When an action occurs (pointer, keyboard, accessibility):
+
+1. Core emits an `ActionEnvelope`.
+2. Envelope is synchronously dispatched.
+3. Matching handler(s) are invoked.
+4. State is mutated.
+5. A new snapshot is produced.
+
+There is no background queue unless explicitly modeled and drained deterministically.
+
+---
+
+## 7. Targeted Actions (Widget-Scoped Behavior)
+
+Actions may optionally include a target:
+
+```rust
+ActionEnvelope {
+    id,
+    payload,
+    target: Some(widget_id),
+}
+```
 
 This enables:
-- time-travel debugging,
-- regression reproduction,
-- LLM-assisted analysis.
+- widget-local state
+- instance-specific reducers
+- scalable UIs without global state explosion
 
-Action logs are platform-independent.
-
----
-
-## 7.12 Error Handling
-
-Action-related errors include:
-
-- unknown action identifiers,
-- invalid payloads,
-- dispatch to non-interactive nodes.
-
-Errors are:
-- deterministic,
-- reported with provenance,
-- never silently ignored.
+Handlers may use `target` to select the correct substate.
 
 ---
 
-## 7.13 Summary
+## 8. Determinism Guarantees
 
-The Action System:
+The action system is deterministic because:
 
-- replaces callbacks with explicit intent,
-- unifies user, accessibility, and test interaction,
-- guarantees deterministic state changes,
-- enables powerful testing and tooling.
+- `ActionId` is stable
+- payload encoding is canonical
+- handler registration is deterministic
+- dispatch order is explicit
+- time is Core-owned
+- no hidden side effects exist
 
-It is the backbone of interaction in the framework.
+Given:
+- the same initial state,
+- the same action trace,
+- the same Core version,
+
+the result is guaranteed to be identical.
 
 ---
+
+## 9. Action Tracing and Replay
+
+Because actions are envelopes:
+
+- they can be recorded verbatim,
+- replayed without rebuilding widgets,
+- diffed across runs,
+- inspected by tools and LLMs.
+
+Replay requires only:
+- initial snapshot,
+- action envelope sequence,
+- deterministic registry construction.
+
+---
+
+## 10. What Is Explicitly Forbidden
+
+The following are not allowed:
+
+- closures in widget structs
+- `Box<dyn Action>` stored in trees
+- implicit global registries
+- async or unordered dispatch
+- handler registration outside build context
+- state mutation outside handlers
+
+These rules are enforced to preserve long-term correctness.
+
+---
+
+## 11. Mental Model Summary
+
+- Widgets **describe intent**
+- Actions **describe events**
+- Handlers **own behavior**
+- The Core **owns time and order**
+- Everything important is **data**
+
+This separation is what enables testing, replay, tooling, and LLM-native workflows at scale.

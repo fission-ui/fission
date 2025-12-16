@@ -1,201 +1,345 @@
-# 3. Authoring Layer (Open World)
+# Authoring API Spec (v1): Widget, View::select, and Lowering (with Custom Lowering)
 
-This section describes the Authoring Layer: the public, developer-facing API used to construct user interfaces.
-The Authoring Layer is intentionally open-world, ergonomic, and expressive, while remaining strictly separated from the Core Runtime.
+This document specifies the **v1 authoring model** for the framework, focusing on:
 
-Authoring constructs describe *intent*, not behavior.
+1. `Widget<S>`: a Flutter-like composition trait that **builds** UI.
+2. `View<S>::select::<VM>()`: a type-safe selector system for scalable state access.
+3. `Lower`: a lowering trait that compiles an authored `Node` tree into Core IR deterministically.
+4. `Node::Custom`: an **escape hatch** enabling developers to emit arbitrary Core IR for advanced widgets (e.g., a star-shaped button).
 
----
-
-## 3.1 Role of the Authoring Layer
-
-The Authoring Layer exists to:
-
-- express UI structure clearly and concisely,
-- map application state to UI intent,
-- define interaction intent via actions,
-- remain pleasant and idiomatic to write in Rust.
-
-It does **not** define:
-- layout algorithms,
-- rendering behavior,
-- platform-specific logic,
-- event routing semantics.
-
-Those responsibilities belong to the Core Runtime.
+This spec explicitly **excludes** any `Provide<T>` / provider mechanism. All inputs are carried through `View<S>`.
 
 ---
 
-## 3.2 Open-World Design
+## 1. Goals and Non-Goals
 
-The Authoring Layer is open-world by design.
+### Goals
+- Scale to large applications (many modules/files/crates).
+- Keep UI as a pure function of explicit inputs:  
+  **UI = f(AppState, RuntimeState, Env)**.
+- Avoid closures in the widget tree; action handling is registered via `BuildCtx`.
+- Avoid trait objects in the authored tree (no `dyn Widget` trees).
+- Make lowering automatic for the common case.
+- Allow **optional** custom lowering for advanced cases without changing core primitives.
 
-This means:
-- users can define new widgets freely,
-- widgets are normal Rust structs,
-- no central registry of widgets exists,
-- adding widgets does not require modifying the Core Runtime.
-
-Open-world authoring enables rapid iteration and experimentation without destabilizing the system.
+### Non-Goals (v1)
+- Provider/DI style scoping (`Provide<T>`).
+- Incremental partial rebuild heuristics (v1 rebuilds full authored tree per frame).
+- Complex binding expression languages (state access is via `select` and normal Rust computation).
 
 ---
 
-## 3.3 Struct-Based Widgets
+## 2. Key Types and Responsibilities
 
-Widgets are defined as plain Rust structs.
-
-Example:
+### 2.1 `AppState`
+User-defined persistent state, serializable and deterministic.
 
 ```rust
-#[derive(Default)]
-pub struct Button {
-    pub id: Option<NodeId>,
-    pub on_click: Option<Action>,
-    pub child: Option<Node>,
-    pub padding: Insets,
+pub trait AppState: Default + Clone + 'static {}
+```
+
+### 2.2 `RuntimeState`
+Framework-owned ephemeral state:
+- hover / pressed / focus
+- pointer capture
+- animation clocks / scroll offsets (future)
+
+### 2.3 `Env`
+Explicit environment inputs:
+- DPI / device pixel ratio
+- platform id (android/ios/web/desktop)
+- accessibility preferences
+- theme pack selection (or resolved theme)
+- i18n registry + locale (v1 i18n)
+
+### 2.4 `View<S>`
+Read-only view over all inputs required to build UI.
+
+```rust
+pub struct View<'a, S> {
+    pub state: &'a S,
+    pub runtime: &'a RuntimeState,
+    pub env: &'a Env,
+    pub theme: &'a Theme,
+    pub i18n: &'a I18nRegistry,
 }
 ```
 
-Key properties:
-- fields are explicit,
-- optional fields use `Option` or `Default`,
-- construction does not require builders or macros.
+---
 
-This approach:
-- avoids deeply nested builders,
-- improves readability,
-- works well with tooling and LLMs.
+## 3. `Selector` and `View::select`
+
+### 3.1 Selector trait
+`Selector<S>` ensures `select()` always returns a value.
+
+```rust
+pub trait Selector<S> {
+    type Output;
+    fn select(view: &View<S>) -> Self::Output;
+}
+```
+
+### 3.2 `View::select`
+```rust
+impl<'a, S> View<'a, S> {
+    pub fn select<T: Selector<S>>(&self) -> T::Output {
+        T::select(self)
+    }
+}
+```
+
+No `Option`, no runtime lookup failure.
 
 ---
 
-## 3.4 Use of `Default`
+## 4. `BuildCtx<S>` and Action Binding
 
-Widgets are designed to be constructed using `Default` plus field overrides.
-
-Example:
+`BuildCtx<S>` exists to register action handlers and other build-time services.
+It is *not* the mechanism for reading app state.
 
 ```rust
 Button {
-    on_click: Some(CounterAction::Increment.into()),
-    child: Some(Node::Text("Increment".into())),
+    on_press: Some(ctx.bind(Increment, on_increment)),
     ..Default::default()
 }
 ```
 
-Benefits:
-- minimal boilerplate,
-- clear intent,
-- easy refactoring when fields are added.
+`bind` registers the handler deterministically and returns a pure `ActionEnvelope` stored in the tree.
 
 ---
 
-## 3.5 Explicit State and Actions
+## 5. `Widget<S>`: Composition, Not Rendering
 
-Authoring code does not mutate state directly.
-
-Instead:
-- state is read to build the UI,
-- interactions emit typed actions,
-- reducers update state outside the widget tree.
-
-This ensures:
-- deterministic rebuilds,
-- clear data flow,
-- testable interaction behavior.
-
----
-
-## 3.6 No Closures in the Widget Tree
-
-The Authoring Layer forbids capturing closures in widgets.
-
-Instead of:
-
+### 5.1 Widget trait
 ```rust
-on_click: || state.count += 1
-```
-
-Widgets emit actions:
-
-```rust
-on_click: Some(CounterAction::Increment.into())
-```
-
-Rationale:
-- closures capture hidden state,
-- closures are not serializable,
-- closures hinder replay and inspection.
-
-Actions are explicit, typed, and traceable.
-
----
-
-## 3.7 Authoring Nodes
-
-All widgets ultimately lower to a common authoring node type.
-
-Example:
-
-```rust
-pub enum Node {
-    Text(Text),
-    Button(Button),
-    Row(Row),
-    Custom(Box<dyn Desugar>),
+pub trait Widget<S: AppState> {
+    fn build(&self, ctx: &mut BuildCtx<S>, view: &View<S>) -> Node;
 }
 ```
 
-The `Custom` variant allows extension without changing the core authoring enum.
+### 5.2 Why `build()` returns `Node`
+Returning `Node` avoids `dyn Widget` trees and object-safety issues.
+The authored UI is represented by a single erased sum type (`Node`), suitable for deterministic lowering.
 
 ---
 
-## 3.8 Desugaring Responsibility
+## 6. `Node`: the Authoring Tree Carrier
 
-Authoring widgets must implement deterministic desugaring into Core IR.
+`Node` is the uniform tree carrier produced by widgets.
 
-Desugaring:
-- is pure,
-- produces Core primitives,
-- assigns identity when needed,
-- enforces canonical forms.
+```rust
+pub enum Node {
+    Row(Row),
+    Text(Text),
+    Button(Button),
+    Padding(Padding),
+    Container(Container),
+    // ...
+    Custom(CustomNode), // escape hatch
+}
+```
 
-Authoring widgets do not perform layout or rendering.
-
----
-
-## 3.9 Determinism Guarantees
-
-The Authoring Layer must be deterministic:
-
-- widget construction must not depend on time,
-- no random values without explicit seeding,
-- iteration over collections must be ordered.
-
-Violations of these rules propagate nondeterminism downstream and are considered bugs.
+Custom widgets typically “compile away” into primitives by returning `Node` composed of primitive variants.
+For advanced cases, a widget may return `Node::Custom(...)` to supply its own lowering.
 
 ---
 
-## 3.10 Relationship to Testing
+## 7. `Lower`: Compiling `Node` → Core IR
 
-Authoring constructs are directly testable by:
+### 7.1 Lower trait
+```rust
+pub trait Lower {
+    fn lower(&self, cx: &mut LoweringContext) -> CoreIrNode;
+}
+```
 
-- building UI trees from known state,
-- inspecting lowered Core IR,
-- asserting structural properties.
+### 7.2 Who implements `Lower`?
+- Primitive node types (`Row`, `Text`, `Button`, etc.) implement `Lower`.
+- `Node` implements `Lower` by delegating to the contained variant.
+- `CustomNode` participates via `LowerDyn` (see §8).
 
-Tests should not need to mock authoring code; it is pure and deterministic.
+Lowering happens **after** the widget tree is built, and it walks the entire `Node` tree.
+
+---
+
+## 8. Custom Lowering Escape Hatch: `Node::Custom`
+
+### 8.1 Motivation
+Some widgets cannot be expressed cleanly as a composition of existing primitives:
+- custom shapes (star, hex, irregular path)
+- specialized hit-testing and semantics regions
+- bespoke paint operations
+
+To support these without bloating the primitive set, we introduce `Node::Custom`.
+
+### 8.2 `CustomNode`
+A `CustomNode` carries:
+- a stable debug tag,
+- a user-supplied lowerer implementing an object-safe trait.
+
+```rust
+pub struct CustomNode {
+    pub debug_tag: &'static str,
+    pub lowerer: std::sync::Arc<dyn LowerDyn>,
+}
+```
+
+### 8.3 `LowerDyn` trait (object-safe)
+`LowerDyn` is a deliberately small surface:
+- object-safe,
+- deterministic,
+- no closures in the authored tree,
+- no dependency on external state.
+
+```rust
+pub trait LowerDyn: Send + Sync {
+    fn lower_dyn(&self, cx: &mut LoweringContext) -> CoreIrNode;
+
+    /// Optional: stable key used for caching/debugging.
+    /// Must be deterministic for identical inputs.
+    fn stable_key(&self) -> u64 { 0 }
+}
+```
+
+### 8.4 How `Node::Custom` lowers
+`Node::lower(cx)` delegates:
+
+- `Node::Row(r) => r.lower(cx)`
+- ...
+- `Node::Custom(c) => c.lowerer.lower_dyn(cx)`
+
+This means custom nodes lower at their position in the tree and can emit arbitrary Core IR.
 
 ---
 
-## 3.11 Summary
+## 9. Determinism Constraints Checklist
 
-The Authoring Layer is:
+Any implementation of `Widget::build`, `Lower`, or `LowerDyn` must obey these constraints.
 
-- expressive and ergonomic,
-- open to extension,
-- strictly declarative,
-- free of side effects.
+### Forbidden Inputs
+- Wall-clock time (must use Core-owned clock via `RuntimeState/Env`).
+- Randomness without explicit seeded input.
+- OS locale/font fallback, filesystem, network, environment variables.
+- HashMap iteration order unless keys are sorted deterministically.
 
-By keeping authoring concerns separate from semantics and rendering, the framework enables rapid development without sacrificing determinism or testability.
+### Allowed Inputs
+- `View<S>` (state + runtime + theme + i18n + env) — explicit and pinned.
+- `BuildCtx<S>` for action binding/registration.
+- `LoweringContext` with pinned resources (fonts, rounding rules, etc.)
+
+### Output Requirements
+- Stable child ordering.
+- Stable paint ordering.
+- Canonical rounding and coordinate normalization.
+- No hidden side effects during build/lower.
+
+### Debuggability (recommended)
+- Provide stable `debug_tag` for `CustomNode`.
+- Prefer stable keys or stable metadata for caching/inspection.
 
 ---
+
+## 10. Concrete Example: `StarButton` (Path + Hit Test + Semantics + Action)
+
+This example demonstrates a custom widget that:
+- binds an action handler using `BuildCtx`,
+- renders a star-shaped button via a path paint op,
+- participates in hit-testing,
+- exposes semantics (role + label + press action),
+- lowers via `Node::Custom` without adding new primitives.
+
+Core IR operation names below are illustrative.
+
+### 10.1 Action and handler
+```rust
+#[derive(Action)]
+pub struct StarPressed;
+
+fn on_star_pressed(state: &mut AppState, _: StarPressed) {
+    state.star_count += 1;
+}
+```
+
+### 10.2 The widget (authoring)
+```rust
+pub struct StarButton {
+    pub id: WidgetNodeId,
+    pub label: String,
+}
+
+impl Widget<AppState> for StarButton {
+    fn build(&self, ctx: &mut BuildCtx<AppState>, view: &View<AppState>) -> Node {
+        // Bind handler at authoring site (ergonomic)
+        let on_press = ctx.bind(StarPressed, on_star_pressed);
+
+        // Resolve style from theme deterministically
+        let style = view.theme.components.button.primary;
+
+        Node::Custom(CustomNode {
+            debug_tag: "StarButton",
+            lowerer: std::sync::Arc::new(StarButtonLower {
+                id: self.id,
+                label: self.label.clone(),
+                on_press,
+                style,
+            }),
+        })
+    }
+}
+```
+
+### 10.3 The lowerer (custom Core IR emission)
+```rust
+pub struct StarButtonLower {
+    pub id: WidgetNodeId,
+    pub label: String,
+    pub on_press: ActionEnvelope,
+    pub style: ButtonStyle, // pure data (resolved or partially resolved)
+}
+
+impl LowerDyn for StarButtonLower {
+    fn stable_key(&self) -> u64 {
+        // Must be deterministic. Hash only deterministic fields.
+        // (Pseudo-code) hash(id, label, on_press.id, style.version_id)
+        0
+    }
+
+    fn lower_dyn(&self, cx: &mut LoweringContext) -> CoreIrNode {
+        // 1) Layout: define a sized box (or constraints)
+        let size = cx.layout.box_fixed(56.0, 56.0);
+
+        // 2) Build a star path in local coordinates (deterministic math)
+        let path = cx.paint.path_star(
+            /* center */ (28.0, 28.0),
+            /* points */ 5,
+            /* inner */ 10.0,
+            /* outer */ 24.0,
+        );
+
+        // 3) Paint: fill star with theme-derived color
+        let paint = cx.paint.fill_path(path, self.style.background_color);
+
+        // 4) Hit-test: use the same path as the hit region
+        let hit = cx.input.hit_test_path(self.id, path);
+
+        // 5) Semantics: role=Button, label, and press action
+        let sem = cx.semantics.node(self.id)
+            .role_button()
+            .label(&self.label)
+            .action_press(self.on_press.clone());
+
+        // 6) Compose into a Core IR subtree
+        cx.core.compose([size, paint, hit, sem])
+    }
+}
+```
+
+---
+
+## 11. Summary
+
+- `Widget<S>::build` composes UI and returns `Node`.
+- `Node` is the uniform tree carrier for authored UI.
+- `Lower` compiles `Node` to Core IR automatically by walking the entire tree.
+- `Node::Custom` + `LowerDyn` enables optional, advanced custom lowering.
+- Determinism is preserved by strict input/output constraints and explicit runtime inputs.

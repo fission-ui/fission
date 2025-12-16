@@ -1,198 +1,263 @@
-# 10. Scrolling
+# Scrolling System Spec (v1)
 
-This section defines the scrolling model as a first-class, deterministic system spanning layout, input, semantics, painting, and testing.
-Scrolling is treated as explicit state and geometry transformation, not an implicit side effect.
+This document defines the **v1 scrolling model** for the framework.
+Scrolling is treated as a **first-class, deterministic runtime capability** that integrates with:
+- layout and constraints,
+- hit testing and input routing,
+- painting and clipping,
+- semantics and accessibility,
+- headless testing and CI.
 
-Scrolling answers one question only: *how content is translated and clipped relative to a viewport*.
-
----
-
-## 10.1 Design Goals
-
-The scrolling system is designed to:
-
-- be fully deterministic and testable,
-- expose scroll state explicitly,
-- compose with layout and painting cleanly,
-- support accessibility and keyboard navigation,
-- work identically in headless and on-screen modes.
-
-Scrolling must never trigger hidden re-layouts.
+The design goal is **determinism**: given the same initial state, the same inputs, and the same runtime clock, scroll output must be identical.
 
 ---
 
-## 10.2 Scroll State as Explicit Data
+## 1. Goals and Non-Goals
 
-Scroll position is explicit state.
+### Goals
+- Provide a scalable scrolling primitive usable for:
+  - single-child scroll views,
+  - nested scrolling (future),
+  - lists (future extension).
+- Deterministic behavior across platforms and CI.
+- Full test control: set offset, inject wheel/drag, advance time, assert offset/visibility.
+- Clear separation of responsibilities:
+  - layout defines viewport and content extents,
+  - runtime owns scroll offset and physics,
+  - paint compiles clipping and translation.
 
-Properties:
-- owned by the runtime state model,
-- represented in logical units,
-- versioned and observable,
-- serializable and replayable.
-
-There is no implicit scroll position derived from input.
+### Non-Goals (v1)
+- Virtualized / lazy lists (future section).
+- Complex nested scroll coordination (future).
+- Platform-native scroll views (the core owns behavior for determinism).
 
 ---
 
-## 10.3 Scroll Containers and Viewports
+## 2. Core Concepts
 
+### 2.1 Viewport vs Content
 A scroll container defines:
+- a **viewport rect** (what is visible),
+- a **content extent** (the scrollable size of child content),
+- a **scroll offset** (runtime state) clamped to valid range.
 
-- a viewport rect,
-- a content extent,
-- one or more scroll axes,
-- clipping semantics.
+### 2.2 Scroll Offset as Runtime State
+Scroll offset is **not** stored in user `AppState` by default.
+It is part of `RuntimeState`, keyed by stable `WidgetNodeId`.
 
-The viewport is a hard boundary for visibility and hit testing.
+This mirrors other transient UI state (hover/press/focus).
 
----
-
-## 10.4 Content Layout Independence
-
-Rules:
-- content is laid out at full extent,
-- viewport size does not constrain content layout along the scroll axis,
-- scrolling applies a translation to geometry.
-
-This guarantees stable content geometry across scroll positions.
+### 2.3 Deterministic Scroll Physics
+Scroll physics must be deterministic:
+- friction/inertia must use the framework-owned clock,
+- fixed timestep or deterministic integration,
+- no reliance on OS scroll momentum.
 
 ---
 
-## 10.5 Scroll Extents and Bounds
+## 3. Authoring API: `Scroll` Widget
 
-Scroll extents are computed deterministically from:
-
-- content size,
-- viewport size,
-- axis configuration.
-
-Rules:
-- extents are explicit and inspectable,
-- invalid offsets are errors,
-- clamping behavior is explicit and configurable.
-
----
-
-## 10.6 Input to Scroll Actions
-
-Scrolling is driven by actions.
-
-Examples:
-- `ScrollBy { delta }`
-- `ScrollTo { position }`
-- `PageUp`, `PageDown`
-
-Input devices never mutate scroll state directly.
-
----
-
-## 10.7 Accessibility and Scroll Semantics
-
-Scrolling exposes semantics:
-
-- scrollable role,
-- current offset and range,
-- increment/decrement actions,
-- page navigation actions.
-
-Accessibility systems invoke the same actions as tests and input.
-
----
-
-## 10.8 Focus and Keyboard Navigation
-
-Scroll containers participate in focus management.
-
-Rules:
-- focused elements may request visibility,
-- scroll actions may be triggered by focus movement,
-- focus traversal is deterministic and observable.
-
-Auto-scrolling is explicit and traceable.
-
----
-
-## 10.9 Painting and Clipping
-
-Scrolling affects painting via:
-
-- geometry translation,
-- clip bounds at the viewport.
-
-Rules:
-- paint order is unchanged,
-- clipping is applied after translation,
-- off-viewport content remains in the display list.
-
----
-
-## 10.10 Hit Testing
-
-Hit testing under scrolling:
-
-- transforms input coordinates into content space,
-- respects clip bounds,
-- maps hits back to NodeIds via PaintMap.
-
-Hit testing is deterministic and testable.
-
----
-
-## 10.11 Testing Scrolling
-
-Scrolling is fully testable headlessly.
-
-Tests may assert:
-- scroll extents,
-- offsets after actions,
-- visible content ranges,
-- focus-driven scrolling behavior.
-
-Example:
+A basic single-child scroll widget:
 
 ```rust
-dispatch(ScrollBy { delta: 100 });
-assert_eq!(find("list").scroll_offset(), 100);
+#[derive(Default, Clone, Serialize, Deserialize)]
+pub struct Scroll {
+    pub id: Option<WidgetNodeId>,
+    pub axis: Axis,                 // Vertical/Horizontal/Both (v1: one axis recommended)
+    pub child: Option<Box<Node>>,
+    pub physics: ScrollPhysics,      // deterministic parameters
+    pub clip: ClipBehavior,          // hard clip by default
+}
 ```
 
----
+### 3.1 Axis
+v1 should strongly prefer a single axis:
+- `Axis::Vertical` or `Axis::Horizontal`.
 
-## 10.12 Determinism Guarantees
+Bidirectional scroll can be future extension.
 
-Scrolling is deterministic because:
+### 3.2 ScrollPhysics
+Represent physics as pure data:
 
-- scroll state is explicit,
-- geometry transforms are pure,
-- no reflow occurs on scroll,
-- input is modeled as actions.
+```rust
+pub struct ScrollPhysics {
+    pub overscroll: Overscroll,  // clamp vs bounce (deterministic)
+    pub friction: f32,
+    pub wheel_step: f32,
+}
+```
 
-Identical traces yield identical outcomes.
-
----
-
-## 10.13 Instrumentation and Replay
-
-Scroll interactions appear in action traces.
-
-This enables:
-- replaying scroll behavior,
-- debugging scroll-related issues,
-- CI validation of interaction flows.
-
-Scrolling is not special-cased.
+No platform-dependent parameters.
 
 ---
 
-## 10.14 Summary
+## 4. IR Design: `LayoutOp::Scroll` (Preferred)
 
-The scrolling system:
+For determinism and tooling, scrolling should be explicit in IR rather than implicit via arbitrary clip+translate patterns.
 
-- treats scroll as explicit state,
-- composes cleanly with layout and painting,
-- supports accessibility and testing,
-- guarantees deterministic behavior across platforms.
+### 4.1 Layout Op
+Introduce:
 
-Scrolling is geometry plus state—nothing more, nothing less.
+```rust
+LayoutOp::Scroll {
+    id: WidgetNodeId,
+    axis: Axis,
+    child: NodeId,
+}
+```
+
+Layout responsibilities:
+- lay out the child with unbounded constraints along the scroll axis (or large max),
+- compute:
+  - viewport size,
+  - child content extent,
+  - scrollable range.
+
+Outputs for instrumentation:
+- `viewport_rect`
+- `content_extent`
+- `scroll_range`
+- stable mapping from node id → these values
+
+### 4.2 Paint Compilation
+During paint compilation, `LayoutOp::Scroll` becomes a **paint stack**:
+
+1) `PushClipRect(viewport_rect)`
+2) `PushTransform(translation = -scroll_offset along axis)`
+3) paint child subtree
+4) `PopTransform`
+5) `PopClipRect`
+
+This makes the relationship explicit and guarantees correct clipping.
 
 ---
+
+## 5. Alternative IR: Clip + Translation (Allowed but Not Preferred)
+
+It is possible to represent scroll purely as:
+- clip rect
+- translation transform
+
+However, encoding scroll as a convention (instead of a dedicated op) makes:
+- instrumentation harder,
+- semantics integration harder,
+- debug and test APIs less direct.
+
+Therefore:
+- v1 should expose a **first-class scroll op** even if the renderer ultimately uses clip+translate.
+
+---
+
+## 6. RuntimeState Integration
+
+### 6.1 Scroll State Map
+Runtime stores scroll state keyed by `WidgetNodeId`:
+
+```rust
+pub struct RuntimeScrollState {
+    pub offset: f32,
+    pub velocity: f32, // if physics enabled
+}
+
+pub struct RuntimeState {
+    pub scroll: BTreeMap<WidgetNodeId, RuntimeScrollState>,
+    // ...
+}
+```
+
+Determinism requirements:
+- stable map type (e.g., BTreeMap) or stable hashing,
+- explicit update ordering.
+
+### 6.2 Update Rules
+The runtime updates scroll offsets from:
+- pointer drag gestures,
+- wheel events,
+- keyboard/page navigation,
+- physics integration.
+
+All updates are:
+- clamped to scroll range,
+- applied deterministically.
+
+---
+
+## 7. Input Routing and Hit Testing
+
+### 7.1 Pointer and Wheel
+- Pointer drags inside the scroll viewport may initiate scrolling.
+- Wheel events target the nearest scrollable ancestor.
+
+### 7.2 Coordinate Spaces
+Hit testing must account for scroll transforms:
+- event coordinates are transformed into child space using current offset.
+
+### 7.3 Deterministic Gesture Resolution
+Gesture recognition must be deterministic:
+- same sequence of pointer events yields same capture/scroll decision.
+
+---
+
+## 8. Semantics and Accessibility
+
+A scroll container must expose semantics:
+- role: `ScrollView` (or equivalent)
+- scroll actions:
+  - scroll up/down/left/right by step
+  - page by viewport
+- current scroll position (if useful)
+
+Platform accessibility bridges map these to native APIs.
+
+---
+
+## 9. Testing APIs
+
+The test harness must support:
+
+### 9.1 Direct Control
+- `find("list").scroll_offset()` → current offset
+- `find("list").set_scroll_offset(120.0)` → immediate
+- `find("list").scroll_by(50.0)` → deterministic delta
+
+### 9.2 Event Simulation
+- `wheel(delta)`
+- `drag(from, to, steps)`
+- `flick(velocity)`
+
+### 9.3 Visibility Assertions
+- `find("item_42").is_visible()`
+- `find("item_42").rect_in_viewport()`
+
+### 9.4 Snapshot Coverage
+Scroll state is included in snapshots:
+- per scroll id: offset, velocity (if applicable)
+
+This enables replay and stable CI.
+
+---
+
+## 10. Future Extensions
+
+### 10.1 Lazy Lists
+Introduce a `LazyList` widget that:
+- only realizes visible children,
+- participates in the same scroll model,
+- produces stable item identity.
+
+### 10.2 Nested Scroll Coordination
+Add deterministic arbitration rules for:
+- inner vs outer scroll views
+- trackpad gestures
+- overscroll chaining
+
+---
+
+## 11. Summary
+
+- Scrolling is first-class and deterministic.
+- Scroll offset lives in `RuntimeState`, keyed by stable ids.
+- Prefer a dedicated `LayoutOp::Scroll`.
+- Paint compiles scroll to `ClipRect + Translate(offset)`.
+- Hit testing and semantics integrate directly with scroll op.
+- Tests can control and assert scroll state precisely.
