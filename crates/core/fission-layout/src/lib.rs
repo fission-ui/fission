@@ -226,14 +226,12 @@ impl LayoutEngine {
             }
         }
 
-        // Pass 2: per-parent set_children with final sorted children
+        // Pass 2: per-parent set_children preserving authored order
         for id in &dirty_vec {
             if let Some(node) = node_map.get(id) {
                 let t_id = *self.taffy_map.get(id).unwrap();
-                let mut children_sorted = node.children_ids.clone();
-                children_sorted.sort_by_key(|c| c.as_u128());
-                let mut child_t_ids = Vec::with_capacity(children_sorted.len());
-                for cid in &children_sorted {
+                let mut child_t_ids = Vec::with_capacity(node.children_ids.len());
+                for cid in &node.children_ids {
                     if cid == id { eprintln!("[layout] ERROR: node {:?} lists itself as a child", id); panic!("layout self-cycle at {:?}", id); }
                     self.ensure_exists(*cid);
                     child_t_ids.push(*self.taffy_map.get(cid).unwrap());
@@ -268,9 +266,7 @@ impl LayoutEngine {
             if !visited.insert(id) { continue; }
             order.push(id);
             if let Some(n) = node_map.get(&id) {
-                let mut kids = n.children_ids.clone();
-                kids.sort_by_key(|c| c.as_u128());
-                for child in kids.into_iter().rev() { queue.push(child); }
+                for child in n.children_ids.iter().rev() { queue.push(*child); }
             }
         }
         // Create nodes, style, measure
@@ -304,10 +300,8 @@ impl LayoutEngine {
         for id in &order {
             let n = node_map.get(id).unwrap();
             let t_id = *self.taffy_map.get(id).unwrap();
-            let mut kids = n.children_ids.clone();
-            kids.sort_by_key(|c| c.as_u128());
-            let mut child_t_ids = Vec::with_capacity(kids.len());
-            for cid in &kids { child_t_ids.push(*self.taffy_map.get(cid).unwrap()); }
+            let mut child_t_ids = Vec::with_capacity(n.children_ids.len());
+            for cid in &n.children_ids { child_t_ids.push(*self.taffy_map.get(cid).unwrap()); }
             self.taffy.set_children(t_id, &child_t_ids).unwrap();
         }
 
