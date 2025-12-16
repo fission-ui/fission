@@ -13,16 +13,14 @@ pub mod diff;
 pub mod env;
 pub mod event;
 pub mod hit_test;
-pub mod input; // New module
+pub mod input;
 pub mod lowering;
+pub mod media; // New module
 pub mod registry;
 pub mod time;
 pub mod ui;
 pub mod view;
 
-use crate::action::video::{
-    VideoPause, VideoPlay, VideoSeek, VideoSetMuted, VideoSetRate, VideoSetVolume, VideoStop,
-};
 use crate::env::ActiveAnimation;
 pub use action::{Action, ActionEnvelope, ActionId, AppState};
 pub use env::{Env, InteractionStateMap, RuntimeState, ScrollStateMap, Clipboard};
@@ -226,69 +224,9 @@ impl Runtime {
             diag::DiagLevel::Debug,
             diag::DiagEventKind::InputEvent { kind: "dispatch_start".into(), target: Some(target.as_u128()), position: None },
         );
-        if action.id == VideoPlay::static_id() {
-            let cmd: VideoPlay = serde_json::from_slice(&action.payload)
-                .map_err(|e| anyhow!("Failed to deserialize VideoPlay: {}", e))?;
-            if let Some(video_state) = self.runtime_state.video.states.get_mut(&cmd.target) {
-                video_state.status = env::VideoStatus::Playing;
-            }
-            return Ok(());
-        }
-
-        if action.id == VideoPause::static_id() {
-            let cmd: VideoPause = serde_json::from_slice(&action.payload)
-                .map_err(|e| anyhow!("Failed to deserialize VideoPause: {}", e))?;
-            if let Some(video_state) = self.runtime_state.video.states.get_mut(&cmd.target) {
-                video_state.status = env::VideoStatus::Paused;
-            }
-            return Ok(());
-        }
-
-        if action.id == VideoStop::static_id() {
-            let cmd: VideoStop = serde_json::from_slice(&action.payload)
-                .map_err(|e| anyhow!("Failed to deserialize VideoStop: {}", e))?;
-            if let Some(video_state) = self.runtime_state.video.states.get_mut(&cmd.target) {
-                video_state.status = env::VideoStatus::Stopped;
-                video_state.position_ms = 0;
-                video_state.pending_seek = Some(0);
-            }
-            return Ok(());
-        }
-
-        if action.id == VideoSeek::static_id() {
-            let cmd: VideoSeek = serde_json::from_slice(&action.payload)
-                .map_err(|e| anyhow!("Failed to deserialize VideoSeek: {}", e))?;
-            if let Some(video_state) = self.runtime_state.video.states.get_mut(&cmd.target) {
-                video_state.position_ms = cmd.position_ms;
-                video_state.pending_seek = Some(cmd.position_ms);
-            }
-            return Ok(());
-        }
-
-        if action.id == VideoSetRate::static_id() {
-            let cmd: VideoSetRate = serde_json::from_slice(&action.payload)
-                .map_err(|e| anyhow!("Failed to deserialize VideoSetRate: {}", e))?;
-            if let Some(video_state) = self.runtime_state.video.states.get_mut(&cmd.target) {
-                video_state.rate = cmd.rate;
-            }
-            return Ok(());
-        }
-
-        if action.id == VideoSetVolume::static_id() {
-            let cmd: VideoSetVolume = serde_json::from_slice(&action.payload)
-                .map_err(|e| anyhow!("Failed to deserialize VideoSetVolume: {}", e))?;
-            if let Some(video_state) = self.runtime_state.video.states.get_mut(&cmd.target) {
-                video_state.volume = cmd.volume.clamp(0.0, 1.0);
-            }
-            return Ok(());
-        }
-
-        if action.id == VideoSetMuted::static_id() {
-            let cmd: VideoSetMuted = serde_json::from_slice(&action.payload)
-                .map_err(|e| anyhow!("Failed to deserialize VideoSetMuted: {}", e))?;
-            if let Some(video_state) = self.runtime_state.video.states.get_mut(&cmd.target) {
-                video_state.muted = cmd.muted;
-            }
+        
+        // Delegate video actions to media module
+        if crate::media::handle_video_action(&mut self.runtime_state.video, &action)? {
             return Ok(());
         }
 
@@ -567,7 +505,9 @@ impl Runtime {
                     while let Some(node_id) = current_id {
                         if let Some(node) = ir.nodes.get(&node_id) {
                             if let Op::Semantics(semantics) = &node.op {
-                                if let Some(action_entry) = semantics.actions.entries.first() {
+                                if semantics.role == fission_ir::semantics::Role::TextInput {
+                                    // TextInput only takes focus on click, no action dispatch
+                                } else if let Some(action_entry) = semantics.actions.entries.first() {
                                     if let Some(payload) = &action_entry.payload_data {
                                         let envelope = ActionEnvelope {
                                             id: ActionId::from_u128(action_entry.action_id),
@@ -580,6 +520,7 @@ impl Runtime {
                                         );
                                         return self.dispatch(envelope, node_id);
                                     }
+                                    // If no payload (dynamic action), ignore for click.
                                 }
                             }
                             current_id = node.parent;
