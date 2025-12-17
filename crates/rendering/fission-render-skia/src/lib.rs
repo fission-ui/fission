@@ -9,6 +9,9 @@ use skia_safe::{
     BlurStyle, Canvas, Color as SkColor, Data, Font, FontArguments, FontMetrics, FontMgr,
     MaskFilter, Paint, RRect, Rect, Typeface, Vector,
 };
+use skia_safe::textlayout::{
+    ParagraphBuilder, ParagraphStyle, TextStyle, FontCollection, TypefaceFontProvider
+};
 use once_cell::sync::OnceCell;
 use std::fs;
 
@@ -38,23 +41,72 @@ fn default_typeface() -> &'static Typeface {
     })
 }
 
+impl SkiaTextMeasurer {
+    // Private helper to build a paragraph
+    fn build_paragraph_internal(&self, text: &str, font_size: f32, color: SkColor, max_width: Option<f32>) -> skia_safe::textlayout::Paragraph {
+        let mut collection = FontCollection::new();
+        let mut provider = TypefaceFontProvider::new();
+        provider.register_typeface(default_typeface().clone(), Some("Default"));
+        collection.set_asset_font_manager(Some(provider.into()));
+
+        let mut style = ParagraphStyle::new();
+        let mut ts = TextStyle::new();
+        ts.set_font_families(&["Default"]);
+        ts.set_font_size(font_size);
+        ts.set_color(color);
+        style.set_text_style(&ts);
+
+        let mut builder = ParagraphBuilder::new(&style, collection);
+        builder.add_text(text);
+        
+        let mut paragraph = builder.build();
+        let width = max_width.unwrap_or(10000.0); 
+        paragraph.layout(width);
+        paragraph
+    }
+}
+
 impl TextMeasurer for SkiaTextMeasurer {
-    fn measure(&self, text: &str, font_size: f32, _available_width: Option<f32>) -> (f32, f32) {
-        // Use bundled, deterministic font to measure exactly what the renderer will draw.
-        // Fall back to a heuristic only if the font fails to load (should not happen in CI/strict).
-        // Prefer building a typeface directly from embedded TTF bytes.
-        let typeface = default_typeface().clone();
-        {
-            let font = Font::from_typeface(typeface, font_size);
-            let paint = Paint::default();
-            // Width: advance of the entire string.
-            #[allow(deprecated)]
-            let (advance, _bounds) = font.measure_str(text, Some(&paint));
-            // Height: derive from font metrics (ascent is typically negative in Skia).
-            let (_scale, metrics): (f32, FontMetrics) = font.metrics();
-            let line_height = (metrics.descent - metrics.ascent + metrics.leading).max(0.0);
-            (advance, line_height)
+    fn measure(&self, text: &str, font_size: f32, available_width: Option<f32>) -> (f32, f32) {
+        let paragraph = self.build_paragraph_internal(text, font_size, SkColor::BLACK, available_width);
+        (paragraph.max_width(), paragraph.height())
+    }
+
+    fn hit_test(&self, text: &str, font_size: f32, available_width: Option<f32>, x: f32, y: f32) -> usize {
+        let paragraph = self.build_paragraph_internal(text, font_size, SkColor::BLACK, available_width);
+        let pos = paragraph.get_glyph_position_at_coordinate((x, y));
+        pos.position as usize
+    }
+
+    fn get_line_metrics(&self, text: &str, font_size: f32, available_width: Option<f32>) -> Vec<fission_layout::LineMetric> {
+        let paragraph = self.build_paragraph_internal(text, font_size, SkColor::BLACK, available_width);
+        paragraph.get_line_metrics().into_iter().map(|lm| fission_layout::LineMetric {
+            start_index: lm.start_index as usize,
+            end_index: lm.end_index as usize,
+            baseline: lm.baseline as f32,
+            height: lm.height as f32,
+            width: lm.width as f32,
+        }).collect()
+    }
+
+    fn get_caret_position(&self, text: &str, font_size: f32, available_width: Option<f32>, caret_index: usize) -> (f32, f32) {
+        let paragraph = self.build_paragraph_internal(text, font_size, SkColor::BLACK, available_width);
+        
+        let line_metrics = paragraph.get_line_metrics();
+        let mut caret_x = 0.0;
+        let mut caret_y = 0.0;
+
+        for lm in &line_metrics {
+            if caret_index >= lm.start_index as usize && caret_index <= lm.end_index as usize {
+                // Caret is on this line. Calculate X position within this line.
+                let text_on_line = &text[lm.start_index as usize..caret_index];
+                let (width_until_caret, _) = self.measure(text_on_line, font_size, Some(lm.width as f32)); // Measure sub-segment, constrained by line width
+                caret_x = width_until_caret;
+                caret_y = lm.baseline as f32; // Use baseline as Y for caret position.
+                break;
+            }
         }
+        (caret_x, caret_y)
     }
 }
 
@@ -182,19 +234,30 @@ impl<'r> Renderer for SkiaRenderer<'r> {
                     bounds,
                     ..
                 } => {
-                    let mut paint = Paint::default();
-                    paint.set_color(SkColor::from_argb(color.a, color.r, color.g, color.b));
-                    paint.set_anti_alias(true);
+                    let sk_color = SkColor::from_argb(color.a, color.r, color.g, color.b);
+                    // Use bounds width if available, otherwise unbounded
+                    let max_width = if bounds.width() > 0.0 { Some(bounds.width()) } else { None };
+                    
+                    let mut collection = FontCollection::new();
+                    let mut provider = TypefaceFontProvider::new();
+                    provider.register_typeface(default_typeface().clone(), Some("Default"));
+                    collection.set_asset_font_manager(Some(provider.into()));
 
-                    // Construct the font from the same bundled bytes we use for measurement.
-                    let typeface = default_typeface().clone();
-                    let font = Font::from_typeface(typeface, *size);
-                    // Align baseline using font metrics instead of y + size.
-                    let (_scale, metrics): (f32, FontMetrics) = font.metrics();
-                    // Skia ascent is typically negative; baseline = top_y - ascent.
-                    let baseline_y = position.y - metrics.ascent;
-                    self.canvas
-                        .draw_str(text, (position.x, baseline_y), &font, &paint);
+                    let mut style = ParagraphStyle::new();
+                    let mut ts = TextStyle::new();
+                    ts.set_font_families(&["Default"]);
+                    ts.set_font_size(*size);
+                    ts.set_color(sk_color);
+                    style.set_text_style(&ts);
+
+                    let mut builder = ParagraphBuilder::new(&style, collection);
+                    builder.add_text(text);
+                    
+                    let mut paragraph = builder.build();
+                    let width = max_width.unwrap_or(10000.0); 
+                    paragraph.layout(width);
+
+                    paragraph.paint(self.canvas, (position.x, position.y));
                 }
                 DisplayOp::DrawImage {
                     rect,

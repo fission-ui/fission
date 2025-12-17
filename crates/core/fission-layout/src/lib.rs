@@ -123,8 +123,25 @@ pub struct LayoutInputNode {
     pub font_size: Option<f32>,
 }
 
+pub struct LineMetric {
+    pub start_index: usize,
+    pub end_index: usize,
+    pub baseline: f32,
+    pub height: f32,
+    pub width: f32,
+}
+
 pub trait TextMeasurer: Send + Sync {
     fn measure(&self, text: &str, font_size: f32, available_width: Option<f32>) -> (f32, f32);
+    fn hit_test(&self, _text: &str, _font_size: f32, _available_width: Option<f32>, _x: f32, _y: f32) -> usize {
+        0
+    }
+    fn get_line_metrics(&self, text: &str, font_size: f32, available_width: Option<f32>) -> Vec<LineMetric> {
+        vec![]
+    }
+    fn get_caret_position(&self, _text: &str, _font_size: f32, _available_width: Option<f32>, _caret_index: usize) -> (f32, f32) {
+        (0.0, 0.0)
+    }
 }
 
 pub struct LayoutEngine {
@@ -380,11 +397,13 @@ impl LayoutEngine {
             LayoutOp::Box {
                 width,
                 height,
+                min_width,
+                max_width,
+                min_height,
+                max_height,
                 padding,
             } => {
                 style.display = Display::Flex;
-                // Vertically center by default, but keep left alignment horizontally
-                // so inline content (e.g., text + caret) does not drift from the start edge.
                 style.align_items = Some(AlignItems::Center);
                 style.justify_content = Some(JustifyContent::FlexStart);
                 style.padding = taffy::geometry::Rect {
@@ -396,6 +415,14 @@ impl LayoutEngine {
                 style.size = taffy::geometry::Size {
                     width: width.map(Dimension::Points).unwrap_or(Dimension::Auto),
                     height: height.map(Dimension::Points).unwrap_or(Dimension::Auto),
+                };
+                style.min_size = taffy::geometry::Size {
+                    width: min_width.map(Dimension::Points).unwrap_or(Dimension::Auto),
+                    height: min_height.map(Dimension::Points).unwrap_or(Dimension::Auto),
+                };
+                style.max_size = taffy::geometry::Size {
+                    width: max_width.map(Dimension::Points).unwrap_or(Dimension::Auto),
+                    height: max_height.map(Dimension::Points).unwrap_or(Dimension::Auto),
                 };
             }
             LayoutOp::Flex {
@@ -422,7 +449,15 @@ impl LayoutEngine {
                 };
             }
             LayoutOp::Scroll {
-                direction, padding, ..
+                direction,
+                show_scrollbar,
+                width,
+                height,
+                min_width,
+                max_width,
+                min_height,
+                max_height,
+                padding,
             } => {
                 style.display = Display::Flex;
                 style.flex_direction = match direction {
@@ -436,8 +471,16 @@ impl LayoutEngine {
                     bottom: points(padding[3]),
                 };
                 style.size = taffy::geometry::Size {
-                    width: Dimension::Auto,
-                    height: Dimension::Auto,
+                    width: width.map(Dimension::Points).unwrap_or(Dimension::Auto),
+                    height: height.map(Dimension::Points).unwrap_or(Dimension::Auto),
+                };
+                style.min_size = taffy::geometry::Size {
+                    width: min_width.map(Dimension::Points).unwrap_or(Dimension::Auto),
+                    height: min_height.map(Dimension::Points).unwrap_or(Dimension::Auto),
+                };
+                style.max_size = taffy::geometry::Size {
+                    width: max_width.map(Dimension::Points).unwrap_or(Dimension::Auto),
+                    height: max_height.map(Dimension::Points).unwrap_or(Dimension::Auto),
                 };
             }
             LayoutOp::Embed { .. } => {
@@ -451,8 +494,6 @@ impl LayoutEngine {
                 };
             }
             LayoutOp::Stack => {
-                // Stack acts like a box for sizing; children can opt into absolute
-                // positioning via AbsoluteFill or future Positioned.
                 style.display = Display::Flex;
                 style.size = taffy::geometry::Size {
                     width: node.width.map(Dimension::Points).unwrap_or(Dimension::Auto),

@@ -123,6 +123,10 @@ impl Lower for Button {
             Op::Layout(LayoutOp::Box {
                 width: self.width,
                 height: self.height.or(Some(resolved_style.height)),
+                min_width: None,
+                max_width: None,
+                min_height: None,
+                max_height: None,
                 padding: [
                     resolved_style.padding_horizontal,
                     resolved_style.padding_horizontal,
@@ -163,5 +167,6 @@ fn default_button_semantics() -> Semantics {
         value: None,
         actions: ActionSet::default(),
         focusable: true,
+        multiline: false,
     }
 }

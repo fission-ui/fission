@@ -15,6 +15,9 @@ pub struct TextInput {
     pub on_change: Option<ActionEnvelope>,
     pub width: Option<f32>,
     pub height: Option<f32>,
+    pub multiline: bool,
+    pub min_lines: Option<usize>,
+    pub max_lines: Option<usize>,
 }
 
 impl Lower for TextInput {
@@ -23,6 +26,14 @@ impl Lower for TextInput {
 
         // Use the semantics node id (input_id) for focus checks so the caret reflects focus.
         let is_focused = cx.runtime_state.interaction.is_focused(input_id);
+
+        // Compute base line height for calculations
+        let font_size = 16.0; // Default font size
+        let line_height = if let Some(measurer) = cx.measurer {
+            measurer.measure("Tg", font_size, None).1 // Measure height of typical text
+        } else {
+            font_size * 1.2 // Fallback approx
+        };
 
         // 1. Background (Paint) - AbsoluteFill
         let stroke_w = if is_focused { 2.0 } else { 1.0 };
@@ -61,7 +72,6 @@ impl Lower for TextInput {
         let text_color = if preedit_suffix.is_some() { IrColor::BLUE } else { IrColor::BLACK };
 
         // Build segments for selection rendering (if focused and selection non-empty)
-        let mut text_layout_id = NodeId::derived(0, &[0]);
         let mut left_layout_id = None;
         let mut sel_layout_id = None;
         let mut right_layout_id = None;
@@ -85,8 +95,8 @@ impl Lower for TextInput {
 
             // Left text
             if !left_str.is_empty() {
-                let left_text_id = NodeBuilder::new(cx.next_node_id(), Op::Paint(PaintOp::DrawText { text: left_str.to_string(), size: 16.0, color: IrColor::BLACK })).build(cx);
-                let mut left_box = NodeBuilder::new(cx.next_node_id(), Op::Layout(LayoutOp::Box { width: None, height: None, padding: [0.0;4] }));
+                let left_text_id = NodeBuilder::new(cx.next_node_id(), Op::Paint(PaintOp::DrawText { text: left_str.to_string(), size: font_size, color: IrColor::BLACK })).build(cx);
+                let mut left_box = NodeBuilder::new(cx.next_node_id(), Op::Layout(LayoutOp::Box { width: None, height: None, min_width: None, max_width: None, min_height: None, max_height: None, padding: [0.0;4] }));
                 left_box.add_child(left_text_id);
                 left_layout_id = Some(left_box.build(cx));
             }
@@ -95,9 +105,9 @@ impl Lower for TextInput {
             if !sel_str.is_empty() {
                 // Background rect that fills the selection box; color from theme (simple blue with alpha)
                 let bg_id = NodeBuilder::new(cx.next_node_id(), Op::Paint(PaintOp::DrawRect { fill: Some(Fill { color: IrColor { r: 173, g: 208, b: 255, a: 255 } }), stroke: None, corner_radius: 0.0, shadow: None })).build(cx);
-                let sel_text_id = NodeBuilder::new(cx.next_node_id(), Op::Paint(PaintOp::DrawText { text: sel_str.to_string(), size: 16.0, color: IrColor::BLACK })).build(cx);
+                let sel_text_id = NodeBuilder::new(cx.next_node_id(), Op::Paint(PaintOp::DrawText { text: sel_str.to_string(), size: font_size, color: IrColor::BLACK })).build(cx);
                 // Container box; DrawRect (AbsoluteFill) will fill it because paint ops are treated as fill under layout
-                let mut sel_box = NodeBuilder::new(cx.next_node_id(), Op::Layout(LayoutOp::Box { width: None, height: None, padding: [0.0;4] }));
+                let mut sel_box = NodeBuilder::new(cx.next_node_id(), Op::Layout(LayoutOp::Box { width: None, height: None, min_width: None, max_width: None, min_height: None, max_height: None, padding: [0.0;4] }));
                 sel_box.add_child(bg_id);
                 sel_box.add_child(sel_text_id);
                 sel_layout_id = Some(sel_box.build(cx));
@@ -107,9 +117,9 @@ impl Lower for TextInput {
             if !right_str.is_empty() || preedit_suffix.is_some() {
                 // Append preedit suffix to the right segment for visual continuity
                 let mut right_concat = right_str.to_string();
-                if let Some(pre) = &preedit_suffix { right_concat.insert_str(0, ""); right_concat.push_str(pre); }
-                let right_text_id = NodeBuilder::new(cx.next_node_id(), Op::Paint(PaintOp::DrawText { text: right_concat, size: 16.0, color: text_color })).build(cx);
-                let mut right_box = NodeBuilder::new(cx.next_node_id(), Op::Layout(LayoutOp::Box { width: None, height: None, padding: [0.0;4] }));
+                if let Some(pre) = &preedit_suffix { right_concat.push_str(pre); }
+                let right_text_id = NodeBuilder::new(cx.next_node_id(), Op::Paint(PaintOp::DrawText { text: right_concat, size: font_size, color: text_color })).build(cx);
+                let mut right_box = NodeBuilder::new(cx.next_node_id(), Op::Layout(LayoutOp::Box { width: None, height: None, min_width: None, max_width: None, min_height: None, max_height: None, padding: [0.0;4] }));
                 right_box.add_child(right_text_id);
                 right_layout_id = Some(right_box.build(cx));
             }
@@ -120,25 +130,26 @@ impl Lower for TextInput {
             if let Some(pre) = &preedit_suffix { right_only.push_str(pre); }
 
             if !left_only.is_empty() {
-                let left_text_id = NodeBuilder::new(cx.next_node_id(), Op::Paint(PaintOp::DrawText { text: left_only.to_string(), size: 16.0, color: IrColor::BLACK })).build(cx);
-                let mut left_box = NodeBuilder::new(cx.next_node_id(), Op::Layout(LayoutOp::Box { width: None, height: None, padding: [0.0;4] }));
+                let left_text_id = NodeBuilder::new(cx.next_node_id(), Op::Paint(PaintOp::DrawText { text: left_only.to_string(), size: font_size, color: IrColor::BLACK })).build(cx);
+                let mut left_box = NodeBuilder::new(cx.next_node_id(), Op::Layout(LayoutOp::Box { width: None, height: None, min_width: None, max_width: None, min_height: None, max_height: None, padding: [0.0;4] }));
                 left_box.add_child(left_text_id);
                 left_layout_id = Some(left_box.build(cx));
             }
             if !right_only.is_empty() {
-                let right_text_id = NodeBuilder::new(cx.next_node_id(), Op::Paint(PaintOp::DrawText { text: right_only, size: 16.0, color: text_color })).build(cx);
-                let mut right_box = NodeBuilder::new(cx.next_node_id(), Op::Layout(LayoutOp::Box { width: None, height: None, padding: [0.0;4] }));
+                let right_text_id = NodeBuilder::new(cx.next_node_id(), Op::Paint(PaintOp::DrawText { text: right_only, size: font_size, color: text_color })).build(cx);
+                let mut right_box = NodeBuilder::new(cx.next_node_id(), Op::Layout(LayoutOp::Box { width: None, height: None, min_width: None, max_width: None, min_height: None, max_height: None, padding: [0.0;4] }));
                 right_box.add_child(right_text_id);
                 right_layout_id = Some(right_box.build(cx));
             }
         }
 
-        // 3. Content container (Flex Row)
+        // 3. Content container (Flex Row -> Column if multiline)
         let flex_id = cx.next_node_id();
+        let flex_direction = if self.multiline { FlexDirection::Column } else { FlexDirection::Row };
         let mut flex_builder = NodeBuilder::new(
             flex_id,
             Op::Layout(LayoutOp::Flex {
-                direction: FlexDirection::Row,
+                direction: flex_direction,
                 flex_grow: 1.0,
                 flex_shrink: 1.0,
                 padding: [0.0, 0.0, 0.0, 0.0],
@@ -147,12 +158,19 @@ impl Lower for TextInput {
         
         // Wrapper (Box) with layout and visuals
         let wrapper_id = cx.next_node_id();
+
+        let wrapper_min_height = self.min_lines.map(|l| l as f32 * line_height);
+        let wrapper_max_height = self.max_lines.map(|l| l as f32 * line_height);
+
         let mut wrapper_builder = NodeBuilder::new(
             wrapper_id,
             Op::Layout(LayoutOp::Box {
                 width: self.width.or(Some(200.0)),
-                height: self.height.or(Some(40.0)),
-                padding: [8.0, 8.0, 4.0, 4.0],
+                height: self.height, // Explicit height from user takes precedence
+                min_width: None, max_width: None,
+                min_height: wrapper_min_height,
+                max_height: wrapper_max_height,
+                padding: [0.0, 0.0, 0.0, 0.0], // Padding moved to inner box
             }),
         );
         
@@ -181,7 +199,8 @@ impl Lower for TextInput {
                     cx.next_node_id(),
                     Op::Layout(LayoutOp::Box {
                         width: Some(2.0),
-                        height: Some(16.0 * 1.2), // approximate line height from text size
+                        height: Some(font_size * 1.2), // approximate line height
+                        min_width: None, max_width: None, min_height: None, max_height: None,
                         padding: [0.0, 0.0, 0.0, 0.0],
                     }),
                 );
@@ -214,47 +233,69 @@ impl Lower for TextInput {
         
         let flex_node_id = flex_builder.build(cx);
 
-        // 3.5 Clip content using a horizontal Scroll viewport (no scrollbar). This keeps text/caret within bounds.
+        // 3.5 Clip content using a Scroll viewport
         let scroll_id = cx.next_node_id();
-        // Compute inner viewport from wrapper padding and configured size
         let outer_w = self.width.unwrap_or(200.0);
-        let outer_h = self.height.unwrap_or(40.0);
-        // subtract padding and stroke so caret doesn't disappear under the border
-        let inner_w = (outer_w - (8.0 + 8.0) - (stroke_w * 2.0)).max(0.0);
-        let inner_h = (outer_h - (8.0 + 4.0) - (stroke_w * 2.0)).max(0.0);
+        let inner_w = (outer_w - (8.0 + 8.0)).max(0.0);
+
+        let scroll_direction = if self.multiline { FlexDirection::Column } else { FlexDirection::Row };
+        
         let mut scroll_builder = NodeBuilder::new(
             scroll_id,
             Op::Layout(LayoutOp::Scroll {
-                direction: FlexDirection::Row,
+                direction: scroll_direction,
                 show_scrollbar: false,
-                width: Some(inner_w),
-                height: Some(inner_h),
+                width: Some(inner_w), // Always constrain width for wrapping
+                height: if self.multiline { None } else { self.height.map(|h| (h - (8.0 + 4.0)).max(0.0)) },
+                min_width: None, max_width: None, min_height: None, max_height: None,
                 padding: [0.0, 0.0, 0.0, 0.0],
             }),
         );
         scroll_builder.add_child(flex_node_id);
         let scroll_node_id = scroll_builder.build(cx);
         
-        wrapper_builder.add_child(background_id); // Background first (z-index)
-        // Draw placeholder under the clipped content so it doesn't affect caret position
+        // Intermediate Padding Box to separate Border (Wrapper) from Content (Scroll)
+        let padding_box_id = cx.next_node_id();
+        let mut padding_box_builder = NodeBuilder::new(
+            padding_box_id,
+            Op::Layout(LayoutOp::Flex {
+                direction: FlexDirection::Row, // Padding box itself is row to center content
+                flex_grow: 1.0,
+                flex_shrink: 1.0,
+                padding: [8.0, 8.0, 4.0, 4.0], // Padding is here
+            })
+        );
+        
+        // Placeholder handling
         if using_placeholder {
             let placeholder_id = NodeBuilder::new(
                 cx.next_node_id(),
                 Op::Paint(PaintOp::DrawText {
                     text: self.placeholder.clone().unwrap_or_default(),
-                    size: 16.0,
+                    size: font_size,
                     color: IrColor { r: 150, g: 150, b: 150, a: 255 },
                 })
             ).build(cx);
-            // Place placeholder in a box so it positions like main text origin
             let mut ph_box = NodeBuilder::new(
                 cx.next_node_id(),
-                Op::Layout(LayoutOp::Box { width: None, height: None, padding: [0.0;4] })
+                Op::Layout(LayoutOp::Box { width: None, height: None, min_width: None, max_width: None, min_height: None, max_height: None, padding: [0.0;4] })
             );
             ph_box.add_child(placeholder_id);
-            wrapper_builder.add_child(ph_box.build(cx));
+            let mut ph_abs_builder = NodeBuilder::new(
+                cx.next_node_id(),
+                Op::Layout(LayoutOp::AbsoluteFill)
+            );
+            ph_abs_builder.add_child(ph_box.build(cx));
+            let ph_abs_id = ph_abs_builder.build(cx);
+            
+            padding_box_builder.add_child(ph_abs_id);
         }
-        wrapper_builder.add_child(scroll_node_id);  // Clipped content on top
+        
+        padding_box_builder.add_child(scroll_node_id);
+        let padding_node_id = padding_box_builder.build(cx);
+        
+        wrapper_builder.add_child(background_id); // Background fills wrapper (Border)
+        wrapper_builder.add_child(padding_node_id);  // Content inset by padding
         
         let final_id = wrapper_builder.build(cx);
 
@@ -265,6 +306,7 @@ impl Lower for TextInput {
             value: Some(self.value.clone()),
             actions: Default::default(), 
             focusable: true,
+            multiline: self.multiline,
         };
         if let Some(env) = &self.on_change {
              semantics.actions.entries.push(fission_ir::ActionEntry {

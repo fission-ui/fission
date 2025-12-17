@@ -139,6 +139,7 @@ impl LowerDyn for StatusIndicatorLowerer {
             fission_core::Op::Layout(fission_core::LayoutOp::Box {
                 width: Some(20.0),
                 height: Some(20.0),
+                min_width: None, max_width: None, min_height: None, max_height: None,
                 padding: [0.0; 4],
             }),
         );
@@ -621,6 +622,7 @@ impl LowerDyn for ModalBoxLowerer {
             fission_core::Op::Layout(fission_core::LayoutOp::Box {
                 width: Some(260.0),
                 height: Some(120.0),
+                min_width: None, max_width: None, min_height: None, max_height: None,
                 padding: [16.0; 4],
             }),
         );

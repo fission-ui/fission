@@ -26,6 +26,7 @@ pub struct Semantics {
     pub value: Option<String>,
     pub actions: ActionSet,
     pub focusable: bool,
+    pub multiline: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]

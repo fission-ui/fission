@@ -43,6 +43,10 @@ pub enum LayoutOp {
     Box {
         width: Option<LayoutUnit>,
         height: Option<LayoutUnit>,
+        min_width: Option<LayoutUnit>,
+        max_width: Option<LayoutUnit>,
+        min_height: Option<LayoutUnit>,
+        max_height: Option<LayoutUnit>,
         padding: [LayoutUnit; 4],
     },
     Flex {
@@ -56,6 +60,10 @@ pub enum LayoutOp {
         show_scrollbar: bool,
         width: Option<LayoutUnit>,
         height: Option<LayoutUnit>,
+        min_width: Option<LayoutUnit>,
+        max_width: Option<LayoutUnit>,
+        min_height: Option<LayoutUnit>,
+        max_height: Option<LayoutUnit>,
         padding: [LayoutUnit; 4],
     },
     Embed {

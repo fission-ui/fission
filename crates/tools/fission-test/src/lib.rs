@@ -32,6 +32,9 @@ impl TextMeasurer for MockTextMeasurer {
     fn measure(&self, text: &str, _font_size: f32, _avail: Option<f32>) -> (f32, f32) {
         (text.len() as f32 * 10.0, 20.0)
     }
+    fn hit_test(&self, _text: &str, _font_size: f32, _available_width: Option<f32>, _x: f32, _y: f32) -> usize {
+        0
+    }
 }
 
 pub struct TestHarness<S: AppState> {
@@ -42,6 +45,7 @@ pub struct TestHarness<S: AppState> {
     pub last_ir: Option<CoreIR>,
     pub root_widget: Option<Box<dyn Widget<S>>>,
     pub env: Env,
+    pub measurer: Arc<dyn TextMeasurer>,
     _phantom: std::marker::PhantomData<S>,
 }
 
@@ -54,14 +58,17 @@ impl<S: AppState> TestHarness<S> {
                 .expect("Failed to add initial state");
         }
 
+        let measurer = Arc::new(MockTextMeasurer);
+
         Self {
-            runtime,
+            runtime: runtime.with_measurer(measurer.clone()),
             renderer: MockRenderer::default(),
-            layout_engine: LayoutEngine::new().with_measurer(Arc::new(MockTextMeasurer)),
+            layout_engine: LayoutEngine::new().with_measurer(measurer.clone()),
             last_snapshot: None,
             last_ir: None,
             root_widget: None,
             env: Env::default(),
+            measurer,
             _phantom: std::marker::PhantomData,
         }
     }
@@ -138,7 +145,7 @@ impl<S: AppState> TestHarness<S> {
             };
 
             // Lower
-            let mut cx = LoweringContext::new(&self.env, &self.runtime.runtime_state);
+            let mut cx = LoweringContext::new(&self.env, &self.runtime.runtime_state, Some(&self.measurer));
             let root_id = node_tree.lower(&mut cx);
             cx.ir.root = Some(root_id);
 

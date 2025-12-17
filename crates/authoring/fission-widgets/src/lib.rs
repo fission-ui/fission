@@ -1,4 +1,4 @@
-pub use fission_core::ui::{Button, Column, CustomNode, Node, Overlay, Row, Stack, Text, TextContent};
+pub use fission_core::ui::{Button, Column, CustomNode, Node, Overlay, Row, Stack, Text, TextContent, TextInput};
 pub use fission_core::view::{Selector, View, Widget};
 use fission_core::{lowering::NodeBuilder, op::StructuralOp, LowerDyn, LoweringContext, NodeId, Op};
 use std::sync::Arc;
@@ -26,6 +26,7 @@ impl LowerDyn for CanvasLowerer {
             Op::Layout(fission_core::LayoutOp::Box {
                 width: self.width,
                 height: self.height,
+                min_width: None, max_width: None, min_height: None, max_height: None,
                 padding: [0.0; 4],
             }),
         )
@@ -68,6 +69,7 @@ impl LowerDyn for SizedBoxLowerer {
             Op::Layout(fission_core::LayoutOp::Box {
                 width: self.width,
                 height: self.height,
+                min_width: None, max_width: None, min_height: None, max_height: None,
                 padding: [0.0; 4],
             }),
         )
@@ -121,7 +123,7 @@ impl LowerDyn for CheckboxLowerer {
         // Square indicator 18x18
         let square_box = NodeBuilder::new(
             cx.next_node_id(),
-            Op::Layout(LayoutOp::Box { width: Some(18.0), height: Some(18.0), padding: [0.0; 4] }),
+            Op::Layout(LayoutOp::Box { width: Some(18.0), height: Some(18.0), min_width: None, max_width: None, min_height: None, max_height: None, padding: [0.0; 4] }),
         )
         .build(cx);
 
@@ -154,7 +156,7 @@ impl LowerDyn for CheckboxLowerer {
             // Wrap fill to center within the 18x18 box using an inner Box
             let mut inner_builder = NodeBuilder::new(
                 cx.next_node_id(),
-                Op::Layout(LayoutOp::Box { width: Some(12.0), height: Some(12.0), padding: [0.0; 4] }),
+                Op::Layout(LayoutOp::Box { width: Some(12.0), height: Some(12.0), min_width: None, max_width: None, min_height: None, max_height: None, padding: [0.0; 4] }),
             );
             inner_builder.add_child(fill);
             let inner = inner_builder.build(cx);
@@ -162,7 +164,7 @@ impl LowerDyn for CheckboxLowerer {
         }
 
         // Attach paint to the square's layout node
-        let mut sq_builder = NodeBuilder::new(square_box, Op::Layout(LayoutOp::Box { width: Some(18.0), height: Some(18.0), padding: [0.0; 4] }));
+        let mut sq_builder = NodeBuilder::new(square_box, Op::Layout(LayoutOp::Box { width: Some(18.0), height: Some(18.0), min_width: None, max_width: None, min_height: None, max_height: None, padding: [0.0; 4] }));
         for c in children { sq_builder.add_child(c); }
         let square_id = sq_builder.build(cx);
 
@@ -175,7 +177,7 @@ impl LowerDyn for CheckboxLowerer {
             .build(cx);
             let mut layout_builder = NodeBuilder::new(
                 cx.next_node_id(),
-                Op::Layout(LayoutOp::Box { width: None, height: None, padding: [6.0, 0.0, 0.0, 0.0] }),
+                Op::Layout(LayoutOp::Box { width: None, height: None, min_width: None, max_width: None, min_height: None, max_height: None, padding: [6.0, 0.0, 0.0, 0.0] }),
             );
             layout_builder.add_child(text_id);
             let layout = layout_builder.build(cx);
@@ -198,6 +200,7 @@ impl LowerDyn for CheckboxLowerer {
             value: Some(if self.0.checked { "true".into() } else { "false".into() }),
             actions: fission_ir::ActionSet::default(),
             focusable: true,
+            multiline: false,
         };
         if let Some(action) = &self.0.on_toggle {
             semantics

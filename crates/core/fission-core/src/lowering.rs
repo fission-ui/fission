@@ -1,10 +1,11 @@
 use crate::env::{Env, RuntimeState};
 use blake3;
 use fission_ir::{CoreIR, FlexDirection, LayoutOp, NodeId, Op, PaintOp, WidgetNodeId};
-use fission_layout::{LayoutInputNode, LayoutPoint, LayoutSize, LayoutUnit};
+use fission_layout::{LayoutInputNode, LayoutPoint, LayoutSize, LayoutUnit, TextMeasurer};
 use serde_json;
 use std::collections::HashMap;
 use std::fmt::Debug;
+use std::sync::Arc;
 
 // Context passed down during the lowering phase.
 pub struct LoweringContext<'a> {
@@ -12,15 +13,17 @@ pub struct LoweringContext<'a> {
     pub ir: CoreIR,
     pub env: &'a Env,
     pub runtime_state: &'a RuntimeState,
+    pub measurer: Option<&'a Arc<dyn TextMeasurer>>, // New field
 }
 
 impl<'a> LoweringContext<'a> {
-    pub fn new(env: &'a Env, runtime_state: &'a RuntimeState) -> Self {
+    pub fn new(env: &'a Env, runtime_state: &'a RuntimeState, measurer: Option<&'a Arc<dyn TextMeasurer>>) -> Self {
         LoweringContext {
             next_node_id_seed: 0,
             ir: CoreIR::new(),
             env,
             runtime_state,
+            measurer,
         }
     }
 
@@ -113,11 +116,19 @@ pub fn build_layout_tree(ir: &CoreIR) -> Vec<LayoutInputNode> {
             Op::Layout(LayoutOp::Box {
                 width,
                 height,
+                min_width,
+                max_width,
+                min_height,
+                max_height,
                 padding,
             }) => (
                 LayoutOp::Box {
                     width: *width,
                     height: *height,
+                    min_width: *min_width,
+                    max_width: *max_width,
+                    min_height: *min_height,
+                    max_height: *max_height,
                     padding: *padding,
                 },
                 *width,
@@ -147,6 +158,10 @@ pub fn build_layout_tree(ir: &CoreIR) -> Vec<LayoutInputNode> {
                 show_scrollbar,
                 width,
                 height,
+                min_width,
+                max_width,
+                min_height,
+                max_height,
                 padding,
             }) => (
                 LayoutOp::Scroll {
@@ -154,6 +169,10 @@ pub fn build_layout_tree(ir: &CoreIR) -> Vec<LayoutInputNode> {
                     show_scrollbar: *show_scrollbar,
                     width: *width,
                     height: *height,
+                    min_width: *min_width,
+                    max_width: *max_width,
+                    min_height: *min_height,
+                    max_height: *max_height,
                     padding: *padding,
                 },
                 *width,
@@ -169,6 +188,7 @@ pub fn build_layout_tree(ir: &CoreIR) -> Vec<LayoutInputNode> {
                         if let Op::Layout(LayoutOp::Box {
                             width: w,
                             height: h,
+                            min_width: _, max_width: _, min_height: _, max_height: _,
                             ..
                         }) = parent_node.op
                         {
@@ -197,6 +217,7 @@ pub fn build_layout_tree(ir: &CoreIR) -> Vec<LayoutInputNode> {
                     LayoutOp::Box {
                         width: None,
                         height: None,
+                        min_width: None, max_width: None, min_height: None, max_height: None,
                         padding: [0.0; 4],
                     },
                     None,
@@ -220,6 +241,7 @@ pub fn build_layout_tree(ir: &CoreIR) -> Vec<LayoutInputNode> {
                 LayoutOp::Box {
                     width: None,
                     height: None,
+                    min_width: None, max_width: None, min_height: None, max_height: None,
                     padding: [0.0; 4],
                 },
                 None,

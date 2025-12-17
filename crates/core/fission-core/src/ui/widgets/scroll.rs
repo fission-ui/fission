@@ -39,6 +39,10 @@ impl Lower for Scroll {
                 show_scrollbar: self.show_scrollbar,
                 width: self.width,
                 height: self.height,
+                min_width: None,
+                max_width: None,
+                min_height: None,
+                max_height: None,
                 padding: [0.0; 4],
             }),
         );

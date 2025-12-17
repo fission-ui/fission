@@ -3,8 +3,7 @@ use skia_safe::{AlphaType, ColorType};
 use softbuffer::{Context, Surface};
 use std::collections::HashMap;
 use std::num::NonZeroU32;
-use std::rc::Rc;
-use std::sync::Arc;
+use std::sync::Arc; // Changed from Rc
 use std::time::{Duration, Instant};
 use winit::{
     dpi::PhysicalPosition,
@@ -16,13 +15,12 @@ use winit::{
 
 use fission_core::env::{VideoState, VideoStateMap, VideoStatus};
 use fission_core::lowering::{build_layout_tree, LoweringContext};
-use fission_core::{
-    Action, ActionId, AppState, BuildCtx, Clock, Env, InputEvent, KeyCode,
+use fission_core::{Action, ActionId, AppState, BuildCtx, Clock, Env, InputEvent, ImeHandler, KeyCode,
     KeyEvent as FissionKeyEvent, Lower, Node, PointerButton, PointerEvent, Runtime, ScrollStateMap,
     View, Widget,
 };
 use fission_ir::{Color as IrColor, CoreIR, FlexDirection, NodeId, Op, PaintOp, WidgetNodeId};
-use fission_layout::{LayoutEngine, LayoutInputNode, LayoutSize, LayoutSnapshot};
+use fission_layout::{LayoutEngine, LayoutSize};
 use fission_render::{
     Color as RenderColor, DisplayList, LayoutPoint, LayoutRect, LayoutUnit, Renderer,
 };
@@ -40,6 +38,8 @@ use video_backend::MockVideoBackend;
 
 mod clipboard;
 use clipboard::DesktopClipboard;
+mod ime;
+use ime::DesktopImeHandler;
 
 pub struct DesktopApp<S: AppState, W: Widget<S>> {
     runtime: Runtime,
@@ -75,7 +75,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
         }
     }
 
-    pub fn run(self) -> Result<()> {
+    pub fn run(mut self) -> Result<()> { 
         diag::emit(
             diag::DiagCategory::Frame,
             diag::DiagLevel::Info,
@@ -85,12 +85,16 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
         diag::init_from_env();
         let event_loop =
             EventLoop::new().map_err(|e| anyhow::anyhow!("Event loop error: {}", e))?;
-        let window = Rc::new(
+        let window = Arc::new(
             WindowBuilder::new()
                 .with_title("Fission App")
                 .build(&event_loop)
                 .map_err(|e| anyhow::anyhow!("Window build error: {}", e))?,
         );
+        
+        // Initialize IME Handler here, after window creation
+        let ime_handler: Arc<dyn ImeHandler> = Arc::new(DesktopImeHandler::new(window.clone()));
+        self.runtime = self.runtime.with_ime_handler(ime_handler);
 
         diag::emit(
             diag::DiagCategory::Frame,
@@ -427,7 +431,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                     };
 
                                     let mut lower_cx =
-                                        LoweringContext::new(&env, &runtime.runtime_state);
+                                        LoweringContext::new(&env, &runtime.runtime_state, runtime.measurer.as_ref());
                                     let root_id = node_tree.lower(&mut lower_cx);
                                     lower_cx.ir.root = Some(root_id);
                                     let lowered_nodes = lower_cx.ir.nodes.len();

@@ -19,6 +19,11 @@ pub trait Clipboard: Send + Sync {
     fn set_text(&self, text: &str);
 }
 
+pub trait ImeHandler: Send + Sync {
+    fn set_ime_allowed(&self, allowed: bool);
+    fn set_ime_cursor_area(&self, rect: fission_layout::LayoutRect);
+}
+
 // Runtime state managed by framework (Interaction)
 #[derive(Clone, Debug, Default)]
 pub struct RuntimeState {
@@ -68,10 +73,84 @@ pub struct TextEditStateMap {
     pub states: HashMap<NodeId, TextEditState>,
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug)]
 pub struct TextEditState {
     pub caret: usize,       // byte index into value
     pub anchor: usize,      // selection anchor; if equal to caret then no selection
+    pub history: TextEditHistory, // NEW
+    pub last_value: String, // Store last committed value here for history snapshots
+}
+
+impl Default for TextEditState {
+    fn default() -> Self {
+        Self {
+            caret: 0,
+            anchor: 0,
+            history: TextEditHistory::default(),
+            last_value: String::new(),
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct TextEditHistory {
+    pub stack: Vec<(String, usize, usize)>,
+    pub index: usize,
+    pub capacity: usize, // Max undo steps
+}
+
+impl Default for TextEditHistory {
+    fn default() -> Self {
+        Self {
+            stack: vec![("".to_string(), 0, 0)],
+            index: 0,
+            capacity: 100,
+        }
+    }
+}
+
+
+impl TextEditHistory {
+    pub fn push(&mut self, value: String, caret: usize, anchor: usize) {
+        // Don't push if state is identical to current top of stack
+        if let Some((last_val, last_caret, last_anchor)) = self.stack.get(self.index) {
+            if last_val == &value && last_caret == &caret && last_anchor == &anchor {
+                return;
+            }
+        }
+
+        // Clear redo history
+        self.stack.truncate(self.index + 1);
+
+        // Add new state
+        self.stack.push((value, caret, anchor));
+        self.index = self.stack.len() - 1;
+
+        // Enforce capacity
+        if self.stack.len() > self.capacity {
+            let overflow = self.stack.len() - self.capacity;
+            self.stack.drain(0..overflow);
+            self.index = self.stack.len() - 1;
+        }
+    }
+
+    pub fn undo(&mut self) -> Option<&(String, usize, usize)> {
+        if self.index > 0 {
+            self.index -= 1;
+            Some(&self.stack[self.index])
+        } else {
+            None
+        }
+    }
+
+    pub fn redo(&mut self) -> Option<&(String, usize, usize)> {
+        if self.index < self.stack.len() - 1 {
+            self.index += 1;
+            Some(&self.stack[self.index])
+        } else {
+            None
+        }
+    }
 }
 
 impl TextEditStateMap {

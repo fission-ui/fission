@@ -8,6 +8,8 @@ use std::any::{Any, TypeId};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
+extern crate self as fission_core;
+
 pub mod action;
 pub mod diff;
 pub mod env;
@@ -23,7 +25,8 @@ pub mod view;
 
 use crate::env::ActiveAnimation;
 pub use action::{Action, ActionEnvelope, ActionId, AppState};
-pub use env::{Env, InteractionStateMap, RuntimeState, ScrollStateMap, Clipboard};
+pub use env::{Env, InteractionStateMap, RuntimeState, ScrollStateMap, Clipboard, ImeHandler};
+
 pub use event::{InputEvent, KeyCode, KeyEvent, LifecycleEvent, PointerButton, PointerEvent};
 pub use fission_ir::op;
 pub use fission_ir::{EmbedKind, NodeId, Op, WidgetNodeId};
@@ -82,6 +85,7 @@ pub struct Runtime {
     pub runtime_state: RuntimeState,
     pub measurer: Option<Arc<dyn TextMeasurer>>,
     pub clipboard_backend: Option<Arc<dyn Clipboard>>,
+    pub ime_handler: Option<Arc<dyn ImeHandler>>,
 }
 
 impl Default for Runtime {
@@ -92,6 +96,7 @@ impl Default for Runtime {
             runtime_state: RuntimeState::default(),
             measurer: None,
             clipboard_backend: None,
+            ime_handler: None,
         };
 
         runtime
@@ -112,6 +117,11 @@ impl Runtime {
 
     pub fn with_clipboard(mut self, backend: Arc<dyn Clipboard>) -> Self {
         self.clipboard_backend = Some(backend);
+        self
+    }
+
+    pub fn with_ime_handler(mut self, handler: Arc<dyn ImeHandler>) -> Self {
+        self.ime_handler = Some(handler);
         self
     }
 
@@ -462,8 +472,21 @@ impl Runtime {
                         if let Some(node) = ir.nodes.get(&node_id) {
                             if let Op::Semantics(s) = &node.op {
                                 if s.focusable {
-                                    if Some(node_id) != self.runtime_state.interaction.focused {
+                                    let old_focused_id = self.runtime_state.interaction.focused;
+                                    if Some(node_id) != old_focused_id {
+                                        // Clear preedit if focus changed
                                         self.runtime_state.ime_preedit = None;
+
+                                        // Activate IME if new focus is a TextInput
+                                        if s.role == fission_ir::semantics::Role::TextInput {
+                                            if let Some(ime_handler) = &self.ime_handler {
+                                                ime_handler.set_ime_allowed(true);
+                                                // TODO: Set actual caret rect here (requires layout information, which is hard in handle_input context without a current layout)
+                                            }
+                                        } else if let Some(ime_handler) = &self.ime_handler {
+                                            // Deactivate IME if focus is not a TextInput
+                                            ime_handler.set_ime_allowed(false);
+                                        }
                                     }
                                     self.runtime_state.interaction.set_focused(Some(node_id));
                                     break;
@@ -475,7 +498,20 @@ impl Runtime {
                         }
                     }
                     if focus_candidate.is_none() {
-                        // self.runtime_state.interaction.set_focused(None);
+                        // No focusable element hit.
+                        // If a TextInput was previously focused, deactivate IME
+                        if let Some(old_focused_id) = self.runtime_state.interaction.focused {
+                            if let Some(old_node) = ir.nodes.get(&old_focused_id) {
+                                if let Op::Semantics(s) = &old_node.op {
+                                    if s.role == fission_ir::semantics::Role::TextInput {
+                                        if let Some(ime_handler) = &self.ime_handler {
+                                            ime_handler.set_ime_allowed(false);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        self.runtime_state.interaction.set_focused(None);
                     }
 
                     let mut current_pressed_id = Some(hit_node_id);
@@ -489,7 +525,34 @@ impl Runtime {
                     }
                     // Record pointer down location (for move threshold)
                     self.runtime_state.interaction.last_down_point = Some(point);
+
+                    // Update caret rect for IME if TextInput is focused
+                    if let Some(focused_id) = self.runtime_state.interaction.focused {
+                        if let Some(node) = ir.nodes.get(&focused_id) {
+                            if let Op::Semantics(s) = &node.op {
+                                if s.role == fission_ir::semantics::Role::TextInput {
+                                    // After a click, update caret rect for IME
+                                    if let Some(ime_handler) = &self.ime_handler {
+                                        // This is a dummy rect for now, actual caret position would be here after layout.
+                                        ime_handler.set_ime_cursor_area(LayoutRect::new(point.x, point.y, 2.0, 16.0));
+                                    }
+                                }
+                            }
+                        }
+                    }
                 } else {
+                    // If clicked outside any node, clear focus and deactivate IME
+                    if let Some(old_focused_id) = self.runtime_state.interaction.focused {
+                        if let Some(old_node) = ir.nodes.get(&old_focused_id) {
+                            if let Op::Semantics(s) = &old_node.op {
+                                if s.role == fission_ir::semantics::Role::TextInput {
+                                    if let Some(ime_handler) = &self.ime_handler {
+                                        ime_handler.set_ime_allowed(false);
+                                    }
+                                }
+                            }
+                        }
+                    }
                     self.runtime_state.interaction.set_focused(None);
                 }
             }

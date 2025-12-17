@@ -1,6 +1,7 @@
 use fission_core::Runtime;
 use fission_layout::TextMeasurer;
 use std::sync::Arc;
+use unicode_segmentation::UnicodeSegmentation;
 
 struct MockMeasurer;
 
@@ -9,6 +10,31 @@ impl TextMeasurer for MockMeasurer {
         // Simple mock: 10px per char
         let width = text.chars().count() as f32 * 10.0;
         (width, font_size)
+    }
+    fn hit_test(&self, text: &str, _font_size: f32, _available_width: Option<f32>, x: f32, _y: f32) -> usize {
+        let char_width = 10.0;
+        if x <= 0.0 { return 0; }
+        let char_idx = (x / char_width).round() as usize;
+        let mut byte_offset = 0;
+        for (idx, g) in text.grapheme_indices(true).take(char_idx) {
+            byte_offset = idx + g.len();
+        }
+        byte_offset
+    }
+    fn get_line_metrics(&self, text: &str, font_size: f32, available_width: Option<f32>) -> Vec<fission_layout::LineMetric> {
+        vec![fission_layout::LineMetric {
+            start_index: 0,
+            end_index: text.len(),
+            baseline: font_size,
+            height: font_size,
+            width: self.measure(text, font_size, available_width).0,
+        }]
+    }
+    fn get_caret_position(&self, text: &str, font_size: f32, _available_width: Option<f32>, caret_index: usize) -> (f32, f32) {
+        let char_width = 10.0;
+        let x = text.graphemes(true).take(caret_index).map(|g| g.len()).sum::<usize>() as f32 * char_width;
+        let y = font_size; // Baseline
+        (x, y)
     }
 }
 

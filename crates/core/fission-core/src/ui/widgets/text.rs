@@ -58,15 +58,20 @@ impl Lower for Text {
             Op::Layout(LayoutOp::Box {
                 width: self.width,
                 height: self.height,
+                min_width: None,
+                max_width: None,
+                min_height: None,
+                max_height: None,
                 padding: [0.0; 4],
             }),
         );
         layout_builder.add_child(paint_node_id);
         let layout_node_id = layout_builder.build(cx);
 
-        if let Some(s) = &self.semantics {
+        if let Some(mut s) = self.semantics.clone() {
+            s.multiline = false;
             let mut semantics_builder =
-                NodeBuilder::new(cx.next_node_id(), Op::Semantics(s.clone()));
+                NodeBuilder::new(cx.next_node_id(), Op::Semantics(s));
             semantics_builder.add_child(layout_node_id);
             return semantics_builder.build(cx);
         }

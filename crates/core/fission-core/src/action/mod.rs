@@ -1,17 +1,43 @@
 use blake3;
 use downcast_rs::{impl_downcast, Downcast};
 use fission_ir::NodeId;
-use fission_macros::Action;
+// use fission_macros::Action;
 use lazy_static::lazy_static;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_json;
 use std::any::Any;
+
+use crate as fission_core;
 
 pub mod video;
 
 pub use video::{
     VideoPause, VideoPlay, VideoSeek, VideoSetMuted, VideoSetRate, VideoSetVolume, VideoStop,
 };
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Undo;
+
+impl Action for Undo {
+    fn static_id() -> ActionId {
+        lazy_static! {
+            pub static ref UNDO_ACTION_ID: ActionId = ActionId::from_name("fission_core::Undo");
+        }
+        *UNDO_ACTION_ID
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Redo;
+
+impl Action for Redo {
+    fn static_id() -> ActionId {
+        lazy_static! {
+            pub static ref REDO_ACTION_ID: ActionId = ActionId::from_name("fission_core::Redo");
+        }
+        *REDO_ACTION_ID
+    }
+}
 
 // ActionId is a stable, globally unique identifier for an Action type.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug, Serialize, Deserialize, PartialOrd, Ord)]
@@ -33,6 +59,24 @@ impl ActionId {
         ActionId(u128::from_le_bytes(
             hash.as_bytes()[0..16].try_into().unwrap(),
         ))
+    }
+}
+
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct UpdateTextInput {
+    pub node_id: NodeId,
+    pub new_text: String,
+    pub new_caret: usize,
+    pub new_anchor: usize,
+}
+
+impl Action for UpdateTextInput {
+    fn static_id() -> ActionId {
+        lazy_static! {
+            pub static ref UPDATE_TEXT_INPUT_ACTION_ID: ActionId = ActionId::from_name("fission_core::UpdateTextInput");
+        }
+        *UPDATE_TEXT_INPUT_ACTION_ID
     }
 }
 
