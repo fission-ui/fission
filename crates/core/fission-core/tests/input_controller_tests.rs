@@ -252,6 +252,11 @@ fn create_text_node(id: NodeId, val: &str, multiline: bool) -> CoreIR {
             actions: ActionSet { entries: vec![ActionEntry { action_id: 1, payload_data: None }] },
             focusable: true,
             multiline,
+            masked: false,
+            input_mask: None,
+            ime_preedit_range: None,
+            checked: None,
+            disabled: false,
         }),
         hash: 0,
     });

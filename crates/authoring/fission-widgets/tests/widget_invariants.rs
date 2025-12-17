@@ -29,7 +29,7 @@ fn test_text_widget_default_and_lower() {
 
     let env = Env::default();
     let runtime_state = RuntimeState::default();
-    let mut cx = LoweringContext::new(&env, &runtime_state);
+    let mut cx = LoweringContext::new(&env, &runtime_state, None);
     let node_id = text_widget.lower(&mut cx);
 
     assert!(cx.ir.nodes.contains_key(&node_id));
@@ -60,7 +60,7 @@ fn test_row_widget_children_lower() {
 
     let env = Env::default();
     let runtime_state = RuntimeState::default();
-    let mut cx = LoweringContext::new(&env, &runtime_state);
+    let mut cx = LoweringContext::new(&env, &runtime_state, None);
     let row_node_id = row_widget.lower(&mut cx);
 
     assert!(cx.ir.nodes.contains_key(&row_node_id));
@@ -87,13 +87,19 @@ fn test_button_widget_lower_with_child_and_semantics() {
             value: None,
             actions: ActionSet::default(),
             focusable: true,
+            multiline: false,
+            masked: false,
+            input_mask: None,
+            ime_preedit_range: None,
+            checked: None,
+            disabled: false,
         }),
         ..Default::default()
     };
 
     let env = Env::default();
     let runtime_state = RuntimeState::default();
-    let mut cx = LoweringContext::new(&env, &runtime_state);
+    let mut cx = LoweringContext::new(&env, &runtime_state, None);
     let button_node_id = button_widget.lower(&mut cx);
 
     assert!(cx.ir.nodes.contains_key(&button_node_id));
@@ -119,7 +125,7 @@ fn test_node_enum_lower() {
     let node = Node::from(Text::default());
     let env = Env::default();
     let runtime_state = RuntimeState::default();
-    let mut cx = LoweringContext::new(&env, &runtime_state);
+    let mut cx = LoweringContext::new(&env, &runtime_state, None);
     node.lower(&mut cx);
     assert!(!cx.ir.nodes.is_empty());
 }

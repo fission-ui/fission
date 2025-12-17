@@ -172,7 +172,7 @@ impl LowerDyn for CheckboxLowerer {
         let label_id = if let Some(text) = &self.0.label {
             let text_id = NodeBuilder::new(
                 cx.next_node_id(),
-                Op::Paint(PaintOp::DrawText { text: text.clone(), size: 14.0, color: IrColor::BLACK }),
+                Op::Paint(PaintOp::DrawText { text: text.clone(), size: 14.0, color: IrColor::BLACK, underline: false }),
             )
             .build(cx);
             let mut layout_builder = NodeBuilder::new(
@@ -201,6 +201,11 @@ impl LowerDyn for CheckboxLowerer {
             actions: fission_ir::ActionSet::default(),
             focusable: true,
             multiline: false,
+            masked: false,
+            input_mask: None,
+            ime_preedit_range: None,
+            checked: Some(self.0.checked),
+            disabled: false,
         };
         if let Some(action) = &self.0.on_toggle {
             semantics

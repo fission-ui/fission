@@ -13,6 +13,10 @@ fn test_taffy_integration_simple_box() {
         op: IrLayoutOp::Box {
             width: Some(100.0),
             height: Some(100.0),
+            min_width: None,
+            max_width: None,
+            min_height: None,
+            max_height: None,
             padding: [0.0; 4],
         },
         children_ids: vec![],
@@ -21,8 +25,7 @@ fn test_taffy_integration_simple_box() {
         height: Some(100.0),
         flex_grow: 0.0,
         flex_shrink: 0.0,
-        text_content: None,
-        font_size: None,
+        rich_text: None,
     }];
 
     let dirty: HashSet<_> = nodes.iter().map(|n| n.id).collect();
@@ -60,8 +63,7 @@ fn test_taffy_integration_flex_row() {
             height: Some(100.0),
             flex_grow: 0.0,
             flex_shrink: 0.0,
-            text_content: None,
-            font_size: None,
+            rich_text: None,
         },
         LayoutInputNode {
             id: child1_id,
@@ -69,6 +71,10 @@ fn test_taffy_integration_flex_row() {
             op: IrLayoutOp::Box {
                 width: Some(50.0),
                 height: Some(50.0),
+                min_width: None,
+                max_width: None,
+                min_height: None,
+                max_height: None,
                 padding: [0.0; 4],
             },
             children_ids: vec![],
@@ -77,8 +83,7 @@ fn test_taffy_integration_flex_row() {
             height: Some(50.0),
             flex_grow: 0.0, // Fixed size
             flex_shrink: 0.0,
-            text_content: None,
-            font_size: None,
+            rich_text: None,
         },
         LayoutInputNode {
             id: child2_id,
@@ -86,6 +91,10 @@ fn test_taffy_integration_flex_row() {
             op: IrLayoutOp::Box {
                 width: None,
                 height: Some(50.0),
+                min_width: None,
+                max_width: None,
+                min_height: None,
+                max_height: None,
                 padding: [0.0; 4],
             },
             children_ids: vec![],
@@ -94,8 +103,7 @@ fn test_taffy_integration_flex_row() {
             height: Some(50.0),
             flex_grow: 1.0, // Grow to fill
             flex_shrink: 0.0,
-            text_content: None,
-            font_size: None,
+            rich_text: None,
         },
     ];
 

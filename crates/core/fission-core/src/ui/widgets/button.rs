@@ -168,5 +168,10 @@ fn default_button_semantics() -> Semantics {
         actions: ActionSet::default(),
         focusable: true,
         multiline: false,
+        masked: false,
+        input_mask: None,
+        ime_preedit_range: None,
+        checked: None,
+        disabled: false,
     }
 }

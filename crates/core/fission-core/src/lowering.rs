@@ -1,6 +1,7 @@
 use crate::env::{Env, RuntimeState};
 use blake3;
 use fission_ir::{CoreIR, FlexDirection, LayoutOp, NodeId, Op, PaintOp, WidgetNodeId};
+use fission_ir::op::{TextRun, TextStyle};
 use fission_layout::{LayoutInputNode, LayoutPoint, LayoutSize, LayoutUnit, TextMeasurer};
 use serde_json;
 use std::collections::HashMap;
@@ -109,8 +110,7 @@ pub fn build_layout_tree(ir: &CoreIR) -> Vec<LayoutInputNode> {
     }
 
     for (id, node) in &ir.nodes {
-        let mut text_content = None;
-        let mut font_size = None;
+        let mut rich_text_content: Option<Vec<fission_ir::op::TextRun>> = None;
 
         let (layout_op_variant, width, height, flex_grow, flex_shrink) = match &node.op {
             Op::Layout(LayoutOp::Box {
@@ -180,39 +180,37 @@ pub fn build_layout_tree(ir: &CoreIR) -> Vec<LayoutInputNode> {
                 0.0,
                 0.0,
             ),
-            Op::Layout(LayoutOp::Embed { kind, widget_id }) => {
-                let mut width = None;
-                let mut height = None;
-                if let Some(parent_id) = parent_map.get(id) {
-                    if let Some(parent_node) = ir.nodes.get(parent_id) {
-                        if let Op::Layout(LayoutOp::Box {
-                            width: w,
-                            height: h,
-                            min_width: _, max_width: _, min_height: _, max_height: _,
-                            ..
-                        }) = parent_node.op
-                        {
-                            width = w;
-                            height = h;
-                        }
-                    }
-                }
+            Op::Layout(LayoutOp::Embed { kind, widget_id }) => (
+                LayoutOp::Embed {
+                    kind: *kind,
+                    widget_id: *widget_id,
+                },
+                None,
+                None,
+                0.0,
+                0.0,
+            ),
 
+            Op::Paint(PaintOp::DrawText { text, size, color, underline }) => {
+                rich_text_content = Some(vec![fission_ir::op::TextRun {
+                    text: text.clone(),
+                    style: fission_ir::op::TextStyle { font_size: *size, color: *color, underline: *underline },
+                }]);
                 (
-                    LayoutOp::Embed {
-                        kind: *kind,
-                        widget_id: *widget_id,
+                    LayoutOp::Box {
+                        width: None,
+                        height: None,
+                        min_width: None, max_width: None, min_height: None, max_height: None,
+                        padding: [0.0; 4],
                     },
-                    width,
-                    height,
+                    None,
+                    None,
                     0.0,
                     0.0,
                 )
             }
-
-            Op::Paint(PaintOp::DrawText { text, size, .. }) => {
-                text_content = Some(text.clone());
-                font_size = Some(*size);
+            Op::Paint(PaintOp::DrawRichText { runs }) => {
+                rich_text_content = Some(runs.clone());
                 (
                     LayoutOp::Box {
                         width: None,
@@ -261,8 +259,7 @@ pub fn build_layout_tree(ir: &CoreIR) -> Vec<LayoutInputNode> {
             height,
             flex_grow,
             flex_shrink,
-            text_content,
-            font_size,
+            rich_text: rich_text_content,
         });
     }
 

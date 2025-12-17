@@ -37,6 +37,19 @@ pub enum ImageFit {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TextStyle {
+    pub font_size: LayoutUnit,
+    pub color: Color,
+    pub underline: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TextRun {
+    pub text: String,
+    pub style: TextStyle,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum DisplayOp {
     Save,
     Restore,
@@ -56,6 +69,13 @@ pub enum DisplayOp {
         position: LayoutPoint,
         size: LayoutUnit,
         color: Color,
+        bounds: LayoutRect,
+        node_id: Option<NodeId>,
+        underline: bool,
+    },
+    DrawRichText {
+        runs: Vec<TextRun>,
+        position: LayoutPoint,
         bounds: LayoutRect,
         node_id: Option<NodeId>,
     },

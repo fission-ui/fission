@@ -6,8 +6,9 @@ use fission_ir::{
     NodeId, Role, Semantics, FlexDirection
 };
 use serde::{Deserialize, Serialize};
+use unicode_segmentation::UnicodeSegmentation;
 
-#[derive(Debug, Default, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TextInput {
     pub id: Option<NodeId>,
     pub value: String,
@@ -18,6 +19,28 @@ pub struct TextInput {
     pub multiline: bool,
     pub min_lines: Option<usize>,
     pub max_lines: Option<usize>,
+    pub obscure_text: bool,
+    pub obscuring_character: char,
+    pub mask: Option<fission_ir::semantics::InputMask>,
+}
+
+impl Default for TextInput {
+    fn default() -> Self {
+        Self {
+            id: None,
+            value: String::new(),
+            placeholder: None,
+            on_change: None,
+            width: None,
+            height: None,
+            multiline: false,
+            min_lines: None,
+            max_lines: None,
+            obscure_text: false,
+            obscuring_character: '•',
+            mask: None,
+        }
+    }
 }
 
 impl Lower for TextInput {
@@ -50,52 +73,83 @@ impl Lower for TextInput {
             })
         ).build(cx);
 
-        // 2. Text (Paint)
-        let mut display_text = String::new();
-        let mut using_placeholder = false;
-        let preedit_suffix = if is_focused {
-            if let Some((id, txt)) = &cx.runtime_state.ime_preedit {
-                if *id == input_id { Some(txt.clone()) } else { None }
-            } else { None }
+        // 2. Text Preparation
+        let preedit_text = if is_focused {
+            cx.runtime_state.ime_preedit.clone().filter(|(id, _)| *id == input_id).map(|(_, t)| t)
         } else { None };
 
-        // Main text is only the committed value (+ preedit when present).
-        // Placeholder is painted separately so it doesn't affect caret position.
-        display_text = self.value.clone();
-        if let Some(pre) = preedit_suffix.clone() {
-            display_text.push_str(&pre);
-        }
-        if display_text.is_empty() && preedit_suffix.is_none() {
-            using_placeholder = true;
-        }
+        let (display_text, caret, anchor) = if self.obscure_text {
+            let obs = self.obscuring_character.to_string();
+            let obs_len = obs.len();
+
+            let mut combined_val_with_preedit = self.value.clone();
+            if let Some(pre) = &preedit_text { combined_val_with_preedit.push_str(pre); }
+
+            let grapheme_count = combined_val_with_preedit.graphemes(true).count();
+            let masked_text = obs.repeat(grapheme_count);
+
+            let st_caret = if is_focused {
+                 cx.runtime_state.text_edit.get(input_id).map(|s| s.caret).unwrap_or(combined_val_with_preedit.len()).min(combined_val_with_preedit.len())
+            } else { 0 };
+
+            let st_anchor = if is_focused {
+                 cx.runtime_state.text_edit.get(input_id).map(|s| s.anchor).unwrap_or(combined_val_with_preedit.len()).min(combined_val_with_preedit.len())
+            } else { 0 };
+
+            let to_masked_idx = |byte_idx: usize, original_text: &str| {
+                let prefix = &original_text[..byte_idx];
+                let g_count = prefix.graphemes(true).count();
+                g_count * obs_len
+            };
+
+            (masked_text, to_masked_idx(st_caret, &combined_val_with_preedit), to_masked_idx(st_anchor, &combined_val_with_preedit))
+        } else {
+            let mut combined_val_with_preedit = self.value.clone();
+            if let Some(pre) = &preedit_text { combined_val_with_preedit.push_str(pre); }
+
+            let st_caret = if is_focused {
+                 cx.runtime_state.text_edit.get(input_id).map(|s| s.caret).unwrap_or(combined_val_with_preedit.len()).min(combined_val_with_preedit.len())
+            } else { 0 };
+            let st_anchor = if is_focused {
+                 cx.runtime_state.text_edit.get(input_id).map(|s| s.anchor).unwrap_or(combined_val_with_preedit.len()).min(combined_val_with_preedit.len())
+            } else { 0 };
+
+            (combined_val_with_preedit, st_caret, st_anchor)
+        };
+
+        let using_placeholder = display_text.is_empty() && !self.obscure_text && preedit_text.is_none(); // Don't show placeholder if preedit is active.
         
-        let text_color = if preedit_suffix.is_some() { IrColor::BLUE } else { IrColor::BLACK };
+        let ime_preedit_range_byte_idx = if is_focused && preedit_text.is_some() && !self.obscure_text {
+            let base_len_graphemes = self.value.graphemes(true).count();
+            let preedit_len_graphemes = preedit_text.as_ref().map(|s| s.graphemes(true).count()).unwrap_or(0);
+
+            let ime_start_grapheme_idx = base_len_graphemes;
+            let ime_end_grapheme_idx = base_len_graphemes + preedit_len_graphemes;
+
+            let to_byte_idx = |g_idx: usize, text: &str| {
+                text.graphemes(true).take(g_idx).map(|g| g.len()).sum()
+            };
+            Some((to_byte_idx(ime_start_grapheme_idx, &display_text), to_byte_idx(ime_end_grapheme_idx, &display_text)))
+        } else { None };
+
+        let text_color = if preedit_text.is_some() { IrColor::BLUE } else { IrColor::BLACK };
 
         // Build segments for selection rendering (if focused and selection non-empty)
         let mut left_layout_id = None;
         let mut sel_layout_id = None;
         let mut right_layout_id = None;
 
-        let value_for_selection = self.value.clone();
-        let (caret, anchor) = if is_focused {
-            if let Some(st) = cx.runtime_state.text_edit.get(input_id) {
-                (st.caret.min(value_for_selection.len()), st.anchor.min(value_for_selection.len()))
-            } else { (value_for_selection.len(), value_for_selection.len()) }
-        } else { (0usize, 0usize) };
         let has_selection = is_focused && caret != anchor;
 
-        // We'll create segments relative to caret/anchor even if no selection.
         let (s,e) = if caret <= anchor { (caret, anchor) } else { (anchor, caret) };
-        let left_str = value_for_selection.get(0..s).unwrap_or("");
-        let sel_str = value_for_selection.get(s..e).unwrap_or("");
-        let right_str_full = value_for_selection.get(e..).unwrap_or("");
+        let left_str = display_text.get(0..s).unwrap_or("");
+        let sel_str = display_text.get(s..e).unwrap_or("");
+        let right_str = display_text.get(e..).unwrap_or("");
 
         if has_selection {
-            let right_str = right_str_full;
-
             // Left text
             if !left_str.is_empty() {
-                let left_text_id = NodeBuilder::new(cx.next_node_id(), Op::Paint(PaintOp::DrawText { text: left_str.to_string(), size: font_size, color: IrColor::BLACK })).build(cx);
+                let left_text_id = NodeBuilder::new(cx.next_node_id(), Op::Paint(PaintOp::DrawText { text: left_str.to_string(), size: font_size, color: IrColor::BLACK, underline: false })).build(cx);
                 let mut left_box = NodeBuilder::new(cx.next_node_id(), Op::Layout(LayoutOp::Box { width: None, height: None, min_width: None, max_width: None, min_height: None, max_height: None, padding: [0.0;4] }));
                 left_box.add_child(left_text_id);
                 left_layout_id = Some(left_box.build(cx));
@@ -103,10 +157,8 @@ impl Lower for TextInput {
 
             // Selected text with background rect (behind)
             if !sel_str.is_empty() {
-                // Background rect that fills the selection box; color from theme (simple blue with alpha)
                 let bg_id = NodeBuilder::new(cx.next_node_id(), Op::Paint(PaintOp::DrawRect { fill: Some(Fill { color: IrColor { r: 173, g: 208, b: 255, a: 255 } }), stroke: None, corner_radius: 0.0, shadow: None })).build(cx);
-                let sel_text_id = NodeBuilder::new(cx.next_node_id(), Op::Paint(PaintOp::DrawText { text: sel_str.to_string(), size: font_size, color: IrColor::BLACK })).build(cx);
-                // Container box; DrawRect (AbsoluteFill) will fill it because paint ops are treated as fill under layout
+                let sel_text_id = NodeBuilder::new(cx.next_node_id(), Op::Paint(PaintOp::DrawText { text: sel_str.to_string(), size: font_size, color: IrColor::BLACK, underline: false })).build(cx);
                 let mut sel_box = NodeBuilder::new(cx.next_node_id(), Op::Layout(LayoutOp::Box { width: None, height: None, min_width: None, max_width: None, min_height: None, max_height: None, padding: [0.0;4] }));
                 sel_box.add_child(bg_id);
                 sel_box.add_child(sel_text_id);
@@ -114,29 +166,25 @@ impl Lower for TextInput {
             }
 
             // Right text
-            if !right_str.is_empty() || preedit_suffix.is_some() {
-                // Append preedit suffix to the right segment for visual continuity
-                let mut right_concat = right_str.to_string();
-                if let Some(pre) = &preedit_suffix { right_concat.push_str(pre); }
-                let right_text_id = NodeBuilder::new(cx.next_node_id(), Op::Paint(PaintOp::DrawText { text: right_concat, size: font_size, color: text_color })).build(cx);
+            if !right_str.is_empty() {
+                let right_text_id = NodeBuilder::new(cx.next_node_id(), Op::Paint(PaintOp::DrawText { text: right_str.to_string(), size: font_size, color: text_color, underline: false })).build(cx);
                 let mut right_box = NodeBuilder::new(cx.next_node_id(), Op::Layout(LayoutOp::Box { width: None, height: None, min_width: None, max_width: None, min_height: None, max_height: None, padding: [0.0;4] }));
                 right_box.add_child(right_text_id);
                 right_layout_id = Some(right_box.build(cx));
             }
         } else {
             // No selection: split around caret into left and right
-            let left_only = value_for_selection.get(0..caret).unwrap_or("");
-            let mut right_only = value_for_selection.get(caret..).unwrap_or("").to_string();
-            if let Some(pre) = &preedit_suffix { right_only.push_str(pre); }
+            let left_only = left_str;
+            let right_only = right_str; // For no selection, s==e==caret, so right_str is everything after caret
 
             if !left_only.is_empty() {
-                let left_text_id = NodeBuilder::new(cx.next_node_id(), Op::Paint(PaintOp::DrawText { text: left_only.to_string(), size: font_size, color: IrColor::BLACK })).build(cx);
+                let left_text_id = NodeBuilder::new(cx.next_node_id(), Op::Paint(PaintOp::DrawText { text: left_only.to_string(), size: font_size, color: IrColor::BLACK, underline: false })).build(cx);
                 let mut left_box = NodeBuilder::new(cx.next_node_id(), Op::Layout(LayoutOp::Box { width: None, height: None, min_width: None, max_width: None, min_height: None, max_height: None, padding: [0.0;4] }));
                 left_box.add_child(left_text_id);
                 left_layout_id = Some(left_box.build(cx));
             }
             if !right_only.is_empty() {
-                let right_text_id = NodeBuilder::new(cx.next_node_id(), Op::Paint(PaintOp::DrawText { text: right_only, size: font_size, color: text_color })).build(cx);
+                let right_text_id = NodeBuilder::new(cx.next_node_id(), Op::Paint(PaintOp::DrawText { text: right_only.to_string(), size: font_size, color: text_color, underline: false })).build(cx);
                 let mut right_box = NodeBuilder::new(cx.next_node_id(), Op::Layout(LayoutOp::Box { width: None, height: None, min_width: None, max_width: None, min_height: None, max_height: None, padding: [0.0;4] }));
                 right_box.add_child(right_text_id);
                 right_layout_id = Some(right_box.build(cx));
@@ -274,6 +322,7 @@ impl Lower for TextInput {
                     text: self.placeholder.clone().unwrap_or_default(),
                     size: font_size,
                     color: IrColor { r: 150, g: 150, b: 150, a: 255 },
+                    underline: false,
                 })
             ).build(cx);
             let mut ph_box = NodeBuilder::new(
@@ -307,6 +356,11 @@ impl Lower for TextInput {
             actions: Default::default(), 
             focusable: true,
             multiline: self.multiline,
+            masked: self.obscure_text,
+            input_mask: self.mask.clone(),
+            ime_preedit_range: ime_preedit_range_byte_idx,
+            checked: None,
+            disabled: false,
         };
         if let Some(env) = &self.on_change {
              semantics.actions.entries.push(fission_ir::ActionEntry {

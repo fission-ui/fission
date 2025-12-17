@@ -304,19 +304,15 @@ fn generate_display_list_with_visited(
                         node_id: Some(node_id),
                     });
                 }
-                fission_ir::Op::Paint(fission_ir::PaintOp::DrawText { text, size, color }) => {
+                fission_ir::Op::Paint(fission_ir::PaintOp::DrawText { text, size, color, underline }) => {
                     list.push(DisplayOp::DrawText {
                         text: text.clone(),
-                        position: geom.rect.origin,
+                        position: LayoutPoint::new(0.0, 0.0),
                         size: *size,
-                        color: Color {
-                            r: color.r,
-                            g: color.g,
-                            b: color.b,
-                            a: color.a,
-                        },
-                        bounds: geom.rect,
-                        node_id: Some(node_id),
+                        color: fission_render::Color { r: color.r, g: color.g, b: color.b, a: color.a },
+                        bounds: LayoutRect::new(0.0, 0.0, 0.0, 0.0),
+                        node_id: None,
+                        underline: *underline,
                     });
                 }
                 fission_ir::Op::Paint(fission_ir::PaintOp::DrawImage { source, fit }) => {

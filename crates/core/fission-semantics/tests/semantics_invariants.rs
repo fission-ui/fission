@@ -21,6 +21,12 @@ fn test_semantics_serialization() {
         value: None,
         actions: ActionSet::default(),
         focusable: true,
+        multiline: false,
+        masked: false,
+        input_mask: None,
+        ime_preedit_range: None,
+        checked: None,
+        disabled: false,
     };
 
     // Just verify it compiles and runs; exact serde format isn't critical yet, but capability is.

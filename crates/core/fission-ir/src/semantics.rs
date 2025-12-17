@@ -27,9 +27,29 @@ pub struct Semantics {
     pub actions: ActionSet,
     pub focusable: bool,
     pub multiline: bool,
+    pub masked: bool,
+    pub input_mask: Option<InputMask>,
+    pub ime_preedit_range: Option<(usize, usize)>,
+    pub checked: Option<bool>,
+    pub disabled: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub struct ActionSet {
     pub entries: Vec<ActionEntry>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum InputMask {
+    Numeric,
+    Alphanumeric,
+}
+
+impl InputMask {
+    pub fn is_valid_char(&self, ch: char) -> bool {
+        match self {
+            InputMask::Numeric => ch.is_ascii_digit(),
+            InputMask::Alphanumeric => ch.is_ascii_alphanumeric(),
+        }
+    }
 }

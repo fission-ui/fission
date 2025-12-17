@@ -7,6 +7,7 @@ use fission_ir::{op::{self, LayoutOp, Op}, NodeId, Semantics};
 use fission_layout::LayoutSnapshot;
 use serde_json;
 use unicode_segmentation::UnicodeSegmentation;
+use fission_ir::semantics::InputMask;
 
 pub struct TextInputController;
 
@@ -223,6 +224,12 @@ impl TextInputController {
                 }
             }
             KeyCode::Char(c) => {
+                // Check against input mask
+                if let Some(mask) = &semantics.input_mask {
+                    if !mask.is_valid_char(c) {
+                        return true; // Ignore invalid character
+                    }
+                }
                 let (txt, nc) = Self::insert_text(&value, caret, sel, &c.to_string());
                 next_text = Some(txt);
                 next_caret = nc;
@@ -351,8 +358,23 @@ impl TextInputController {
                                 let st = ctx.text_edit.get_mut_or_default(focused_id);
                                 let caret = Self::clamp_caret_to_value(&value, st.caret);
                                 let sel = if st.caret != st.anchor { Some((st.anchor, st.caret)) } else { None };
-                                let (new_text, new_caret) = Self::insert_text(&value, caret, sel, text);
-                                self.dispatch_change(ctx, semantics, focused_id, new_text, new_caret);
+
+                                let mut filtered_text = String::new();
+                                if let Some(mask) = &semantics.input_mask {
+                                    for ch in text.chars() {
+                                        if mask.is_valid_char(ch) {
+                                            filtered_text.push(ch);
+                                        }
+                                    }
+                                } else {
+                                    filtered_text = text.clone();
+                                }
+
+                                if !filtered_text.is_empty() { // Only insert if something valid
+                                    let (new_text, new_caret) = Self::insert_text(&value, caret, sel, &filtered_text);
+                                    self.dispatch_change(ctx, semantics, focused_id, new_text, new_caret);
+                                }
+
                                 *ctx.ime_preedit = None;
                                 return true;
                             }

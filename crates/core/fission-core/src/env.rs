@@ -78,21 +78,21 @@ pub struct TextEditState {
     pub caret: usize,       // byte index into value
     pub anchor: usize,      // selection anchor; if equal to caret then no selection
     pub history: TextEditHistory, // NEW
-    pub last_value: String, // Store last committed value here for history snapshots
-}
-
-impl Default for TextEditState {
-    fn default() -> Self {
-        Self {
-            caret: 0,
-            anchor: 0,
-            history: TextEditHistory::default(),
-            last_value: String::new(),
+        pub last_value: String, // Store last committed value here for history snapshots
+    }
+    
+    impl Default for TextEditState {
+        fn default() -> Self {
+            Self {
+                caret: 0,
+                anchor: 0,
+                history: TextEditHistory::default(),
+                last_value: String::new(),
+            }
         }
     }
-}
-
-#[derive(Clone, Debug)]
+    
+    #[derive(Clone, Debug)]
 pub struct TextEditHistory {
     pub stack: Vec<(String, usize, usize)>,
     pub index: usize,

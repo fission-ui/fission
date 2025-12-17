@@ -21,6 +21,7 @@ pub mod media; // New module
 pub mod registry;
 pub mod time;
 pub mod ui;
+
 pub mod view;
 
 use crate::env::ActiveAnimation;

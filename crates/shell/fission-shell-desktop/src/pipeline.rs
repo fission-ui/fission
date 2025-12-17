@@ -460,19 +460,15 @@ impl Pipeline {
                         node_id: Some(node_id),
                     });
                 }
-                fission_ir::Op::Paint(fission_ir::PaintOp::DrawText { text, size, color }) => {
+                fission_ir::Op::Paint(fission_ir::PaintOp::DrawText { text, size, color, underline }) => {
                     segment.push(DisplayOp::DrawText {
                         text: text.clone(),
                         position: geom.rect.origin,
                         size: *size,
-                        color: RenderColor {
-                            r: color.r,
-                            g: color.g,
-                            b: color.b,
-                            a: color.a,
-                        },
+                        color: fission_render::Color { r: color.r, g: color.g, b: color.b, a: color.a },
                         bounds: geom.rect,
                         node_id: Some(node_id),
+                        underline: *underline,
                     });
                 }
                 fission_ir::Op::Paint(fission_ir::PaintOp::DrawImage { source, fit }) => {

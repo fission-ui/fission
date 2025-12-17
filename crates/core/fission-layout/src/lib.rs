@@ -1,6 +1,7 @@
 use anyhow::Result;
 use fission_diagnostics::prelude as diag;
 use fission_ir::{FlexDirection as IrFlexDirection, NodeId, Op, PaintOp};
+use fission_ir::op::{TextRun, TextStyle};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -119,8 +120,7 @@ pub struct LayoutInputNode {
     pub height: Option<LayoutUnit>,
     pub flex_grow: LayoutUnit,
     pub flex_shrink: LayoutUnit,
-    pub text_content: Option<String>,
-    pub font_size: Option<f32>,
+    pub rich_text: Option<Vec<TextRun>>,
 }
 
 pub struct LineMetric {
@@ -140,6 +140,10 @@ pub trait TextMeasurer: Send + Sync {
         vec![]
     }
     fn get_caret_position(&self, _text: &str, _font_size: f32, _available_width: Option<f32>, _caret_index: usize) -> (f32, f32) {
+        (0.0, 0.0)
+    }
+
+    fn measure_rich_text(&self, _runs: &[TextRun], _available_width: Option<f32>) -> (f32, f32) {
         (0.0, 0.0)
     }
 }
@@ -174,7 +178,7 @@ impl LayoutEngine {
         self
     }
 
-    pub fn update(&mut self, input_nodes: &[LayoutInputNode], dirty_set: &HashSet<NodeId>) {
+        pub fn update(&mut self, input_nodes: &[LayoutInputNode], dirty_set: &HashSet<NodeId>) {
         let node_map: HashMap<NodeId, &LayoutInputNode> = input_nodes.iter().map(|n| (n.id, n)).collect();
 
         // 1. Cleanup removed nodes
@@ -230,19 +234,19 @@ impl LayoutEngine {
                 let t_id = *self.taffy_map.get(id).unwrap();
                 let style = self.compute_style(node);
                 self.taffy.set_style(t_id, style).unwrap();
-                if let (Some(text), Some(size), Some(measurer)) = (&node.text_content, node.font_size, &self.measurer) {
-                    let text = text.clone();
-                    let font_size = size;
-                    let measurer = measurer.clone();
+                if let Some(runs) = &node.rich_text {
+                    let runs: Vec<TextRun> = runs.clone();
+                    let measurer_ref = self.measurer.clone();
                     self.taffy.set_measure(
                         t_id,
                         Some(taffy::node::MeasureFunc::Boxed(Box::new(move |_known_dims, available_space| {
+                            let measurer = measurer_ref.as_ref().expect("Measurer not set for rich text");
                             let avail_width = match available_space.width {
                                 AvailableSpace::Definite(w) => Some(w),
                                 AvailableSpace::MaxContent => None,
                                 AvailableSpace::MinContent => Some(0.0),
                             };
-                            let (w, h) = measurer.measure(&text, font_size, avail_width);
+                            let (w, h) = measurer.measure_rich_text(&runs, avail_width);
                             taffy::geometry::Size { width: w, height: h }
                         }))),
                     ).unwrap();
@@ -314,19 +318,19 @@ impl LayoutEngine {
             self.taffy_map.insert(*id, t_id);
             let style = self.compute_style(n);
             self.taffy.set_style(t_id, style).unwrap();
-            if let (Some(text), Some(size), Some(measurer)) = (&n.text_content, n.font_size, &self.measurer) {
-                let text = text.clone();
-                let font_size = size;
-                let measurer = measurer.clone();
+            if let Some(runs) = &n.rich_text {
+                let runs: Vec<TextRun> = runs.clone();
+                let measurer_ref = self.measurer.clone();
                 self.taffy.set_measure(
                     t_id,
                     Some(taffy::node::MeasureFunc::Boxed(Box::new(move |_known_dims, available_space| {
+                        let measurer = measurer_ref.as_ref().expect("Measurer not set for rich text");
                         let avail_width = match available_space.width {
                             AvailableSpace::Definite(w) => Some(w),
                             AvailableSpace::MaxContent => None,
                             AvailableSpace::MinContent => Some(0.0),
                         };
-                        let (w, h) = measurer.measure(&text, font_size, avail_width);
+                        let (w, h) = measurer.measure_rich_text(&runs, avail_width);
                         taffy::geometry::Size { width: w, height: h }
                     }))),
                 ).unwrap();

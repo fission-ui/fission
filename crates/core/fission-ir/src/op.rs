@@ -144,6 +144,19 @@ pub enum ImageFit {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TextStyle {
+    pub font_size: LayoutUnit,
+    pub color: Color,
+    pub underline: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TextRun {
+    pub text: String,
+    pub style: TextStyle,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum PaintOp {
     DrawRect {
         fill: Option<Fill>,
@@ -155,6 +168,10 @@ pub enum PaintOp {
         text: String,
         size: LayoutUnit,
         color: Color,
+        underline: bool,
+    },
+    DrawRichText {
+        runs: Vec<TextRun>,
     },
     DrawImage {
         source: String,

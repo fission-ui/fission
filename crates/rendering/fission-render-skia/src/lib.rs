@@ -9,9 +9,7 @@ use skia_safe::{
     BlurStyle, Canvas, Color as SkColor, Data, Font, FontArguments, FontMetrics, FontMgr,
     MaskFilter, Paint, RRect, Rect, Typeface, Vector,
 };
-use skia_safe::textlayout::{
-    ParagraphBuilder, ParagraphStyle, TextStyle, FontCollection, TypefaceFontProvider
-};
+use skia_safe::textlayout::{ParagraphBuilder, ParagraphStyle, TextDecoration, TextStyle, FontCollection, TypefaceFontProvider};
 use once_cell::sync::OnceCell;
 use std::fs;
 
@@ -232,6 +230,7 @@ impl<'r> Renderer for SkiaRenderer<'r> {
                     size,
                     color,
                     bounds,
+                    underline,
                     ..
                 } => {
                     let sk_color = SkColor::from_argb(color.a, color.r, color.g, color.b);
@@ -244,7 +243,7 @@ impl<'r> Renderer for SkiaRenderer<'r> {
                     collection.set_asset_font_manager(Some(provider.into()));
 
                     let mut style = ParagraphStyle::new();
-                    let mut ts = TextStyle::new();
+                    let mut ts = skia_safe::textlayout::TextStyle::new();
                     ts.set_font_families(&["Default"]);
                     ts.set_font_size(*size);
                     ts.set_color(sk_color);
@@ -254,6 +253,36 @@ impl<'r> Renderer for SkiaRenderer<'r> {
                     builder.add_text(text);
                     
                     let mut paragraph = builder.build();
+                    let width = max_width.unwrap_or(10000.0); 
+                    paragraph.layout(width);
+
+                    paragraph.paint(self.canvas, (position.x, position.y));
+                }
+                DisplayOp::DrawRichText {
+                    runs,
+                    position,
+                    bounds,
+                    ..
+                } => {
+                    let mut collection = FontCollection::new();
+                    let mut provider = TypefaceFontProvider::new();
+                    provider.register_typeface(default_typeface().clone(), Some("Default"));
+                    collection.set_asset_font_manager(Some(provider.into()));
+
+                    let paragraph_style = ParagraphStyle::new();
+                    let mut paragraph_builder = ParagraphBuilder::new(&paragraph_style, collection);
+
+                    for run in runs {
+                        let mut text_style = skia_safe::textlayout::TextStyle::new();
+                        text_style.set_font_families(&["Default"]);
+                        text_style.set_font_size(run.style.font_size);
+                        text_style.set_color(SkColor::from_argb(run.style.color.a, run.style.color.r, run.style.color.g, run.style.color.b));
+                        paragraph_builder.push_style(&text_style);
+                        paragraph_builder.add_text(&run.text);
+                    }
+                    
+                    let mut paragraph = paragraph_builder.build();
+                    let max_width = if bounds.width() > 0.0 { Some(bounds.width()) } else { None };
                     let width = max_width.unwrap_or(10000.0); 
                     paragraph.layout(width);
 
