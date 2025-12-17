@@ -28,6 +28,8 @@ impl Lower for Video {
             Op::Layout(LayoutOp::Embed {
                 kind: EmbedKind::Video,
                 widget_id,
+                width: self.width,
+                height: self.height,
             }),
         )
         .build(cx);

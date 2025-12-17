@@ -488,12 +488,13 @@ impl Pipeline {
                 fission_ir::Op::Layout(fission_ir::LayoutOp::Embed {
                     kind: EmbedKind::Video,
                     widget_id,
+                    ..
                 }) => {
                     let translated_rect = translate_rect(geom.rect, accumulated_offset);
                     self.push_video_surface(*widget_id, translated_rect, video_map);
 
                     segment.push(DisplayOp::DrawRect {
-                        rect: translated_rect,
+                        rect: geom.rect,
                         fill: Some(Fill {
                             color: RenderColor {
                                 r: 0,
@@ -653,6 +654,7 @@ impl Pipeline {
             if let fission_ir::Op::Layout(fission_ir::LayoutOp::Embed {
                 kind: EmbedKind::Video,
                 widget_id,
+                ..
             }) = &node.op
             {
                 let translated_rect = translate_rect(geom.rect, accumulated_offset);

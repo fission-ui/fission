@@ -12,6 +12,7 @@ mod mac {
     use cocoa::base::{id, nil, YES};
     use cocoa::foundation::{NSString, NSURL};
     use core_graphics::geometry::{CGPoint, CGRect, CGSize};
+    use core_graphics::color::CGColor;
     use fission_ir::WidgetNodeId;
     use fission_render::LayoutRect;
     use fission_shell::VideoSurfaceFrame;
@@ -197,14 +198,18 @@ mod mac {
                 let layer: id =
                     msg_send![class!(AVPlayerLayer), playerLayerWithPlayer: player.as_id()];
                 let gravity = NSString::alloc(nil).init_str("AVLayerVideoGravityResizeAspect");
-                let () = msg_send![layer, setVideoGravity: gravity];
-                let () = msg_send![layer, setMasksToBounds: YES];
-                let () = msg_send![layer, setContentsScale: ctx.scale_factor];
-                let () = msg_send![ctx.root_layer, addSublayer: layer];
-                Self {
-                    layer: RetainedId::new(layer),
-                }
-            }
+                                                let () = msg_send![layer, setVideoGravity: gravity];
+                                                let () = msg_send![layer, setMasksToBounds: YES];
+                                                let () = msg_send![layer, setContentsScale: ctx.scale_factor];
+                                
+                                                // Debug: set background color to red
+                                                let red = CGColor::rgb(1.0, 0.0, 0.0, 1.0);
+                                                let () = msg_send![layer, setBackgroundColor: red];
+                                
+                                                let () = msg_send![ctx.root_layer, addSublayer: layer];
+                                                Self {
+                                                    layer: RetainedId::new(layer),
+                                                }            }
         }
 
         fn update(&mut self, player: &RetainedId, ctx: &LayerContext, rect: LayoutRect) {
@@ -213,7 +218,9 @@ mod mac {
                 let () = msg_send![layer_id, setContentsScale: ctx.scale_factor];
                 let () = msg_send![layer_id, setPlayer: player.as_id()];
                 let cg_rect = cg_rect_from_layout(rect, ctx);
+                println!("VideoLayer update: layout_rect={:?} bounds_h={} cg_rect={:?} layer={:?}", rect, ctx.bounds_height, cg_rect, layer_id);
                 let () = msg_send![layer_id, setFrame: cg_rect];
+                let () = msg_send![ctx.root_layer, addSublayer: layer_id];
                 let () = msg_send![ctx.root_layer, addSublayer: layer_id];
             }
         }
@@ -393,21 +400,16 @@ mod mac {
 
     unsafe fn seek_to_ms(player: id, position_ms: u64) {
         let time = CMTime::from_millis(position_ms);
-        let zeroA = CMTime::zero();
-        let zeroB = CMTime::zero();
-        let () = msg_send![player, seekToTime: time toleranceBefore: zeroA toleranceAfter: zeroB];
+        let zero_a = CMTime::zero();
+        let zero_b = CMTime::zero();
+        let () = msg_send![player, seekToTime: time toleranceBefore: zero_a toleranceAfter: zero_b];
     }
 
     fn cg_rect_from_layout(rect: LayoutRect, ctx: &LayerContext) -> CGRect {
-        let inv_scale = if ctx.scale_factor == 0.0 {
-            1.0
-        } else {
-            1.0 / ctx.scale_factor
-        };
-        let width = rect.size.width as f64 * inv_scale;
-        let height = rect.size.height as f64 * inv_scale;
-        let x = rect.origin.x as f64 * inv_scale;
-        let y = rect.origin.y as f64 * inv_scale;
+        let width = rect.size.width as f64;
+        let height = rect.size.height as f64;
+        let x = rect.origin.x as f64;
+        let y = rect.origin.y as f64;
         let flipped_y = ctx.bounds_height - height - y;
         CGRect::new(&CGPoint::new(x, flipped_y), &CGSize::new(width, height))
     }

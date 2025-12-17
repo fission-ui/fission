@@ -386,8 +386,10 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
 
                                     let mut buffer = surface.buffer_mut().unwrap();
                                     let stride = width.get() * 4;
-                                    let layout_width = size.width as f32;
-                                    let layout_height = size.height as f32;
+
+                                    let scale_factor = window.scale_factor();
+                                    let layout_width = (size.width as f64 / scale_factor) as f32;
+                                    let layout_height = (size.height as f64 / scale_factor) as f32;
 
                                     let node_tree = {
                                         let state = runtime.get_app_state::<S>().unwrap();
@@ -457,6 +459,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                         None,
                                     ) {
                                         let canvas = sk_surface.canvas();
+                                        canvas.scale((scale_factor as f32, scale_factor as f32));
                                         let mut renderer: Box<dyn Renderer> =
                                             Box::new(SkiaRenderer::new(canvas));
 
@@ -529,20 +532,24 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                             }
                             WindowEvent::CursorMoved { position, .. } => {
                                 last_cursor_position = Some(position);
+                                let scale_factor = window.scale_factor();
+                                let logical_x = (position.x / scale_factor) as f32;
+                                let logical_y = (position.y / scale_factor) as f32;
+
                                 diag::emit(
                                     diag::DiagCategory::Input,
                                     diag::DiagLevel::Trace,
                                     diag::DiagEventKind::InputEvent {
                                         kind: "pointer_move".into(),
                                         target: None,
-                                        position: Some((position.x as f32, position.y as f32)),
+                                        position: Some((logical_x, logical_y)),
                                     },
                                 );
                                 if let (Some(snapshot), Some(ir)) =
                                     (&pipeline.last_snapshot, &pipeline.prev_ir)
                                 {
                                     let point =
-                                        LayoutPoint::new(position.x as f32, position.y as f32);
+                                        LayoutPoint::new(logical_x, logical_y);
                                     let event = InputEvent::Pointer(PointerEvent::Move { point });
                                     if let Ok(_) = runtime.handle_input(event, ir, snapshot) {
                                         window.request_redraw();
@@ -556,6 +563,9 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                         &pipeline.prev_ir,
                                         &pipeline.last_snapshot,
                                     ) {
+                                        let scale_factor = window.scale_factor();
+                                        let logical_x = (position.x / scale_factor) as f32;
+                                        let logical_y = (position.y / scale_factor) as f32;
                                         let kind = match state { ElementState::Pressed => "pointer_down", ElementState::Released => "pointer_up" };
                                         diag::emit(
                                             diag::DiagCategory::Input,
@@ -563,11 +573,12 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                             diag::DiagEventKind::InputEvent {
                                                 kind: kind.into(),
                                                 target: None,
-                                                position: Some((position.x as f32, position.y as f32)),
+                                                position: Some((logical_x, logical_y)),
                                             },
                                         );
+                                        let point = LayoutPoint::new(logical_x, logical_y);
                                         if let Some(input_event) =
-                                            build_pointer_event(state, pointer_button, *position)
+                                            build_pointer_event(state, pointer_button, point)
                                         {
                                             if let Ok(_) =
                                                 runtime.handle_input(input_event, ir, snapshot)
@@ -579,22 +590,25 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                 }
                             }
                             WindowEvent::MouseWheel { delta, .. } => {
+                                let scale_factor = window.scale_factor();
                                 let delta_point = match delta {
                                     MouseScrollDelta::LineDelta(x, y) => {
                                         LayoutPoint::new(-x * 20.0, -y * 20.0)
                                     }
                                     MouseScrollDelta::PixelDelta(pos) => {
-                                        LayoutPoint::new(-pos.x as f32, -pos.y as f32)
+                                        LayoutPoint::new((-pos.x / scale_factor) as f32, (-pos.y / scale_factor) as f32)
                                     }
                                 };
                                 if let Some(cursor_pos) = last_cursor_position {
+                                    let logical_x = (cursor_pos.x / scale_factor) as f32;
+                                    let logical_y = (cursor_pos.y / scale_factor) as f32;
                                     diag::emit(
                                         diag::DiagCategory::Input,
                                         diag::DiagLevel::Debug,
                                         diag::DiagEventKind::InputEvent {
                                             kind: "pointer_scroll".into(),
                                             target: None,
-                                            position: Some((cursor_pos.x as f32, cursor_pos.y as f32)),
+                                            position: Some((logical_x, logical_y)),
                                         },
                                     );
                                 }
@@ -604,8 +618,10 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                     &pipeline.prev_ir,
                                     &pipeline.last_snapshot,
                                 ) {
+                                    let logical_x = (cursor_pos.x / scale_factor) as f32;
+                                    let logical_y = (cursor_pos.y / scale_factor) as f32;
                                     let point =
-                                        LayoutPoint::new(cursor_pos.x as f32, cursor_pos.y as f32);
+                                        LayoutPoint::new(logical_x, logical_y);
                                     let event = InputEvent::Pointer(PointerEvent::Scroll {
                                         point,
                                         delta: delta_point,
@@ -807,10 +823,8 @@ fn map_mouse_button(button: MouseButton) -> Option<PointerButton> {
 fn build_pointer_event(
     state: ElementState,
     button: PointerButton,
-    position: PhysicalPosition<f64>,
+    point: LayoutPoint,
 ) -> Option<InputEvent> {
-    let point = LayoutPoint::new(position.x as f32, position.y as f32);
-
     let pointer_event = match state {
         ElementState::Pressed => PointerEvent::Down { point, button },
         ElementState::Released => PointerEvent::Up { point, button },

@@ -69,6 +69,8 @@ pub enum LayoutOp {
     Embed {
         kind: EmbedKind,
         widget_id: WidgetNodeId,
+        width: Option<LayoutUnit>,
+        height: Option<LayoutUnit>,
     },
     AbsoluteFill,
     Grid,

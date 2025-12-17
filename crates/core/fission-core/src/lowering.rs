@@ -180,14 +180,16 @@ pub fn build_layout_tree(ir: &CoreIR) -> Vec<LayoutInputNode> {
                 0.0,
                 0.0,
             ),
-            Op::Layout(LayoutOp::Embed { kind, widget_id }) => (
+            Op::Layout(LayoutOp::Embed { kind, widget_id, width, height }) => (
                 LayoutOp::Embed {
                     kind: *kind,
                     widget_id: *widget_id,
+                    width: *width,
+                    height: *height,
                 },
-                None,
-                None,
-                0.0,
+                *width,
+                *height,
+                1.0,
                 0.0,
             ),
 
