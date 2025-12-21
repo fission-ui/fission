@@ -135,10 +135,10 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
         let mut players: HashMap<WidgetNodeId, Box<dyn VideoPlayer>> = HashMap::new();
 
         let mut last_cursor_position: Option<PhysicalPosition<f64>> = None;
-        let mut last_frame_time = Instant::now();
-        let blink_enabled = std::env::var("FISSION_TEXTINPUT_BLINK").ok().as_deref() == Some("1");
-        let mut last_blink_toggle = Instant::now();
-        let blink_period = Duration::from_millis(500);
+        let mut _last_frame_time = Instant::now();
+        let _blink_enabled = std::env::var("FISSION_TEXTINPUT_BLINK").ok().as_deref() == Some("1");
+        let mut _last_blink_toggle = Instant::now();
+        let _blink_period = Duration::from_millis(500);
 
         let mut current_mods: u8 = 0;
 
@@ -148,7 +148,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
 
                 match event {
                     Event::AboutToWait => {
-                        window.request_redraw();
+                        // Removed request_redraw to fix 108% CPU
                     }
                     Event::WindowEvent { window_id, event } if window_id == window.id() => {
                         match event {
@@ -205,14 +205,28 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                                 antialiasing_method: vello::AaConfig::Area,
                                             };
                                             
-                                            let surface_view = surface_texture.texture.create_view(&wgpu::TextureViewDescriptor::default());
                                             vello_renderer.render_to_texture(
                                                 &device_handle.device,
                                                 &device_handle.queue,
                                                 &scene,
-                                                &surface_view,
+                                                &surface.target_view,
                                                 &render_params,
                                             ).expect("failed to render");
+                                            
+                                            let surface_view = surface_texture.texture.create_view(&wgpu::TextureViewDescriptor::default());
+                                            
+                                            let mut encoder = device_handle.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                                                label: Some("Surface Blit"),
+                                            });
+                                            
+                                            surface.blitter.copy(
+                                                &device_handle.device,
+                                                &mut encoder,
+                                                &surface.target_view,
+                                                &surface_view,
+                                            );
+                                            
+                                            device_handle.queue.submit(Some(encoder.finish()));
                                             
                                             surface_texture.present();
                                             
@@ -226,6 +240,43 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                             }
                             WindowEvent::CloseRequested => {
                                 elwt.exit();
+                            }
+                            // Input Handling
+                            WindowEvent::CursorMoved { position, .. } => {
+                                if let (Some(ir), Some(layout)) = (&pipeline.prev_ir, &pipeline.last_snapshot) {
+                                    last_cursor_position = Some(position);
+                                    let scale_factor = window.scale_factor();
+                                    let point = LayoutPoint {
+                                        x: (position.x / scale_factor) as f32,
+                                        y: (position.y / scale_factor) as f32,
+                                    };
+                                    let event = InputEvent::Pointer(PointerEvent::Move { point });
+                                    if let Err(e) = runtime.handle_input(event, ir, layout) {
+                                        eprintln!("Input handling error: {:?}", e);
+                                    }
+                                    // Always request redraw on interaction for now to ensure UI updates
+                                    // Optimally check return value or dirty state
+                                    window.request_redraw();
+                                }
+                            }
+                            WindowEvent::MouseInput { state, button, .. } => {
+                                if let (Some(ir), Some(layout)) = (&pipeline.prev_ir, &pipeline.last_snapshot) {
+                                    if let Some(position) = last_cursor_position {
+                                        let scale_factor = window.scale_factor();
+                                        let point = LayoutPoint {
+                                            x: (position.x / scale_factor) as f32,
+                                            y: (position.y / scale_factor) as f32,
+                                        };
+                                        if let Some(btn) = map_mouse_button(button) {
+                                            if let Some(event) = build_pointer_event(state, btn, point) {
+                                                if let Err(e) = runtime.handle_input(event, ir, layout) {
+                                                    eprintln!("Input handling error: {:?}", e);
+                                                }
+                                                window.request_redraw();
+                                            }
+                                        }
+                                    }
+                                }
                             }
                             _ => {}
                         }

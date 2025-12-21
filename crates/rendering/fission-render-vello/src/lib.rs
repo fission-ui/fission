@@ -159,7 +159,7 @@ impl<'a> Renderer for VelloRenderer<'a> {
                                 
                                 self.scene.draw_glyphs(font)
                                     .font_size(font_size)
-                                    .transform(self.current_transform)
+                                    .transform(self.current_transform * Affine::translate((bounds.origin.x as f64, bounds.origin.y as f64)))
                                     .brush(color)
                                     .draw(Fill::NonZero, glyphs);
                             }
