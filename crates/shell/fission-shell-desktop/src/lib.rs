@@ -162,7 +162,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                         let surfaces = pipeline.take_video_surfaces();
                         let mut active_nodes = std::collections::HashSet::new();
                         
-                        for surface in surfaces {
+                        for surface in &surfaces {
                             active_nodes.insert(surface.widget_id);
                             
                             // Create player if missing
@@ -175,12 +175,13 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                     }
                                 }
                             }
-                            
-                            // Update player logic would go here
                         }
                         
                         // Cleanup inactive players
                         players.retain(|id, _| active_nodes.contains(id));
+                        
+                        // Update backend
+                        video_backend.present_surfaces(&surfaces);
                         
                         // Check if we need a redraw (Animation or Video playing)
                         let needs_redraw = !runtime.runtime_state.animation.active.is_empty() || !players.is_empty();
