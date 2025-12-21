@@ -106,7 +106,8 @@ impl<'a> Renderer for VelloRenderer<'a> {
                     layout.break_all_lines(if bounds.width() > 0.0 { Some(bounds.width()) } else { None }, Alignment::Start);
                     
                     // Render glyphs (placeholder)
-                    // TODO: Iterate layout.lines() -> items() -> glyphs() -> scene.fill()
+                    // TODO: Iterate layout lines and items to render glyphs using scene.draw_glyphs()
+                    // Requires matching parley::GlyphRun with vello::Glyph types.
                 }
                 _ => {}
             }
