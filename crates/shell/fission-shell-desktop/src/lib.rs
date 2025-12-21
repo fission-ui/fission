@@ -105,7 +105,11 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
         // Vello Context
         let mut render_cx = RenderContext::new();
         let mut surface = block_on(render_cx.create_surface(window.clone(), window.inner_size().width, window.inner_size().height, wgpu::PresentMode::AutoVsync)).unwrap();
+        
+        // Enable Alpha for video hole punching
         let device_handle = &render_cx.devices[surface.dev_id];
+        surface.config.alpha_mode = wgpu::CompositeAlphaMode::PreMultiplied;
+        surface.surface.configure(&device_handle.device, &surface.config);
         
         let mut vello_renderer = VelloSceneRenderer::new(
             &device_handle.device,
@@ -198,6 +202,10 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                 if size.width > 0 && size.height > 0 {
                                     if size.width != surface.config.width || size.height != surface.config.height {
                                         render_cx.resize_surface(&mut surface, size.width, size.height);
+                                        // Re-apply alpha mode after resize
+                                        let device_handle = &render_cx.devices[surface.dev_id];
+                                        surface.config.alpha_mode = wgpu::CompositeAlphaMode::PreMultiplied;
+                                        surface.surface.configure(&device_handle.device, &surface.config);
                                     }
 
                                     let scale_factor = window.scale_factor();
@@ -249,7 +257,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                             let device_handle = &render_cx.devices[surface.dev_id];
                                             
                                             let render_params = vello::RenderParams {
-                                                base_color: vello::peniko::Color::WHITE,
+                                                base_color: vello::peniko::Color::TRANSPARENT,
                                                 width: size.width,
                                                 height: size.height,
                                                 antialiasing_method: vello::AaConfig::Area,
