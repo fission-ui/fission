@@ -1,7 +1,7 @@
 use anyhow::Result;
 use std::collections::HashMap;
 use std::num::NonZeroU32;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use winit::{
     dpi::PhysicalPosition,
@@ -23,6 +23,7 @@ use fission_render::{
     Color as RenderColor, DisplayList, LayoutPoint, LayoutRect, LayoutUnit, Renderer,
 };
 use fission_render_vello::{VelloRenderer, VelloTextMeasurer};
+use fission_render_vello::parley::FontContext;
 use fission_shell::{Platform, VideoBackend, VideoEvent, VideoPlayer};
 use fission_diagnostics::prelude as diag;
 
@@ -51,6 +52,7 @@ pub struct DesktopApp<S: AppState, W: Widget<S>> {
     root_widget: W,
     env: Env,
     pipeline: Pipeline,
+    font_cx: Arc<Mutex<FontContext>>,
     _phantom: std::marker::PhantomData<S>,
 }
 
@@ -61,7 +63,8 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
 
         let env = Env::default();
 
-        let measurer = Arc::new(VelloTextMeasurer);
+        let font_cx = Arc::new(Mutex::new(FontContext::default()));
+        let measurer = Arc::new(VelloTextMeasurer::new(font_cx.clone()));
         let clipboard: Arc<dyn fission_core::env::Clipboard> = Arc::new(DesktopClipboard::new());
 
         let layout_engine = LayoutEngine::new().with_measurer(measurer.clone());
@@ -75,6 +78,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
             root_widget,
             env,
             pipeline: Pipeline::new(),
+            font_cx,
             _phantom: std::marker::PhantomData,
         }
     }
@@ -122,6 +126,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
         let root_widget = self.root_widget;
         let env = self.env;
         let mut pipeline = self.pipeline;
+        let font_cx = self.font_cx;
 
         #[cfg(target_os = "macos")]
         let video_backend: Arc<dyn VideoBackend> = Arc::new(MacVideoBackend::new(&window));
@@ -143,11 +148,6 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
 
                 match event {
                     Event::AboutToWait => {
-                        // ... Logic mostly same as before ...
-                        // Need to copy-paste the logic for animation/video tick
-                        // Skipping detailed video update logic for brevity in this replacement, 
-                        // focusing on render loop.
-                        // Assuming simple redraw for now.
                         window.request_redraw();
                     }
                     Event::WindowEvent { window_id, event } if window_id == window.id() => {
@@ -165,7 +165,6 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                     let layout_height = (size.height as f64 / scale_factor) as f32;
 
                                     let node_tree = {
-                                        // ... Build Logic ...
                                         let state = runtime.get_app_state::<S>().unwrap();
                                         let view = View::new(state, &runtime.runtime_state, &env);
                                         let mut ctx = BuildCtx::new();
@@ -185,7 +184,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                     // Vello Rendering
                                     scene.reset();
                                     
-                                    let mut renderer_wrapper = VelloRenderer::new(&mut scene);
+                                    let mut renderer_wrapper = VelloRenderer::new(&mut scene, font_cx.clone());
                                     
                                     match pipeline.render(
                                         cx_ir,

@@ -1,25 +1,31 @@
 pub mod text;
 pub use text::VelloTextMeasurer;
+pub use parley;
 
 use anyhow::Result;
 use fission_render::{DisplayList, DisplayOp, Renderer};
 use vello::kurbo::{Affine, Rect, RoundedRect, Stroke};
 use vello::peniko::{Color, Fill, Mix};
 use vello::Scene;
+use std::sync::{Arc, Mutex};
+use parley::{FontContext, LayoutContext};
+use parley::layout::Alignment;
+use crate::text::ParleyBrush;
 
 pub struct VelloRenderer<'a> {
     scene: &'a mut Scene,
+    font_cx: Arc<Mutex<FontContext>>,
     transform_stack: Vec<Affine>,
     current_transform: Affine,
-    // Tracks how many Vello layers were pushed in the current Save/Restore scope
     layer_count_stack: Vec<usize>,
     current_layer_count: usize,
 }
 
 impl<'a> VelloRenderer<'a> {
-    pub fn new(scene: &'a mut Scene) -> Self {
+    pub fn new(scene: &'a mut Scene, font_cx: Arc<Mutex<FontContext>>) -> Self {
         Self {
             scene,
+            font_cx,
             transform_stack: Vec::new(),
             current_transform: Affine::IDENTITY,
             layer_count_stack: Vec::new(),
@@ -38,12 +44,9 @@ impl<'a> Renderer for VelloRenderer<'a> {
                     self.current_layer_count = 0;
                 }
                 DisplayOp::Restore => {
-                    // Pop all layers pushed in this scope
                     for _ in 0..self.current_layer_count {
                         self.scene.pop_layer();
                     }
-                    
-                    // Restore state
                     if let Some(t) = self.transform_stack.pop() {
                         self.current_transform = t;
                     }
@@ -62,10 +65,6 @@ impl<'a> Renderer for VelloRenderer<'a> {
                         (rect.origin.x + rect.size.width) as f64,
                         (rect.origin.y + rect.size.height) as f64,
                     );
-                    // Push a clip layer. Use current transform? 
-                    // Clip applies to subsequent draws.
-                    // Vello push_layer transform applies to the clip shape AND content?
-                    // Usually clip shape is transformed by `transform`.
                     self.scene.push_layer(Mix::Normal, 1.0, self.current_transform, &r);
                     self.current_layer_count += 1;
                 }
@@ -94,7 +93,21 @@ impl<'a> Renderer for VelloRenderer<'a> {
                         self.scene.stroke(&Stroke::new(s.width as f64), self.current_transform, c, None, &shape);
                     }
                 }
-                // TODO: DrawText, DrawImage
+                DisplayOp::DrawText { text, size, color, bounds, .. } => {
+                    let mut font_cx = self.font_cx.lock().unwrap();
+                    let mut layout_cx = LayoutContext::new(); 
+                    
+                    let mut builder = layout_cx.ranged_builder(&mut font_cx, text, 1.0);
+                    builder.push_default(&parley::style::StyleProperty::FontSize(*size));
+                    let brush = ParleyBrush([color.r, color.g, color.b, color.a]);
+                    builder.push_default(&parley::style::StyleProperty::Brush(brush));
+                    
+                    let mut layout = builder.build();
+                    layout.break_all_lines(if bounds.width() > 0.0 { Some(bounds.width()) } else { None }, Alignment::Start);
+                    
+                    // Render glyphs (placeholder)
+                    // TODO: Iterate layout.lines() -> items() -> glyphs() -> scene.fill()
+                }
                 _ => {}
             }
         }
