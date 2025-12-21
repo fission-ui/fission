@@ -204,12 +204,22 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                     let layout_width = (size.width as f64 / scale_factor) as f32;
                                     let layout_height = (size.height as f64 / scale_factor) as f32;
 
-                                    let node_tree = {
+                                    let (node_tree, registry, anims, videos) = {
                                         let state = runtime.get_app_state::<S>().unwrap();
                                         let view = View::new(state, &runtime.runtime_state, &env);
                                         let mut ctx = BuildCtx::new();
-                                        root_widget.build(&mut ctx, &view)
+                                        let node = root_widget.build(&mut ctx, &view);
+                                        let anims = ctx.take_animation_requests();
+                                        let videos = ctx.take_video_registrations();
+                                        (node, ctx.registry, anims, videos)
                                     };
+
+                                    runtime.clear_reducers();
+                                    runtime.absorb_registry(registry);
+                                    for (target, req) in anims {
+                                        runtime.enqueue_animation(target, req);
+                                    }
+                                    runtime.sync_video_nodes(&videos);
 
                                     let mut lower_cx = LoweringContext::new(&env, &runtime.runtime_state, runtime.measurer.as_ref());
                                     let root_id = node_tree.lower(&mut lower_cx);
