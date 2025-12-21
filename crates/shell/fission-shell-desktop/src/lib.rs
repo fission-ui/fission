@@ -135,7 +135,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
         let mut players: HashMap<WidgetNodeId, Box<dyn VideoPlayer>> = HashMap::new();
 
         let mut last_cursor_position: Option<PhysicalPosition<f64>> = None;
-        let mut _last_frame_time = Instant::now();
+        let mut last_frame_time = Instant::now();
         let _blink_enabled = std::env::var("FISSION_TEXTINPUT_BLINK").ok().as_deref() == Some("1");
         let mut _last_blink_toggle = Instant::now();
         let _blink_period = Duration::from_millis(500);
@@ -148,7 +148,62 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
 
                 match event {
                     Event::AboutToWait => {
-                        // Removed request_redraw to fix 108% CPU
+                        let now = Instant::now();
+                        let dt = now.duration_since(last_frame_time);
+                        last_frame_time = now;
+
+                        // Tick Runtime (Animations)
+                        let dt_secs = dt.as_secs_f64();
+                        if let Err(e) = runtime.tick(dt_secs) {
+                            eprintln!("Runtime tick error: {:?}", e);
+                        }
+
+                        // Video Logic
+                        // Sync players with pipeline video surfaces (from previous frame)
+                        // Note: pipeline.video_surfaces is populated during render.
+                        // We need to access it here. But pipeline is moved into run?
+                        // Pipeline is local.
+                        
+                        let surfaces = pipeline.take_video_surfaces();
+                        let mut active_nodes = std::collections::HashSet::new();
+                        
+                        for surface in surfaces {
+                            active_nodes.insert(surface.widget_id);
+                            
+                            // Create player if missing
+                            if !players.contains_key(&surface.widget_id) {
+                                if let Some(state) = runtime.runtime_state.video.states.get(&surface.widget_id) {
+                                    if let Some(source) = &state.asset_source {
+                                        match video_backend.create_player(source) {
+                                            Ok(player) => {
+                                                players.insert(surface.widget_id, player);
+                                            }
+                                            Err(e) => eprintln!("Failed to create video player: {:?}", e),
+                                        }
+                                    }
+                                }
+                            }
+                            
+                            // Update player rect/surface
+                            if let Some(player) = players.get_mut(&surface.widget_id) {
+                                // For WGPU/Vello, we might need to pass the surface ID or texture?
+                                // fission-shell VideoPlayer trait has `set_rect`?
+                                // MacVideoBackend uses `CALayer`.
+                                // We need to attach the player layer to the window/surface?
+                                // This part is complex in Vello.
+                                // For now, let's just drive the event loop.
+                            }
+                        }
+                        
+                        // Cleanup inactive players
+                        players.retain(|id, _| active_nodes.contains(id));
+                        
+                        // Check if we need a redraw (Animation or Video playing)
+                        let needs_redraw = !runtime.runtime_state.animation.active.is_empty() || !players.is_empty();
+                        
+                        if needs_redraw {
+                            window.request_redraw();
+                        }
                     }
                     Event::WindowEvent { window_id, event } if window_id == window.id() => {
                         match event {
