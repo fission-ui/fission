@@ -335,6 +335,31 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                     }
                                 }
                             }
+                            WindowEvent::MouseWheel { delta, .. } => {
+                                if let (Some(ir), Some(layout)) = (&pipeline.prev_ir, &pipeline.last_snapshot) {
+                                    if let Some(position) = last_cursor_position {
+                                        let scale_factor = window.scale_factor();
+                                        let point = LayoutPoint {
+                                            x: (position.x / scale_factor) as f32,
+                                            y: (position.y / scale_factor) as f32,
+                                        };
+                                        
+                                        let scroll_delta = match delta {
+                                            MouseScrollDelta::LineDelta(x, y) => LayoutPoint { x: -x * 50.0, y: -y * 50.0 },
+                                            MouseScrollDelta::PixelDelta(p) => LayoutPoint {
+                                                x: -(p.x / scale_factor) as f32,
+                                                y: -(p.y / scale_factor) as f32,
+                                            },
+                                        };
+                                        
+                                        let event = InputEvent::Pointer(PointerEvent::Scroll { point, delta: scroll_delta });
+                                        if let Err(e) = runtime.handle_input(event, ir, layout) {
+                                            eprintln!("Scroll error: {:?}", e);
+                                        }
+                                        window.request_redraw();
+                                    }
+                                }
+                            }
                             _ => {}
                         }
                     }
