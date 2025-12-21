@@ -23,12 +23,12 @@ pub struct VelloRenderer<'a> {
 }
 
 impl<'a> VelloRenderer<'a> {
-    pub fn new(scene: &'a mut Scene, font_cx: Arc<Mutex<FontContext>>) -> Self {
+    pub fn new(scene: &'a mut Scene, font_cx: Arc<Mutex<FontContext>>, scale_factor: f64) -> Self {
         Self {
             scene,
             font_cx,
             transform_stack: Vec::new(),
-            current_transform: Affine::IDENTITY,
+            current_transform: Affine::scale(scale_factor),
             layer_count_stack: Vec::new(),
             current_layer_count: 0,
         }

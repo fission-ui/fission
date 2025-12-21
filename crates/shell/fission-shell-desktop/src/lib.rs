@@ -184,7 +184,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                     // Vello Rendering
                                     scene.reset();
                                     
-                                    let mut renderer_wrapper = VelloRenderer::new(&mut scene, font_cx.clone());
+                                    let mut renderer_wrapper = VelloRenderer::new(&mut scene, font_cx.clone(), scale_factor);
                                     
                                     match pipeline.render(
                                         cx_ir,
@@ -269,13 +269,20 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                         };
                                         if let Some(btn) = map_mouse_button(button) {
                                             if let Some(event) = build_pointer_event(state, btn, point) {
+                                                println!("Dispatching input: {:?} at {:?}", event, point);
                                                 if let Err(e) = runtime.handle_input(event, ir, layout) {
                                                     eprintln!("Input handling error: {:?}", e);
+                                                } else {
+                                                    println!("Input dispatched successfully");
                                                 }
                                                 window.request_redraw();
                                             }
                                         }
+                                    } else {
+                                        println!("MouseInput but no last_cursor_position");
                                     }
+                                } else {
+                                    println!("MouseInput but no pipeline state");
                                 }
                             }
                             _ => {}
