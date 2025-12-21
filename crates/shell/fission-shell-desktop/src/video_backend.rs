@@ -205,6 +205,7 @@ mod mac {
                                                 // Debug: set background color to red
                                                 let red = CGColor::rgb(1.0, 0.0, 0.0, 1.0);
                                                 let () = msg_send![layer, setBackgroundColor: red];
+                                                let () = msg_send![layer, setZPosition: 1.0f64];
                                 
                                                 let () = msg_send![ctx.root_layer, addSublayer: layer];
                                                 Self {
@@ -220,7 +221,6 @@ mod mac {
                 let cg_rect = cg_rect_from_layout(rect, ctx);
                 println!("VideoLayer update: layout_rect={:?} bounds_h={} cg_rect={:?} layer={:?}", rect, ctx.bounds_height, cg_rect, layer_id);
                 let () = msg_send![layer_id, setFrame: cg_rect];
-                let () = msg_send![ctx.root_layer, addSublayer: layer_id];
                 let () = msg_send![ctx.root_layer, addSublayer: layer_id];
             }
         }
