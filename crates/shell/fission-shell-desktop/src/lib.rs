@@ -95,7 +95,6 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
         let window = Arc::new(
             WindowBuilder::new()
                 .with_title("Fission Vello App")
-                .with_transparent(true)
                 .build(&event_loop)
                 .map_err(|e| anyhow::anyhow!("Window build error: {}", e))?,
         );
@@ -349,7 +348,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                             let device_handle = &render_cx.devices[surface.dev_id];
                                             
                                             let render_params = vello::RenderParams {
-                                                base_color: vello::peniko::Color::TRANSPARENT,
+                                                base_color: vello::peniko::Color::WHITE,
                                                 width: size.width,
                                                 height: size.height,
                                                 antialiasing_method: vello::AaConfig::Area,

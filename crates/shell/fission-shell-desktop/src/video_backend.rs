@@ -169,6 +169,24 @@ mod mac {
                     false
                 }
             });
+
+            println!("--- Layer Hierarchy Debug ---");
+            unsafe {
+                use std::ffi::CStr;
+                let root_layer = ctx.root_layer;
+                let sublayers: id = msg_send![root_layer, sublayers];
+                let count: usize = msg_send![sublayers, count];
+                println!("Root layer {:?} has {} sublayers", root_layer, count);
+                for i in 0..count {
+                    let sublayer: id = msg_send![sublayers, objectAtIndex: i];
+                    let z_position: f64 = msg_send![sublayer, zPosition];
+                    let class_name_id: id = msg_send![sublayer, className];
+                    let class_cstr: *const std::os::raw::c_char = msg_send![class_name_id, UTF8String];
+                    let class_str_ref = CStr::from_ptr(class_cstr).to_string_lossy();
+                    println!("  Sublayer {}: {:?} (Class: {:?}, zPosition: {})", i, sublayer, class_str_ref, z_position);
+                }
+            }
+            println!("--- End Layer Hierarchy Debug ---");
         }
     }
 
