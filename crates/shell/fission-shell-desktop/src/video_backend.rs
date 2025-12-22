@@ -171,44 +171,7 @@ mod mac {
                 }
             });
 
-            println!("--- Layer Hierarchy Debug ---");
-            unsafe {
-                use std::ffi::CStr;
-                let root_layer = ctx.root_layer;
-                let sublayers: id = msg_send![root_layer, sublayers];
-                let count: usize = msg_send![sublayers, count];
-            diag::emit(
-                diag::DiagCategory::Media,
-                diag::DiagLevel::Info,
-                diag::DiagEventKind::MediaEvent {
-                    kind: format!("Layer Hierarchy: Root {:?} has {} sublayers", root_layer, count),
-                    id: None,
-                    duration_ms: None,
-                    position_ms: None
-                }
-            );
-            println!("Root layer {:?} has {} sublayers", root_layer, count);
-            for i in 0..count {
-                let sublayer: id = msg_send![sublayers, objectAtIndex: i];
-                let z_position: f64 = msg_send![sublayer, zPosition];
-                let class_name_id: id = msg_send![sublayer, className];
-                let class_cstr: *const std::os::raw::c_char = msg_send![class_name_id, UTF8String];
-                let class_str_ref = CStr::from_ptr(class_cstr).to_string_lossy();
-                diag::emit(
-                    diag::DiagCategory::Media,
-                    diag::DiagLevel::Info,
-                    diag::DiagEventKind::MediaEvent {
-                        kind: format!("  Sublayer {}: {:?} (Class: {:?}, zPosition: {})", i, sublayer, class_str_ref, z_position),
-                        id: None,
-                        duration_ms: None,
-                        position_ms: None
                     }
-                );
-                println!("  Sublayer {}: {:?} (Class: {:?}, zPosition: {})", i, sublayer, class_str_ref, z_position);
-            }
-            }
-            println!("--- End Layer Hierarchy Debug ---");
-        }
     }
 
     impl Drop for MacVideoBackend {
@@ -241,9 +204,8 @@ mod mac {
                                                 let () = msg_send![layer, setMasksToBounds: YES];
                                                 let () = msg_send![layer, setContentsScale: ctx.scale_factor];
                                 
-                                                // Debug: set background color to red
-                                                let red = CGColor::rgb(1.0, 0.0, 0.0, 1.0);
-                                                let () = msg_send![layer, setBackgroundColor: red];
+                                                // let red = CGColor::rgb(1.0, 0.0, 0.0, 1.0);
+                                                // let () = msg_send![layer, setBackgroundColor: red];
                                                 let () = msg_send![layer, setZPosition: 1.0f64];
                                 
                                                 let () = msg_send![ctx.root_layer, addSublayer: layer];
@@ -258,7 +220,6 @@ mod mac {
                 let () = msg_send![layer_id, setContentsScale: ctx.scale_factor];
                 let () = msg_send![layer_id, setPlayer: player.as_id()];
                 let cg_rect = cg_rect_from_layout(rect, ctx);
-                println!("VideoLayer update: layout_rect={:?} bounds_h={} cg_rect={:?} layer={:?}", rect, ctx.bounds_height, cg_rect, layer_id);
                 let () = msg_send![layer_id, setFrame: cg_rect];
                 let () = msg_send![ctx.root_layer, addSublayer: layer_id];
             }
@@ -417,9 +378,8 @@ mod mac {
         } else {
             std::env::current_dir().unwrap().join(path)
         };
-        println!("Loading video from: {:?}", full_path);
         if !full_path.exists() {
-            println!("ERROR: Video file does not exist at {:?}", full_path);
+            // TODO: emit diagnostic
         }
         unsafe {
             let ns_string = NSString::alloc(nil).init_str(full_path.to_string_lossy().as_ref());
