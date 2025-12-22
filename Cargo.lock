@@ -1243,6 +1243,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "inbox"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "fission",
+ "fission-core",
+ "fission-macros",
+ "fission-render",
+ "fission-shell-desktop",
+ "fission-widgets",
+ "lazy_static",
+ "serde",
+]
+
+[[package]]
 name = "indexmap"
 version = "2.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
