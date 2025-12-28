@@ -15,6 +15,7 @@ pub mod switch;
 pub mod radio;
 pub mod positioned;
 pub mod spacer;
+pub mod slider;
 
 pub use button::Button;
 pub use column::Column;
@@ -33,3 +34,4 @@ pub use switch::Switch;
 pub use radio::Radio;
 pub use positioned::Positioned;
 pub use spacer::Spacer;
+pub use slider::Slider;

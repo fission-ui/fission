@@ -1,7 +1,7 @@
 use super::traits::{Lower, LowerDyn};
 use super::widgets::{
-    Button, Checkbox, Column, Container, Grid, GridItem, Image, Overlay, Positioned, Radio, Row, Scroll, Spacer, Switch,
-    Text, TextInput, Video, ZStack,
+    Button, Checkbox, Column, Container, Grid, GridItem, Image, Overlay, Positioned, Radio, Row, Scroll, Slider, Spacer,
+    Switch, Text, TextInput, Video, ZStack,
 };
 use crate::lowering::LoweringContext;
 use fission_ir::{NodeId, Op, StructuralOp};
@@ -28,6 +28,7 @@ pub enum Node {
     Radio(Radio),
     Positioned(Positioned),
     Spacer(Spacer),
+    Slider(Slider),
     Custom(CustomNode),
 }
 
@@ -52,6 +53,7 @@ impl Node {
             Node::Radio(w) => w.lower(cx),
             Node::Positioned(w) => w.lower(cx),
             Node::Spacer(w) => w.lower(cx),
+            Node::Slider(w) => w.lower(cx),
             Node::Custom(w) => {
                 let lowerer = w.lowerer.as_ref().expect("CustomNode lowerer must be set");
                 let child_id = lowerer.lower_dyn(cx);
@@ -152,6 +154,11 @@ impl From<Positioned> for Node {
 impl From<Spacer> for Node {
     fn from(w: Spacer) -> Self {
         Node::Spacer(w)
+    }
+}
+impl From<Slider> for Node {
+    fn from(w: Slider) -> Self {
+        Node::Slider(w)
     }
 }
 

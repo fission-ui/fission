@@ -113,6 +113,9 @@ impl Lower for Radio {
             ime_preedit_range: None,
             checked: Some(self.checked),
             disabled: false,
+            min_value: None,
+            max_value: None,
+            current_value: None,
         };
         if let Some(action) = &self.on_select {
              semantics.actions.entries.push(fission_ir::ActionEntry { action_id: action.id.as_u128(), payload_data: Some(action.payload.clone()) });

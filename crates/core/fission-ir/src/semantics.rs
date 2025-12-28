@@ -21,7 +21,7 @@ pub struct ActionEntry {
     pub payload_data: Option<Vec<u8>>, // Serialized Action instance, if it has payload
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Semantics {
     pub role: Role,
     pub label: Option<String>,
@@ -34,6 +34,9 @@ pub struct Semantics {
     pub ime_preedit_range: Option<(usize, usize)>,
     pub checked: Option<bool>,
     pub disabled: bool,
+    pub min_value: Option<f32>,
+    pub max_value: Option<f32>,
+    pub current_value: Option<f32>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]

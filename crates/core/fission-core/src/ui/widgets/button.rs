@@ -177,5 +177,8 @@ fn default_button_semantics() -> Semantics {
         ime_preedit_range: None,
         checked: None,
         disabled: false,
+        min_value: None,
+        max_value: None,
+        current_value: None,
     }
 }

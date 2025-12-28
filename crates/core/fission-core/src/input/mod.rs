@@ -6,6 +6,7 @@ use fission_layout::{LayoutSnapshot, TextMeasurer};
 use std::sync::Arc;
 
 pub mod text;
+pub mod slider;
 
 pub struct ControllerContext<'a> {
     pub ir: &'a CoreIR,

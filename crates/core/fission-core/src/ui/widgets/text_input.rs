@@ -220,6 +220,9 @@ impl Lower for TextInput {
             ime_preedit_range: None, // TODO: Fix preedit highlighting
             checked: None,
             disabled: false,
+            min_value: None,
+            max_value: None,
+            current_value: None,
         };
         if let Some(env) = &self.on_change {
              semantics.actions.entries.push(fission_ir::ActionEntry {

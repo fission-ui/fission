@@ -3,7 +3,7 @@ use fission_core::op::{Color, GridTrack};
 use fission_core::{BuildCtx, View, Widget, NodeId, WidgetNodeId, Env};
 use fission_widgets::{ 
     Accordion, AccordionItem, Avatar, Badge, Button, Card, Checkbox, Container, Divider, Grid, GridItem, 
-    HStack, Image, Node, Popover, ProgressBar, Radio, Scroll, Spinner, Switch, Tabs, TabItem, Tag, Text, 
+    HStack, Image, Node, Popover, ProgressBar, Radio, Scroll, Slider, Spinner, Switch, Tabs, TabItem, Tag, Text, 
     TextContent, TextInput, VStack,
 };
 use fission_shell_desktop::DesktopApp;
@@ -13,7 +13,7 @@ use std::collections::HashMap;
 
 // --- STATE ---
 
-#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct InboxState {
     pub selected_folder: String,
     pub selected_email_id: Option<usize>,
@@ -24,6 +24,24 @@ pub struct InboxState {
     pub reply_mode: usize, 
     pub notifications_enabled: bool,
     pub details_expanded: bool,
+    pub storage_usage: f32,
+}
+
+impl Default for InboxState {
+    fn default() -> Self {
+        Self {
+            selected_folder: "Inbox".into(),
+            selected_email_id: None,
+            search_query: "".into(),
+            selected_emails: vec![],
+            show_filter_dropdown: false,
+            active_tab: 0,
+            reply_mode: 0,
+            notifications_enabled: true,
+            details_expanded: true,
+            storage_usage: 0.3,
+        }
+    }
 }
 
 impl AppState for InboxState {}
@@ -60,13 +78,18 @@ struct ToggleNotifications;
 #[derive(fission_macros::Action, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 struct ToggleDetails;
 
+#[derive(fission_macros::Action, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(transparent)]
+struct SetStorageUsage(f32);
+
+impl Eq for SetStorageUsage {} 
+
 // --- APP ---
 
 struct InboxApp;
 
 impl Widget<InboxState> for InboxApp {
     fn build(&self, ctx: &mut BuildCtx<InboxState>, view: &View<InboxState>) -> Node {
-        // Use Grid directly, Popover handles the overlay via Portals
         Grid {
             columns: vec![
                 GridTrack::Points(220.0),
@@ -132,7 +155,7 @@ impl Widget<InboxState> for Sidebar {
                         checked: view.state.notifications_enabled,
                         on_toggle: Some(ctx.bind(ToggleNotifications, |s, _| s.notifications_enabled = !s.notifications_enabled)),
                         ..Default::default()
-                    }.build(ctx, view),
+                    }.into(), // Use .into() for Switch as it is now in Core and implements Widget via macro
                     Text { content: TextContent::Literal("Notifications".into()), ..Default::default() }.into()
                 ]
             }.build(ctx, view)
@@ -142,8 +165,14 @@ impl Widget<InboxState> for Sidebar {
             VStack {
                 spacing: Some(4.0),
                 children: vec![
-                    Text { content: TextContent::Literal("Storage (1.5 GB / 5 GB)".into()), font_size: Some(12.0), ..Default::default() }.into(),
-                    ProgressBar { value: 0.3 }.build(ctx, view),
+                    Text { content: TextContent::Literal(format!("Storage ({:.1} GB / 5 GB)", view.state.storage_usage * 5.0)).into(), font_size: Some(12.0), ..Default::default() }.into(),
+                    Slider {
+                        value: view.state.storage_usage,
+                        min: 0.0,
+                        max: 1.0,
+                        on_change: Some(ctx.bind(SetStorageUsage(0.0), |s, a| s.storage_usage = a.0)),
+                        ..Default::default()
+                    }.into(),
                 ]
             }.build(ctx, view)
         );
@@ -169,7 +198,6 @@ impl Widget<InboxState> for EmailList {
     fn build(&self, ctx: &mut BuildCtx<InboxState>, view: &View<InboxState>) -> Node {
         let mut list_items = vec![];
         
-        // Tabs
         list_items.push(
             Tabs {
                 selected_index: view.state.active_tab,
@@ -193,7 +221,6 @@ impl Widget<InboxState> for EmailList {
             }.build(ctx, view)
         );
         
-        // Search & Filter (Popover)
         list_items.push(
             HStack {
                 spacing: Some(8.0),
@@ -243,7 +270,6 @@ impl Widget<InboxState> for EmailList {
             }.build(ctx, view)
         );
 
-        // Mock List
         for i in 0..10 {
             let id = i;
             let is_selected = view.state.selected_email_id == Some(id);
@@ -263,7 +289,7 @@ impl Widget<InboxState> for EmailList {
                         })),
                         label: None,
                         ..Default::default()
-                    }.build(ctx, view),
+                    }.into(), // Checkbox is Core now, use into()
                     
                     VStack {
                         spacing: Some(4.0),
@@ -343,7 +369,6 @@ impl Widget<InboxState> for EmailDetail {
                 VStack {
                     spacing: Some(16.0),
                     children: vec![
-                        // Header: Subject + Tags
                         HStack {
                             spacing: Some(8.0),
                             children: vec![
@@ -363,7 +388,6 @@ impl Widget<InboxState> for EmailDetail {
                             ]
                         }.build(ctx, view),
                         
-                        // Sender Info
                         HStack {
                             spacing: Some(8.0),
                             children: vec![
@@ -382,7 +406,6 @@ impl Widget<InboxState> for EmailDetail {
                             ]
                         }.build(ctx, view),
                         
-                        // Accordion Details
                         Accordion {
                             items: vec![
                                 AccordionItem {
@@ -401,7 +424,6 @@ impl Widget<InboxState> for EmailDetail {
                         
                         Divider { orientation: fission_widgets::divider::Orientation::Horizontal }.build(ctx, view),
                         
-                        // Body Card
                         Card {
                             child: Box::new(
                                 VStack {
@@ -409,8 +431,8 @@ impl Widget<InboxState> for EmailDetail {
                                     children: vec![
                                         Text {
                                             content: TextContent::Literal(
-                                                "Hey there,\n\nThis demonstrates the new Popover, Portals, and Advanced Widgets.\nThe Filter menu uses a Popover anchored to the button.\n\nEnjoy!"
-                                            .into()),
+                                                "Hey there,\n\nThis demonstrates the new Checkbox, Switch, Radio, Slider and I18n features.\nThe sidebar labels are localized.\n\nTry selecting items in the list!".into()
+                                            ),
                                             ..Default::default()
                                         }.into(),
                                         
@@ -445,19 +467,19 @@ impl Widget<InboxState> for EmailDetail {
                                     label: Some("Reply".into()),
                                     on_select: Some(ctx.bind(SelectReplyMode(0), |s,a| s.reply_mode = a.0)),
                                     ..Default::default()
-                                }.build(ctx, view),
+                                }.into(), // Radio is Core
                                 Radio {
                                     checked: view.state.reply_mode == 1,
                                     label: Some("Reply All".into()),
                                     on_select: Some(ctx.bind(SelectReplyMode(1), |s,a| s.reply_mode = a.0)),
                                     ..Default::default()
-                                }.build(ctx, view),
+                                }.into(),
                                 Radio {
                                     checked: view.state.reply_mode == 2,
                                     label: Some("Forward".into()),
                                     on_select: Some(ctx.bind(SelectReplyMode(2), |s,a| s.reply_mode = a.0)),
                                     ..Default::default()
-                                }.build(ctx, view),
+                                }.into(),
                             ]
                         }.build(ctx, view)
                     ]

@@ -380,6 +380,7 @@ impl Runtime {
     ) -> Result<()> {
         use crate::input::{ControllerContext, InputController};
         use crate::input::text::TextInputController;
+        use crate::input::slider::SliderController;
 
         let mut dispatched_actions = Vec::new();
         let mut handled = false;
@@ -397,11 +398,16 @@ impl Runtime {
                 dispatched_actions: Vec::new(),
             };
 
-            let mut controller = TextInputController;
-            if controller.handle_event(&mut ctx, &event) {
+            let mut text_controller = TextInputController;
+            if text_controller.handle_event(&mut ctx, &event) {
                 handled = true;
-                dispatched_actions = ctx.dispatched_actions;
+            } else {
+                let mut slider_controller = SliderController;
+                if slider_controller.handle_event(&mut ctx, &event) {
+                    handled = true;
+                }
             }
+            dispatched_actions = ctx.dispatched_actions;
         }
 
         for (target, action) in dispatched_actions {
