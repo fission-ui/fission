@@ -2,8 +2,8 @@ use fission_core::action::{Action, ActionEnvelope, AppState};
 use fission_core::op::{Color, GridTrack};
 use fission_core::{BuildCtx, View, Widget, NodeId, Env};
 use fission_widgets::{ 
-    Button, Container, Grid, GridItem, HStack, Image, Node, Scroll, Text, TextContent, TextInput,
-    VStack, ZStack, Checkbox,
+    Avatar, Badge, Button, Container, Grid, GridItem, HStack, Image, Node, Scroll, Text, TextContent, TextInput,
+    VStack, ZStack, Checkbox, Divider,
 };
 use fission_shell_desktop::DesktopApp;
 use fission_i18n::{I18nRegistry, Locale, TranslationBundle};
@@ -77,12 +77,7 @@ impl Widget<InboxState> for InboxApp {
                     child: Some(Box::new(Container::new(fission_core::ui::Row::default().into()).into_node())), // Invisible fill
                     ..Default::default()
                 }
-                .into() // Button usually has style, we might need a transparent button or container with click?
-                // Currently Button is the only click handler.
-                // We'll rely on it filling the screen implicitly via ZStack stretch?
-                // Or better: Use Container with explicit AbsoluteFill behavior if supported?
-                // Button implementation fills parent? Not necessarily.
-                // We'll skip the backdrop for simplicity and just show the dropdown at fixed pos.
+                .into() 
             );
 
             // The Dropdown Menu
@@ -104,14 +99,6 @@ impl Widget<InboxState> for InboxApp {
                     .padding_all(8.0)
                     .into_node()
                 )
-                // HACK: Use GridItem to position absolutely?
-                // No, ZStack children are absolute?
-                // If ZStack uses LayoutOp::ZStack, children are Flex items.
-                // We need LayoutOp::AbsoluteFill or similar.
-                // Or wrap in Container with margins to position it?
-                // We'll put it in top-left of EmailList column?
-                // Currently ZStack children stack on top of each other filling size.
-                // We'll wrap in a Container with alignment (if Container supported it) or just large padding to push it down.
                 .into()
             );
         }
@@ -216,16 +203,31 @@ impl Widget<InboxState> for EmailList {
                             }
                         })),
                         label: None,
+                        ..Default::default()
                     }.build(ctx, view),
                     
                     VStack {
                         spacing: Some(4.0),
                         children: vec![
-                            Text {
-                                content: TextContent::Literal(format!("Subject of email {}", i)),
-                                font_size: Some(16.0),
-                                ..Default::default()
-                            }.into(),
+                            HStack {
+                                spacing: Some(8.0),
+                                children: vec![
+                                    Text {
+                                        content: TextContent::Literal(format!("Subject {}", i)),
+                                        font_size: Some(16.0),
+                                        ..Default::default()
+                                    }.into(),
+                                    if i % 3 == 0 {
+                                        Badge {
+                                            text: "New".into(),
+                                            color: Some(Color { r: 200, g: 230, b: 255, a: 255 }),
+                                            text_color: Some(Color { r: 0, g: 100, b: 200, a: 255 }),
+                                        }.build(ctx, view)
+                                    } else {
+                                        fission_core::ui::Row::default().into()
+                                    }
+                                ]
+                            }.build(ctx, view),
                             Text {
                                 content: TextContent::Literal("Short preview of the email content goes here...".into()),
                                 font_size: Some(12.0),
@@ -291,14 +293,11 @@ impl Widget<InboxState> for EmailDetail {
                         HStack {
                             spacing: Some(8.0),
                             children: vec![
-                                Container::new(
-                                    // Avatar placeholder
-                                    Text { content: TextContent::Literal("JD".into()), color: Some(Color::WHITE), ..Default::default() }.into()
-                                )
-                                .size(40.0, 40.0)
-                                .bg(Color { r: 100, g: 150, b: 200, a: 255 })
-                                .border_radius(20.0)
-                                .into_node(),
+                                Avatar {
+                                    name: Some("John Doe".into()),
+                                    size: Some(40.0),
+                                    ..Default::default()
+                                }.build(ctx, view),
                                 VStack {
                                     spacing: Some(2.0),
                                     children: vec![
@@ -310,10 +309,7 @@ impl Widget<InboxState> for EmailDetail {
                         }.build(ctx, view),
                         
                         // Divider
-                        Container::new(fission_core::ui::Row::default().into())
-                            .height(1.0)
-                            .bg(Color { r: 230, g: 230, b: 230, a: 255 })
-                            .into_node(),
+                        Divider { orientation: fission_widgets::divider::Orientation::Horizontal }.build(ctx, view),
                         
                         // Body
                         Text {

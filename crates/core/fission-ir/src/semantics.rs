@@ -7,6 +7,8 @@ pub enum Role {
     TextInput,
     Image,
     Checkbox,
+    Switch,
+    Dialog,
     Slider,
     Input,
     List,

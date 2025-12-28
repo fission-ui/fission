@@ -1,7 +1,7 @@
 use crate::{
     env::VideoState,
     registry::{AnimationPropertyId, VideoRegistration},
-    ui::{Button, Column, Image, Node, Row, Scroll, Text, Video},
+    ui::{Button, Checkbox, Column, Container, Grid, GridItem, Image, Node, Overlay, Radio, Row, Scroll, Switch, Text, TextInput, Video, ZStack},
     AppState, BuildCtx, Env, RuntimeState,
 };
 use fission_i18n::I18nRegistry;
@@ -64,42 +64,31 @@ impl<S: AppState> Widget<S> for Node {
     }
 }
 
-// Implement Widget for Primitives
-impl<S: AppState> Widget<S> for Row {
-    fn build(&self, _ctx: &mut BuildCtx<S>, _view: &View<S>) -> Node {
-        Node::Row(self.clone())
-    }
+macro_rules! impl_widget_for_primitive {
+    ($t:ty, $v:ident) => {
+        impl<S: AppState> Widget<S> for $t {
+            fn build(&self, _ctx: &mut BuildCtx<S>, _view: &View<S>) -> Node {
+                Node::$v(self.clone())
+            }
+        }
+    };
 }
 
-impl<S: AppState> Widget<S> for Column {
-    fn build(&self, _ctx: &mut BuildCtx<S>, _view: &View<S>) -> Node {
-        Node::Column(self.clone())
-    }
-}
-
-impl<S: AppState> Widget<S> for Text {
-    fn build(&self, _ctx: &mut BuildCtx<S>, _view: &View<S>) -> Node {
-        Node::Text(self.clone())
-    }
-}
-
-impl<S: AppState> Widget<S> for Button {
-    fn build(&self, _ctx: &mut BuildCtx<S>, _view: &View<S>) -> Node {
-        Node::Button(self.clone())
-    }
-}
-
-impl<S: AppState> Widget<S> for Scroll {
-    fn build(&self, _ctx: &mut BuildCtx<S>, _view: &View<S>) -> Node {
-        Node::Scroll(self.clone())
-    }
-}
-
-impl<S: AppState> Widget<S> for Image {
-    fn build(&self, _ctx: &mut BuildCtx<S>, _view: &View<S>) -> Node {
-        Node::Image(self.clone())
-    }
-}
+impl_widget_for_primitive!(Row, Row);
+impl_widget_for_primitive!(Column, Column);
+impl_widget_for_primitive!(Text, Text);
+impl_widget_for_primitive!(Button, Button);
+impl_widget_for_primitive!(TextInput, TextInput);
+impl_widget_for_primitive!(Scroll, Scroll);
+impl_widget_for_primitive!(Image, Image);
+impl_widget_for_primitive!(ZStack, ZStack);
+impl_widget_for_primitive!(Overlay, Overlay);
+impl_widget_for_primitive!(Container, Container);
+impl_widget_for_primitive!(Grid, Grid);
+impl_widget_for_primitive!(GridItem, GridItem);
+impl_widget_for_primitive!(Checkbox, Checkbox);
+impl_widget_for_primitive!(Switch, Switch);
+impl_widget_for_primitive!(Radio, Radio);
 
 impl<S: AppState> Widget<S> for Video {
     fn build(&self, ctx: &mut BuildCtx<S>, _view: &View<S>) -> Node {

@@ -1,4 +1,4 @@
-pub use fission_core::ui::{Button, Column, Container, CustomNode, Grid, GridItem, Image, Node, Overlay, Row, Scroll, ZStack, Text, TextContent, TextInput, Video};
+pub use fission_core::ui::{Button, Checkbox, Column, Container, CustomNode, Grid, GridItem, Image, Node, Overlay, Radio, Row, Scroll, Switch, ZStack, Text, TextContent, TextInput, Video};
 pub use fission_core::view::{Selector, View, Widget};
 pub use fission_core::BuildCtx;
 
@@ -8,8 +8,17 @@ pub use dropdown::DropDown;
 pub mod stack;
 pub use stack::{HStack, VStack};
 
-pub mod checkbox;
-pub use checkbox::Checkbox;
+pub mod badge;
+pub use badge::Badge;
+
+pub mod tag;
+pub use tag::Tag;
+
+pub mod avatar;
+pub use avatar::Avatar;
+
+pub mod divider;
+pub use divider::Divider;
 
 use fission_core::{lowering::NodeBuilder, op::StructuralOp, LowerDyn, LoweringContext, NodeId, Op};
 use std::sync::Arc;

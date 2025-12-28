@@ -1,7 +1,7 @@
 use super::traits::{Lower, LowerDyn};
 use super::widgets::{
-    Button, Column, Container, Grid, GridItem, Image, Overlay, Row, Scroll, Text, TextInput, Video,
-    ZStack,
+    Button, Checkbox, Column, Container, Grid, GridItem, Image, Overlay, Radio, Row, Scroll, Switch,
+    Text, TextInput, Video, ZStack,
 };
 use crate::lowering::LoweringContext;
 use fission_ir::{NodeId, Op, StructuralOp};
@@ -23,6 +23,9 @@ pub enum Node {
     Container(Container),
     Grid(Grid),
     GridItem(GridItem),
+    Checkbox(Checkbox),
+    Switch(Switch),
+    Radio(Radio),
     Custom(CustomNode),
 }
 
@@ -42,6 +45,9 @@ impl Node {
             Node::Container(w) => w.lower(cx),
             Node::Grid(w) => w.lower(cx),
             Node::GridItem(w) => w.lower(cx),
+            Node::Checkbox(w) => w.lower(cx),
+            Node::Switch(w) => w.lower(cx),
+            Node::Radio(w) => w.lower(cx),
             Node::Custom(w) => {
                 let lowerer = w.lowerer.as_ref().expect("CustomNode lowerer must be set");
                 let child_id = lowerer.lower_dyn(cx);
@@ -117,6 +123,21 @@ impl From<Grid> for Node {
 impl From<GridItem> for Node {
     fn from(w: GridItem) -> Self {
         Node::GridItem(w)
+    }
+}
+impl From<Checkbox> for Node {
+    fn from(w: Checkbox) -> Self {
+        Node::Checkbox(w)
+    }
+}
+impl From<Switch> for Node {
+    fn from(w: Switch) -> Self {
+        Node::Switch(w)
+    }
+}
+impl From<Radio> for Node {
+    fn from(w: Radio) -> Self {
+        Node::Radio(w)
     }
 }
 

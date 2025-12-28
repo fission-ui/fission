@@ -10,6 +10,9 @@ pub mod stack;
 pub mod overlay;
 pub mod container;
 pub mod grid;
+pub mod checkbox;
+pub mod switch;
+pub mod radio;
 
 pub use button::Button;
 pub use column::Column;
@@ -23,3 +26,6 @@ pub use stack::ZStack;
 pub use overlay::Overlay;
 pub use container::Container;
 pub use grid::{Grid, GridItem};
+pub use checkbox::Checkbox;
+pub use switch::Switch;
+pub use radio::Radio;
