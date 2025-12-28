@@ -30,6 +30,8 @@ impl Default for Overlay {
 impl Lower for Overlay {
     fn lower(&self, cx: &mut LoweringContext) -> NodeId {
         let id = self.id.unwrap_or_else(|| cx.next_node_id());
+        
+        cx.push_scope(id);
 
         // Build overlay child wrapped in AbsoluteFill so it layers over content.
         let overlay_child_id = self.overlay.lower(cx);
@@ -42,6 +44,9 @@ impl Lower for Overlay {
         let mut stack = NodeBuilder::new(id, Op::Layout(LayoutOp::Stack));
         stack.add_child(self.content.lower(cx));
         stack.add_child(overlay_fill_id);
+        
+        cx.pop_scope();
+        
         stack.build(cx)
     }
 }

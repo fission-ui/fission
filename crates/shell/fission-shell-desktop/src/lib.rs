@@ -417,9 +417,9 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                         if let Some(btn) = map_mouse_button(button) {
                                             // Debug Hit Test
                                             if let Some(hit) = fission_core::hit_test::hit_test_with_scroll(ir, layout, &runtime.runtime_state.scroll, point) {
-                                                println!("Debug: Hit Node {:?}", hit);
+                                                // println!("Debug: Hit Node {:?}", hit);
                                                 if let Some(node) = ir.nodes.get(&hit) {
-                                                    println!("Debug: Node Op: {:?}", node.op);
+                                                    // println!("Debug: Node Op: {:?}", node.op);
                                                 }
                                             } else {
                                                 println!("Debug: Hit Nothing at {:?}", point);
@@ -432,11 +432,11 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                             }
 
                                             if let Some(event) = build_pointer_event(state, btn, point) {
-                                                println!("Dispatching input: {:?} at {:?}", event, point);
+                                                // println!("Dispatching input: {:?} at {:?}", event, point);
                                                 if let Err(e) = runtime.handle_input(event, ir, layout) {
                                                     eprintln!("Input handling error: {:?}", e);
                                                 } else {
-                                                    println!("Input dispatched successfully");
+                                                    // println!("Input dispatched successfully");
                                                 }
                                                 window.request_redraw();
                                             }

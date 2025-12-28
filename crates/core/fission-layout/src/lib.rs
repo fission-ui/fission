@@ -5,6 +5,7 @@ use fission_ir::op::{TextRun, TextStyle};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
+use taffy::geometry::Point;
 use taffy::node::Node as TaffyNodeId;
 use taffy::prelude::*;
 
@@ -157,6 +158,18 @@ pub struct LayoutEngine {
 }
 
 impl LayoutEngine {
+    fn get_absolute_location(&self, taffy_id: TaffyNodeId) -> Result<Point<f32>> {
+        let mut location = Point { x: 0.0, y: 0.0 };
+        let mut current_id_maybe = Some(taffy_id);
+        while let Some(current_id) = current_id_maybe {
+            let layout = self.taffy.layout(current_id)?;
+            location.x += layout.location.x;
+            location.y += layout.location.y;
+            current_id_maybe = self.taffy.parent(current_id);
+        }
+        Ok(location)
+    }
+
     fn ensure_exists(&mut self, id: NodeId) {
         if !self.taffy_map.contains_key(&id) {
             let t_id = self.taffy.new_leaf(Style::default()).unwrap();
@@ -518,6 +531,9 @@ impl LayoutEngine {
                     height: Dimension::Auto,
                 };
             }
+            LayoutOp::Flyout { .. } => {
+                style.display = Display::None;
+            }
             _ => {
                 style.display = Display::Flex;
             }
@@ -535,6 +551,7 @@ impl LayoutEngine {
             input_nodes.iter().map(|n| (n.id, n)).collect();
 
         if let Some(root_taffy_id) = self.taffy_map.get(&root_node_id) {
+            // First layout pass
             self.taffy
                 .compute_layout(
                     *root_taffy_id,
@@ -543,7 +560,40 @@ impl LayoutEngine {
                         height: taffy::style::AvailableSpace::Definite(viewport_size.height),
                     },
                 )
-                .map_err(|e| anyhow::anyhow!("Taffy layout error: {:?}", e))?;
+                .map_err(|e| anyhow::anyhow!("Taffy layout error (pass 1): {:?}", e))?;
+
+            // Post-layout pass for Flyouts
+            for node in input_nodes {
+                if let LayoutOp::Flyout { anchor, content } = node.op {
+                    if let (Some(anchor_taffy_id), Some(content_taffy_id)) = (
+                        self.taffy_map.get(&anchor),
+                        self.taffy_map.get(&content),
+                    ) {
+                        let anchor_layout = self.taffy.layout(*anchor_taffy_id)?;
+                        let absolute_pos = self.get_absolute_location(*anchor_taffy_id)?;
+                        let mut new_style = self.taffy.style(*content_taffy_id)?.clone();
+                        new_style.position = Position::Absolute;
+                        new_style.inset = taffy::geometry::Rect {
+                            left: points(absolute_pos.x),
+                            top: points(absolute_pos.y + anchor_layout.size.height),
+                            right: LengthPercentageAuto::Auto,
+                            bottom: LengthPercentageAuto::Auto,
+                        };
+                        self.taffy.set_style(*content_taffy_id, new_style)?;
+                    }
+                }
+            }
+
+            // Second layout pass to apply flyout positions
+            self.taffy
+                .compute_layout(
+                    *root_taffy_id,
+                    taffy::geometry::Size {
+                        width: taffy::style::AvailableSpace::Definite(viewport_size.width),
+                        height: taffy::style::AvailableSpace::Definite(viewport_size.height),
+                    },
+                )
+                .map_err(|e| anyhow::anyhow!("Taffy layout error (pass 2): {:?}", e))?;
 
             let mut geometries = HashMap::new();
             let mut visited = HashSet::new();

@@ -32,6 +32,9 @@ impl Default for Scroll {
 impl Lower for Scroll {
     fn lower(&self, cx: &mut LoweringContext) -> NodeId {
         let layout_id = self.id.unwrap_or_else(|| cx.next_node_id());
+        
+        cx.push_scope(layout_id);
+
         let mut builder = NodeBuilder::new(
             layout_id,
             Op::Layout(LayoutOp::Scroll {
@@ -49,6 +52,9 @@ impl Lower for Scroll {
         if let Some(child) = &self.child {
             builder.add_child(child.lower(cx));
         }
+
+        cx.pop_scope();
+
         builder.build(cx)
     }
 }

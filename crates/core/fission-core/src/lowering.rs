@@ -10,17 +10,19 @@ use std::sync::Arc;
 
 // Context passed down during the lowering phase.
 pub struct LoweringContext<'a> {
-    pub next_node_id_seed: u128,
+    // Stack of (Parent NodeId, Next Child Index)
+    pub id_stack: Vec<(NodeId, u32)>,
     pub ir: CoreIR,
     pub env: &'a Env,
     pub runtime_state: &'a RuntimeState,
-    pub measurer: Option<&'a Arc<dyn TextMeasurer>>, // New field
+    pub measurer: Option<&'a Arc<dyn TextMeasurer>>,
 }
 
 impl<'a> LoweringContext<'a> {
     pub fn new(env: &'a Env, runtime_state: &'a RuntimeState, measurer: Option<&'a Arc<dyn TextMeasurer>>) -> Self {
+        // Root is parent 0
         LoweringContext {
-            next_node_id_seed: 0,
+            id_stack: vec![(NodeId::from_u128(0), 0)],
             ir: CoreIR::new(),
             env,
             runtime_state,
@@ -29,8 +31,18 @@ impl<'a> LoweringContext<'a> {
     }
 
     pub fn next_node_id(&mut self) -> NodeId {
-        self.next_node_id_seed += 1;
-        NodeId::derived(0, &[self.next_node_id_seed as u32])
+        let (parent_id, child_idx) = self.id_stack.last_mut().expect("Lowering stack underflow");
+        let id = NodeId::derived(parent_id.as_u128(), &[*child_idx]);
+        *child_idx += 1;
+        id
+    }
+
+    pub fn push_scope(&mut self, node_id: NodeId) {
+        self.id_stack.push((node_id, 0));
+    }
+
+    pub fn pop_scope(&mut self) {
+        self.id_stack.pop().expect("Lowering stack underflow");
     }
 
     pub fn widget_node_id(&self, widget_id: WidgetNodeId) -> NodeId {

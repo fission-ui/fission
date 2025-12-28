@@ -1,5 +1,6 @@
 use super::semantics::Semantics;
 use super::widget_id::WidgetNodeId;
+use crate::NodeId;
 use serde::{Deserialize, Serialize};
 
 // The fundamental operations that can be performed in the Core IR.
@@ -76,6 +77,10 @@ pub enum LayoutOp {
     Grid,
     Stack,
     Align,
+    Flyout {
+        anchor: NodeId,
+        content: NodeId,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]

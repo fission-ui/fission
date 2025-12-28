@@ -104,6 +104,8 @@ impl Lower for Button {
         let button_id = self.id.unwrap_or_else(|| cx.next_node_id());
 
         let resolved_style = self.resolve_style(cx.env, &cx.runtime_state.interaction, button_id);
+        
+        cx.push_scope(button_id);
 
         let background_id = NodeBuilder::new(
             cx.next_node_id(),
@@ -146,6 +148,8 @@ impl Lower for Button {
             };
             button_builder.add_child(child_id);
         }
+        
+        cx.pop_scope();
 
         let button_id = button_builder.build(cx);
 
