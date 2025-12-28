@@ -91,6 +91,11 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
         }
     }
 
+    pub fn with_env(mut self, env: Env) -> Self {
+        self.env = env;
+        self
+    }
+
     pub fn run(mut self) -> Result<()> { 
         diag::emit(
             diag::DiagCategory::Frame,

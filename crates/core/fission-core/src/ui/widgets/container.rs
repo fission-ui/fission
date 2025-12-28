@@ -74,6 +74,11 @@ impl Container {
         self
     }
 
+    pub fn shadow(mut self, shadow: BoxShadow) -> Self {
+        self.shadow = Some(shadow);
+        self
+    }
+
     pub fn into_node(self) -> Node {
         Node::Container(self)
     }

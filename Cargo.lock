@@ -1332,6 +1332,7 @@ dependencies = [
  "anyhow",
  "fission",
  "fission-core",
+ "fission-i18n",
  "fission-ir",
  "fission-macros",
  "fission-render",
