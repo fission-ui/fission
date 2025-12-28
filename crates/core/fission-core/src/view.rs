@@ -2,7 +2,7 @@ use crate::{
     env::VideoState,
     registry::{AnimationPropertyId, VideoRegistration},
     ui::{Button, Checkbox, Column, Container, Grid, GridItem, Image, Node, Overlay, Radio, Row, Scroll, Switch, Text, TextInput, Video, ZStack},
-    AppState, BuildCtx, Env, RuntimeState,
+    AppState, BuildCtx, Env, RuntimeState, LayoutSnapshot, LayoutRect,
 };
 use fission_i18n::I18nRegistry;
 use fission_ir::WidgetNodeId;
@@ -12,14 +12,16 @@ pub struct View<'a, S: AppState> {
     pub state: &'a S,
     pub runtime: &'a RuntimeState,
     pub env: &'a Env,
+    pub layout: Option<&'a LayoutSnapshot>,
 }
 
 impl<'a, S: AppState> View<'a, S> {
-    pub fn new(state: &'a S, runtime: &'a RuntimeState, env: &'a Env) -> Self {
+    pub fn new(state: &'a S, runtime: &'a RuntimeState, env: &'a Env, layout: Option<&'a LayoutSnapshot>) -> Self {
         Self {
             state,
             runtime,
             env,
+            layout,
         }
     }
 
@@ -28,6 +30,11 @@ impl<'a, S: AppState> View<'a, S> {
     }
     pub fn i18n(&self) -> &I18nRegistry {
         &self.env.i18n
+    }
+
+    pub fn get_rect(&self, id: WidgetNodeId) -> Option<LayoutRect> {
+        let node_id = fission_ir::NodeId::derived(id.as_u128(), &[]);
+        self.layout.and_then(|l| l.get_node_rect(node_id))
     }
 
     pub fn select<T: Selector<S>>(&self) -> T::Output {

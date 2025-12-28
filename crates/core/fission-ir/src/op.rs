@@ -109,6 +109,14 @@ pub enum LayoutOp {
         height: Option<LayoutUnit>,
     },
     AbsoluteFill,
+    Positioned {
+        left: Option<LayoutUnit>,
+        top: Option<LayoutUnit>,
+        right: Option<LayoutUnit>,
+        bottom: Option<LayoutUnit>,
+        width: Option<LayoutUnit>,
+        height: Option<LayoutUnit>,
+    },
     ZStack,
     Align,
     Flyout {

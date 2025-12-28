@@ -35,6 +35,12 @@ pub use tabs::{Tabs, TabItem};
 pub mod accordion;
 pub use accordion::{Accordion, AccordionItem};
 
+pub mod positioned;
+pub use positioned::Positioned;
+
+pub mod popover;
+pub use popover::Popover;
+
 use fission_core::{lowering::NodeBuilder, op::StructuralOp, LowerDyn, LoweringContext, NodeId, Op};
 use std::sync::Arc;
 
@@ -90,7 +96,24 @@ where
     })
 }
 
-// Spacer
+// Portal
+#[derive(Debug, Clone)]
+pub struct Portal {
+    pub child: Node,
+}
+
+impl<S: fission_core::AppState> Widget<S> for Portal {
+    fn build(&self, ctx: &mut BuildCtx<S>, _view: &View<S>) -> Node {
+        ctx.register_portal(self.child.clone());
+        // Return invisible spacer
+        Node::Custom(fission_core::CustomNode {
+            debug_tag: "Spacer".into(),
+            lowerer: Some(Arc::new(SizedBoxLowerer { width: None, height: None })),
+        })
+    }
+}
+
+// Spacer Helper
 #[derive(Debug)]
 struct SizedBoxLowerer {
     width: Option<f32>,
@@ -109,25 +132,5 @@ impl LowerDyn for SizedBoxLowerer {
             }),
         )
         .build(cx)
-    }
-}
-
-pub fn spacer(width: Option<f32>, height: Option<f32>) -> Node {
-    Node::Custom(fission_core::CustomNode {
-        debug_tag: "SizedBox".into(),
-        lowerer: Some(Arc::new(SizedBoxLowerer { width, height })),
-    })
-}
-
-// Portal
-#[derive(Debug, Clone)]
-pub struct Portal {
-    pub child: Node,
-}
-
-impl<S: fission_core::AppState> Widget<S> for Portal {
-    fn build(&self, ctx: &mut BuildCtx<S>, _view: &View<S>) -> Node {
-        ctx.register_portal(self.child.clone());
-        spacer(None, None)
     }
 }

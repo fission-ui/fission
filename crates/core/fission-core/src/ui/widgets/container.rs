@@ -36,6 +36,11 @@ impl Container {
             ..Default::default()
         }
     }
+
+    pub fn id(mut self, id: NodeId) -> Self {
+        self.id = Some(id);
+        self
+    }
     
     pub fn size(mut self, w: f32, h: f32) -> Self {
         self.width = Some(w);

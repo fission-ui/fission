@@ -616,6 +616,20 @@ impl LayoutEngine {
                     height: Dimension::Auto,
                 };
             }
+            LayoutOp::Positioned { left, top, right, bottom, width, height } => {
+                style.display = Display::Flex;
+                style.position = Position::Absolute;
+                style.inset = taffy::geometry::Rect {
+                    left: left.map(LengthPercentageAuto::Points).unwrap_or(LengthPercentageAuto::Auto),
+                    right: right.map(LengthPercentageAuto::Points).unwrap_or(LengthPercentageAuto::Auto),
+                    top: top.map(LengthPercentageAuto::Points).unwrap_or(LengthPercentageAuto::Auto),
+                    bottom: bottom.map(LengthPercentageAuto::Points).unwrap_or(LengthPercentageAuto::Auto),
+                };
+                style.size = taffy::geometry::Size {
+                    width: width.map(Dimension::Points).unwrap_or(Dimension::Auto),
+                    height: height.map(Dimension::Points).unwrap_or(Dimension::Auto),
+                };
+            }
             LayoutOp::Flyout { .. } => {
                 style.display = Display::None;
             }

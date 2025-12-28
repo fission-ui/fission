@@ -294,14 +294,15 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                     let layout_width = (size.width as f64 / scale_factor) as f32;
                                     let layout_height = (size.height as f64 / scale_factor) as f32;
 
-                                    let (node_tree, registry, anims, videos) = {
+                                    let (node_tree, registry, anims, videos, portals) = {
                                         let state = runtime.get_app_state::<S>().unwrap();
-                                        let view = View::new(state, &runtime.runtime_state, &env);
+                                        let view = View::new(state, &runtime.runtime_state, &env, pipeline.last_snapshot.as_ref());
                                         let mut ctx = BuildCtx::new();
                                         let node = root_widget.build(&mut ctx, &view);
                                         let anims = ctx.take_animation_requests();
                                         let videos = ctx.take_video_registrations();
-                                        (node, ctx.registry, anims, videos)
+                                        let portals = ctx.take_portals();
+                                        (node, ctx.registry, anims, videos, portals)
                                     };
 
                                     runtime.clear_reducers();
@@ -311,8 +312,26 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                     }
                                     runtime.sync_video_nodes(&videos);
 
+                                    // If we have portals, wrap the root in a ZStack (overlay layer)
+                                    let final_root = if portals.is_empty() {
+                                        node_tree
+                                    } else {
+                                        let mut children = vec![node_tree];
+                                        // Wrap portals in an AbsoluteFill container if needed? 
+                                        // Portals usually expect to be absolute.
+                                        // ZStack children are just stacked. 
+                                        // If portal nodes are AbsoluteFill or positioned, ZStack works.
+                                        children.extend(portals);
+                                        
+                                        // Create a synthetic ZStack node
+                                        fission_core::Node::ZStack(fission_core::ui::ZStack {
+                                            children,
+                                            ..Default::default()
+                                        })
+                                    };
+
                                     let mut lower_cx = LoweringContext::new(&env, &runtime.runtime_state, runtime.measurer.as_ref());
-                                    let root_id = node_tree.lower(&mut lower_cx);
+                                    let root_id = final_root.lower(&mut lower_cx);
                                     lower_cx.ir.root = Some(root_id);
                                     let cx_ir = lower_cx.ir;
 
