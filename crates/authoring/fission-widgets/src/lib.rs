@@ -30,10 +30,10 @@ pub mod spinner;
 pub use spinner::Spinner;
 
 pub mod tabs;
-pub use tabs::Tabs;
+pub use tabs::{Tabs, TabItem};
 
 pub mod accordion;
-pub use accordion::Accordion;
+pub use accordion::{Accordion, AccordionItem};
 
 use fission_core::{lowering::NodeBuilder, op::StructuralOp, LowerDyn, LoweringContext, NodeId, Op};
 use std::sync::Arc;

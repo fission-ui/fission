@@ -2,8 +2,9 @@ use fission_core::action::{Action, ActionEnvelope, AppState};
 use fission_core::op::{Color, GridTrack};
 use fission_core::{BuildCtx, View, Widget, NodeId, Env};
 use fission_widgets::{ 
-    Avatar, Badge, Button, Container, Grid, GridItem, HStack, Image, Node, Scroll, Text, TextContent, TextInput,
-    VStack, ZStack, Checkbox, Divider,
+    Accordion, AccordionItem, Avatar, Badge, Button, Card, Checkbox, Container, Divider, Grid, GridItem, 
+    HStack, Image, Node, ProgressBar, Radio, Scroll, Spinner, Switch, Tabs, TabItem, Tag, Text, 
+    TextContent, TextInput, VStack, ZStack,
 };
 use fission_shell_desktop::DesktopApp;
 use fission_i18n::{I18nRegistry, Locale, TranslationBundle};
@@ -17,8 +18,12 @@ pub struct InboxState {
     pub selected_folder: String,
     pub selected_email_id: Option<usize>,
     pub search_query: String,
-    pub selected_emails: Vec<usize>, // For checkboxes
+    pub selected_emails: Vec<usize>,
     pub show_filter_dropdown: bool,
+    pub active_tab: usize, // 0: Primary, 1: Social, 2: Promo
+    pub reply_mode: usize, // 0: Reply, 1: Reply All, 2: Forward
+    pub notifications_enabled: bool,
+    pub details_expanded: bool,
 }
 
 impl AppState for InboxState {}
@@ -43,17 +48,28 @@ struct ToggleFilterDropdown;
 #[derive(fission_macros::Action, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 struct DismissDropdown;
 
+#[derive(fission_macros::Action, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+struct SelectTab(usize);
+
+#[derive(fission_macros::Action, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+struct SelectReplyMode(usize);
+
+#[derive(fission_macros::Action, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+struct ToggleNotifications;
+
+#[derive(fission_macros::Action, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+struct ToggleDetails;
+
 // --- APP ---
 
 struct InboxApp;
 
 impl Widget<InboxState> for InboxApp {
     fn build(&self, ctx: &mut BuildCtx<InboxState>, view: &View<InboxState>) -> Node {
-        // Main Grid Layout
         let grid = Grid {
             columns: vec![
-                GridTrack::Points(200.0), // Sidebar
-                GridTrack::Points(350.0), // List
+                GridTrack::Points(220.0), // Sidebar
+                GridTrack::Points(380.0), // List
                 GridTrack::Fr(1.0),       // Content
             ],
             rows: vec![GridTrack::Fr(1.0)],
@@ -68,24 +84,21 @@ impl Widget<InboxState> for InboxApp {
 
         let mut layers = vec![grid];
 
-        // Dropdown Overlay (ZStack layer)
         if view.state.show_filter_dropdown {
-            // Dismiss layer (click outside)
             layers.push(
                 Button {
                     on_press: Some(ctx.bind(DismissDropdown, |s, _| s.show_filter_dropdown = false)),
-                    child: Some(Box::new(Container::new(fission_core::ui::Row::default().into()).into_node())), // Invisible fill
+                    child: Some(Box::new(Container::new(fission_core::ui::Row::default().into()).into_node())),
                     ..Default::default()
                 }
                 .into() 
             );
 
-            // The Dropdown Menu
             layers.push(
                 GridItem::new(
                     Container::new(
                         VStack {
-                            spacing: Some(4.0),
+                            spacing: Some(8.0),
                             children: vec![
                                 Text { content: TextContent::Literal("All".into()), ..Default::default() }.into(),
                                 Text { content: TextContent::Literal("Unread".into()), ..Default::default() }.into(),
@@ -96,9 +109,11 @@ impl Widget<InboxState> for InboxApp {
                     .bg(Color::WHITE)
                     .border(Color { r: 200, g: 200, b: 200, a: 255 }, 1.0)
                     .shadow(fission_core::op::BoxShadow { color: Color { r:0, g:0, b:0, a:50 }, blur_radius: 10.0, offset: (0.0, 4.0) })
-                    .padding_all(8.0)
+                    .padding_all(12.0)
                     .into_node()
                 )
+                // HACK: Positioned via grid hack
+                .cell(1, 2) // Overlay on list column
                 .into()
             );
         }
@@ -118,16 +133,23 @@ impl Widget<InboxState> for Sidebar {
     fn build(&self, ctx: &mut BuildCtx<InboxState>, view: &View<InboxState>) -> Node {
         let folders = vec!["Inbox", "Starred", "Sent", "Drafts", "Trash"];
         
-        let mut folder_buttons = vec![];
+        let mut children = vec![
+            Text {
+                content: TextContent::Literal("FISSION MAIL".into()),
+                font_size: Some(18.0),
+                ..Default::default()
+            }.into(),
+            Divider { orientation: fission_widgets::divider::Orientation::Horizontal }.build(ctx, view),
+        ];
+        
         for folder in folders {
             let is_selected = view.state.selected_folder == folder;
             let label_key = format!("folder.{}", folder.to_lowercase());
             
-            folder_buttons.push(
+            children.push(
                 Button {
                     child: Some(Box::new(
                         Text {
-                            // I18n Usage: Keys
                             content: TextContent::Key(label_key),
                             color: Some(if is_selected { Color::WHITE } else { Color::BLACK }),
                             ..Default::default()
@@ -140,15 +162,46 @@ impl Widget<InboxState> for Sidebar {
                 .into()
             );
         }
+        
+        // Spacer (Flex grow?)
+        // VStack puts items in flow. We can add a filler.
+        // Or just fixed gap.
+        
+        // Settings / Switch Demo
+        children.push(Divider { orientation: fission_widgets::divider::Orientation::Horizontal }.build(ctx, view));
+        children.push(
+            HStack {
+                spacing: Some(8.0),
+                children: vec![
+                    Switch {
+                        checked: view.state.notifications_enabled,
+                        on_toggle: Some(ctx.bind(ToggleNotifications, |s, _| s.notifications_enabled = !s.notifications_enabled)),
+                        ..Default::default()
+                    }.build(ctx, view),
+                    Text { content: TextContent::Literal("Notifications".into()), ..Default::default() }.into()
+                ]
+            }.build(ctx, view)
+        );
+        
+        // Storage Progress
+        children.push(
+            VStack {
+                spacing: Some(4.0),
+                children: vec![
+                    Text { content: TextContent::Literal("Storage (1.5 GB / 5 GB)".into()), font_size: Some(12.0), ..Default::default() }.into(),
+                    ProgressBar { value: 0.3 }.build(ctx, view),
+                ]
+            }.build(ctx, view)
+        );
 
         Container::new(
             VStack {
-                spacing: Some(10.0),
-                children: folder_buttons,
+                spacing: Some(16.0),
+                children,
             }
             .build(ctx, view)
         )
-        .bg(Color { r: 245, g: 245, b: 247, a: 255 }) // Light gray
+        .bg(Color { r: 245, g: 245, b: 247, a: 255 })
         .padding_all(16.0)
         .into_node()
     }
@@ -162,7 +215,31 @@ impl Widget<InboxState> for EmailList {
     fn build(&self, ctx: &mut BuildCtx<InboxState>, view: &View<InboxState>) -> Node {
         let mut list_items = vec![];
         
-        // Header with Search & Filter
+        // Tabs
+        list_items.push(
+            Tabs {
+                selected_index: view.state.active_tab,
+                tabs: vec![
+                    TabItem { 
+                        title: "Primary".into(), 
+                        content: Container::new(fission_core::ui::Row::default().into()).into_node(),
+                        on_select: Some(ctx.bind(SelectTab(0), |s, a| s.active_tab = a.0)),
+                    },
+                    TabItem { 
+                        title: "Social".into(), 
+                        content: Container::new(fission_core::ui::Row::default().into()).into_node(),
+                        on_select: Some(ctx.bind(SelectTab(1), |s, a| s.active_tab = a.0)),
+                    },
+                    TabItem { 
+                        title: "Promotions".into(), 
+                        content: Container::new(fission_core::ui::Row::default().into()).into_node(),
+                        on_select: Some(ctx.bind(SelectTab(2), |s, a| s.active_tab = a.0)),
+                    },
+                ]
+            }.build(ctx, view)
+        );
+        
+        // Search
         list_items.push(
             HStack {
                 spacing: Some(8.0),
@@ -184,7 +261,7 @@ impl Widget<InboxState> for EmailList {
         );
 
         // Mock List
-        for i in 0..15 {
+        for i in 0..10 {
             let id = i;
             let is_selected = view.state.selected_email_id == Some(id);
             let is_checked = view.state.selected_emails.contains(&id);
@@ -192,7 +269,6 @@ impl Widget<InboxState> for EmailList {
             let item_content = HStack {
                 spacing: Some(12.0),
                 children: vec![
-                    // Checkbox
                     Checkbox {
                         checked: is_checked,
                         on_toggle: Some(ctx.bind(ToggleEmailSelection(id), |s, a| {
@@ -243,7 +319,7 @@ impl Widget<InboxState> for EmailList {
             let item = Container::new(item_content)
                 .padding_all(12.0)
                 .bg(if is_selected { Color { r: 230, g: 240, b: 255, a: 255 } } else { Color::WHITE })
-                .border(Color { r: 230, g: 230, b: 230, a: 255 }, 1.0) // Bottom border simulation?
+                .border(Color { r: 230, g: 230, b: 230, a: 255 }, 1.0)
                 .into_node();
 
             list_items.push(
@@ -285,11 +361,27 @@ impl Widget<InboxState> for EmailDetail {
                 VStack {
                     spacing: Some(16.0),
                     children: vec![
-                        Text {
-                            content: TextContent::Literal(format!("Subject of Email {}", id)),
-                            font_size: Some(24.0),
-                            ..Default::default()
-                        }.into(),
+                        // Header: Subject + Tags
+                        HStack {
+                            spacing: Some(8.0),
+                            children: vec![
+                                Text {
+                                    content: TextContent::Literal(format!("Subject of Email {}", id)),
+                                    font_size: Some(24.0),
+                                    ..Default::default()
+                                }.into(),
+                                Tag {
+                                    label: "Work".into(),
+                                    on_close: Some(ctx.bind(DismissDropdown, |_,_| {})), // Mock close
+                                }.build(ctx, view),
+                                Tag {
+                                    label: "Important".into(),
+                                    on_close: None,
+                                }.build(ctx, view),
+                            ]
+                        }.build(ctx, view),
+                        
+                        // Sender Info
                         HStack {
                             spacing: Some(8.0),
                             children: vec![
@@ -308,24 +400,87 @@ impl Widget<InboxState> for EmailDetail {
                             ]
                         }.build(ctx, view),
                         
-                        // Divider
+                        // Accordion Details
+                        Accordion {
+                            items: vec![
+                                AccordionItem {
+                                    title: "Details".into(),
+                                    is_expanded: view.state.details_expanded,
+                                    on_toggle: Some(ctx.bind(ToggleDetails, |s,_| s.details_expanded = !s.details_expanded)),
+                                    content: Text {
+                                        content: TextContent::Literal(format!("Date: Dec 28, 2025\nTo: Me\nCc: Boss")),
+                                        font_size: Some(12.0),
+                                        color: Some(Color { r: 100, g: 100, b: 100, a: 255 }),
+                                        ..Default::default()
+                                    }.into()
+                                }
+                            ]
+                        }.build(ctx, view),
+                        
                         Divider { orientation: fission_widgets::divider::Orientation::Horizontal }.build(ctx, view),
                         
-                        // Body
-                        Text {
-                            content: TextContent::Literal(
-                                "Hey there,\n\nThis demonstrates the new Checkbox and I18n features.\nThe sidebar labels are localized.\n\nTry selecting items in the list!".into()
-                            ),
-                            ..Default::default()
-                        }.into(),
+                        // Body Card
+                        Card {
+                            child: Box::new(
+                                VStack {
+                                    spacing: Some(8.0),
+                                    children: vec![
+                                        Text {
+                                            content: TextContent::Literal(
+                                                "Hey there,\n\nThis demonstrates the new Checkbox, Switch, Radio, and I18n features.\nThe sidebar labels are localized.\n\nTry selecting items in the list!".into()
+                                            ),
+                                            ..Default::default()
+                                        }.into(),
+                                        
+                                        // Attachment Image
+                                        Image {
+                                            source: "docs/fission_logo.png".into(),
+                                            width: Some(200.0),
+                                            height: Some(100.0),
+                                            ..Default::default()
+                                        }.into(),
+                                        
+                                        // Spinner
+                                        HStack {
+                                            spacing: Some(8.0),
+                                            children: vec![
+                                                Text { content: TextContent::Literal("Loading attachments...".into()), font_size: Some(12.0), ..Default::default() }.into(),
+                                                Spinner {
+                                                    id: fission_core::WidgetNodeId::explicit("loader_1"),
+                                                    color: None,
+                                                }.build(ctx, view)
+                                            ]
+                                        }.build(ctx, view)
+                                    ]
+                                }.build(ctx, view)
+                            )
+                        }.build(ctx, view),
                         
-                        // Attachment Image
-                        Image {
-                            source: "docs/fission_logo.png".into(),
-                            width: Some(200.0),
-                            height: Some(100.0),
-                            ..Default::default()
-                        }.into(),
+                        // Reply Actions (Radio)
+                        Text { content: TextContent::Literal("Reply Mode:".into()), font_size: Some(14.0), ..Default::default() }.into(),
+                        HStack {
+                            spacing: Some(16.0),
+                            children: vec![
+                                Radio {
+                                    checked: view.state.reply_mode == 0,
+                                    label: Some("Reply".into()),
+                                    on_select: Some(ctx.bind(SelectReplyMode(0), |s,a| s.reply_mode = a.0)),
+                                    ..Default::default()
+                                }.build(ctx, view),
+                                Radio {
+                                    checked: view.state.reply_mode == 1,
+                                    label: Some("Reply All".into()),
+                                    on_select: Some(ctx.bind(SelectReplyMode(1), |s,a| s.reply_mode = a.0)),
+                                    ..Default::default()
+                                }.build(ctx, view),
+                                Radio {
+                                    checked: view.state.reply_mode == 2,
+                                    label: Some("Forward".into()),
+                                    on_select: Some(ctx.bind(SelectReplyMode(2), |s,a| s.reply_mode = a.0)),
+                                    ..Default::default()
+                                }.build(ctx, view),
+                            ]
+                        }.build(ctx, view)
                     ]
                 }
                 .build(ctx, view)
