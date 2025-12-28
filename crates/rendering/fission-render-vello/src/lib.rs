@@ -1,11 +1,7 @@
-pub mod text;
-pub use text::VelloTextMeasurer;
-pub use parley;
-
 use anyhow::Result;
 use fission_render::{DisplayList, DisplayOp, Renderer};
 use vello::kurbo::{Affine, Rect, RoundedRect, Stroke};
-use vello::peniko::{Color, Fill, Mix};
+use vello::peniko::{Color, Fill, Mix, Image, Format, Blob};
 use vello::{Scene, Glyph};
 use std::sync::{Arc, Mutex};
 use parley::{FontContext, LayoutContext};
@@ -13,6 +9,8 @@ use parley::layout::PositionedLayoutItem;
 use std::borrow::Cow;
 use parley::style::{FontStack, StyleProperty};
 use crate::text::ParleyBrush;
+use image::GenericImageView;
+use std::path::Path;
 
 pub struct VelloRenderer<'a> {
     scene: &'a mut Scene,
@@ -21,6 +19,14 @@ pub struct VelloRenderer<'a> {
     current_transform: Affine,
     layer_count_stack: Vec<usize>,
     current_layer_count: usize,
+    // Simple in-memory cache to avoid re-loading/decoding every frame
+    // In a real system this belongs in an AssetManager
+    image_cache: Arc<Mutex<std::collections::HashMap<String, Option<(Image, u32, u32)>>>>, 
+}
+
+// Global cache to persist across frames (since VelloRenderer is recreated per frame in shell)
+lazy_static::lazy_static! {
+    static ref GLOBAL_IMAGE_CACHE: Mutex<std::collections::HashMap<String, Option<(Image, u32, u32)>>> = Mutex::new(std::collections::HashMap::new());
 }
 
 impl<'a> VelloRenderer<'a> {
@@ -32,7 +38,29 @@ impl<'a> VelloRenderer<'a> {
             current_transform: Affine::scale(scale_factor),
             layer_count_stack: Vec::new(),
             current_layer_count: 0,
+            image_cache: Arc::new(Mutex::new(std::collections::HashMap::new())), // Unused now using global
         }
+    }
+
+    fn get_image(&self, path: &str) -> Option<(Image, u32, u32)> {
+        let mut cache = GLOBAL_IMAGE_CACHE.lock().unwrap();
+        if let Some(entry) = cache.get(path) {
+            return entry.clone();
+        }
+
+        // Load image
+        let result = (|| {
+            let img = image::open(path).ok()?;
+            let (w, h) = img.dimensions();
+            let rgba = img.into_rgba8();
+            let data = rgba.into_raw();
+            let blob = Blob::new(Arc::new(data));
+            let image = Image::new(blob, Format::Rgba8, w, h);
+            Some((image, w, h))
+        })();
+
+        cache.insert(path.to_string(), result.clone());
+        result
     }
 }
 
@@ -140,6 +168,39 @@ impl<'a> Renderer for VelloRenderer<'a> {
                                     .draw(Fill::NonZero, glyphs);
                             }
                         }
+                    }
+                }
+                DisplayOp::DrawImage { rect, source, fit, .. } => {
+                    if let Some((image, w, h)) = self.get_image(source) {
+                        let target_rect = Rect::new(
+                            rect.origin.x as f64,
+                            rect.origin.y as f64,
+                            (rect.origin.x + rect.size.width) as f64,
+                            (rect.origin.y + rect.size.height) as f64,
+                        );
+
+                        // Calculate fit transform
+                        let img_w = w as f64;
+                        let img_h = h as f64;
+                        let target_w = target_rect.width();
+                        let target_h = target_rect.height();
+
+                        // Default to Contain
+                        let scale_x = target_w / img_w;
+                        let scale_y = target_h / img_h;
+                        let scale = scale_x.min(scale_y);
+                        
+                        let draw_w = img_w * scale;
+                        let draw_h = img_h * scale;
+                        
+                        let offset_x = (target_w - draw_w) / 2.0;
+                        let offset_y = (target_h - draw_h) / 2.0;
+
+                        let transform = self.current_transform 
+                            * Affine::translate((target_rect.x0 + offset_x, target_rect.y0 + offset_y))
+                            * Affine::scale(scale);
+
+                        self.scene.draw_image(&image, transform);
                     }
                 }
                 _ => {}

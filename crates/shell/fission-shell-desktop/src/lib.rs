@@ -46,6 +46,14 @@ use clipboard::DesktopClipboard;
 mod ime;
 use ime::DesktopImeHandler;
 
+struct ActivePlayer {
+    player: Box<dyn VideoPlayer>,
+    last_status: Option<VideoStatus>,
+    last_rate: Option<f32>,
+    last_volume: Option<f32>,
+    last_muted: Option<bool>,
+}
+
 pub struct DesktopApp<S: AppState, W: Widget<S>> {
     runtime: Runtime,
     layout_engine: LayoutEngine,
@@ -136,7 +144,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
         let video_backend: Arc<dyn VideoBackend> = Arc::new(MacVideoBackend::new(&window));
         #[cfg(not(target_os = "macos"))]
         let video_backend: Arc<dyn VideoBackend> = Arc::new(MockVideoBackend::new());
-        let mut players: HashMap<WidgetNodeId, Box<dyn VideoPlayer>> = HashMap::new();
+        let mut players: HashMap<WidgetNodeId, ActivePlayer> = HashMap::new();
 
         let mut last_cursor_position: Option<PhysicalPosition<f64>> = None;
         let mut last_frame_time = Instant::now();
@@ -178,7 +186,13 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                         if let Some(state) = runtime.runtime_state.video.states.get_mut(&surface.widget_id) {
                                             state.surface_id = Some(player.surface_id());
                                         }
-                                        players.insert(surface.widget_id, player);
+                                        players.insert(surface.widget_id, ActivePlayer {
+                                            player,
+                                            last_status: None,
+                                            last_rate: None,
+                                            last_volume: None,
+                                            last_muted: None,
+                                        });
                                     }
                                 }
                             }
@@ -191,14 +205,19 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                         video_backend.present_surfaces(&surfaces);
 
                         // Video Logic - Process Player Events and Sync State
-                        for (widget_id, player) in players.iter_mut() {
+                        for (widget_id, active_player) in players.iter_mut() {
                             if let Some(video_state) = runtime.runtime_state.video.states.get_mut(widget_id) {
+                                let player = &mut active_player.player;
+                                
                                 // Sync player controls from runtime state
-                                match video_state.status {
-                                    VideoStatus::Playing => player.play(),
-                                    VideoStatus::Paused => player.pause(),
-                                    VideoStatus::Stopped => player.stop(),
-                                    _ => {} 
+                                if active_player.last_status != Some(video_state.status) {
+                                    match video_state.status {
+                                        VideoStatus::Playing => player.play(),
+                                        VideoStatus::Paused => player.pause(),
+                                        VideoStatus::Stopped => player.stop(),
+                                        _ => {} 
+                                    }
+                                    active_player.last_status = Some(video_state.status);
                                 }
                                 
                                 // Update runtime state from player events
@@ -212,66 +231,33 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                         },
                                         VideoEvent::Ended => {
                                             video_state.status = VideoStatus::Ended;
+                                            active_player.last_status = Some(VideoStatus::Ended);
                                             window.request_redraw(); 
                                         },
                                         VideoEvent::Error(e) => {
                                             eprintln!("Video playback error for {:?}: {:?}", widget_id, e);
                                             video_state.status = VideoStatus::Error;
+                                            active_player.last_status = Some(VideoStatus::Error);
                                             window.request_redraw();
                                         },
                                     }
                                 }
                                 // Sync other properties
                                 video_state.position_ms = player.position();
-                                player.set_rate(video_state.rate);
-                                player.set_volume(video_state.volume);
-                                player.set_muted(video_state.muted);
-
-                                if let Some(seek_pos) = video_state.pending_seek.take() {
-                                    player.seek_to(seek_pos);
-                                }
-                            }
-                        }
-                        
-                        // Video Logic - Process Player Events and Sync State
-                        for (widget_id, player) in players.iter_mut() {
-                            if let Some(video_state) = runtime.runtime_state.video.states.get_mut(widget_id) {
-                                // Sync player controls from runtime state
-                                match video_state.status {
-                                    VideoStatus::Playing => player.play(),
-                                    VideoStatus::Paused => player.pause(),
-                                    VideoStatus::Stopped => player.stop(),
-                                    _ => {} // Buffering, Ended, Error are passive and controlled by player events
-                                }
                                 
-                                // Update runtime state from player events
-                                for event in player.poll_events() {
-                                    match event {
-                                        VideoEvent::Ready { duration } => {
-                                            video_state.duration_ms = Some(duration);
-                                            // Trigger an explicit play if it was requested while not ready
-                                            if video_state.status == VideoStatus::Playing {
-                                                player.play();
-                                            }
-                                        },
-                                        VideoEvent::Ended => {
-                                            video_state.status = VideoStatus::Ended;
-                                            window.request_redraw(); // Request redraw to update UI (e.g., show replay button)
-                                        },
-                                        VideoEvent::Error(e) => {
-                                            eprintln!("Video playback error for {:?}: {:?}", widget_id, e);
-                                            video_state.status = VideoStatus::Error;
-                                            window.request_redraw();
-                                        },
-                                    }
+                                if active_player.last_rate != Some(video_state.rate) {
+                                    player.set_rate(video_state.rate);
+                                    active_player.last_rate = Some(video_state.rate);
                                 }
-                                // Sync other properties (position, rate, volume, muted)
-                                video_state.position_ms = player.position();
-                                player.set_rate(video_state.rate);
-                                player.set_volume(video_state.volume);
-                                player.set_muted(video_state.muted);
+                                if active_player.last_volume != Some(video_state.volume) {
+                                    player.set_volume(video_state.volume);
+                                    active_player.last_volume = Some(video_state.volume);
+                                }
+                                if active_player.last_muted != Some(video_state.muted) {
+                                    player.set_muted(video_state.muted);
+                                    active_player.last_muted = Some(video_state.muted);
+                                }
 
-                                // Handle pending seek
                                 if let Some(seek_pos) = video_state.pending_seek.take() {
                                     player.seek_to(seek_pos);
                                 }

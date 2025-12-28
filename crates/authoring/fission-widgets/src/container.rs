@@ -61,7 +61,7 @@ impl LowerDyn for Container {
             children.push(child.lower(cx));
         }
 
-        let stack_op = Op::Layout(LayoutOp::Stack);
+        let stack_op = Op::Layout(LayoutOp::ZStack);
         let mut stack_builder = NodeBuilder::new(cx.next_node_id(), stack_op);
         for child_id in children {
             stack_builder.add_child(child_id);

@@ -75,7 +75,7 @@ pub enum LayoutOp {
     },
     AbsoluteFill,
     Grid,
-    Stack,
+    ZStack,
     Align,
     Flyout {
         anchor: NodeId,

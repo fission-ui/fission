@@ -41,7 +41,7 @@ impl Lower for Overlay {
         let overlay_fill_id = overlay_fill.build(cx);
 
         // Stack container: content first, overlay second.
-        let mut stack = NodeBuilder::new(id, Op::Layout(LayoutOp::Stack));
+        let mut stack = NodeBuilder::new(id, Op::Layout(LayoutOp::ZStack));
         stack.add_child(self.content.lower(cx));
         stack.add_child(overlay_fill_id);
         

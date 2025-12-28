@@ -8,6 +8,7 @@ pub mod video;
 pub mod text_input;
 pub mod stack;
 pub mod overlay;
+pub mod container;
 
 pub use button::Button;
 pub use column::Column;
@@ -17,5 +18,6 @@ pub use scroll::Scroll;
 pub use text::{Text, TextContent};
 pub use video::Video;
 pub use text_input::TextInput;
-pub use stack::Stack;
+pub use stack::ZStack;
 pub use overlay::Overlay;
+pub use container::Container;

@@ -5,5 +5,6 @@ pub mod widgets;
 pub use node::{CustomNode, Node};
 pub use traits::{Lower, LowerDyn};
 pub use widgets::{
-    Button, Column, Image, Overlay, Row, Scroll, Stack, Text, TextContent, TextInput, Video,
+    Button, Column, Container, Image, Overlay, Row, Scroll, Text, TextContent, TextInput, Video,
+    ZStack,
 };

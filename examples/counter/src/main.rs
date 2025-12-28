@@ -3,8 +3,8 @@ use fission_core::action::{Action, ActionId};
 use fission_core::env::{VideoState, VideoStatus};
 use fission_core::op::PaintOp;
 use fission_core::ui::{
-    Button, Column, CustomNode, Image, Node, Overlay, Row, Scroll, Stack, Text, TextContent,
-    TextInput, Video,
+    Button, Column, CustomNode, Image, Node, Overlay, Row, Scroll, Text, TextContent,
+    TextInput, Video, ZStack,
 };
 use fission_core::{
     op::Color as IrColor, ActionEnvelope, AnimationPropertyId, AnimationRequest,
@@ -515,7 +515,7 @@ impl Widget<CounterState> for CounterApp {
                     children: vec![],
                     ..Default::default()
                 })),
-                overlay: Box::new(Node::Stack(Stack {
+                overlay: Box::new(Node::ZStack(ZStack {
                     children: vec![
                         // Dim background
                         Node::Custom(CustomNode {

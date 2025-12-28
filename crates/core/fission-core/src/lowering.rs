@@ -242,8 +242,8 @@ pub fn build_layout_tree(ir: &CoreIR) -> Vec<LayoutInputNode> {
             Op::Paint(PaintOp::DrawImage { .. }) => (LayoutOp::AbsoluteFill, None, None, 0.0, 0.0),
 
             Op::Paint(_) => (LayoutOp::AbsoluteFill, None, None, 0.0, 0.0),
-            Op::Layout(LayoutOp::Stack) => (
-                LayoutOp::Stack,
+            Op::Layout(LayoutOp::ZStack) => (
+                LayoutOp::ZStack,
                 None,
                 None,
                 0.0,

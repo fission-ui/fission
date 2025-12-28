@@ -1,5 +1,7 @@
 use super::traits::{Lower, LowerDyn};
-use super::widgets::{Button, Column, Image, Overlay, Row, Scroll, Stack, Text, TextInput, Video};
+use super::widgets::{
+    Button, Column, Container, Image, Overlay, Row, Scroll, Text, TextInput, Video, ZStack,
+};
 use crate::lowering::LoweringContext;
 use fission_ir::{NodeId, Op, StructuralOp};
 use serde::{Deserialize, Serialize};
@@ -15,8 +17,9 @@ pub enum Node {
     Scroll(Scroll),
     Image(Image),
     Video(Video),
-    Stack(Stack),
+    ZStack(ZStack),
     Overlay(Overlay),
+    Container(Container),
     Custom(CustomNode),
 }
 
@@ -31,8 +34,9 @@ impl Node {
             Node::Scroll(w) => w.lower(cx),
             Node::Image(w) => w.lower(cx),
             Node::Video(w) => w.lower(cx),
-            Node::Stack(w) => w.lower(cx),
+            Node::ZStack(w) => w.lower(cx),
             Node::Overlay(w) => w.lower(cx),
+            Node::Container(w) => w.lower(cx),
             Node::Custom(w) => {
                 let lowerer = w.lowerer.as_ref().expect("CustomNode lowerer must be set");
                 let child_id = lowerer.lower_dyn(cx);
@@ -85,14 +89,19 @@ impl From<Image> for Node {
         Node::Image(w)
     }
 }
-impl From<Stack> for Node {
-    fn from(w: Stack) -> Self {
-        Node::Stack(w)
+impl From<ZStack> for Node {
+    fn from(w: ZStack) -> Self {
+        Node::ZStack(w)
     }
 }
 impl From<Overlay> for Node {
     fn from(w: Overlay) -> Self {
         Node::Overlay(w)
+    }
+}
+impl From<Container> for Node {
+    fn from(w: Container) -> Self {
+        Node::Container(w)
     }
 }
 

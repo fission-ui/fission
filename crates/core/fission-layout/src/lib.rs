@@ -510,7 +510,7 @@ impl LayoutEngine {
                         .unwrap_or(Dimension::Auto),
                 };
             }
-            LayoutOp::Stack => {
+            LayoutOp::ZStack => {
                 style.display = Display::Flex;
                 style.size = taffy::geometry::Size {
                     width: node.width.map(Dimension::Points).unwrap_or(Dimension::Auto),
