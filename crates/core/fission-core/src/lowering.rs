@@ -16,10 +16,11 @@ pub struct LoweringContext<'a> {
     pub env: &'a Env,
     pub runtime_state: &'a RuntimeState,
     pub measurer: Option<&'a Arc<dyn TextMeasurer>>,
+    pub layout: Option<&'a fission_layout::LayoutSnapshot>,
 }
 
 impl<'a> LoweringContext<'a> {
-    pub fn new(env: &'a Env, runtime_state: &'a RuntimeState, measurer: Option<&'a Arc<dyn TextMeasurer>>) -> Self {
+    pub fn new(env: &'a Env, runtime_state: &'a RuntimeState, measurer: Option<&'a Arc<dyn TextMeasurer>>, layout: Option<&'a fission_layout::LayoutSnapshot>) -> Self {
         // Root is parent 0
         LoweringContext {
             id_stack: vec![(NodeId::from_u128(0), 0)],
@@ -27,6 +28,7 @@ impl<'a> LoweringContext<'a> {
             env,
             runtime_state,
             measurer,
+            layout,
         }
     }
 
@@ -35,6 +37,12 @@ impl<'a> LoweringContext<'a> {
         let id = NodeId::derived(parent_id.as_u128(), &[*child_idx]);
         *child_idx += 1;
         id
+    }
+
+    pub fn set_child_index(&mut self, index: u32) {
+        if let Some((_, child_idx)) = self.id_stack.last_mut() {
+            *child_idx = index;
+        }
     }
 
     pub fn push_scope(&mut self, node_id: NodeId) {

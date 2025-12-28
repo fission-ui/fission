@@ -1,7 +1,7 @@
 use crate::{
     env::VideoState,
     registry::{AnimationPropertyId, VideoRegistration},
-    ui::{Button, Checkbox, Column, Container, Grid, GridItem, Image, Node, Overlay, Positioned, Radio, Row, Scroll, Spacer, Switch, Text, TextInput, Video, ZStack},
+    ui::{Button, Checkbox, Column, Container, Grid, GridItem, Image, LazyColumn, Node, Overlay, Positioned, Radio, Row, Scroll, Slider, Spacer, Switch, Text, TextInput, Video, ZStack},
     AppState, BuildCtx, Env, RuntimeState, LayoutSnapshot, LayoutRect,
 };
 use fission_i18n::I18nRegistry;
@@ -98,6 +98,8 @@ impl_widget_for_primitive!(Switch, Switch);
 impl_widget_for_primitive!(Radio, Radio);
 impl_widget_for_primitive!(Positioned, Positioned);
 impl_widget_for_primitive!(Spacer, Spacer);
+impl_widget_for_primitive!(Slider, Slider);
+impl_widget_for_primitive!(LazyColumn, LazyColumn);
 
 impl<S: AppState> Widget<S> for Video {
     fn build(&self, ctx: &mut BuildCtx<S>, _view: &View<S>) -> Node {

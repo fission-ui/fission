@@ -330,7 +330,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                         })
                                     };
 
-                                    let mut lower_cx = LoweringContext::new(&env, &runtime.runtime_state, runtime.measurer.as_ref());
+                                    let mut lower_cx = LoweringContext::new(&env, &runtime.runtime_state, runtime.measurer.as_ref(), pipeline.last_snapshot.as_ref());
                                     let root_id = final_root.lower(&mut lower_cx);
                                     lower_cx.ir.root = Some(root_id);
                                     let cx_ir = lower_cx.ir;

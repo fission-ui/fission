@@ -1,0 +1,122 @@
+use crate::lowering::{LoweringContext, NodeBuilder};
+use crate::ui::traits::Lower;
+use crate::ui::Node;
+use fission_ir::{op::{FlexDirection, LayoutOp, Op}, NodeId};
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LazyColumn {
+    pub id: Option<NodeId>,
+    pub children: Vec<Node>,
+    pub item_height: f32,
+}
+
+impl Default for LazyColumn {
+    fn default() -> Self {
+        Self {
+            id: None,
+            children: Vec::new(),
+            item_height: 40.0,
+        }
+    }
+}
+
+impl Lower for LazyColumn {
+    fn lower(&self, cx: &mut LoweringContext) -> NodeId {
+        let scroll_id = self.id.unwrap_or_else(|| cx.next_node_id());
+        
+        // Get layout info from previous frame
+        let viewport_height = if let Some(layout) = cx.layout {
+            if let Some(geom) = layout.get_node_geometry(scroll_id) {
+                geom.rect.height()
+            } else {
+                600.0 // Default/Fallback
+            }
+        } else {
+            600.0
+        };
+        
+        let scroll_offset = cx.runtime_state.scroll.get_offset(scroll_id);
+        
+        let item_h = self.item_height.max(1.0);
+        let total_count = self.children.len();
+        
+        let start_index = (scroll_offset / item_h).floor() as usize;
+        let visible_count = (viewport_height / item_h).ceil() as usize + 1; // +1 buffer
+        let end_index = (start_index + visible_count).min(total_count);
+        let start_index = start_index.min(total_count); // Clamp
+        
+        // Build children
+        let mut column_children = Vec::new();
+        
+        // Top Spacer
+        if start_index > 0 {
+            let top_h = start_index as f32 * item_h;
+            column_children.push(
+                NodeBuilder::new(
+                    cx.next_node_id(),
+                    Op::Layout(LayoutOp::Box {
+                        width: None, height: Some(top_h),
+                        min_width: None, max_width: None, min_height: None, max_height: None,
+                        padding: [0.0; 4],
+                    })
+                ).build(cx)
+            );
+        }
+        
+        // Visible Items
+        cx.push_scope(scroll_id); 
+        
+        for (i, child) in self.children.iter().enumerate().skip(start_index).take(end_index - start_index) {
+             cx.set_child_index(i as u32);
+             column_children.push(child.lower(cx));
+        }
+        
+        cx.pop_scope();
+        
+        // Bottom Spacer
+        if end_index < total_count {
+            let bottom_h = (total_count - end_index) as f32 * item_h;
+            column_children.push(
+                NodeBuilder::new(
+                    cx.next_node_id(),
+                    Op::Layout(LayoutOp::Box {
+                        width: None, height: Some(bottom_h),
+                        min_width: None, max_width: None, min_height: None, max_height: None,
+                        padding: [0.0; 4],
+                    })
+                ).build(cx)
+            );
+        }
+        
+        // Column
+        let mut col = NodeBuilder::new(
+            cx.next_node_id(), // ID for column wrapper
+            Op::Layout(LayoutOp::Flex {
+                direction: FlexDirection::Column,
+                flex_grow: 0.0,
+                flex_shrink: 0.0,
+                padding: [0.0; 4],
+                gap: None,
+            })
+        );
+        col.add_children(column_children);
+        let col_id = col.build(cx);
+        
+        // Scroll
+        let mut scroll = NodeBuilder::new(
+            scroll_id,
+            Op::Layout(LayoutOp::Scroll {
+                direction: FlexDirection::Column,
+                show_scrollbar: true,
+                width: None, height: None,
+                min_width: None, max_width: None, min_height: None, max_height: None,
+                padding: [0.0; 4],
+            })
+        );
+        scroll.add_child(col_id);
+        scroll.build(cx)
+    }
+}
+
+

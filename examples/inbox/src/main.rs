@@ -3,7 +3,7 @@ use fission_core::op::{Color, GridTrack};
 use fission_core::{BuildCtx, View, Widget, NodeId, WidgetNodeId, Env};
 use fission_widgets::{ 
     Accordion, AccordionItem, Avatar, Badge, Button, Card, Checkbox, Container, Divider, Grid, GridItem, 
-    HStack, Image, Node, Popover, ProgressBar, Radio, Scroll, Slider, Spinner, Switch, Tabs, TabItem, Tag, Text, 
+    HStack, Image, LazyColumn, Node, Popover, ProgressBar, Radio, Scroll, Slider, Spinner, Switch, Tabs, TabItem, Tag, Text, 
     TextContent, TextInput, VStack,
 };
 use fission_shell_desktop::DesktopApp;
@@ -155,7 +155,7 @@ impl Widget<InboxState> for Sidebar {
                         checked: view.state.notifications_enabled,
                         on_toggle: Some(ctx.bind(ToggleNotifications, |s, _| s.notifications_enabled = !s.notifications_enabled)),
                         ..Default::default()
-                    }.into(), // Use .into() for Switch as it is now in Core and implements Widget via macro
+                    }.into(),
                     Text { content: TextContent::Literal("Notifications".into()), ..Default::default() }.into()
                 ]
             }.build(ctx, view)
@@ -270,7 +270,9 @@ impl Widget<InboxState> for EmailList {
             }.build(ctx, view)
         );
 
-        for i in 0..10 {
+        let mut email_nodes = Vec::new();
+        // Virtual List Demo: 50 items
+        for i in 0..50 {
             let id = i;
             let is_selected = view.state.selected_email_id == Some(id);
             let is_checked = view.state.selected_emails.contains(&id);
@@ -289,7 +291,7 @@ impl Widget<InboxState> for EmailList {
                         })),
                         label: None,
                         ..Default::default()
-                    }.into(), // Checkbox is Core now, use into()
+                    }.into(),
                     
                     VStack {
                         spacing: Some(4.0),
@@ -314,7 +316,7 @@ impl Widget<InboxState> for EmailList {
                                 ]
                             }.build(ctx, view),
                             Text {
-                                content: TextContent::Literal("Short preview of the email content goes here...".into()),
+                                content: TextContent::Literal("Short preview...".into()),
                                 font_size: Some(12.0),
                                 color: Some(Color { r: 100, g: 100, b: 100, a: 255 }),
                                 ..Default::default()
@@ -330,7 +332,7 @@ impl Widget<InboxState> for EmailList {
                 .border(Color { r: 230, g: 230, b: 230, a: 255 }, 1.0)
                 .into_node();
 
-            list_items.push(
+            email_nodes.push(
                 Button {
                     child: Some(Box::new(item)),
                     on_press: Some(ctx.bind(SelectEmail(id), |s, a| s.selected_email_id = Some(a.0))),
@@ -340,18 +342,28 @@ impl Widget<InboxState> for EmailList {
             );
         }
 
+        // LazyColumn wrapping the list
+        // Note: LazyColumn expects `id` to be stable to track scroll offset.
+        let lazy_id = WidgetNodeId::explicit("email_list");
+        // Convert WidgetNodeId to NodeId?
+        // LazyColumn struct has `id: Option<NodeId>`.
+        // NodeId::derived(lazy_id.as_u128(), &[]) matches the pattern used elsewhere.
+        let node_id = NodeId::derived(lazy_id.as_u128(), &[]);
+
+        list_items.push(
+            LazyColumn {
+                id: Some(node_id),
+                children: email_nodes,
+                item_height: 80.0, // Estimated item height
+            }.into()
+        );
+
         Container::new(
-            Scroll {
-                child: Some(Box::new(
-                    VStack {
-                        spacing: Some(0.0),
-                        children: list_items,
-                    }
-                    .build(ctx, view)
-                )),
-                ..Default::default()
+            VStack {
+                spacing: Some(0.0),
+                children: list_items,
             }
-            .into()
+            .build(ctx, view)
         )
         .border(Color { r: 220, g: 220, b: 220, a: 255 }, 1.0)
         .into_node()
