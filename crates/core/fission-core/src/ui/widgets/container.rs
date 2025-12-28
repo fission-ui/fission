@@ -30,17 +30,25 @@ pub struct Container {
 }
 
 impl Container {
-    pub fn new() -> Self {
-        Self::default()
-    }
-    
-    pub fn child(mut self, node: Node) -> Self {
-        self.child = Some(Box::new(node));
-        self
+    pub fn new(child: Node) -> Self {
+        Self {
+            child: Some(Box::new(child)),
+            ..Default::default()
+        }
     }
     
     pub fn size(mut self, w: f32, h: f32) -> Self {
         self.width = Some(w);
+        self.height = Some(h);
+        self
+    }
+
+    pub fn width(mut self, w: f32) -> Self {
+        self.width = Some(w);
+        self
+    }
+
+    pub fn height(mut self, h: f32) -> Self {
         self.height = Some(h);
         self
     }
@@ -53,6 +61,21 @@ impl Container {
     pub fn bg(mut self, color: Color) -> Self {
         self.background_color = Some(color);
         self
+    }
+
+    pub fn border(mut self, color: Color, width: f32) -> Self {
+        self.border_color = Some(color);
+        self.border_width = width;
+        self
+    }
+
+    pub fn border_radius(mut self, radius: f32) -> Self {
+        self.border_radius = radius;
+        self
+    }
+
+    pub fn into_node(self) -> Node {
+        Node::Container(self)
     }
 }
 

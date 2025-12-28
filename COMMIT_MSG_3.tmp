@@ -1,0 +1,23 @@
+Implement production-ready layout primitives and widget foundations
+
+This commit introduces significant architectural upgrades to enable robust UI development:
+
+1.  **Grid Layout Support**:
+    *   Added `LayoutOp::Grid` and `LayoutOp::GridItem` to Core IR.
+    *   Implemented full mapping to Taffy's Grid system in `fission-layout`.
+    *   Added `Grid` and `GridItem` widgets to `fission-core`.
+
+2.  **Flexbox Gaps**:
+    *   Added `gap` property to `LayoutOp::Flex`.
+    *   Updated `Row` and `Column` widgets to expose `gap`.
+    *   Implemented high-level `HStack` and `VStack` widgets in `fission-widgets`.
+
+3.  **Box Model**:
+    *   Implemented `Container` widget in `fission-core` combining layout (padding/size) and painting (background/border) in a single consistent node.
+
+4.  **Fixes & Improvements**:
+    *   **I18n**: `TextInput` placeholder now supports localized `TextContent`.
+    *   **Layout**: Restored `compute_layout` logic.
+    *   **Text**: Restored `TextContent` conversion traits.
+    *   **TextInput**: Fixed borrow checker issues in lower logic.
+    *   **Render**: Updated `VelloRenderer` to use correct `peniko` types (0.5.0) and stubbed Image loading to resolve dependency conflicts.
