@@ -187,7 +187,7 @@ impl LowerDyn for CheckboxLowerer {
         // Row container
         let mut row = NodeBuilder::new(
             cx.next_node_id(),
-            Op::Layout(LayoutOp::Flex { direction: fission_core::FlexDirection::Row, flex_grow: 0.0, flex_shrink: 0.0, padding: [0.0; 4] }),
+            Op::Layout(LayoutOp::Flex { direction: fission_core::FlexDirection::Row, flex_grow: 0.0, flex_shrink: 0.0, padding: [0.0; 4], gap: None }),
         );
         row.add_child(square_id);
         if let Some(l) = label_id { row.add_child(l); }
@@ -226,4 +226,6 @@ pub use fission_core::BuildCtx;
 pub mod dropdown;
 pub use dropdown::DropDown;
 pub use fission_core::ui::Container;
+pub mod stack;
+pub use stack::{HStack, VStack};
 

@@ -12,6 +12,18 @@ pub enum TextContent {
     Key(String),
 }
 
+impl From<&str> for TextContent {
+    fn from(value: &str) -> Self {
+        TextContent::Literal(value.to_string())
+    }
+}
+
+impl From<String> for TextContent {
+    fn from(value: String) -> Self {
+        TextContent::Literal(value)
+    }
+}
+
 impl Default for TextContent {
     fn default() -> Self {
         TextContent::Literal(String::new())

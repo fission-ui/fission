@@ -9,6 +9,7 @@ pub struct Column {
     pub semantics: Option<Semantics>,
     pub flex_grow: f32,
     pub flex_shrink: f32,
+    pub gap: Option<f32>,
 }
 
 impl Lower for Column {
@@ -24,6 +25,7 @@ impl Lower for Column {
                 flex_grow: self.flex_grow,
                 flex_shrink: self.flex_shrink,
                 padding: [0.0; 4],
+                gap: self.gap,
             }),
         );
         for child in &self.children {

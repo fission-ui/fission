@@ -39,6 +39,27 @@ pub enum EmbedKind {
     Custom,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub enum GridTrack {
+    Points(LayoutUnit),
+    Percent(f32),
+    Fr(f32),
+    Auto,
+    MinContent,
+    MaxContent,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub enum GridPlacement {
+    Auto,
+    Line(i16),
+    Span(u16),
+}
+
+impl Default for GridPlacement {
+    fn default() -> Self { Self::Auto }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum LayoutOp {
     Box {
@@ -55,6 +76,20 @@ pub enum LayoutOp {
         flex_grow: LayoutUnit,
         flex_shrink: LayoutUnit,
         padding: [LayoutUnit; 4],
+        gap: Option<LayoutUnit>,
+    },
+    Grid {
+        columns: Vec<GridTrack>,
+        rows: Vec<GridTrack>,
+        column_gap: Option<LayoutUnit>,
+        row_gap: Option<LayoutUnit>,
+        padding: [LayoutUnit; 4],
+    },
+    GridItem {
+        row_start: GridPlacement,
+        row_end: GridPlacement,
+        col_start: GridPlacement,
+        col_end: GridPlacement,
     },
     Scroll {
         direction: FlexDirection,
@@ -74,7 +109,6 @@ pub enum LayoutOp {
         height: Option<LayoutUnit>,
     },
     AbsoluteFill,
-    Grid,
     ZStack,
     Align,
     Flyout {

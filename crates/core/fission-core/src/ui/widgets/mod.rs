@@ -9,6 +9,7 @@ pub mod text_input;
 pub mod stack;
 pub mod overlay;
 pub mod container;
+pub mod grid;
 
 pub use button::Button;
 pub use column::Column;
@@ -21,3 +22,4 @@ pub use text_input::TextInput;
 pub use stack::ZStack;
 pub use overlay::Overlay;
 pub use container::Container;
+pub use grid::{Grid, GridItem};

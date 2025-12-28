@@ -1,5 +1,6 @@
 use crate::lowering::{LoweringContext, NodeBuilder};
 use crate::ui::traits::Lower;
+use crate::ui::TextContent;
 use crate::ActionEnvelope;
 use fission_ir::{
     op::{Color as IrColor, Fill, LayoutOp, Op, PaintOp, Stroke},
@@ -12,7 +13,7 @@ use unicode_segmentation::UnicodeSegmentation;
 pub struct TextInput {
     pub id: Option<NodeId>,
     pub value: String,
-    pub placeholder: Option<String>,
+    pub placeholder: Option<TextContent>,
     pub on_change: Option<ActionEnvelope>,
     pub width: Option<f32>,
     pub height: Option<f32>,
@@ -51,6 +52,21 @@ impl Lower for TextInput {
         let font_size = 16.0; // Still hardcoded for now, should be from theme
         let text_color = IrColor::BLACK;
         let selection_color = IrColor::BLUE; // Text color for selection
+
+        // Resolve placeholder
+        let resolved_placeholder = if let Some(ph) = &self.placeholder {
+            match ph {
+                TextContent::Literal(s) => Some(s.clone()),
+                TextContent::Key(key) => Some(cx
+                    .env
+                    .i18n
+                    .get(&cx.env.locale, key)
+                    .map(|s| s.to_string())
+                    .unwrap_or_else(|| format!("MISSING:{}", key))),
+            }
+        } else {
+            None
+        };
 
         // 1. Background
         let stroke_w = if is_focused { 2.0 } else { 1.0 };
@@ -125,9 +141,9 @@ impl Lower for TextInput {
             });
         }
         
-        if display_text.is_empty() && self.placeholder.is_some() {
+        if display_text.is_empty() && resolved_placeholder.is_some() {
              runs = vec![fission_ir::op::TextRun {
-                text: self.placeholder.clone().unwrap(),
+                text: resolved_placeholder.unwrap(),
                 style: fission_ir::op::TextStyle { font_size, color: IrColor { r: 150, g: 150, b: 150, a: 255 }, underline: false },
             }];
         }

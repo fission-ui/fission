@@ -8,8 +8,10 @@ use std::sync::Arc;
 use taffy::geometry::Point;
 use taffy::node::Node as TaffyNodeId;
 use taffy::prelude::*;
+use taffy::geometry::{Line, MinMax};
+use taffy::style::{MinTrackSizingFunction, MaxTrackSizingFunction, GridPlacement as TaffyGridPlacement, TrackSizingFunction};
 
-pub use fission_ir::{FlexDirection, LayoutOp};
+pub use fission_ir::{FlexDirection, LayoutOp, GridTrack, GridPlacement};
 
 pub type LayoutUnit = f32;
 
@@ -443,7 +445,7 @@ impl LayoutEngine {
                 };
             }
             LayoutOp::Flex {
-                direction, padding, ..
+                direction, padding, gap, ..
             } => {
                 style.display = Display::Flex;
                 style.flex_direction = match direction {
@@ -456,6 +458,10 @@ impl LayoutEngine {
                     right: points(padding[1]),
                     top: points(padding[2]),
                     bottom: points(padding[3]),
+                };
+                style.gap = taffy::geometry::Size {
+                    width: gap.map(LengthPercentage::Points).unwrap_or(LengthPercentage::ZERO),
+                    height: gap.map(LengthPercentage::Points).unwrap_or(LengthPercentage::ZERO),
                 };
                 style.size = taffy::geometry::Size {
                     width: node.width.map(Dimension::Points).unwrap_or(Dimension::Auto),
@@ -499,6 +505,85 @@ impl LayoutEngine {
                     width: max_width.map(Dimension::Points).unwrap_or(Dimension::Auto),
                     height: max_height.map(Dimension::Points).unwrap_or(Dimension::Auto),
                 };
+            }
+            LayoutOp::Grid { columns, rows, column_gap, row_gap, padding } => {
+                style.display = Display::Grid;
+                style.padding = taffy::geometry::Rect {
+                    left: points(padding[0]),
+                    right: points(padding[1]),
+                    top: points(padding[2]),
+                    bottom: points(padding[3]),
+                };
+                style.gap = taffy::geometry::Size {
+                    width: column_gap.map(LengthPercentage::Points).unwrap_or(LengthPercentage::ZERO),
+                    height: row_gap.map(LengthPercentage::Points).unwrap_or(LengthPercentage::ZERO),
+                };
+                
+                style.grid_template_columns = columns.iter().map(|t| match t {
+                    GridTrack::Points(p) => TrackSizingFunction::Single(MinMax {
+                        min: MinTrackSizingFunction::Fixed(LengthPercentage::Points(*p)),
+                        max: MaxTrackSizingFunction::Fixed(LengthPercentage::Points(*p)),
+                    }),
+                    GridTrack::Percent(p) => TrackSizingFunction::Single(MinMax {
+                        min: MinTrackSizingFunction::Fixed(LengthPercentage::Percent(*p)),
+                        max: MaxTrackSizingFunction::Fixed(LengthPercentage::Percent(*p)),
+                    }),
+                    GridTrack::Fr(f) => TrackSizingFunction::Single(MinMax { 
+                        min: MinTrackSizingFunction::Auto, 
+                        max: MaxTrackSizingFunction::Fraction(*f) 
+                    }),
+                    GridTrack::Auto => TrackSizingFunction::Single(MinMax {
+                        min: MinTrackSizingFunction::Auto,
+                        max: MaxTrackSizingFunction::Auto,
+                    }),
+                    GridTrack::MinContent => TrackSizingFunction::Single(MinMax {
+                        min: MinTrackSizingFunction::MinContent,
+                        max: MaxTrackSizingFunction::MinContent,
+                    }),
+                    GridTrack::MaxContent => TrackSizingFunction::Single(MinMax {
+                        min: MinTrackSizingFunction::MaxContent,
+                        max: MaxTrackSizingFunction::MaxContent,
+                    }),
+                }).collect();
+                
+                style.grid_template_rows = rows.iter().map(|t| match t {
+                    GridTrack::Points(p) => TrackSizingFunction::Single(MinMax {
+                        min: MinTrackSizingFunction::Fixed(LengthPercentage::Points(*p)),
+                        max: MaxTrackSizingFunction::Fixed(LengthPercentage::Points(*p)),
+                    }),
+                    GridTrack::Percent(p) => TrackSizingFunction::Single(MinMax {
+                        min: MinTrackSizingFunction::Fixed(LengthPercentage::Percent(*p)),
+                        max: MaxTrackSizingFunction::Fixed(LengthPercentage::Percent(*p)),
+                    }),
+                    GridTrack::Fr(f) => TrackSizingFunction::Single(MinMax { 
+                        min: MinTrackSizingFunction::Auto, 
+                        max: MaxTrackSizingFunction::Fraction(*f) 
+                    }),
+                    GridTrack::Auto => TrackSizingFunction::Single(MinMax {
+                        min: MinTrackSizingFunction::Auto,
+                        max: MaxTrackSizingFunction::Auto,
+                    }),
+                    GridTrack::MinContent => TrackSizingFunction::Single(MinMax {
+                        min: MinTrackSizingFunction::MinContent,
+                        max: MaxTrackSizingFunction::MinContent,
+                    }),
+                    GridTrack::MaxContent => TrackSizingFunction::Single(MinMax {
+                        min: MinTrackSizingFunction::MaxContent,
+                        max: MaxTrackSizingFunction::MaxContent,
+                    }),
+                }).collect();
+            }
+            LayoutOp::GridItem { row_start, row_end, col_start, col_end } => {
+                style.display = Display::Flex;
+                let map_p = |p: &fission_ir::op::GridPlacement| -> TaffyGridPlacement { 
+                    match p {
+                        GridPlacement::Auto => TaffyGridPlacement::Auto,
+                        GridPlacement::Line(l) => TaffyGridPlacement::Line((*l).into()),
+                        GridPlacement::Span(s) => TaffyGridPlacement::Span(*s),
+                    }
+                };
+                style.grid_row = Line { start: map_p(row_start), end: map_p(row_end) };
+                style.grid_column = Line { start: map_p(col_start), end: map_p(col_end) };
             }
             LayoutOp::Embed { .. } => {
                 style.display = Display::Flex;

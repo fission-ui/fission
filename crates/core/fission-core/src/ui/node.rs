@@ -1,6 +1,7 @@
 use super::traits::{Lower, LowerDyn};
 use super::widgets::{
-    Button, Column, Container, Image, Overlay, Row, Scroll, Text, TextInput, Video, ZStack,
+    Button, Column, Container, Grid, GridItem, Image, Overlay, Row, Scroll, Text, TextInput, Video,
+    ZStack,
 };
 use crate::lowering::LoweringContext;
 use fission_ir::{NodeId, Op, StructuralOp};
@@ -20,6 +21,8 @@ pub enum Node {
     ZStack(ZStack),
     Overlay(Overlay),
     Container(Container),
+    Grid(Grid),
+    GridItem(GridItem),
     Custom(CustomNode),
 }
 
@@ -37,6 +40,8 @@ impl Node {
             Node::ZStack(w) => w.lower(cx),
             Node::Overlay(w) => w.lower(cx),
             Node::Container(w) => w.lower(cx),
+            Node::Grid(w) => w.lower(cx),
+            Node::GridItem(w) => w.lower(cx),
             Node::Custom(w) => {
                 let lowerer = w.lowerer.as_ref().expect("CustomNode lowerer must be set");
                 let child_id = lowerer.lower_dyn(cx);
@@ -102,6 +107,16 @@ impl From<Overlay> for Node {
 impl From<Container> for Node {
     fn from(w: Container) -> Self {
         Node::Container(w)
+    }
+}
+impl From<Grid> for Node {
+    fn from(w: Grid) -> Self {
+        Node::Grid(w)
+    }
+}
+impl From<GridItem> for Node {
+    fn from(w: GridItem) -> Self {
+        Node::GridItem(w)
     }
 }
 
