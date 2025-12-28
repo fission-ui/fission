@@ -176,9 +176,11 @@ pub enum PaintOp {
         size: LayoutUnit,
         color: Color,
         underline: bool,
+        caret_index: Option<usize>,
     },
     DrawRichText {
         runs: Vec<TextRun>,
+        caret_index: Option<usize>,
     },
     DrawImage {
         source: String,

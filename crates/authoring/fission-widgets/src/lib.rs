@@ -1,4 +1,4 @@
-pub use fission_core::ui::{Button, Column, CustomNode, Node, Overlay, Row, Stack, Text, TextContent, TextInput};
+pub use fission_core::ui::{Button, Column, CustomNode, Node, Overlay, Row, ZStack, Text, TextContent, TextInput};
 pub use fission_core::view::{Selector, View, Widget};
 use fission_core::{lowering::NodeBuilder, op::StructuralOp, LowerDyn, LoweringContext, NodeId, Op};
 use std::sync::Arc;
@@ -172,7 +172,7 @@ impl LowerDyn for CheckboxLowerer {
         let label_id = if let Some(text) = &self.0.label {
             let text_id = NodeBuilder::new(
                 cx.next_node_id(),
-                Op::Paint(PaintOp::DrawText { text: text.clone(), size: 14.0, color: IrColor::BLACK, underline: false }),
+                Op::Paint(PaintOp::DrawText { text: text.clone(), size: 14.0, color: IrColor::BLACK, underline: false, caret_index: None }),
             )
             .build(cx);
             let mut layout_builder = NodeBuilder::new(
@@ -225,4 +225,5 @@ pub fn checkbox(props: CheckboxProps) -> Node {
 pub use fission_core::BuildCtx;
 pub mod dropdown;
 pub use dropdown::DropDown;
+pub use fission_core::ui::Container;
 

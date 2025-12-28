@@ -72,12 +72,14 @@ pub enum DisplayOp {
         bounds: LayoutRect,
         node_id: Option<NodeId>,
         underline: bool,
+        caret_index: Option<usize>,
     },
     DrawRichText {
         runs: Vec<TextRun>,
         position: LayoutPoint,
         bounds: LayoutRect,
         node_id: Option<NodeId>,
+        caret_index: Option<usize>,
     },
     DrawImage {
         rect: LayoutRect,

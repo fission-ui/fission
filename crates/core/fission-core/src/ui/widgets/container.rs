@@ -98,9 +98,3 @@ impl Lower for Container {
         layout.build(cx)
     }
 }
-
-impl From<Container> for Node {
-    fn from(w: Container) -> Self {
-        Node::Container(w)
-    }
-}

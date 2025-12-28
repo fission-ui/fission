@@ -1,4 +1,4 @@
-use fission_core::{action::{ActionEnvelope, AppState}, op::{Color, Fill, LayoutOp, Op, PaintOp, Stroke}, ui::{Button, Column, Row, Scroll, Stack, Text, TextContent}, BuildCtx, CustomNode, LowerDyn, LoweringContext, Node, NodeBuilder, NodeId, View, Widget, WidgetNodeId};
+use fission_core::{action::{ActionEnvelope, AppState}, op::{Color, Fill, LayoutOp, Op, PaintOp, Stroke}, ui::{Button, Column, Row, Scroll, ZStack, Text, TextContent}, BuildCtx, CustomNode, LowerDyn, LoweringContext, Node, NodeBuilder, NodeId, View, Widget, WidgetNodeId};
 use fission_ir::semantics::{ActionEntry, ActionSet, Role, Semantics};
 use fission_macros::Action;
 use fission_shell_desktop::DesktopApp;
@@ -64,7 +64,7 @@ impl LowerDyn for PanelLowerer {
 
         let child_id = self.child.lower(cx);
 
-        let mut stack_builder = NodeBuilder::new(cx.next_node_id(), Op::Layout(LayoutOp::Stack));
+        let mut stack_builder = NodeBuilder::new(cx.next_node_id(), Op::Layout(LayoutOp::ZStack));
         stack_builder.add_child(background_paint);
         stack_builder.add_child(child_id);
         stack_builder.build(cx)
@@ -289,7 +289,7 @@ impl Widget<InboxAppState> for InboxApp {
         
         layers.insert(0, main_ui);
 
-        Stack { children: layers, ..Default::default() }.into()
+        ZStack { children: layers, ..Default::default() }.into()
     }
 }
 

@@ -50,6 +50,7 @@ impl Lower for Text {
                 size: self.font_size.unwrap_or(14.0),
                 color: self.color.unwrap_or(IrColor::BLACK),
                 underline: false,
+                caret_index: None,
             }),
         )
         .build(cx);

@@ -460,7 +460,7 @@ impl Pipeline {
                         node_id: Some(node_id),
                     });
                 }
-                fission_ir::Op::Paint(fission_ir::PaintOp::DrawText { text, size, color, underline }) => {
+                fission_ir::Op::Paint(fission_ir::PaintOp::DrawText { text, size, color, underline, caret_index }) => {
                     segment.push(DisplayOp::DrawText {
                         text: text.clone(),
                         position: geom.rect.origin,
@@ -469,6 +469,25 @@ impl Pipeline {
                         bounds: geom.rect,
                         node_id: Some(node_id),
                         underline: *underline,
+                        caret_index: *caret_index,
+                    });
+                }
+                fission_ir::Op::Paint(fission_ir::PaintOp::DrawRichText { runs, caret_index }) => {
+                    let render_runs = runs.iter().map(|r| fission_render::TextRun {
+                        text: r.text.clone(),
+                        style: fission_render::TextStyle {
+                            font_size: r.style.font_size,
+                            color: fission_render::Color { r: r.style.color.r, g: r.style.color.g, b: r.style.color.b, a: r.style.color.a },
+                            underline: r.style.underline,
+                        }
+                    }).collect();
+                    
+                    segment.push(DisplayOp::DrawRichText {
+                        runs: render_runs,
+                        position: geom.rect.origin,
+                        bounds: geom.rect,
+                        node_id: Some(node_id),
+                        caret_index: *caret_index,
                     });
                 }
                 fission_ir::Op::Paint(fission_ir::PaintOp::DrawImage { source, fit }) => {

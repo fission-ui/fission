@@ -205,7 +205,7 @@ pub fn build_layout_tree(ir: &CoreIR) -> Vec<LayoutInputNode> {
                 0.0,
             ),
 
-            Op::Paint(PaintOp::DrawText { text, size, color, underline }) => {
+            Op::Paint(PaintOp::DrawText { text, size, color, underline, caret_index: _ }) => {
                 rich_text_content = Some(vec![fission_ir::op::TextRun {
                     text: text.clone(),
                     style: fission_ir::op::TextStyle { font_size: *size, color: *color, underline: *underline },
@@ -223,7 +223,7 @@ pub fn build_layout_tree(ir: &CoreIR) -> Vec<LayoutInputNode> {
                     0.0,
                 )
             }
-            Op::Paint(PaintOp::DrawRichText { runs }) => {
+            Op::Paint(PaintOp::DrawRichText { runs, caret_index: _ }) => {
                 rich_text_content = Some(runs.clone());
                 (
                     LayoutOp::Box {
