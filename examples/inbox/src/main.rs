@@ -131,7 +131,7 @@ impl Widget<InboxState> for Sidebar {
             
             children.push(
                 Tooltip {
-                    id: WidgetNodeId::explicit(format!("tooltip_{}", folder)),
+                    id: WidgetNodeId::explicit(&format!("tooltip_{}", folder)),
                     text: format!("Go to {}", folder),
                     child: Box::new(
                         Button {

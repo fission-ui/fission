@@ -24,7 +24,7 @@ impl<S: fission_core::AppState> Widget<S> for Tooltip {
         // `View` struct needs to expose `interaction`.
         // `View` has `runtime_state`.
         
-        let is_hovered = view.runtime_state.interaction.is_hovered(node_id);
+        let is_hovered = view.runtime.interaction.is_hovered(node_id);
 
         if is_hovered {
             if let Some(rect) = view.get_rect(self.id) {
