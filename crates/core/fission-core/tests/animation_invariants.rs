@@ -21,7 +21,8 @@ fn test_animation_tick() {
             end_value: 1.0,
             start_time: 0,
             duration: 1000,
-        },
+            repeat: false,
+        }
     );
 
     // Tick 500ms

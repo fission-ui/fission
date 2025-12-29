@@ -124,10 +124,10 @@ impl Lower for Button {
             button_id,
             Op::Layout(LayoutOp::Box {
                 width: self.width,
-                height: self.height.or(Some(resolved_style.height)),
+                height: self.height,
                 min_width: None,
                 max_width: None,
-                min_height: None,
+                min_height: Some(resolved_style.height),
                 max_height: None,
                 padding: [
                     resolved_style.padding_horizontal,

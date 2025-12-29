@@ -7,7 +7,7 @@ use fission_core::{BuildCtx, InputEvent, LayoutPoint, Runtime, View};
 use fission_ir::Role;
 use fission_layout::{LayoutEngine, LayoutSize, TextMeasurer, LineMetric};
 use fission_render::{DisplayList, Renderer};
-use fission_widgets::{checkbox, CheckboxProps, Portal};
+use fission_widgets::{Checkbox, Portal};
 use std::sync::{Arc, Mutex};
 
 use fission_shell_desktop::Pipeline;
@@ -57,11 +57,12 @@ impl fission_core::view::Widget<AppState> for Root {
     fn build(&self, ctx: &mut BuildCtx<AppState>, view: &View<AppState>) -> Node {
         use fission_core::ui::{Column, Row, Text, TextContent};
         let mut children: Vec<Node> = vec![
-            checkbox(CheckboxProps {
+            Checkbox {
                 checked: view.state.checked,
                 on_toggle: Some(ctx.bind(Toggle, on_toggle)),
                 label: Some("check".into()),
-            }),
+                ..Default::default()
+            }.into(),
             TextInput {
                 value: view.state.text.clone(),
                 placeholder: Some("type".into()),
@@ -73,11 +74,11 @@ impl fission_core::view::Widget<AppState> for Root {
             .into(),
         ];
         if view.state.show_portal {
-            use fission_core::ui::{Overlay, Row as UIRow, Stack};
+            use fission_core::ui::{Overlay, Row as UIRow, ZStack};
             let overlay = Overlay {
                 id: None,
                 content: Box::new(Node::Row(UIRow::default())),
-                overlay: Box::new(Node::Stack(Stack::default())),
+                overlay: Box::new(Node::ZStack(ZStack::default())),
             };
             children.push(
                 Portal {
@@ -103,7 +104,7 @@ fn pump(
     // Build + wrap portals like desktop
     let node_tree = {
         let state = runtime.get_app_state::<AppState>().unwrap();
-        let view = View::new(state, &runtime.runtime_state, env);
+        let view = View::new(state, &runtime.runtime_state, env, pipe.last_snapshot.as_ref());
         let mut ctx = BuildCtx::new();
         let mut tree = root.build(&mut ctx, &view);
         runtime.clear_reducers();
@@ -115,7 +116,7 @@ fn pump(
         runtime.sync_video_nodes(&vids);
         let portals = ctx.take_portals();
         if !portals.is_empty() {
-            use fission_core::ui::{Overlay, Row, Stack};
+            use fission_core::ui::{Overlay, Row, ZStack};
             let mut children = Vec::with_capacity(1 + portals.len());
             children.push(tree);
             for p in portals {
@@ -125,12 +126,12 @@ fn pump(
                     overlay: Box::new(p),
                 }));
             }
-            tree = Node::Stack(Stack { id: None, children });
+            tree = Node::ZStack(ZStack { id: None, children });
         }
         tree
     };
     // Lower
-    let mut cx = LoweringContext::new(env, &runtime.runtime_state, None);
+    let mut cx = LoweringContext::new(env, &runtime.runtime_state, None, pipe.last_snapshot.as_ref());
     let root_id = node_tree.lower(&mut cx);
     cx.ir.root = Some(root_id);
     let ir = cx.ir;

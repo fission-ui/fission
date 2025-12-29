@@ -27,6 +27,12 @@ fn test_semantics_serialization() {
         ime_preedit_range: None,
         checked: None,
         disabled: false,
+        draggable: false,
+        scrollable_x: false,
+        scrollable_y: false,
+        min_value: None,
+        max_value: None,
+        current_value: None,
     };
 
     // Just verify it compiles and runs; exact serde format isn't critical yet, but capability is.

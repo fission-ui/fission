@@ -56,6 +56,7 @@ fn test_taffy_integration_flex_row() {
                 flex_grow: 0.0,
                 flex_shrink: 0.0,
                 padding: [0.0; 4],
+                gap: None,
             },
             children_ids: vec![child1_id, child2_id],
             debug_name: "root".into(),

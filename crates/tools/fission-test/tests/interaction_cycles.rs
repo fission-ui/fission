@@ -41,7 +41,7 @@ fn text_input_focus_has_no_ir_cycles() -> Result<()> {
 #[test]
 fn checkbox_toggle_has_no_ir_cycles() -> Result<()> {
     use fission_core::view::Widget;
-    use fission_widgets::{checkbox, CheckboxProps};
+    use fission_widgets::Checkbox;
     use fission_core::{BuildCtx, View};
     use fission_core::action::Action;
     use serde::{Deserialize, Serialize};
@@ -57,11 +57,12 @@ fn checkbox_toggle_has_no_ir_cycles() -> Result<()> {
     struct Root;
     impl Widget<AppState> for Root {
         fn build(&self, ctx: &mut BuildCtx<AppState>, view: &View<AppState>) -> fission_core::ui::Node {
-            checkbox(CheckboxProps {
+            Checkbox {
                 checked: view.state.checked,
                 on_toggle: Some(ctx.bind(Toggle, on_toggle)),
                 label: Some("check".into()),
-            })
+                ..Default::default()
+            }.into()
         }
     }
 

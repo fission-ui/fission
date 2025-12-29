@@ -58,14 +58,17 @@ impl Lower for LazyColumn {
         }
         
         // Visible Items
-        cx.push_scope(col_id); // Correct scope
+        // We do NOT push `col_id` as a shared scope because children need stable IDs regardless of skip.
+        // Instead, we derive a unique scope for each child index.
         
         for (i, child) in self.children.iter().enumerate().skip(start_index).take(end_index - start_index) {
-             cx.set_child_index(i as u32);
+             let child_scope = NodeId::derived(col_id.as_u128(), &[i as u32]);
+             cx.push_scope(child_scope);
              column_children.push(child.lower(cx));
+             cx.pop_scope();
         }
         
-        cx.pop_scope();
+        // No pop_scope needed for col_id since we didn't push it.
         
         // Bottom Spacer
         // ...

@@ -223,6 +223,7 @@ fn setup_ctx<'a>(
     interaction: &'a mut InteractionStateMap,
     scroll: &'a mut ScrollStateMap,
     ime_preedit: &'a mut Option<(NodeId, String)>,
+    gesture: &'a mut fission_core::env::GestureState,
     clipboard: &'a Arc<dyn Clipboard>,
     measurer: Option<&'a Arc<dyn TextMeasurer>>,
 ) -> ControllerContext<'a> {
@@ -233,6 +234,7 @@ fn setup_ctx<'a>(
         interaction,
         scroll,
         ime_preedit,
+        gesture,
         clipboard: Some(clipboard),
         measurer,
         dispatched_actions: Vec::new(),
@@ -257,6 +259,12 @@ fn create_text_node(id: NodeId, val: &str, multiline: bool) -> CoreIR {
             ime_preedit_range: None,
             checked: None,
             disabled: false,
+            draggable: false,
+            scrollable_x: false,
+            scrollable_y: false,
+            min_value: None,
+            max_value: None,
+            current_value: None,
         }),
         hash: 0,
     });
@@ -272,6 +280,7 @@ fn test_text_input_typing() {
     let mut interaction = InteractionStateMap::default();
     let mut scroll = ScrollStateMap::default();
     let mut ime_preedit = None;
+    let mut gesture = fission_core::env::GestureState::default();
     let clipboard: Arc<dyn Clipboard> = Arc::new(MockClipboard::new());
     let measurer: Arc<dyn TextMeasurer> = Arc::new(MockTextMeasurer);
 
@@ -279,7 +288,7 @@ fn test_text_input_typing() {
     text_edit.set_caret(node_id, 5, Some(5));
 
     let mut controller = TextInputController;
-    let mut ctx = setup_ctx(&ir, &layout, &mut text_edit, &mut interaction, &mut scroll, &mut ime_preedit, &clipboard, Some(&measurer));
+    let mut ctx = setup_ctx(&ir, &layout, &mut text_edit, &mut interaction, &mut scroll, &mut ime_preedit, &mut gesture, &clipboard, Some(&measurer));
     let event = InputEvent::Keyboard(KeyEvent::Down { key_code: KeyCode::Char('!'), modifiers: 0 });
     assert!(controller.handle_event(&mut ctx, &event));
     
@@ -301,6 +310,7 @@ fn test_text_input_copy_paste() {
     let mut interaction = InteractionStateMap::default();
     let mut scroll = ScrollStateMap::default();
     let mut ime_preedit = None;
+    let mut gesture = fission_core::env::GestureState::default();
     let clipboard: Arc<dyn Clipboard> = Arc::new(MockClipboard::new());
     let measurer: Arc<dyn TextMeasurer> = Arc::new(MockTextMeasurer);
 
@@ -311,7 +321,7 @@ fn test_text_input_copy_paste() {
 
     // Cmd+C
     {
-        let mut ctx = setup_ctx(&ir, &layout, &mut text_edit, &mut interaction, &mut scroll, &mut ime_preedit, &clipboard, Some(&measurer));
+        let mut ctx = setup_ctx(&ir, &layout, &mut text_edit, &mut interaction, &mut scroll, &mut ime_preedit, &mut gesture, &clipboard, Some(&measurer));
         let event = InputEvent::Keyboard(KeyEvent::Down { key_code: KeyCode::Char('c'), modifiers: 8 });
         assert!(controller.handle_event(&mut ctx, &event));
         assert_eq!(clipboard.get_text().as_deref(), Some("Select"));
@@ -321,7 +331,7 @@ fn test_text_input_copy_paste() {
 
     // Cmd+V
     {
-        let mut ctx = setup_ctx(&ir, &layout, &mut text_edit, &mut interaction, &mut scroll, &mut ime_preedit, &clipboard, Some(&measurer));
+        let mut ctx = setup_ctx(&ir, &layout, &mut text_edit, &mut interaction, &mut scroll, &mut ime_preedit, &mut gesture, &clipboard, Some(&measurer));
         let event = InputEvent::Keyboard(KeyEvent::Down { key_code: KeyCode::Char('v'), modifiers: 8 });
         assert!(controller.handle_event(&mut ctx, &event));
         
@@ -341,6 +351,7 @@ fn test_emoji_navigation_and_deletion() {
     let mut interaction = InteractionStateMap::default();
     let mut scroll = ScrollStateMap::default();
     let mut ime_preedit = None;
+    let mut gesture = fission_core::env::GestureState::default();
     let clipboard: Arc<dyn Clipboard> = Arc::new(MockClipboard::new());
     let measurer: Arc<dyn TextMeasurer> = Arc::new(MockTextMeasurer);
 
@@ -352,7 +363,7 @@ fn test_emoji_navigation_and_deletion() {
 
     // Backspace should delete the entire emoji
     {
-        let mut ctx = setup_ctx(&ir, &layout, &mut text_edit, &mut interaction, &mut scroll, &mut ime_preedit, &clipboard, Some(&measurer));
+        let mut ctx = setup_ctx(&ir, &layout, &mut text_edit, &mut interaction, &mut scroll, &mut ime_preedit, &mut gesture, &clipboard, Some(&measurer));
         let event = InputEvent::Keyboard(KeyEvent::Down { key_code: KeyCode::Backspace, modifiers: 0 });
         assert!(controller.handle_event(&mut ctx, &event));
         
@@ -368,7 +379,7 @@ fn test_emoji_navigation_and_deletion() {
     
     // Left arrow should jump over emoji
     {
-        let mut ctx = setup_ctx(&ir, &layout, &mut text_edit, &mut interaction, &mut scroll, &mut ime_preedit, &clipboard, Some(&measurer));
+        let mut ctx = setup_ctx(&ir, &layout, &mut text_edit, &mut interaction, &mut scroll, &mut ime_preedit, &mut gesture, &clipboard, Some(&measurer));
         let event = InputEvent::Keyboard(KeyEvent::Down { key_code: KeyCode::Left, modifiers: 0 });
         assert!(controller.handle_event(&mut ctx, &event));
         
@@ -388,6 +399,7 @@ fn test_word_navigation() {
     let mut interaction = InteractionStateMap::default();
     let mut scroll = ScrollStateMap::default();
     let mut ime_preedit = None;
+    let mut gesture = fission_core::env::GestureState::default();
     let clipboard: Arc<dyn Clipboard> = Arc::new(MockClipboard::new());
     let measurer: Arc<dyn TextMeasurer> = Arc::new(MockTextMeasurer);
 
@@ -399,7 +411,7 @@ fn test_word_navigation() {
 
     // Alt+Left -> "hello world |code"
     {
-        let mut ctx = setup_ctx(&ir, &layout, &mut text_edit, &mut interaction, &mut scroll, &mut ime_preedit, &clipboard, Some(&measurer));
+        let mut ctx = setup_ctx(&ir, &layout, &mut text_edit, &mut interaction, &mut scroll, &mut ime_preedit, &mut gesture, &clipboard, Some(&measurer));
         let event = InputEvent::Keyboard(KeyEvent::Down { key_code: KeyCode::Left, modifiers: 2 }); // Alt
         assert!(controller.handle_event(&mut ctx, &event));
         let st = ctx.text_edit.get(node_id).unwrap();
@@ -408,7 +420,7 @@ fn test_word_navigation() {
     
     // Alt+Left again -> "hello |world code"
     {
-        let mut ctx = setup_ctx(&ir, &layout, &mut text_edit, &mut interaction, &mut scroll, &mut ime_preedit, &clipboard, Some(&measurer));
+        let mut ctx = setup_ctx(&ir, &layout, &mut text_edit, &mut interaction, &mut scroll, &mut ime_preedit, &mut gesture, &clipboard, Some(&measurer));
         let event = InputEvent::Keyboard(KeyEvent::Down { key_code: KeyCode::Left, modifiers: 2 });
         assert!(controller.handle_event(&mut ctx, &event));
         let st = ctx.text_edit.get(node_id).unwrap();
@@ -426,6 +438,7 @@ fn test_selection_mechanics() {
     let mut interaction = InteractionStateMap::default();
     let mut scroll = ScrollStateMap::default();
     let mut ime_preedit = None;
+    let mut gesture = fission_core::env::GestureState::default();
     let clipboard: Arc<dyn Clipboard> = Arc::new(MockClipboard::new());
     let measurer: Arc<dyn TextMeasurer> = Arc::new(MockTextMeasurer);
 
@@ -436,7 +449,7 @@ fn test_selection_mechanics() {
 
     // Shift+Right -> "A|BCD" with selection [0,1)
     {
-        let mut ctx = setup_ctx(&ir, &layout, &mut text_edit, &mut interaction, &mut scroll, &mut ime_preedit, &clipboard, Some(&measurer));
+        let mut ctx = setup_ctx(&ir, &layout, &mut text_edit, &mut interaction, &mut scroll, &mut ime_preedit, &mut gesture, &clipboard, Some(&measurer));
         let event = InputEvent::Keyboard(KeyEvent::Down { key_code: KeyCode::Right, modifiers: 1 }); // Shift
         assert!(controller.handle_event(&mut ctx, &event));
         let st = ctx.text_edit.get(node_id).unwrap();
@@ -446,7 +459,7 @@ fn test_selection_mechanics() {
 
     // Shift+Right again -> "AB|CD" with selection [0,2)
     {
-        let mut ctx = setup_ctx(&ir, &layout, &mut text_edit, &mut interaction, &mut scroll, &mut ime_preedit, &clipboard, Some(&measurer));
+        let mut ctx = setup_ctx(&ir, &layout, &mut text_edit, &mut interaction, &mut scroll, &mut ime_preedit, &mut gesture, &clipboard, Some(&measurer));
         let event = InputEvent::Keyboard(KeyEvent::Down { key_code: KeyCode::Right, modifiers: 1 });
         assert!(controller.handle_event(&mut ctx, &event));
         let st = ctx.text_edit.get(node_id).unwrap();
@@ -456,7 +469,7 @@ fn test_selection_mechanics() {
 
     // Type 'X' -> Replace selection -> "XCD"
     {
-        let mut ctx = setup_ctx(&ir, &layout, &mut text_edit, &mut interaction, &mut scroll, &mut ime_preedit, &clipboard, Some(&measurer));
+        let mut ctx = setup_ctx(&ir, &layout, &mut text_edit, &mut interaction, &mut scroll, &mut ime_preedit, &mut gesture, &clipboard, Some(&measurer));
         let event = InputEvent::Keyboard(KeyEvent::Down { key_code: KeyCode::Char('X'), modifiers: 0 });
         assert!(controller.handle_event(&mut ctx, &event));
         
@@ -479,6 +492,7 @@ fn test_home_end_navigation() {
     let mut interaction = InteractionStateMap::default();
     let mut scroll = ScrollStateMap::default();
     let mut ime_preedit = None;
+    let mut gesture = fission_core::env::GestureState::default();
     let clipboard: Arc<dyn Clipboard> = Arc::new(MockClipboard::new());
     let measurer: Arc<dyn TextMeasurer> = Arc::new(MockTextMeasurer);
 
@@ -489,7 +503,7 @@ fn test_home_end_navigation() {
 
     // Home
     {
-        let mut ctx = setup_ctx(&ir, &layout, &mut text_edit, &mut interaction, &mut scroll, &mut ime_preedit, &clipboard, Some(&measurer));
+        let mut ctx = setup_ctx(&ir, &layout, &mut text_edit, &mut interaction, &mut scroll, &mut ime_preedit, &mut gesture, &clipboard, Some(&measurer));
         let event = InputEvent::Keyboard(KeyEvent::Down { key_code: KeyCode::Home, modifiers: 0 });
         assert!(controller.handle_event(&mut ctx, &event));
         let st = ctx.text_edit.get(node_id).unwrap();
@@ -498,7 +512,7 @@ fn test_home_end_navigation() {
 
     // End
     {
-        let mut ctx = setup_ctx(&ir, &layout, &mut text_edit, &mut interaction, &mut scroll, &mut ime_preedit, &clipboard, Some(&measurer));
+        let mut ctx = setup_ctx(&ir, &layout, &mut text_edit, &mut interaction, &mut scroll, &mut ime_preedit, &mut gesture, &clipboard, Some(&measurer));
         let event = InputEvent::Keyboard(KeyEvent::Down { key_code: KeyCode::End, modifiers: 0 });
         assert!(controller.handle_event(&mut ctx, &event));
         let st = ctx.text_edit.get(node_id).unwrap();
@@ -516,6 +530,7 @@ fn test_multiline_enter_key() {
     let mut interaction = InteractionStateMap::default();
     let mut scroll = ScrollStateMap::default();
     let mut ime_preedit = None;
+    let mut gesture = fission_core::env::GestureState::default();
     let clipboard: Arc<dyn Clipboard> = Arc::new(MockClipboard::new());
     let measurer: Arc<dyn TextMeasurer> = Arc::new(MockTextMeasurer);
 
@@ -523,7 +538,7 @@ fn test_multiline_enter_key() {
     text_edit.set_caret(node_id, initial_text.len(), Some(initial_text.len())); // Caret at end
 
     let mut controller = TextInputController;
-    let mut ctx = setup_ctx(&ir, &layout, &mut text_edit, &mut interaction, &mut scroll, &mut ime_preedit, &clipboard, Some(&measurer));
+    let mut ctx = setup_ctx(&ir, &layout, &mut text_edit, &mut interaction, &mut scroll, &mut ime_preedit, &mut gesture, &clipboard, Some(&measurer));
     let event = InputEvent::Keyboard(KeyEvent::Down { key_code: KeyCode::Enter, modifiers: 0 });
     assert!(controller.handle_event(&mut ctx, &event));
 
@@ -545,6 +560,7 @@ fn test_multiline_vertical_navigation_up_down() {
     let mut interaction = InteractionStateMap::default();
     let mut scroll = ScrollStateMap::default();
     let mut ime_preedit = None;
+    let mut gesture = fission_core::env::GestureState::default();
     let clipboard: Arc<dyn Clipboard> = Arc::new(MockClipboard::new());
     let measurer: Arc<dyn TextMeasurer> = Arc::new(MockTextMeasurer);
 
@@ -556,7 +572,7 @@ fn test_multiline_vertical_navigation_up_down() {
 
     // Move Up
     {
-        let mut ctx = setup_ctx(&ir, &layout, &mut text_edit, &mut interaction, &mut scroll, &mut ime_preedit, &clipboard, Some(&measurer));
+        let mut ctx = setup_ctx(&ir, &layout, &mut text_edit, &mut interaction, &mut scroll, &mut ime_preedit, &mut gesture, &clipboard, Some(&measurer));
         let event = InputEvent::Keyboard(KeyEvent::Down { key_code: KeyCode::Up, modifiers: 0 });
         assert!(controller.handle_event(&mut ctx, &event));
         // Expect caret to move to the same horizontal position on Line One
@@ -570,7 +586,7 @@ fn test_multiline_vertical_navigation_up_down() {
     {
         // Set caret to Line One end for consistent horizontal position
         text_edit.set_caret(node_id, "First Line".len(), Some("First Line".len()));
-        let mut ctx = setup_ctx(&ir, &layout, &mut text_edit, &mut interaction, &mut scroll, &mut ime_preedit, &clipboard, Some(&measurer));
+        let mut ctx = setup_ctx(&ir, &layout, &mut text_edit, &mut interaction, &mut scroll, &mut ime_preedit, &mut gesture, &clipboard, Some(&measurer));
         let event = InputEvent::Keyboard(KeyEvent::Down { key_code: KeyCode::Down, modifiers: 0 });
         assert!(controller.handle_event(&mut ctx, &event));
         // Expect caret to move to same horizontal position on Line Two

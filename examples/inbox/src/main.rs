@@ -1,6 +1,6 @@
 use fission_core::action::{Action, ActionEnvelope, AppState};
 use fission_core::op::{Color, GridTrack};
-use fission_core::{BuildCtx, View, Widget, NodeId, WidgetNodeId, Env};
+use fission_core::{BuildCtx, View, Widget, NodeId, WidgetNodeId, Env, Column};
 use fission_widgets::{ 
     Accordion, AccordionItem, Avatar, Badge, Button, Card, Checkbox, Container, Divider, Grid, GridItem, 
     HStack, Image, LazyColumn, Node, Popover, ProgressBar, Radio, Scroll, Slider, Spinner, Switch, Tabs, TabItem, Tag, Text, 
