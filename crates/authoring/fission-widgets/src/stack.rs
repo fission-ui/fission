@@ -8,10 +8,10 @@ pub struct HStack {
     pub spacing: Option<f32>,
 }
 
-impl<S: fission_core::AppState> Widget<S> for HStack {
-    fn build(&self, _ctx: &mut BuildCtx<S>, _view: &View<S>) -> Node {
+impl HStack {
+    pub fn into_node(self) -> Node {
         Row {
-            children: self.children.clone(),
+            children: self.children,
             gap: self.spacing,
             ..Default::default()
         }
@@ -25,13 +25,25 @@ pub struct VStack {
     pub spacing: Option<f32>,
 }
 
-impl<S: fission_core::AppState> Widget<S> for VStack {
-    fn build(&self, _ctx: &mut BuildCtx<S>, _view: &View<S>) -> Node {
+impl VStack {
+    pub fn into_node(self) -> Node {
         Column {
-            children: self.children.clone(),
+            children: self.children,
             gap: self.spacing,
             ..Default::default()
         }
         .into()
+    }
+}
+
+impl<S: fission_core::AppState> Widget<S> for HStack {
+    fn build(&self, _ctx: &mut BuildCtx<S>, _view: &View<S>) -> Node {
+        self.clone().into_node()
+    }
+}
+
+impl<S: fission_core::AppState> Widget<S> for VStack {
+    fn build(&self, _ctx: &mut BuildCtx<S>, _view: &View<S>) -> Node {
+        self.clone().into_node()
     }
 }

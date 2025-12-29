@@ -12,6 +12,12 @@ pub struct Row {
     pub gap: Option<f32>,
 }
 
+impl Row {
+    pub fn into_node(self) -> Node {
+        Node::Row(self)
+    }
+}
+
 impl Lower for Row {
     fn lower(&self, cx: &mut LoweringContext) -> NodeId {
         let layout_id = self.id.unwrap_or_else(|| cx.next_node_id());

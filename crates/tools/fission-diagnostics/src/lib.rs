@@ -173,6 +173,37 @@ pub enum DiagEventKind {
         offset_before: f32,
         offset_after: f32,
     },
+
+    // General scrolling diagnostics
+    ScrollExtent {
+        node: u128,
+        viewport_w: f32,
+        viewport_h: f32,
+        content_w: f32,
+        content_h: f32,
+        note: Option<String>,
+    },
+    ScrollUpdate {
+        node: u128,
+        axis: String,
+        point_x: f32,
+        point_y: f32,
+        delta: f32,
+        old_offset: f32,
+        new_offset: f32,
+        max_offset: f32,
+        viewport_w: f32,
+        viewport_h: f32,
+        content_w: f32,
+        content_h: f32,
+    },
+    ScrollPaintTranslate {
+        node: u128,
+        axis: String,
+        offset: f32,
+        translate_x: f32,
+        translate_y: f32,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]

@@ -16,6 +16,12 @@ pub struct Scroll {
     pub show_scrollbar: bool,
 }
 
+impl Scroll {
+    pub fn into_node(self) -> Node {
+        Node::Scroll(self)
+    }
+}
+
 impl Default for Scroll {
     fn default() -> Self {
         Self {
@@ -50,7 +56,20 @@ impl Lower for Scroll {
             }),
         );
         if let Some(child) = &self.child {
-            builder.add_child(child.lower(cx));
+            // Wrap content in a non-shrinking Box to ensure it overflows the viewport
+            // allowing scrolling to work.
+            let content_id = cx.next_node_id();
+            let mut content_box = NodeBuilder::new(
+                content_id,
+                Op::Layout(LayoutOp::Box {
+                    width: None, height: None,
+                    min_width: None, max_width: None,
+                    min_height: None, max_height: None,
+                    padding: [0.0; 4],
+                })
+            );
+            content_box.add_child(child.lower(cx));
+            builder.add_child(content_box.build(cx));
         }
 
         cx.pop_scope();

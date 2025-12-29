@@ -1,0 +1,13 @@
+[package]
+name = "fission-icons"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+
+[build-dependencies]
+walkdir = "2.4"
+heck = "0.4" # For case conversion if needed
+
+[features]
+reflection = []

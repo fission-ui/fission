@@ -1,0 +1,12 @@
+[package]
+name = "icons_gallery"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+fission = { path = "../../crates/authoring/fission" }
+fission-core = { path = "../../crates/core/fission-core" }
+fission-widgets = { path = "../../crates/authoring/fission-widgets" }
+fission-icons = { path = "../../crates/authoring/fission-icons", features = ["reflection"] }
+fission-shell-desktop = { path = "../../crates/shell/fission-shell-desktop" }
+anyhow = "1.0"

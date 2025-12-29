@@ -438,14 +438,46 @@ impl Runtime {
                                 let delta_val = match direction { op::FlexDirection::Row => delta.x, op::FlexDirection::Column => delta.y };
                                 let mut new_offset = current_offset + delta_val;
 
-                                // Clamping logic
+                                // Clamping logic and diagnostics
+                                let mut max_offset = 0.0f32;
+                                let mut viewport_w = 0.0f32;
+                                let mut viewport_h = 0.0f32;
+                                let mut content_w = 0.0f32;
+                                let mut content_h = 0.0f32;
                                 if let Some(geom) = layout.get_node_geometry(node_id) {
-                                    let max_offset = if matches!(direction, op::FlexDirection::Row) {
+                                    viewport_w = geom.rect.width();
+                                    viewport_h = geom.rect.height();
+                                    content_w = geom.content_size.width;
+                                    content_h = geom.content_size.height;
+                                    max_offset = if matches!(direction, op::FlexDirection::Row) {
                                         (geom.content_size.width - geom.rect.width()).max(0.0)
                                     } else {
                                         (geom.content_size.height - geom.rect.height()).max(0.0)
                                     };
                                     new_offset = new_offset.clamp(0.0, max_offset);
+                                }
+
+                                // Emit scroll update diagnostic
+                                {
+                                    use fission_diagnostics::prelude as diag;
+                                    diag::emit(
+                                        diag::DiagCategory::Input,
+                                        diag::DiagLevel::Debug,
+                                        diag::DiagEventKind::ScrollUpdate {
+                                            node: node_id.as_u128(),
+                                            axis: match direction { op::FlexDirection::Row => "x".into(), op::FlexDirection::Column => "y".into() },
+                                            point_x: point.x,
+                                            point_y: point.y,
+                                            delta: delta_val,
+                                            old_offset: current_offset,
+                                            new_offset,
+                                            max_offset,
+                                            viewport_w,
+                                            viewport_h,
+                                            content_w,
+                                            content_h,
+                                        },
+                                    );
                                 }
 
                                 self.runtime_state.scroll.set_offset(node_id, new_offset);

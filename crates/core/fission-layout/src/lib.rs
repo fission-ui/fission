@@ -688,32 +688,13 @@ impl LayoutEngine {
                             let l = self.taffy.layout(*anchor_taffy_id)?;
                             (l.size.width, l.size.height)
                         };
-                        // Determine the overlay AbsoluteFill that is a direct child of root.
-                        let mut overlay_fill_abs = taffy::geometry::Point { x: 0.0, y: 0.0 };
-                        let mut cur = self.taffy.parent(*content_taffy_id);
-                        while let Some(pid) = cur {
-                            // Map back to NodeId by reverse lookup
-                            let maybe_node_id = self
-                                .taffy_map
-                                .iter()
-                                .find_map(|(nid, tid)| if *tid == pid { Some(*nid) } else { None });
-                            if let Some(node_id) = maybe_node_id {
-                                if let Some(input) = node_map.get(&node_id) {
-                                    if let LayoutOp::AbsoluteFill = input.op {
-                                        if let Some(pparent) = self.taffy.parent(pid) {
-                                            if Some(pparent) == self.taffy_map.get(&root_node_id).copied() {
-                                                overlay_fill_abs = self.get_absolute_location(pid)?;
-                                                break;
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                            cur = self.taffy.parent(pid);
-                        }
-                        // Compute left/top relative to that overlay fill
-                        let left_rel = anchor_abs.x - overlay_fill_abs.x;
-                        let top_rel = anchor_abs.y + anchor_h - overlay_fill_abs.y;
+                        // Compute left/top in screen-space. We anchor the flyout
+                        // directly to the anchor's absolute rect rather than
+                        // subtracting any intermediate containing-block offsets.
+                        // The overlay layer is composed in screen space, so these
+                        // coordinates match paint-time expectations and test snapshots.
+                        let left_rel = anchor_abs.x;
+                        let top_rel = anchor_abs.y + anchor_h;
                         let mut new_style = self.taffy.style(*content_taffy_id)?.clone();
                         // Preserve measured size from first pass to avoid zero-size when
                         // switching to absolute positioning.
@@ -821,6 +802,28 @@ impl LayoutEngine {
 
             let mut snapshot = LayoutSnapshot::new(viewport_size);
             snapshot.nodes = geometries;
+            // Emit scroll extent diagnostics for all scroll nodes (to analyze overflow issues)
+            {
+                use fission_diagnostics::prelude as diag;
+                for n in input_nodes {
+                    if let LayoutOp::Scroll { .. } = n.op {
+                        if let Some(g) = snapshot.nodes.get(&n.id) {
+                            diag::emit(
+                                diag::DiagCategory::Layout,
+                                diag::DiagLevel::Debug,
+                                diag::DiagEventKind::ScrollExtent {
+                                    node: n.id.as_u128(),
+                                    viewport_w: g.rect.width(),
+                                    viewport_h: g.rect.height(),
+                                    content_w: g.content_size.width,
+                                    content_h: g.content_size.height,
+                                    note: None,
+                                },
+                            );
+                        }
+                    }
+                }
+            }
             Ok(snapshot)
         } else {
             Err(anyhow::anyhow!(
@@ -868,13 +871,10 @@ impl LayoutEngine {
         let mut child_origin_x = absolute_x;
         let mut child_origin_y = absolute_y;
 
-        if let LayoutOp::Scroll { direction, .. } = &node.op {
-            let offset = scroll_source.get_offset(node_id);
-            match direction {
-                IrFlexDirection::Row => child_origin_x -= offset,
-                IrFlexDirection::Column => child_origin_y -= offset,
-            }
-        }
+        // IMPORTANT: Do not incorporate scroll offset into geometry extraction.
+        // Geometry remains stable (unscrolled) and painting/hit-testing apply
+        // scroll via transforms or point adjustment. This avoids double-applying
+        // scroll when painting (which already translates children for Scroll).
 
         // Reset coordinate space for overlay AbsoluteFill descendants (screen-space)
         if overlay_fill_nodes.contains(&node_id) {
@@ -894,20 +894,71 @@ impl LayoutEngine {
             );
         }
 
-        let mut content_w = layout.size.width;
-        let mut content_h = layout.size.height;
+        let mut content_w = width;
+        let mut content_h = height;
         if !node.children_ids.is_empty() {
-             let mut max_x: f32 = 0.0;
-             let mut max_y: f32 = 0.0;
-             for child_id in &node.children_ids {
-                 let child_taffy = self.taffy_map.get(child_id).unwrap();
-                 let cl = self.taffy.layout(*child_taffy).unwrap();
-                 max_x = max_x.max(cl.location.x + cl.size.width);
-                 max_y = max_y.max(cl.location.y + cl.size.height);
-             }
-             content_w = max_x.max(width);
-             content_h = max_y.max(height);
+            let mut max_x: f32 = 0.0;
+            let mut max_y: f32 = 0.0;
+            for child_id in &node.children_ids {
+                let child_taffy = self.taffy_map.get(child_id).unwrap();
+                let cl = self.taffy.layout(*child_taffy).unwrap();
+
+                // Prefer the child's content_size if we've already computed it this pass,
+                // so scroll containers reflect overflowing descendants, not just the
+                // child's own visual box size.
+                if let Some(child_geom) = geometries.get(child_id) {
+                    max_x = max_x.max(cl.location.x + child_geom.content_size.width);
+                    max_y = max_y.max(cl.location.y + child_geom.content_size.height);
+                } else {
+                    max_x = max_x.max(cl.location.x + cl.size.width);
+                    max_y = max_y.max(cl.location.y + cl.size.height);
+                }
+            }
+            // Ensure content area is at least as large as viewport
+            content_w = max_x.max(width);
+            content_h = max_y.max(height);
         }
+        // For Scroll containers, compute content extent from all descendants' content sizes
+        if let LayoutOp::Scroll { .. } = &node.op {
+            fn subtree_extent(
+                id: NodeId,
+                node_map: &HashMap<NodeId, &LayoutInputNode>,
+                geometries: &HashMap<NodeId, LayoutNodeGeometry>,
+                root_abs_x: f32,
+                root_abs_y: f32,
+            ) -> (f32, f32) {
+                let mut max_x: f32 = 0.0;
+                let mut max_y: f32 = 0.0;
+                if let Some(geom) = geometries.get(&id) {
+                    let rel_x = geom.rect.origin.x - root_abs_x;
+                    let rel_y = geom.rect.origin.y - root_abs_y;
+                    max_x = max_x.max(rel_x + geom.content_size.width);
+                    max_y = max_y.max(rel_y + geom.content_size.height);
+                }
+                if let Some(n) = node_map.get(&id) {
+                    for child in &n.children_ids {
+                        let (cx, cy) = subtree_extent(*child, node_map, geometries, root_abs_x, root_abs_y);
+                        max_x = max_x.max(cx);
+                        max_y = max_y.max(cy);
+                    }
+                }
+                (max_x, max_y)
+            }
+            let (sx, sy) = subtree_extent(node_id, node_map, geometries, rect.origin.x, rect.origin.y);
+            content_w = content_w.max(sx);
+            content_h = content_h.max(sy);
+        }
+
+        // If this node contains rich text, prefer measured content size over layout size
+        if let Some(runs) = &node.rich_text {
+            if let Some(measurer) = &self.measurer {
+                let avail_w = if width > 0.0 { Some(width) } else { None };
+                let (mw, mh) = measurer.measure_rich_text(&runs, avail_w);
+                content_w = content_w.max(mw);
+                content_h = content_h.max(mh);
+            }
+        }
+
         let content_size = LayoutSize::new(content_w, content_h);
 
         geometries.insert(node_id, LayoutNodeGeometry { rect, content_size });

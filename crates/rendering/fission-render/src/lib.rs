@@ -88,6 +88,20 @@ pub enum DisplayOp {
         bounds: LayoutRect,
         node_id: Option<NodeId>,
     },
+    DrawPath {
+        path: String,
+        fill: Option<Fill>,
+        stroke: Option<Stroke>,
+        bounds: LayoutRect,
+        node_id: Option<NodeId>,
+    },
+    DrawSvg {
+        content: String,
+        fill: Option<Fill>,
+        stroke: Option<Stroke>,
+        bounds: LayoutRect,
+        node_id: Option<NodeId>,
+    },
     DrawSurface {
         rect: LayoutRect,
         surface_id: u64,

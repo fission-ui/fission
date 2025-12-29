@@ -390,6 +390,28 @@ impl Pipeline {
                 (offset.to_bits()).hash(&mut hasher);
             }
 
+            // Include a hash of scroll offsets for all descendant scroll nodes so that
+            // ancestor segments invalidate when children scroll (prevents stale cached
+            // display lists where only video surfaces appear to move).
+            fn hash_scroll_offsets_in_subtree(
+                id: NodeId,
+                ir: &CoreIR,
+                scroll_map: &ScrollStateMap,
+                state: &mut DefaultHasher,
+            ) {
+                if let Some(n) = ir.nodes.get(&id) {
+                    if let fission_ir::Op::Layout(fission_ir::LayoutOp::Scroll { .. }) = &n.op {
+                        let off = scroll_map.get_offset(id);
+                        (id.as_u128()).hash(state);
+                        (off.to_bits()).hash(state);
+                    }
+                    for c in &n.children {
+                        hash_scroll_offsets_in_subtree(*c, ir, scroll_map, state);
+                    }
+                }
+            }
+            hash_scroll_offsets_in_subtree(node_id, ir, scroll_map, &mut hasher);
+
             let hash = hasher.finish();
 
             if let Some((cached_hash, cached_ops)) = self.paint_cache.get(&node_id) {
@@ -431,6 +453,21 @@ impl Pipeline {
                             segment.push(DisplayOp::Translate(LayoutPoint::new(0.0, -offset)));
                             child_offset = LayoutPoint::new(accumulated_offset.x, accumulated_offset.y - offset);
                         }
+                    }
+                    // Emit paint-time scroll translate diagnostic
+                    {
+                        use fission_diagnostics::prelude as diag;
+                        diag::emit(
+                            diag::DiagCategory::Paint,
+                            diag::DiagLevel::Debug,
+                            diag::DiagEventKind::ScrollPaintTranslate {
+                                node: node_id.as_u128(),
+                                axis: match direction { fission_ir::FlexDirection::Row => "x".into(), fission_ir::FlexDirection::Column => "y".into() },
+                                offset,
+                                translate_x: if matches!(direction, fission_ir::FlexDirection::Row) { -offset } else { 0.0 },
+                                translate_y: if matches!(direction, fission_ir::FlexDirection::Column) { -offset } else { 0.0 },
+                            },
+                        );
                     }
                     pushed_clip = true;
                 }
@@ -514,6 +551,54 @@ impl Pipeline {
                             fission_ir::op::ImageFit::Fill => ImageFit::Fill,
                             fission_ir::op::ImageFit::None => ImageFit::None,
                         },
+                        bounds: geom.rect,
+                        node_id: Some(node_id),
+                    });
+                }
+                fission_ir::Op::Paint(fission_ir::PaintOp::DrawPath { path, fill, stroke }) => {
+                    segment.push(DisplayOp::DrawPath {
+                        path: path.clone(),
+                        fill: fill.map(|f| Fill {
+                            color: RenderColor {
+                                r: f.color.r,
+                                g: f.color.g,
+                                b: f.color.b,
+                                a: f.color.a,
+                            },
+                        }),
+                        stroke: stroke.map(|s| Stroke {
+                            color: RenderColor {
+                                r: s.color.r,
+                                g: s.color.g,
+                                b: s.color.b,
+                                a: s.color.a,
+                            },
+                            width: s.width,
+                        }),
+                        bounds: geom.rect,
+                        node_id: Some(node_id),
+                    });
+                }
+                fission_ir::Op::Paint(fission_ir::PaintOp::DrawSvg { content, fill, stroke }) => {
+                    segment.push(DisplayOp::DrawSvg {
+                        content: content.clone(),
+                        fill: fill.map(|f| Fill {
+                            color: RenderColor {
+                                r: f.color.r,
+                                g: f.color.g,
+                                b: f.color.b,
+                                a: f.color.a,
+                            },
+                        }),
+                        stroke: stroke.map(|s| Stroke {
+                            color: RenderColor {
+                                r: s.color.r,
+                                g: s.color.g,
+                                b: s.color.b,
+                                a: s.color.a,
+                            },
+                            width: s.width,
+                        }),
                         bounds: geom.rect,
                         node_id: Some(node_id),
                     });

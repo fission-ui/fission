@@ -6,6 +6,8 @@ members = [
     "crates/core/fission-core",
     "crates/authoring/fission-macros",
     "crates/authoring/fission-widgets",
+    "crates/authoring/fission-icons",
+    "crates/core/fission-core",
     "crates/authoring/fission",
     "crates/rendering/fission-render",
     "crates/rendering/fission-render-skia",

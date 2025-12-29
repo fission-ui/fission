@@ -192,11 +192,9 @@ impl Runtime {
             if geom.rect.contains(point) {
                 if let Some(node) = ir.nodes.get(&node_id) {
                     for child in node.children.iter().rev() {
-                        let mut child_point = point;
+                        let child_point = point;
                         
                         if let Op::Layout(LayoutOp::Scroll { .. }) = &node.op {
-                            let offset = self.runtime_state.scroll.get_offset(node_id);
-                            child_point.y += offset; 
                             if !geom.rect.contains(point) { continue; }
                         }
                         

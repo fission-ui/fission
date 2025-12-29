@@ -4,7 +4,7 @@ pub use parley;
 
 use anyhow::Result;
 use fission_render::{DisplayList, DisplayOp, Renderer, Color as RenderColor, TextStyle as RenderTextStyle};
-use vello::kurbo::{Affine, Rect, RoundedRect, Stroke};
+use vello::kurbo::{Affine, Rect, RoundedRect, Stroke, BezPath};
 // Minimal imports from peniko
 use vello::peniko::{Color, Fill, Mix, Blob, ImageData, ImageFormat, ImageAlphaType, ImageBrush, ImageSampler};
 use vello::{Scene, Glyph};
@@ -16,6 +16,7 @@ use parley::layout::PositionedLayoutItem;
 use std::borrow::Cow;
 use parley::style::{FontStack, StyleProperty};
 use crate::text::ParleyBrush;
+use std::fs;
 
 lazy_static! {
     static ref IMAGE_CACHE: Mutex<HashMap<String, Arc<ImageData>>> = Mutex::new(HashMap::new());
@@ -253,6 +254,7 @@ impl<'a> Renderer for VelloRenderer<'a> {
                     fill,
                     stroke,
                     corner_radius,
+                    shadow,
                     ..
                 } => {
                     let rect = Rect::new(
@@ -263,6 +265,24 @@ impl<'a> Renderer for VelloRenderer<'a> {
                     );
                     
                     let shape = RoundedRect::from_rect(rect, *corner_radius as f64);
+
+                    // Draw Shadow (if present)
+                    if let Some(shadow) = shadow {
+                        let shadow_origin_x = rect.x0 + shadow.offset.0 as f64;
+                        let shadow_origin_y = rect.y0 + shadow.offset.1 as f64;
+                        let shadow_rect = Rect::new(
+                            shadow_origin_x,
+                            shadow_origin_y,
+                            shadow_origin_x + rect.width(),
+                            shadow_origin_y + rect.height(),
+                        );
+                        let shadow_shape = RoundedRect::from_rect(shadow_rect, *corner_radius as f64);
+                        let shadow_color = Color::from_rgba8(shadow.color.r, shadow.color.g, shadow.color.b, shadow.color.a);
+                        
+                        // TODO: Implement blur support. Vello doesn't have a direct blur generic yet.
+                        // For now, we render a hard shadow which is better than nothing.
+                        self.scene.fill(Fill::NonZero, self.current_transform, shadow_color, None, &shadow_shape);
+                    }
 
                     if let Some(f) = fill {
                         let c = Color::from_rgba8(f.color.r, f.color.g, f.color.b, f.color.a);
@@ -306,6 +326,135 @@ impl<'a> Renderer for VelloRenderer<'a> {
                         };
                         self.scene.draw_image(brush, transform);
                     }
+                }
+                DisplayOp::DrawPath { path, fill, stroke, bounds, .. } => {
+                    if let Ok(bez_path) = BezPath::from_svg(path) {
+                        let transform = self.current_transform * Affine::translate((bounds.origin.x as f64, bounds.origin.y as f64));
+                        
+                        if let Some(f) = fill {
+                            let c = Color::from_rgba8(f.color.r, f.color.g, f.color.b, f.color.a);
+                            self.scene.fill(Fill::NonZero, transform, c, None, &bez_path);
+                        }
+                        if let Some(s) = stroke {
+                            let c = Color::from_rgba8(s.color.r, s.color.g, s.color.b, s.color.a);
+                            self.scene.stroke(&Stroke::new(s.width as f64), transform, c, None, &bez_path);
+                        }
+                    } else {
+                        // eprintln!("Failed to parse SVG path: {}", path);
+                    }
+                }
+                DisplayOp::DrawSvg { content, fill, stroke, bounds, .. } => {
+                     let mut cursor = 0;
+                     while let Some(start_bracket) = content[cursor..].find('<') {
+                         let abs_start = cursor + start_bracket;
+                         if let Some(end_bracket) = content[abs_start..].find('>') {
+                             let tag_content = &content[abs_start + 1 .. abs_start + end_bracket];
+                             cursor = abs_start + end_bracket + 1;
+                             
+                             let tag_name = tag_content.split_whitespace().next().unwrap_or("");
+                             
+                             if tag_name == "path" {
+                                 if let Some(d_start) = tag_content.find("d=\"") {
+                                     let after_d = &tag_content[d_start + 3..];
+                                     if let Some(d_end) = after_d.find('\"') {
+                                         let mut d = after_d[..d_end].to_string();
+                                         // Filter out bounding boxes
+                                         d = d.replace("M0 0h24v24H0z", "");
+                                         d = d.replace("M0 0h24v24H0V0z", "");
+                                         d = d.replace("M0,0h24v24H0V0z", "");
+                                         
+                                         if !d.trim().is_empty() {
+                                             if let Ok(bez_path) = BezPath::from_svg(&d) {
+                                                 let transform = self.current_transform * Affine::translate((bounds.origin.x as f64, bounds.origin.y as f64));
+                                                 if let Some(f) = fill {
+                                                     let c = Color::from_rgba8(f.color.r, f.color.g, f.color.b, f.color.a);
+                                                     self.scene.fill(Fill::NonZero, transform, c, None, &bez_path);
+                                                 }
+                                                 if let Some(s) = stroke {
+                                                     let c = Color::from_rgba8(s.color.r, s.color.g, s.color.b, s.color.a);
+                                                     self.scene.stroke(&Stroke::new(s.width as f64), transform, c, None, &bez_path);
+                                                 }
+                                             }
+                                         }
+                                     }
+                                 }
+                             } else if tag_name == "rect" {
+                                 // Parse x, y, width, height
+                                 let parse_attr = |name: &str| -> f64 {
+                                     if let Some(pos) = tag_content.find(&format!("{}=\"", name)) {
+                                         let after = &tag_content[pos + name.len() + 2..];
+                                         if let Some(end) = after.find('\"') {
+                                             return after[..end].parse().unwrap_or(0.0);
+                                         }
+                                     }
+                                     0.0
+                                 };
+                                 
+                                 let x = parse_attr("x");
+                                 let y = parse_attr("y");
+                                 let w = parse_attr("width");
+                                 let h = parse_attr("height");
+                                 
+                                 // Skip bounding box rects (24x24 at 0,0 with fill="none" usually)
+                                 // But here we rely on fill color. 
+                                 // Material icons usually have <rect fill="none" width="24" height="24"/> as bounding box.
+                                 // We should skip if fill="none" is present in tag.
+                                 if tag_content.contains("fill=\"none\"") {
+                                     continue;
+                                 }
+                                 
+                                 if w > 0.0 && h > 0.0 {
+                                     let rect = Rect::new(x, y, x + w, y + h);
+                                     let shape = RoundedRect::from_rect(rect, 0.0);
+                                     let transform = self.current_transform * Affine::translate((bounds.origin.x as f64, bounds.origin.y as f64));
+                                     
+                                     if let Some(f) = fill {
+                                         let c = Color::from_rgba8(f.color.r, f.color.g, f.color.b, f.color.a);
+                                         self.scene.fill(Fill::NonZero, transform, c, None, &shape);
+                                     }
+                                     if let Some(s) = stroke {
+                                         let c = Color::from_rgba8(s.color.r, s.color.g, s.color.b, s.color.a);
+                                         self.scene.stroke(&Stroke::new(s.width as f64), transform, c, None, &shape);
+                                     }
+                                 }
+                             } else if tag_name == "polygon" {
+                                 if let Some(p_start) = tag_content.find("points=\"") {
+                                     let after = &tag_content[p_start + 8..];
+                                     if let Some(end) = after.find('\"') {
+                                         let points_str = &after[..end];
+                                         let nums: Vec<f64> = points_str.split(|c: char| c.is_whitespace() || c == ',')
+                                             .filter(|s| !s.is_empty())
+                                             .filter_map(|s| s.parse().ok())
+                                             .collect();
+                                         
+                                         if nums.len() >= 2 {
+                                             let mut bez = BezPath::new();
+                                             bez.move_to((nums[0], nums[1]));
+                                             for i in (2..nums.len()).step_by(2) {
+                                                 if i + 1 < nums.len() {
+                                                     bez.line_to((nums[i], nums[i+1]));
+                                                 }
+                                             }
+                                             bez.close_path();
+                                             
+                                             let transform = self.current_transform * Affine::translate((bounds.origin.x as f64, bounds.origin.y as f64));
+                                             
+                                             if let Some(f) = fill {
+                                                 let c = Color::from_rgba8(f.color.r, f.color.g, f.color.b, f.color.a);
+                                                 self.scene.fill(Fill::NonZero, transform, c, None, &bez);
+                                             }
+                                             if let Some(s) = stroke {
+                                                 let c = Color::from_rgba8(s.color.r, s.color.g, s.color.b, s.color.a);
+                                                 self.scene.stroke(&Stroke::new(s.width as f64), transform, c, None, &bez);
+                                             }
+                                         }
+                                     }
+                                 }
+                             }
+                         } else {
+                             break;
+                         }
+                     }
                 }
                 _ => {}
             }

@@ -35,6 +35,10 @@ impl TextMeasurer for MockTextMeasurer {
     fn hit_test(&self, _text: &str, _font_size: f32, _available_width: Option<f32>, _x: f32, _y: f32) -> usize {
         0
     }
+    fn measure_rich_text(&self, runs: &[fission_ir::op::TextRun], _available_width: Option<f32>) -> (f32, f32) {
+        let w: f32 = runs.iter().map(|r| r.text.len() as f32 * 10.0).sum();
+        (w.max(10.0), 20.0)
+    }
 }
 
 pub struct TestHarness<S: AppState> {
@@ -327,6 +331,30 @@ fn generate_display_list_with_visited(
                             fission_ir::op::ImageFit::Fill => fission_render::ImageFit::Fill,
                             fission_ir::op::ImageFit::None => fission_render::ImageFit::None,
                         },
+                        bounds: geom.rect,
+                        node_id: Some(node_id),
+                    });
+                }
+                fission_ir::Op::Paint(fission_ir::PaintOp::DrawPath { path, fill, stroke }) => {
+                    list.push(DisplayOp::DrawPath {
+                        path: path.clone(),
+                        fill: fill.map(|f| Fill {
+                            color: Color {
+                                r: f.color.r,
+                                g: f.color.g,
+                                b: f.color.b,
+                                a: f.color.a,
+                            },
+                        }),
+                        stroke: stroke.map(|s| Stroke {
+                            color: Color {
+                                r: s.color.r,
+                                g: s.color.g,
+                                b: s.color.b,
+                                a: s.color.a,
+                            },
+                            width: s.width,
+                        }),
                         bounds: geom.rect,
                         node_id: Some(node_id),
                     });

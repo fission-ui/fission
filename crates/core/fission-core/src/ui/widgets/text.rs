@@ -41,6 +41,34 @@ pub struct Text {
     pub color: Option<IrColor>,
 }
 
+impl Text {
+    pub fn new(content: impl Into<TextContent>) -> Self {
+        Self {
+            content: content.into(),
+            ..Default::default()
+        }
+    }
+
+    pub fn size(mut self, s: f32) -> Self {
+        self.font_size = Some(s);
+        self
+    }
+
+    pub fn color(mut self, c: IrColor) -> Self {
+        self.color = Some(c);
+        self
+    }
+    
+    // Stub for weight until we add font support to IR
+    pub fn weight(self, _w: impl std::fmt::Debug) -> Self {
+        self
+    }
+    
+    pub fn into_node(self) -> crate::ui::Node {
+        crate::ui::Node::Text(self)
+    }
+}
+
 impl Lower for Text {
     fn lower(&self, cx: &mut LoweringContext) -> NodeId {
         let layout_node_id = self.id.unwrap_or_else(|| cx.next_node_id());

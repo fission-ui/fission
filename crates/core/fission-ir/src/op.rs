@@ -228,4 +228,14 @@ pub enum PaintOp {
         source: String,
         fit: ImageFit,
     },
+    DrawPath {
+        path: String,
+        fill: Option<Fill>,
+        stroke: Option<Stroke>,
+    },
+    DrawSvg {
+        content: String,
+        fill: Option<Fill>,
+        stroke: Option<Stroke>,
+    },
 }

@@ -329,6 +329,12 @@ impl<'r> Renderer for SkiaRenderer<'r> {
                         &paint,
                     );
                 }
+                DisplayOp::DrawPath { .. } => {
+                    eprintln!("Warning: DrawPath not implemented in Skia backend yet");
+                }
+                DisplayOp::DrawSvg { .. } => {
+                    eprintln!("Warning: DrawSvg not implemented in Skia backend yet");
+                }
             }
         }
         Ok(())
