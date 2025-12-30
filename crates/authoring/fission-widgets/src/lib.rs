@@ -77,6 +77,9 @@ pub use skeleton::Skeleton;
 pub mod breadcrumb;
 pub use breadcrumb::{Breadcrumb, BreadcrumbItem};
 
+pub mod tree_view;
+pub use tree_view::{TreeView, TreeItem};
+
 use fission_core::{lowering::NodeBuilder, op::StructuralOp, LowerDyn, LoweringContext, NodeId, Op};
 use std::sync::Arc;
 
