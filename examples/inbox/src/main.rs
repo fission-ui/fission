@@ -1,13 +1,14 @@
 use fission_core::action::{Action, ActionEnvelope, AppState};
-use fission_core::op::{Color, GridTrack};
+use fission_core::op::{Color, GridTrack, BoxShadow};
 use fission_core::{BuildCtx, View, Widget, NodeId, WidgetNodeId, Env};
 use fission_widgets::{
     Accordion, AccordionItem, Avatar, Badge, Button, ButtonVariant, Card, Checkbox, Container, Divider, Grid, GridItem, 
     HStack, Image, LazyColumn, MenuButton, MenuItem, Node, Popover, ProgressBar, Radio, Scroll, Slider, Spinner, Switch, Tabs, TabItem, Tag, Text, 
-    TextContent, TextInput, Tooltip, VStack,
-};
-use fission_shell_desktop::DesktopApp;
+    TextContent, TextInput, Tooltip, VStack, Icon,
+    Select, SelectItem, Toast, ToastKind, Modal, ModalAction, DataTable, TableColumn, TableRow
+};use fission_shell_desktop::DesktopApp;
 use fission_i18n::{I18nRegistry, Locale, TranslationBundle};
+use fission_icons::material;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -20,11 +21,19 @@ pub struct InboxState {
     pub search_query: String,
     pub selected_emails: Vec<usize>,
     pub show_filter_dropdown: bool,
-    pub active_tab: usize, 
-    pub reply_mode: usize, 
+    pub active_tab: usize,
+    pub reply_mode: usize,
     pub notifications_enabled: bool,
     pub details_expanded: bool,
     pub storage_usage: f32,
+
+    // New features
+    pub show_settings: bool,
+    pub show_contacts: bool,
+    pub show_compose: bool,
+    pub show_toast: bool,
+    pub theme_mode: String,
+    pub density_mode: String,
 }
 
 impl Default for InboxState {
@@ -40,6 +49,12 @@ impl Default for InboxState {
             notifications_enabled: true,
             details_expanded: true,
             storage_usage: 0.3,
+            show_settings: false,
+            show_contacts: false,
+            show_compose: false,
+            show_toast: false,
+            theme_mode: "Light".into(),
+            density_mode: "Comfortable".into(),
         }
     }
 }
@@ -78,6 +93,24 @@ struct ToggleNotifications;
 #[derive(fission_macros::Action, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 struct ToggleDetails;
 
+#[derive(fission_macros::Action, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+struct ToggleSettings;
+
+#[derive(fission_macros::Action, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+struct ToggleContacts;
+
+#[derive(fission_macros::Action, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+struct ToggleCompose;
+
+#[derive(fission_macros::Action, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+struct ToggleToast;
+
+#[derive(fission_macros::Action, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+struct SetTheme(String);
+
+#[derive(fission_macros::Action, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+struct SetDensity(String);
+
 #[derive(fission_macros::Action, Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(transparent)]
 struct SetStorageUsage(f32);
@@ -90,10 +123,43 @@ struct InboxApp;
 
 impl Widget<InboxState> for InboxApp {
     fn build(&self, ctx: &mut BuildCtx<InboxState>, view: &View<InboxState>) -> Node {
+        // Register Modals (extract to variables to satisfy borrow checker)
+        if view.state.show_settings {
+            let node = SettingsModal.build(ctx, view);
+            ctx.register_portal(node);
+        }
+        if view.state.show_contacts {
+            let node = ContactsModal.build(ctx, view);
+            ctx.register_portal(node);
+        }
+        if view.state.show_compose {
+            let node = ComposeModal.build(ctx, view);
+            ctx.register_portal(node);
+        }
+        
+        // Register Toast
+        if view.state.show_toast {
+            let toast = Toast {
+                id: WidgetNodeId::explicit("app_toast"),
+                kind: ToastKind::Success,
+                message: "Action completed successfully".into(),
+                on_close: Some(ctx.bind(ToggleToast, |s, _| s.show_toast = false)),
+            }.build(ctx, view);
+            
+            ctx.register_portal(
+                fission_widgets::Positioned {
+                    left: Some(20.0), bottom: Some(20.0), // Bottom left toast
+                    width: None, height: None,
+                    child: Some(Box::new(toast)),
+                    ..Default::default()
+                }.into_node()
+            );
+        }
+
         Grid {
             columns: vec![
-                GridTrack::Points(220.0),
-                GridTrack::Points(380.0),
+                GridTrack::Points(240.0),
+                GridTrack::Points(400.0),
                 GridTrack::Fr(1.0),
             ],
             rows: vec![GridTrack::Fr(1.0)],
@@ -105,6 +171,119 @@ impl Widget<InboxState> for InboxApp {
             ..Default::default()
         }
         .into()
+    }
+}
+
+// --- MODALS ---
+
+struct SettingsModal;
+impl Widget<InboxState> for SettingsModal {
+    fn build(&self, ctx: &mut BuildCtx<InboxState>, view: &View<InboxState>) -> Node {
+        Modal {
+            id: WidgetNodeId::explicit("settings_modal"),
+            title: "Settings".into(),
+            is_open: true,
+            on_dismiss: Some(ctx.bind(ToggleSettings, |s, _| s.show_settings = false)),
+            width: Some(400.0),
+            content: Box::new(
+                VStack {
+                    spacing: Some(16.0),
+                    children: vec![
+                        Text::new("Appearance").into_node(),
+                        HStack {
+                            spacing: Some(12.0),
+                            children: vec![
+                                Text::new("Theme").into_node(),
+                                Select {
+                                    id: WidgetNodeId::explicit("theme_select"),
+                                    selected_label: Some(view.state.theme_mode.clone()),
+                                    placeholder: "Select Theme".into(),
+                                    is_open: false, // In a real app this would be driven by local state or a dedicated field
+                                    on_toggle: None, // Need dedicated state for select open
+                                    items: vec![],
+                                    ..Default::default()
+                                }.build(ctx, view) // Placeholder for Select
+                            ]
+                        }.into_node(),
+                        Text::new("Note: Select widget requires dedicated open state. For demo, we assume standard theme.").size(12.0).color(Color { r: 100, g: 100, b: 100, a: 255 }).into_node(),
+                    ]
+                }.into_node()
+            ),
+            actions: vec![
+                ModalAction { label: "Close".into(), is_primary: true, on_press: Some(ctx.bind(ToggleSettings, |s, _| s.show_settings = false)) }
+            ]
+        }.build(ctx, view)
+    }
+}
+
+struct ContactsModal;
+impl Widget<InboxState> for ContactsModal {
+    fn build(&self, ctx: &mut BuildCtx<InboxState>, view: &View<InboxState>) -> Node {
+        let data = vec![
+            TableRow { id: "1".into(), cells: vec!["Alice".into(), "alice@example.com".into()] },
+            TableRow { id: "2".into(), cells: vec!["Bob".into(), "bob@example.com".into()] },
+            TableRow { id: "3".into(), cells: vec!["Charlie".into(), "charlie@example.com".into()] },
+        ];
+        
+        Modal {
+            id: WidgetNodeId::explicit("contacts_modal"),
+            title: "Contacts".into(),
+            is_open: true,
+            on_dismiss: Some(ctx.bind(ToggleContacts, |s, _| s.show_contacts = false)),
+            width: Some(500.0),
+            content: Box::new(
+                DataTable {
+                    id: WidgetNodeId::explicit("contacts_table"),
+                    columns: vec![
+                        TableColumn { id: "name".into(), title: "Name".into(), width: 150.0, sortable: true },
+                        TableColumn { id: "email".into(), title: "Email".into(), width: 250.0, sortable: true },
+                    ],
+                    rows: data,
+                    selected_ids: vec![],
+                    on_selection_change: None,
+                }.build(ctx, view)
+            ),
+            actions: vec![
+                ModalAction { label: "Done".into(), is_primary: true, on_press: Some(ctx.bind(ToggleContacts, |s, _| s.show_contacts = false)) }
+            ]
+        }.build(ctx, view)
+    }
+}
+
+struct ComposeModal;
+impl Widget<InboxState> for ComposeModal {
+    fn build(&self, ctx: &mut BuildCtx<InboxState>, view: &View<InboxState>) -> Node {
+        Modal {
+            id: WidgetNodeId::explicit("compose_modal"),
+            title: "New Message".into(),
+            is_open: true,
+            on_dismiss: Some(ctx.bind(ToggleCompose, |s, _| s.show_compose = false)),
+            width: Some(600.0),
+            content: Box::new(
+                VStack {
+                    spacing: Some(12.0),
+                    children: vec![
+                        TextInput { placeholder: Some("To".into()), width: Some(550.0), ..Default::default() }.into_node(),
+                        TextInput { placeholder: Some("Subject".into()), width: Some(550.0), ..Default::default() }.into_node(),
+                        TextInput { 
+                            placeholder: Some("Message...".into()), 
+                            multiline: true,
+                            width: Some(550.0),
+                            height: Some(200.0),
+                            ..Default::default() 
+                        }.into_node(),
+                    ]
+                }.into_node()
+            ),
+            actions: vec![
+                ModalAction { label: "Cancel".into(), is_primary: false, on_press: Some(ctx.bind(ToggleCompose, |s, _| s.show_compose = false)) },
+                ModalAction { 
+                    label: "Send".into(), 
+                    is_primary: true, 
+                    on_press: Some(ctx.bind(ToggleToast, |s, _| { s.show_compose = false; s.show_toast = true; })) // Send closes modal + shows toast
+                },
+            ]
+        }.build(ctx, view)
     }
 }
 
@@ -137,12 +316,17 @@ impl Widget<InboxState> for Sidebar {
                         Button {
                             variant: if is_selected { ButtonVariant::Filled } else { ButtonVariant::Ghost },
                             child: Some(Box::new(
-                                Text {
-                                    content: TextContent::Key(label_key),
-                                    color: Some(if is_selected { Color::WHITE } else { Color::BLACK }),
-                                    ..Default::default()
-                                }
-                                .into()
+                                HStack {
+                                    spacing: Some(12.0),
+                                    children: vec![
+                                        // TODO: Add icons for folders
+                                        Text {
+                                            content: TextContent::Key(label_key),
+                                            color: Some(if is_selected { Color::WHITE } else { Color::BLACK }),
+                                            ..Default::default()
+                                        }.into_node()
+                                    ]
+                                }.into_node()
                             )),
                             on_press: Some(ctx.bind(SelectFolder(folder.to_string()), |s, a| s.selected_folder = a.0)),
                             ..Default::default()
@@ -153,38 +337,26 @@ impl Widget<InboxState> for Sidebar {
             );
         }
         
+        children.push(fission_core::ui::widgets::Spacer { flex_grow: 1.0, ..Default::default() }.into_node());
+        
         children.push(Divider { orientation: fission_widgets::divider::Orientation::Horizontal }.build(ctx, view));
+        
         children.push(
-            HStack {
-                spacing: Some(8.0),
-                children: vec![
-                    Switch {
-                        checked: view.state.notifications_enabled,
-                        on_toggle: Some(ctx.bind(ToggleNotifications, |s, _| s.notifications_enabled = !s.notifications_enabled)),
-                        ..Default::default()
-                    }.into(),
-                    Text { content: TextContent::Literal("Notifications".into()), ..Default::default() }.into()
-                ]
-            }.build(ctx, view)
+            Button {
+                variant: ButtonVariant::Ghost,
+                child: Some(Box::new(Text::new("Contacts").into_node())),
+                on_press: Some(ctx.bind(ToggleContacts, |s, _| s.show_contacts = true)),
+                ..Default::default()
+            }.into_node()
         );
         
         children.push(
-            VStack {
-                spacing: Some(4.0),
-                children: vec![
-                    Text { content: TextContent::Literal(format!("Storage ({:.1} GB / 5 GB)", view.state.storage_usage * 5.0)).into(), font_size: Some(12.0), ..Default::default() }.into(),
-                    Slider {
-                        value: view.state.storage_usage,
-                        min: 0.0,
-                        max: 1.0,
-                        on_change: Some(ctx.bind(SetStorageUsage(0.0), |s, a| s.storage_usage = a.0)),
-                        ..Default::default()
-                    }.into(),
-                    ProgressBar {
-                        value: view.state.storage_usage,
-                    }.build(ctx, view),
-                ]
-            }.build(ctx, view)
+            Button {
+                variant: ButtonVariant::Ghost,
+                child: Some(Box::new(Text::new("Settings").into_node())),
+                on_press: Some(ctx.bind(ToggleSettings, |s, _| s.show_settings = true)),
+                ..Default::default()
+            }.into_node()
         );
 
         Container::new(
@@ -209,26 +381,19 @@ impl Widget<InboxState> for EmailList {
         let mut list_items = vec![];
         
         list_items.push(
-            Tabs {
-                selected_index: view.state.active_tab,
-                tabs: vec![
-                    TabItem {
-                        title: "Primary".into(), 
-                        content: Container::new(fission_core::ui::Row::default().into()).into_node(),
-                        on_select: Some(ctx.bind(SelectTab(0), |s, a| s.active_tab = a.0)),
-                    },
-                    TabItem {
-                        title: "Social".into(), 
-                        content: Container::new(fission_core::ui::Row::default().into()).into_node(),
-                        on_select: Some(ctx.bind(SelectTab(1), |s, a| s.active_tab = a.0)),
-                    },
-                    TabItem {
-                        title: "Promotions".into(), 
-                        content: Container::new(fission_core::ui::Row::default().into()).into_node(),
-                        on_select: Some(ctx.bind(SelectTab(2), |s, a| s.active_tab = a.0)),
-                    },
+            HStack {
+                spacing: Some(8.0),
+                children: vec![
+                    Text::new("Inbox").size(24.0).into_node(),
+                    fission_core::ui::widgets::Spacer { flex_grow: 1.0, ..Default::default() }.into_node(),
+                    Button {
+                        variant: ButtonVariant::Filled,
+                        child: Some(Box::new(Text::new("Compose").color(Color::WHITE).into_node())),
+                        on_press: Some(ctx.bind(ToggleCompose, |s, _| s.show_compose = true)),
+                        ..Default::default()
+                    }.into_node()
                 ]
-            }.build(ctx, view)
+            }.into_node()
         );
         
         list_items.push(
@@ -375,14 +540,13 @@ impl Widget<InboxState> for EmailDetail {
                                     font_size: Some(24.0),
                                     ..Default::default()
                                 }.into(),
-                                Tag {
-                                    label: "Work".into(),
-                                    on_close: Some(ctx.bind(DismissDropdown, |_,_| {})),
-                                }.build(ctx, view),
-                                Tag {
-                                    label: "Important".into(),
-                                    on_close: None,
-                                }.build(ctx, view),
+                                fission_core::ui::widgets::Spacer { flex_grow: 1.0, ..Default::default() }.into_node(),
+                                Button {
+                                    variant: ButtonVariant::Outline,
+                                    child: Some(Box::new(Icon::svg(material::action::delete::regular()).size(20.0).into_node())),
+                                    on_press: Some(ctx.bind(ToggleToast, |s, _| s.show_toast = true)),
+                                    ..Default::default()
+                                }.into_node(),
                             ]
                         }.build(ctx, view),
                         
@@ -405,83 +569,23 @@ impl Widget<InboxState> for EmailDetail {
                             ]
                         }.build(ctx, view),
                         
-                        Accordion {
-                            items: vec![
-                                AccordionItem {
-                                    title: "Details".into(),
-                                    is_expanded: view.state.details_expanded,
-                                    on_toggle: Some(ctx.bind(ToggleDetails, |s,_| s.details_expanded = !s.details_expanded)),
-                                    content: Text {
-                                        content: TextContent::Literal(format!("Date: Dec 28, 2025\nTo: Me\nCc: Boss")),
-                                        font_size: Some(12.0),
-                                        color: Some(Color { r: 100, g: 100, b: 100, a: 255 }),
-                                        ..Default::default()
-                                    }.into()
-                                }
-                            ]
-                        }.build(ctx, view),
-                        
                         Divider { orientation: fission_widgets::divider::Orientation::Horizontal }.build(ctx, view),
                         
                         // Body
-                        Card {
-                            child: Box::new(
-                                VStack {
-                                    spacing: Some(8.0),
-                                    children: vec![
-                                        Text {
-                                            content: TextContent::Literal(
-                                                "Hey there,\n\nThis demonstrates the new Checkbox, Switch, Radio, Slider and I18n features.\nThe sidebar labels are localized.\n\nTry selecting items in the list!\n".into()
-                                            ),
-                                            ..Default::default()
-                                        }.into(),
-                                        
-                                        Image {
-                                            source: "docs/fission_logo.png".into(),
-                                            width: Some(200.0),
-                                            height: Some(100.0),
-                                            ..Default::default()
-                                        }.into(),
-                                        
-                                        HStack {
-                                            spacing: Some(8.0),
-                                            children: vec![
-                                                Text { content: TextContent::Literal("Loading attachments...".into()), font_size: Some(12.0), ..Default::default() }.into(),
-                                                Spinner {
-                                                    id: WidgetNodeId::explicit("loader_1"),
-                                                    color: None,
-                                                }.build(ctx, view)
-                                            ]
-                                        }.build(ctx, view)
-                                    ]
-                                }.build(ctx, view)
-                            )
-                        }.build(ctx, view),
-                        
-                        Text { content: TextContent::Literal("Reply Mode:".into()), font_size: Some(14.0), ..Default::default() }.into(),
-                        HStack {
-                            spacing: Some(16.0),
-                            children: vec![
-                                Radio {
-                                    checked: view.state.reply_mode == 0,
-                                    label: Some("Reply".into()),
-                                    on_select: Some(ctx.bind(SelectReplyMode(0), |s,a| s.reply_mode = a.0)),
-                                    ..Default::default()
-                                }.into(),
-                                Radio {
-                                    checked: view.state.reply_mode == 1,
-                                    label: Some("Reply All".into()),
-                                    on_select: Some(ctx.bind(SelectReplyMode(1), |s,a| s.reply_mode = a.0)),
-                                    ..Default::default()
-                                }.into(),
-                                Radio {
-                                    checked: view.state.reply_mode == 2,
-                                    label: Some("Forward".into()),
-                                    on_select: Some(ctx.bind(SelectReplyMode(2), |s,a| s.reply_mode = a.0)),
-                                    ..Default::default()
-                                }.into(),
-                            ]
-                        }.build(ctx, view)
+                        Container::new(
+                            Scroll {
+                                child: Some(Box::new(
+                                    Text {
+                                        content: TextContent::Literal(
+                                            "Hey there,\n\nThis is a long email body.\n\nIt demonstrates the Scroll widget.\n\nLorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat.\n\nDuis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur.\n\nExcepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum.\n".into()
+                                        ),
+                                        ..Default::default()
+                                    }.into()
+                                )),
+                                show_scrollbar: true,
+                                ..Default::default()
+                            }.into_node()
+                        ).flex_grow(1.0).into_node(),
                     ]
                 }
                 .build(ctx, view)

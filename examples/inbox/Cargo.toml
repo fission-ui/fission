@@ -8,6 +8,7 @@ fission = { path = "../../crates/authoring/fission" }
 fission-shell-desktop = { path = "../../crates/shell/fission-shell-desktop" }
 fission-ir = { path = "../../crates/core/fission-ir" }
 fission-widgets = { path = "../../crates/authoring/fission-widgets" }
+fission-icons = { path = "../../crates/authoring/fission-icons" }
 fission-core = { path = "../../crates/core/fission-core" }
 fission-macros = { path = "../../crates/authoring/fission-macros" }
 fission-render = { path = "../../crates/rendering/fission-render" }

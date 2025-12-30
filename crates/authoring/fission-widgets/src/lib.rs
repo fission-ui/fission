@@ -53,6 +53,9 @@ pub use toast::{Toast, ToastKind};
 pub mod modal;
 pub use modal::{Modal, ModalAction};
 
+pub mod data_table;
+pub use data_table::{DataTable, TableColumn, TableRow};
+
 use fission_core::{lowering::NodeBuilder, op::StructuralOp, LowerDyn, LoweringContext, NodeId, Op};
 use std::sync::Arc;
 

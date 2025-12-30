@@ -166,6 +166,11 @@ impl Color {
         b: 255,
         a: 255,
     };
+
+    pub fn with_alpha(mut self, a: u8) -> Self {
+        self.a = a;
+        self
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
