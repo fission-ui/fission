@@ -13,7 +13,7 @@ fn test_tooltip_registers_portal_when_hovered() {
     runtime.add_app_state(Box::new(State)).unwrap();
     
     let tooltip_id = WidgetNodeId::explicit("test_tooltip");
-    let node_id = NodeId::derived(tooltip_id.as_u128(), &[]);
+    let node_id: NodeId = tooltip_id.into();
     
     // Simulate hover
     runtime.runtime_state.interaction.set_hovered(node_id, true);
