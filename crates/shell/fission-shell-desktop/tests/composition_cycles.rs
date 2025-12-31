@@ -162,6 +162,7 @@ fn pump(
             &runtime.runtime_state.scroll,
             &mut renderer,
             &runtime.runtime_state.video,
+            &runtime.runtime_state.web,
         )
         .expect("render ok");
     let snap = pipe.last_snapshot.clone().expect("snapshot");

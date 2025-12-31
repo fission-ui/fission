@@ -38,7 +38,9 @@ fn test_absolute_fill_inside_grown_container() {
     // 4. Row (Flex Row)
     let mut row = crate::lowering::NodeBuilder::new(row_id, Op::Layout(LayoutOp::Flex {
         direction: FlexDirection::Row, wrap: fission_ir::FlexWrap::NoWrap,
-        flex_grow: 1.0, flex_shrink: 0.0, padding: [0.0; 4], gap: None
+        flex_grow: 1.0, flex_shrink: 0.0, padding: [0.0; 4], gap: None,
+        align_items: fission_ir::op::AlignItems::Stretch,
+        justify_content: fission_ir::op::JustifyContent::Start,
     }));
     row.add_child(container_final);
     let row_final = row.build(&mut cx);

@@ -54,7 +54,9 @@ fn test_text_wrapping_in_constrained_flex() {
         direction: fission_ir::FlexDirection::Row,
         wrap: fission_ir::FlexWrap::NoWrap,
         flex_grow: 0.0, flex_shrink: 1.0, 
-        padding: [0.0; 4], gap: None
+        padding: [0.0; 4], gap: None,
+        align_items: fission_ir::op::AlignItems::Stretch,
+        justify_content: fission_ir::op::JustifyContent::Start,
     }));
     row_builder.add_child(text_final);
     let row_final = row_builder.build(&mut cx);

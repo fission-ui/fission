@@ -61,6 +61,8 @@ fn test_taffy_integration_flex_row() {
                 flex_shrink: 0.0,
                 padding: [0.0; 4],
                 gap: None,
+                align_items: fission_ir::op::AlignItems::Stretch,
+                justify_content: fission_ir::op::JustifyContent::Start,
             },
             children_ids: vec![child1_id, child2_id],
             debug_name: "root".into(),
