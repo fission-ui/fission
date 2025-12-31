@@ -175,12 +175,30 @@ impl<S: AppState> TestHarness<S> {
                 self.runtime.clear_reducers();
                 let animation_requests = ctx.take_animation_requests();
                 let video_nodes = ctx.take_video_registrations();
+                let portals = ctx.take_portals();
                 self.runtime.absorb_registry(ctx.registry);
                 for (target, request) in animation_requests {
                     self.runtime.enqueue_animation(target, request);
                 }
                 self.runtime.sync_video_nodes(&video_nodes);
-                tree
+                
+                if portals.is_empty() {
+                    tree
+                } else {
+                    // Wrap tree in Container(AbsoluteFill) to ensure it fills ZStack
+                    let content = fission_core::ui::Container::new(tree)
+                        .width(800.0) // Match viewport
+                        .height(600.0)
+                        .into_node();
+                        
+                    // Wrap in ZStack: Root + Portals
+                    let mut children = vec![content];
+                    children.extend(portals);
+                    fission_core::ui::Node::ZStack(fission_core::ui::ZStack {
+                        id: None,
+                        children,
+                    })
+                }
             };
 
             // Lower

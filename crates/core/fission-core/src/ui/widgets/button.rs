@@ -168,7 +168,7 @@ impl Lower for Button {
                 height: self.height,
                 min_width: None,
                 max_width: None,
-                min_height: Some(resolved_style.height),
+                min_height: if self.height.is_some() { None } else { Some(resolved_style.height) },
                 max_height: None,
                 padding: self.padding.unwrap_or([
                     resolved_style.padding_horizontal,
@@ -177,7 +177,7 @@ impl Lower for Button {
                     0.0,
                 ]),
                 flex_grow: 0.0,
-                flex_shrink: 0.0,
+                flex_shrink: 1.0, // Allow shrink
                 aspect_ratio: None,
             }),
         );

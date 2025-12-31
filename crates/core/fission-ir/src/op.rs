@@ -73,6 +73,37 @@ impl Default for FlexWrap {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub enum AlignItems {
+    Start,
+    End,
+    Center,
+    Stretch,
+    Baseline,
+}
+
+impl Default for AlignItems {
+    fn default() -> Self {
+        AlignItems::Stretch
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub enum JustifyContent {
+    Start,
+    End,
+    Center,
+    SpaceBetween,
+    SpaceAround,
+    SpaceEvenly,
+}
+
+impl Default for JustifyContent {
+    fn default() -> Self {
+        JustifyContent::Start
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum LayoutOp {
     Box {
@@ -94,6 +125,8 @@ pub enum LayoutOp {
         flex_shrink: LayoutUnit,
         padding: [LayoutUnit; 4],
         gap: Option<LayoutUnit>,
+        align_items: AlignItems,
+        justify_content: JustifyContent,
     },
     Grid {
         columns: Vec<GridTrack>,

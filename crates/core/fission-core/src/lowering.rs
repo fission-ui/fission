@@ -170,6 +170,8 @@ pub fn build_layout_tree(ir: &CoreIR) -> Vec<LayoutInputNode> {
                 flex_shrink,
                 padding,
                 gap,
+                align_items,
+                justify_content,
             }) => (
                 LayoutOp::Flex {
                     direction: *direction,
@@ -178,6 +180,8 @@ pub fn build_layout_tree(ir: &CoreIR) -> Vec<LayoutInputNode> {
                     flex_shrink: *flex_shrink,
                     padding: *padding,
                     gap: *gap,
+                    align_items: *align_items,
+                    justify_content: *justify_content,
                 },
                 None,
                 None,

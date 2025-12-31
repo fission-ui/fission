@@ -1,6 +1,6 @@
 use crate::{Lower, LoweringContext, Node, NodeBuilder};
 use fission_ir::{FlexDirection, LayoutOp, NodeId, Op, Semantics};
-use fission_ir::op::FlexWrap;
+use fission_ir::op::{FlexWrap, AlignItems, JustifyContent};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -12,6 +12,8 @@ pub struct Column {
     pub flex_shrink: f32,
     pub gap: Option<f32>,
     pub wrap: FlexWrap,
+    pub align_items: AlignItems,
+    pub justify_content: JustifyContent,
 }
 
 impl Default for Column {
@@ -24,6 +26,8 @@ impl Default for Column {
             flex_shrink: 1.0,
             semantics: None,
             wrap: FlexWrap::NoWrap,
+            align_items: AlignItems::Stretch,
+            justify_content: JustifyContent::Start,
         }
     }
 }
@@ -41,6 +45,16 @@ impl Column {
 
     pub fn gap(mut self, gap: Option<f32>) -> Self {
         self.gap = gap;
+        self
+    }
+
+    pub fn align_items(mut self, align: AlignItems) -> Self {
+        self.align_items = align;
+        self
+    }
+
+    pub fn justify_content(mut self, justify: JustifyContent) -> Self {
+        self.justify_content = justify;
         self
     }
 
@@ -64,6 +78,8 @@ impl Lower for Column {
                 flex_shrink: self.flex_shrink,
                 padding: [0.0; 4],
                 gap: self.gap,
+                align_items: self.align_items,
+                justify_content: self.justify_content,
             }),
         );
         for child in &self.children {

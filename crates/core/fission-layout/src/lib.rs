@@ -486,7 +486,7 @@ impl LayoutEngine {
                 };
             }
             LayoutOp::Flex {
-                direction, wrap, padding, gap, ..
+                direction, wrap, padding, gap, align_items, justify_content, ..
             } => {
                 style.display = Display::Flex;
                 style.flex_direction = match direction {
@@ -498,7 +498,21 @@ impl LayoutEngine {
                     IrFlexWrap::Wrap => taffy::style::FlexWrap::Wrap,
                     IrFlexWrap::WrapReverse => taffy::style::FlexWrap::WrapReverse,
                 };
-                style.align_items = Some(AlignItems::Stretch);
+                style.align_items = Some(match align_items {
+                    fission_ir::op::AlignItems::Start => AlignItems::Start,
+                    fission_ir::op::AlignItems::End => AlignItems::End,
+                    fission_ir::op::AlignItems::Center => AlignItems::Center,
+                    fission_ir::op::AlignItems::Stretch => AlignItems::Stretch,
+                    fission_ir::op::AlignItems::Baseline => AlignItems::Baseline,
+                });
+                style.justify_content = Some(match justify_content {
+                    fission_ir::op::JustifyContent::Start => JustifyContent::Start,
+                    fission_ir::op::JustifyContent::End => JustifyContent::End,
+                    fission_ir::op::JustifyContent::Center => JustifyContent::Center,
+                    fission_ir::op::JustifyContent::SpaceBetween => JustifyContent::SpaceBetween,
+                    fission_ir::op::JustifyContent::SpaceAround => JustifyContent::SpaceAround,
+                    fission_ir::op::JustifyContent::SpaceEvenly => JustifyContent::SpaceEvenly,
+                });
                 style.padding = taffy::geometry::Rect {
                     left: points(padding[0]),
                     right: points(padding[1]),
@@ -683,6 +697,11 @@ impl LayoutEngine {
                     width: width.map(Dimension::Points).unwrap_or(Dimension::Auto),
                     height: height.map(Dimension::Points).unwrap_or(Dimension::Auto),
                 };
+            }
+            LayoutOp::Align => {
+                style.display = Display::Flex;
+                style.align_items = Some(AlignItems::Center);
+                style.justify_content = Some(JustifyContent::Center);
             }
             LayoutOp::Flyout { .. } => {
                 style.display = Display::None;

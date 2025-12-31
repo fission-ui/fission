@@ -101,8 +101,8 @@ impl Lower for Checkbox {
 
         let layout_id = cx.next_node_id();
         let mut row = NodeBuilder::new(
-            layout_id,
-            Op::Layout(LayoutOp::Flex { direction: fission_ir::FlexDirection::Row, wrap: fission_ir::op::FlexWrap::NoWrap, flex_grow: 0.0, flex_shrink: 0.0, padding: [0.0; 4], gap: None }),
+            id,
+            Op::Layout(LayoutOp::Flex { direction: fission_ir::FlexDirection::Row, wrap: fission_ir::op::FlexWrap::NoWrap, flex_grow: 0.0, flex_shrink: 1.0, padding: [0.0; 4], gap: Some(8.0), align_items: fission_ir::op::AlignItems::Center, justify_content: fission_ir::op::JustifyContent::Start }),
         );
         row.add_child(square_final);
         if let Some(l) = label_id { row.add_child(l); }

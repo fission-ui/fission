@@ -110,6 +110,8 @@ impl Lower for Slider {
                     flex_shrink: 0.0,
                     padding: [0.0; 4],
                     gap: None,
+                    align_items: fission_ir::op::AlignItems::Center,
+                    justify_content: fission_ir::op::JustifyContent::Start,
                 }),
             );
             // We need `justify_content: center`. `LayoutOp::Flex` maps to `AlignItems: Center` (cross axis) but justification?

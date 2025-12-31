@@ -1,6 +1,5 @@
-use fission_core::ui::{Button, ButtonVariant, Container, Node, Text, TextContent, TextInput};
+use fission_core::ui::{Button, ButtonVariant, Container, Node, Text, TextContent, TextInput, Row};
 use fission_core::{BuildCtx, View, Widget, ActionEnvelope, WidgetNodeId};
-use crate::stack::HStack;
 use crate::Icon;
 use fission_icons::material;
 use serde::{Deserialize, Serialize};
@@ -36,15 +35,17 @@ impl<S: fission_core::AppState> Widget<S> for NumberInput {
     fn build(&self, ctx: &mut BuildCtx<S>, view: &View<S>) -> Node {
         let tokens = &view.env.theme.tokens;
         
-        HStack {
-            spacing: Some(4.0),
-            children: vec![
+        Row::default()
+            .gap(4.0)
+            .align_items(fission_ir::op::AlignItems::Center)
+            .children(vec![
                 Button {
                     variant: ButtonVariant::Outline,
                     child: Some(Box::new(Icon::svg(material::content::remove::regular()).size(16.0).into_node())),
                     on_press: self.on_decrement.clone(),
                     width: Some(32.0),
                     height: Some(32.0),
+                    padding: Some([0.0; 4]),
                     ..Default::default()
                 }.into_node(),
                 
@@ -63,9 +64,10 @@ impl<S: fission_core::AppState> Widget<S> for NumberInput {
                     on_press: self.on_increment.clone(),
                     width: Some(32.0),
                     height: Some(32.0),
+                    padding: Some([0.0; 4]),
                     ..Default::default()
                 }.into_node(),
-            ]
-        }.into_node()
+            ])
+        .into_node()
     }
 }
