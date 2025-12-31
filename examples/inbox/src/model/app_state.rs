@@ -2,18 +2,32 @@ use serde::{Deserialize, Serialize};
 use fission_core::AppState;
 use std::collections::HashSet;
 use super::email::Folder;
+use chrono::NaiveDate;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct InboxState {
     // Router
     pub current_path: String,
     
-    // Data (Mock)
-    // In a real app these would be in a DB/Store, here we keep UI state separate from data mostly,
-    // but for the example we store selection state here.
+    // ... (existing) ...
     pub selected_folder: Folder,
     pub selected_email_id: Option<usize>,
     pub selected_emails: Vec<usize>,
+    
+    // List View
+    pub page: usize,
+    pub total_pages: usize,
+    pub filter_mode: usize, // 0=All, 1=Unread, 2=Starred
+    
+    // Compose State
+    pub compose_to: String,
+    pub compose_subject: String,
+    pub compose_body: String,
+    pub compose_attachments: Vec<String>,
+    pub schedule_date: Option<NaiveDate>,
+    pub schedule_time: Option<(u32, u32)>,
+    pub is_date_picker_open: bool,
+    pub is_time_picker_open: bool, // Not used by standard TimePicker (inline) but maybe for modal?
     
     // UI State
     pub search_query: String,
@@ -47,6 +61,20 @@ impl Default for InboxState {
             selected_folder: Folder::Inbox,
             selected_email_id: None,
             selected_emails: vec![],
+            
+            page: 1,
+            total_pages: 5,
+            filter_mode: 0,
+            
+            compose_to: "".into(),
+            compose_subject: "".into(),
+            compose_body: "".into(),
+            compose_attachments: vec![],
+            schedule_date: None,
+            schedule_time: None,
+            is_date_picker_open: false,
+            is_time_picker_open: false,
+            
             search_query: "".into(),
             show_filter_dropdown: false,
             active_tab: 0,

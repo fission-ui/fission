@@ -1,7 +1,7 @@
 use fission_core::{BuildCtx, View, Widget, WidgetNodeId, NodeId, Handler};
 use fission_core::ui::{Container, Node, Text, TextContent, Button, ButtonVariant, Scroll};
 use fission_core::op::Color;
-use fission_widgets::{VStack, HStack, Avatar, Accordion, AccordionItem, Card, Image, Spinner, Radio, Breadcrumb, BreadcrumbItem, Alert, AlertKind, Divider, Icon};
+use fission_widgets::{VStack, HStack, Avatar, Accordion, AccordionItem, Card, Image, Spinner, Radio, Breadcrumb, BreadcrumbItem, Alert, AlertKind, Divider, Icon, Timeline, TimelineItem};
 use crate::model::{InboxState, DismissDropdown, ToggleDetails, ToggleToast, SelectReplyMode, Navigate};
 use fission_icons::material;
 
@@ -87,13 +87,25 @@ impl Widget<InboxState> for EmailDetail {
                     
                     Divider { orientation: fission_widgets::divider::Orientation::Horizontal }.build(ctx, view),
                     
+                    // Timeline History
+                    Text::new("History").size(18.0).into_node(),
+                    Timeline {
+                        items: vec![
+                            TimelineItem { title: "Received".into(), description: Some("Original message received.".into()), timestamp: Some("Dec 20, 10:00 AM".into()) },
+                            TimelineItem { title: "Replied".into(), description: Some("You replied: 'Thanks!'".into()), timestamp: Some("Dec 21, 09:30 AM".into()) },
+                            TimelineItem { title: "Received".into(), description: Some("Latest response from John.".into()), timestamp: Some("Dec 28, 2:00 PM".into()) },
+                        ]
+                    }.build(ctx, view),
+                    
+                    fission_core::ui::widgets::Spacer { height: Some(16.0), ..Default::default() }.into_node(),
+                    
                     // Body
                     Container::new(
                         Scroll {
                             child: Some(Box::new(
                                 Text {
                                     content: TextContent::Literal(
-                                        "Hey there,\n\nThis is a long email body.\n\nIt demonstrates the Scroll widget.\n\nLorem ipsum dolor sit amet...".into()
+                                        "Hey there,\n\nThis is the latest message body.\n\nLorem ipsum dolor sit amet...".into()
                                     ),
                                     ..Default::default()
                                 }.into()

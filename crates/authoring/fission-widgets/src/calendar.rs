@@ -1,0 +1,165 @@
+use fission_core::ui::{Button, ButtonVariant, Container, Node, Text};
+use fission_core::{BuildCtx, View, Widget, ActionEnvelope};
+use fission_core::op::Color;
+use crate::stack::{HStack, VStack};
+use std::sync::Arc;
+use serde::{Deserialize, Serialize};
+use chrono::{Datelike, NaiveDate, Weekday};
+
+pub struct Calendar {
+    pub year: i32,
+    pub month: u32,
+    pub selected_date: Option<NaiveDate>,
+    pub on_select: Option<Arc<dyn Fn(NaiveDate) -> ActionEnvelope + Send + Sync>>,
+    pub on_navigate: Option<Arc<dyn Fn(i32, u32) -> ActionEnvelope + Send + Sync>>,
+}
+
+// Manual Debug
+impl std::fmt::Debug for Calendar {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Calendar")
+            .field("year", &self.year)
+            .field("month", &self.month)
+            .field("selected", &self.selected_date)
+            .finish()
+    }
+}
+
+impl<S: fission_core::AppState> Widget<S> for Calendar {
+    fn build(&self, _ctx: &mut BuildCtx<S>, view: &View<S>) -> Node {
+        let tokens = &view.env.theme.tokens;
+        
+        let first_day = NaiveDate::from_ymd_opt(self.year, self.month, 1).unwrap();
+        let days_in_month = if self.month == 12 {
+            NaiveDate::from_ymd_opt(self.year + 1, 1, 1).unwrap()
+        } else {
+            NaiveDate::from_ymd_opt(self.year, self.month + 1, 1).unwrap()
+        }.signed_duration_since(first_day).num_days() as u32;
+        
+        let start_weekday = first_day.weekday().num_days_from_sunday(); // 0 = Sun
+        
+        // Header
+        let prev_cb = self.on_navigate.clone();
+        let next_cb = self.on_navigate.clone();
+        let (prev_y, prev_m) = if self.month == 1 { (self.year - 1, 12) } else { (self.year, self.month - 1) };
+        let (next_y, next_m) = if self.month == 12 { (self.year + 1, 1) } else { (self.year, self.month + 1) };
+        
+        let header = HStack {
+            spacing: Some(8.0),
+            children: vec![
+                Button {
+                    variant: ButtonVariant::Ghost,
+                    child: Some(Box::new(Text::new("<").into_node())),
+                    on_press: prev_cb.map(|f| f(prev_y, prev_m)),
+                    width: Some(32.0), height: Some(32.0),
+                    ..Default::default()
+                }.into_node(),
+                
+                Text::new(first_day.format("%B %Y").to_string())
+                    .size(tokens.typography.body_large_size)
+                    .into_node(),
+                    
+                Button {
+                    variant: ButtonVariant::Ghost,
+                    child: Some(Box::new(Text::new(">").into_node())),
+                    on_press: next_cb.map(|f| f(next_y, next_m)),
+                    width: Some(32.0), height: Some(32.0),
+                    ..Default::default()
+                }.into_node(),
+            ]
+        }.into_node();
+        
+        // Weekday labels
+        let weekdays = ["S", "M", "T", "W", "T", "F", "S"];
+        let labels = HStack {
+            spacing: Some(0.0),
+            children: weekdays.iter().map(|d| {
+                Container::new(Text::new(d.to_string()).size(12.0).color(tokens.colors.text_secondary).into_node())
+                    .width(32.0)
+                    .height(32.0)
+                    // align center
+                    .into_node()
+            }).collect(),
+        }.into_node();
+        
+        // Days
+        let mut days = Vec::new();
+        // Padding for start
+        for _ in 0..start_weekday {
+            days.push(fission_core::ui::widgets::Spacer::default().into_node());
+        }
+        
+        for d in 1..=days_in_month {
+            let date = NaiveDate::from_ymd_opt(self.year, self.month, d).unwrap();
+            let is_selected = self.selected_date == Some(date);
+            let cb = self.on_select.clone();
+            
+            days.push(
+                Button {
+                    variant: if is_selected { ButtonVariant::Filled } else { ButtonVariant::Ghost },
+                    child: Some(Box::new(Text::new(d.to_string())
+                        .color(if is_selected { tokens.colors.on_primary } else { tokens.colors.text_primary })
+                        .into_node()
+                    )),
+                    on_press: cb.map(|f| f(date)),
+                    width: Some(32.0), height: Some(32.0),
+                    ..Default::default()
+                }.into_node()
+            );
+        }
+        
+        // Grid with 7 columns
+        let day_grid = fission_core::ui::Grid {
+            columns: vec![fission_ir::op::GridTrack::Points(32.0); 7],
+            rows: vec![], // Auto rows
+            children: {
+                // Flatten days into GridItems?
+                // Grid takes `children: Vec<Node>`.
+                // If we pass 30 items, and 7 cols, it wraps?
+                // Taffy Grid auto-places items if row/col not specified.
+                // So yes.
+                // But I need to wrap each in GridItem? No, direct children are auto-placed.
+                // Wait, `Grid` struct expects `Vec<Node>` which wraps `GridItem`.
+                // If I pass `Button`, is it wrapped?
+                // `fission_core::ui::Grid` wraps children? No.
+                // It expects children to BE `GridItem`?
+                // Let's check `fission-core/ui/widgets/grid.rs`.
+                // It has `children: Vec<Node>`.
+                // Lowering puts them in children list.
+                // Taffy treats them as grid items.
+                // So `Button` is fine.
+                
+                // EXCEPT: I added padding nodes (Spacers).
+                // They work as empty cells.
+                
+                // BUT `fission_core::ui::Grid` has `children: Vec<Node>`.
+                // `lower` puts them as children of LayoutOp::Grid.
+                // Correct.
+                
+                // However, I constructed `days` as `Vec<Node>`.
+                // I need to use `Grid` widget.
+                days
+            },
+            column_gap: Some(0.0),
+            row_gap: Some(0.0),
+            padding: [0.0; 4],
+            ..Default::default()
+        }.into_node();
+
+        let mut c = Container::new(
+            VStack {
+                spacing: Some(8.0),
+                children: vec![header, labels, day_grid],
+            }.into_node()
+        )
+        .padding_all(16.0)
+        .bg(tokens.colors.surface)
+        .border_radius(tokens.radii.medium);
+        
+        if let Some(s) = tokens.elevations.level2 {
+            c = c.shadow(s);
+        }
+        
+        c.into_node()
+    }
+}

@@ -27,6 +27,7 @@ pub struct Button {
     pub padding: Option<[f32; 4]>,
     pub style: Option<ButtonStyleOverride>,
     pub variant: ButtonVariant,
+    pub disabled: bool,
 }
 
 impl Button {
@@ -58,26 +59,34 @@ impl Button {
         let default_style = &env.theme.components.button;
         let tokens = &env.theme.tokens.colors;
 
-        let is_hovered = interaction.is_hovered(self_id);
-        let is_pressed = interaction.is_pressed(self_id);
-        let is_focused = interaction.is_focused(self_id);
+        let is_hovered = interaction.is_hovered(self_id) && !self.disabled;
+        let is_pressed = interaction.is_pressed(self_id) && !self.disabled;
+        let is_focused = interaction.is_focused(self_id) && !self.disabled;
 
-        let (bg_color, text_color, border_stroke) = match self.variant {
-            ButtonVariant::Filled => (
-                Some(tokens.primary),
-                tokens.on_primary,
-                if is_focused { default_style.focus_stroke } else { None },
-            ),
-            ButtonVariant::Outline => (
-                if is_hovered { Some(tokens.surface) } else { None },
-                tokens.primary,
-                Some(Stroke { color: tokens.border, width: 1.0 }),
-            ),
-            ButtonVariant::Ghost => (
-                if is_hovered { Some(tokens.surface) } else { None },
-                tokens.primary,
-                None,
-            ),
+        let (bg_color, text_color, border_stroke) = if self.disabled {
+            (
+                if self.variant == ButtonVariant::Filled { Some(tokens.border) } else { None }, // Grey bg or transparent
+                tokens.text_secondary, // Grey text
+                if self.variant == ButtonVariant::Outline { Some(Stroke { color: tokens.border, width: 1.0 }) } else { None },
+            )
+        } else {
+            match self.variant {
+                ButtonVariant::Filled => (
+                    Some(tokens.primary),
+                    tokens.on_primary,
+                    if is_focused { default_style.focus_stroke } else { None },
+                ),
+                ButtonVariant::Outline => (
+                    if is_hovered { Some(tokens.surface) } else { None },
+                    tokens.primary,
+                    Some(Stroke { color: tokens.border, width: 1.0 }),
+                ),
+                ButtonVariant::Ghost => (
+                    if is_hovered { Some(tokens.surface) } else { None },
+                    tokens.primary,
+                    None,
+                ),
+            }
         };
 
         let shadow = if self.variant == ButtonVariant::Filled {
@@ -116,13 +125,17 @@ impl Button {
             .semantics
             .clone()
             .unwrap_or_else(default_button_semantics);
+            
+        semantics.disabled = self.disabled;
 
         if let Some(action_envelope) = &self.on_press {
-            semantics.actions.entries.push(ActionEntry {
-                trigger: fission_ir::semantics::ActionTrigger::Default,
-                action_id: action_envelope.id.as_u128(),
-                payload_data: Some(action_envelope.payload.clone()),
-            });
+            if !self.disabled {
+                semantics.actions.entries.push(ActionEntry {
+                    trigger: fission_ir::semantics::ActionTrigger::Default,
+                    action_id: action_envelope.id.as_u128(),
+                    payload_data: Some(action_envelope.payload.clone()),
+                });
+            }
         }
 
         Some(semantics)

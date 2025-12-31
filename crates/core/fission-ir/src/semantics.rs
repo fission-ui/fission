@@ -27,6 +27,9 @@ pub enum ActionTrigger {
     Focus,
     Blur,
     Change, // Value change (Slider, Input)
+    Drop,
+    DragEnter,
+    DragLeave,
 }
 
 impl Default for ActionTrigger {

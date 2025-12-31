@@ -1,12 +1,35 @@
-use serde::{Deserialize, Serialize};
 use fission_macros::Action;
+use serde::{Deserialize, Serialize};
+use super::email::{Folder, Email};
+use chrono::NaiveDate;
 
-// Navigation
-#[derive(Action, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+pub struct SetPage(pub usize);
+
+#[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+pub struct SetFilterMode(pub usize);
+
+#[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[serde(transparent)]
+pub struct SetComposeTo(pub String);
+
+#[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+pub struct SetScheduleDate(pub NaiveDate);
+
+#[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+pub struct SetScheduleTime(pub u32, pub u32);
+
+#[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+pub struct ToggleDatePicker;
+
+#[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+pub struct FileSelected;
+
+#[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+pub struct SelectFolder(pub Folder);
+
+#[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct Navigate(pub String);
-
-#[derive(Action, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct SelectFolder(pub String);
 
 #[derive(Action, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SelectEmail(pub usize);

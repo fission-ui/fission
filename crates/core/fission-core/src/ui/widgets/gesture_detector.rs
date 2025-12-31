@@ -20,6 +20,9 @@ pub struct GestureDetector {
     pub on_drag_end: Option<ActionEnvelope>,
     pub on_hover_enter: Option<ActionEnvelope>,
     pub on_hover_exit: Option<ActionEnvelope>,
+    pub on_drop: Option<ActionEnvelope>,
+    pub on_drag_enter: Option<ActionEnvelope>, // Drag over
+    pub on_drag_leave: Option<ActionEnvelope>,
 }
 
 impl Default for GestureDetector {
@@ -35,6 +38,9 @@ impl Default for GestureDetector {
             on_drag_end: None,
             on_hover_enter: None,
             on_hover_exit: None,
+            on_drop: None,
+            on_drag_enter: None,
+            on_drag_leave: None,
         }
     }
 }
@@ -61,18 +67,11 @@ impl Lower for GestureDetector {
         
         // Build Semantics
         let mut semantics = Semantics {
-            role: Role::Generic, // Generic container? Or specific role?
-            // "GestureDetector" isn't a role. It decorates.
-            // If the child has semantics, we wrap it?
-            // Yes, Semantics node wraps child layout node.
-            // If child is also Semantics, we have nested Semantics.
-            // Runtime needs to handle bubbling or priority.
-            // Currently runtime `handle_input` finds *closest* (deepest) semantics.
-            
+            role: Role::Generic,
             label: None,
             value: None,
             actions: Default::default(),
-            focusable: self.on_tap.is_some(), // Tappable implies focusable usually?
+            focusable: self.on_tap.is_some(), 
             multiline: false,
             masked: false,
             input_mask: None,
@@ -89,14 +88,11 @@ impl Lower for GestureDetector {
 
         if let Some(a) = &self.on_tap {
             semantics.actions.entries.push(ActionEntry {
-                trigger: ActionTrigger::Default, // Tap
+                trigger: ActionTrigger::Default,
                 action_id: a.id.as_u128(),
                 payload_data: Some(a.payload.clone()),
             });
         }
-        
-        // TODO: Map other triggers when ActionEntry supports them (I added them to ActionTrigger enum!)
-        // I added: DragStart, DragUpdate, DragEnd, HoverEnter, HoverExit.
         
         if let Some(a) = &self.on_drag_start {
             semantics.actions.entries.push(ActionEntry {
@@ -133,6 +129,30 @@ impl Lower for GestureDetector {
         if let Some(a) = &self.on_hover_exit {
             semantics.actions.entries.push(ActionEntry {
                 trigger: ActionTrigger::HoverExit,
+                action_id: a.id.as_u128(),
+                payload_data: Some(a.payload.clone()),
+            });
+        }
+        
+        if let Some(a) = &self.on_drop {
+            semantics.actions.entries.push(ActionEntry {
+                trigger: ActionTrigger::Drop,
+                action_id: a.id.as_u128(),
+                payload_data: Some(a.payload.clone()),
+            });
+        }
+        
+        if let Some(a) = &self.on_drag_enter {
+            semantics.actions.entries.push(ActionEntry {
+                trigger: ActionTrigger::DragEnter,
+                action_id: a.id.as_u128(),
+                payload_data: Some(a.payload.clone()),
+            });
+        }
+        
+        if let Some(a) = &self.on_drag_leave {
+            semantics.actions.entries.push(ActionEntry {
+                trigger: ActionTrigger::DragLeave,
                 action_id: a.id.as_u128(),
                 payload_data: Some(a.payload.clone()),
             });

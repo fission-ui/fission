@@ -366,6 +366,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "613afe47fcd5fac7ccf1db93babcb082c5994d996f20b8b159f2ad1658eb5724"
 
 [[package]]
+name = "chrono"
+version = "0.4.42"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "145052bdd345b87320e369255277e3fb5152762ad123a901ef5c262dd38fe8d2"
+dependencies = [
+ "iana-time-zone",
+ "num-traits",
+ "serde",
+ "windows-link",
+]
+
+[[package]]
 name = "clang-sys"
 version = "1.8.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -962,11 +974,13 @@ name = "fission-widgets"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "chrono",
  "fission-core",
  "fission-diagnostics",
  "fission-icons",
  "fission-ir",
  "fission-macros",
+ "fission-theme",
  "lazy_static",
  "serde",
  "serde_json",
@@ -1286,6 +1300,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "iana-time-zone"
+version = "0.1.64"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "33e57f83510bb73707521ebaffa789ec8caf86f9657cad665b092b581d40e9fb"
+dependencies = [
+ "android_system_properties",
+ "core-foundation-sys",
+ "iana-time-zone-haiku",
+ "js-sys",
+ "log",
+ "wasm-bindgen",
+ "windows-core",
+]
+
+[[package]]
+name = "iana-time-zone-haiku"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f31827a206f56af32e590ba56d5d2d085f558508192593743f16b2306495269f"
+dependencies = [
+ "cc",
+]
+
+[[package]]
 name = "icons_gallery"
 version = "0.1.0"
 dependencies = [
@@ -1361,6 +1399,7 @@ name = "inbox"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "chrono",
  "fission",
  "fission-core",
  "fission-i18n",
@@ -1372,6 +1411,7 @@ dependencies = [
  "fission-widgets",
  "lazy_static",
  "serde",
+ "serde_json",
 ]
 
 [[package]]
