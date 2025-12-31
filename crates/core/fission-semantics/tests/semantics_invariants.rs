@@ -33,6 +33,11 @@ fn test_semantics_serialization() {
         min_value: None,
         max_value: None,
         current_value: None,
+        is_focus_scope: false,
+        is_focus_barrier: false,
+        drag_payload: None,
+        hero_tag: None,
+        focus_index: None,
     };
 
     // Just verify it compiles and runs; exact serde format isn't critical yet, but capability is.

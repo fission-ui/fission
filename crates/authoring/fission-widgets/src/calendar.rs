@@ -27,6 +27,7 @@ impl std::fmt::Debug for Calendar {
 
 impl<S: fission_core::AppState> Widget<S> for Calendar {
     fn build(&self, _ctx: &mut BuildCtx<S>, view: &View<S>) -> Node {
+        let theme = &view.env.theme.components.calendar;
         let tokens = &view.env.theme.tokens;
         
         let first_day = NaiveDate::from_ymd_opt(self.year, self.month, 1).unwrap();
@@ -77,7 +78,6 @@ impl<S: fission_core::AppState> Widget<S> for Calendar {
                 Container::new(Text::new(d.to_string()).size(12.0).color(tokens.colors.text_secondary).into_node())
                     .width(32.0)
                     .height(32.0)
-                    // align center
                     .into_node()
             }).collect(),
         }.into_node();
@@ -86,7 +86,7 @@ impl<S: fission_core::AppState> Widget<S> for Calendar {
         let mut days = Vec::new();
         // Padding for start
         for _ in 0..start_weekday {
-            days.push(fission_core::ui::widgets::Spacer::default().into_node());
+            days.push(fission_core::ui::widgets::spacer::Spacer::default().into_node());
         }
         
         for d in 1..=days_in_month {
@@ -98,7 +98,7 @@ impl<S: fission_core::AppState> Widget<S> for Calendar {
                 Button {
                     variant: if is_selected { ButtonVariant::Filled } else { ButtonVariant::Ghost },
                     child: Some(Box::new(Text::new(d.to_string())
-                        .color(if is_selected { tokens.colors.on_primary } else { tokens.colors.text_primary })
+                        .color(if is_selected { theme.selected_text } else { tokens.colors.text_primary })
                         .into_node()
                     )),
                     on_press: cb.map(|f| f(date)),
@@ -111,35 +111,8 @@ impl<S: fission_core::AppState> Widget<S> for Calendar {
         // Grid with 7 columns
         let day_grid = fission_core::ui::Grid {
             columns: vec![fission_ir::op::GridTrack::Points(32.0); 7],
-            rows: vec![], // Auto rows
-            children: {
-                // Flatten days into GridItems?
-                // Grid takes `children: Vec<Node>`.
-                // If we pass 30 items, and 7 cols, it wraps?
-                // Taffy Grid auto-places items if row/col not specified.
-                // So yes.
-                // But I need to wrap each in GridItem? No, direct children are auto-placed.
-                // Wait, `Grid` struct expects `Vec<Node>` which wraps `GridItem`.
-                // If I pass `Button`, is it wrapped?
-                // `fission_core::ui::Grid` wraps children? No.
-                // It expects children to BE `GridItem`?
-                // Let's check `fission-core/ui/widgets/grid.rs`.
-                // It has `children: Vec<Node>`.
-                // Lowering puts them in children list.
-                // Taffy treats them as grid items.
-                // So `Button` is fine.
-                
-                // EXCEPT: I added padding nodes (Spacers).
-                // They work as empty cells.
-                
-                // BUT `fission_core::ui::Grid` has `children: Vec<Node>`.
-                // `lower` puts them as children of LayoutOp::Grid.
-                // Correct.
-                
-                // However, I constructed `days` as `Vec<Node>`.
-                // I need to use `Grid` widget.
-                days
-            },
+            rows: vec![],
+            children: days,
             column_gap: Some(0.0),
             row_gap: Some(0.0),
             padding: [0.0; 4],
@@ -153,8 +126,9 @@ impl<S: fission_core::AppState> Widget<S> for Calendar {
             }.into_node()
         )
         .padding_all(16.0)
-        .bg(tokens.colors.surface)
-        .border_radius(tokens.radii.medium);
+        .bg(theme.bg_color)
+        .border(theme.border_color, 1.0)
+        .border_radius(theme.radius);
         
         if let Some(s) = tokens.elevations.level2 {
             c = c.shadow(s);

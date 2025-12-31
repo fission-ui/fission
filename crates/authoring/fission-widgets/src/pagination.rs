@@ -28,6 +28,7 @@ impl std::fmt::Debug for Pagination {
 
 impl<S: fission_core::AppState> Widget<S> for Pagination {
     fn build(&self, _ctx: &mut BuildCtx<S>, view: &View<S>) -> Node {
+        let theme = &view.env.theme.components.pagination;
         let tokens = &view.env.theme.tokens;
         let mut children = Vec::new();
         
@@ -35,7 +36,7 @@ impl<S: fission_core::AppState> Widget<S> for Pagination {
             self.on_change.as_ref().map(|f| f(page))
         };
 
-        // Prev
+        // ... (Prev button) ...
         children.push(
             Button {
                 variant: ButtonVariant::Outline,
@@ -47,34 +48,30 @@ impl<S: fission_core::AppState> Widget<S> for Pagination {
             }.into_node()
         );
 
-        // Simple logic: Show all if small, or sliding window.
-        // For MVP: Show max 5 pages centered.
-        // Plus First/Last?
-        // Logic: 1 ... k-1 k k+1 ... N
-        
+        // ... (Pages logic) ...
         let start = (self.current_page as isize - 2).max(1) as usize;
         let end = (start + 4).min(self.total_pages);
-        let start = (end as isize - 4).max(1) as usize; // Re-clamp start if near end
+        let start = (end as isize - 4).max(1) as usize;
 
         if start > 1 {
-             children.push(page_btn(1, self.current_page == 1, callback(1), tokens));
+             children.push(page_btn(1, self.current_page == 1, callback(1), theme, tokens));
              if start > 2 {
                  children.push(Text::new("...").into_node());
              }
         }
 
         for i in start..=end {
-            children.push(page_btn(i, self.current_page == i, callback(i), tokens));
+            children.push(page_btn(i, self.current_page == i, callback(i), theme, tokens));
         }
 
         if end < self.total_pages {
              if end < self.total_pages - 1 {
                  children.push(Text::new("...").into_node());
              }
-             children.push(page_btn(self.total_pages, self.current_page == self.total_pages, callback(self.total_pages), tokens));
+             children.push(page_btn(self.total_pages, self.current_page == self.total_pages, callback(self.total_pages), theme, tokens));
         }
 
-        // Next
+        // ... (Next button) ...
         children.push(
             Button {
                 variant: ButtonVariant::Outline,
@@ -87,18 +84,18 @@ impl<S: fission_core::AppState> Widget<S> for Pagination {
         );
 
         HStack {
-            spacing: Some(8.0),
+            spacing: Some(theme.spacing),
             children,
         }.into_node()
     }
 }
 
-fn page_btn(page: usize, active: bool, action: Option<ActionEnvelope>, tokens: &fission_theme::Tokens) -> Node {
+fn page_btn(page: usize, active: bool, action: Option<ActionEnvelope>, theme: &fission_theme::PaginationTheme, tokens: &fission_theme::Tokens) -> Node {
     Button {
         variant: if active { ButtonVariant::Filled } else { ButtonVariant::Ghost },
         child: Some(Box::new(
             Text::new(format!("{}", page))
-                .color(if active { tokens.colors.on_primary } else { tokens.colors.text_primary })
+                .color(if active { theme.active_text } else { tokens.colors.text_primary })
                 .into_node()
         )),
         on_press: action,

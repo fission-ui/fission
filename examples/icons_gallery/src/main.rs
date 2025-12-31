@@ -46,9 +46,10 @@ impl Widget<State> for IconsApp {
                 // Add tooltip to the very first icon to verify interactions
                 if idx == 0 {
                     regular_node = Tooltip {
-                        id: WidgetNodeId::explicit("verify_flyout_tooltip"),
+                        id: WidgetNodeId::explicit(&format!("regular_{}", name)),
+                        text: format!("{} (Regular)", name),
                         child: Box::new(regular_node),
-                        text: "This tooltip should scroll with the icon!".into(),
+                        is_visible: false,
                     }.build(ctx, _view);
                 }
 

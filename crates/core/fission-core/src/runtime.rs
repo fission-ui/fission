@@ -7,6 +7,7 @@ use crate::{Clock, CurrentTime, InputEvent, PointerEvent, PointerButton, KeyCode
 use fission_ir::{CoreIR, NodeId, Op, LayoutOp, WidgetNodeId, FlexDirection};
 use fission_layout::{LayoutSnapshot, LayoutPoint, LayoutRect, TextMeasurer, LayoutUnit};
 use fission_diagnostics::prelude as diag;
+use glam::{Mat4, Vec4};
 use std::any::{Any, TypeId};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -340,6 +341,46 @@ impl Runtime {
             .retain(|node_id, _| seen.contains(node_id));
     }
 
+    pub fn post_layout_hook(&mut self, ir: &CoreIR, layout: &LayoutSnapshot) {
+        let mut current_heroes = HashMap::new();
+        
+        for (id, node) in &ir.nodes {
+            if let Op::Semantics(s) = &node.op {
+                if let Some(tag) = &s.hero_tag {
+                    if let Some(geom) = layout.get_node_geometry(*id) {
+                        current_heroes.insert(tag.clone(), (*id, geom.rect));
+                    }
+                }
+            }
+        }
+        
+        // Detection logic for future flight animations
+        for (tag, (_new_id, new_rect)) in &current_heroes {
+            if let Some((_old_id, old_rect)) = self.runtime_state.hero.positions.get(tag) {
+                if *new_rect != *old_rect {
+                    // Logic to spawn overlay flight ghost would go here
+                    diag::emit(
+                        diag::DiagCategory::Layout,
+                        diag::DiagLevel::Debug,
+                        diag::DiagEventKind::AnchorPlacement {
+                            widget: 0,
+                            node: 0,
+                            rect_x: old_rect.origin.x,
+                            rect_y: old_rect.origin.y,
+                            rect_w: old_rect.size.width,
+                            rect_h: old_rect.size.height,
+                            place_left: new_rect.origin.x,
+                            place_top: new_rect.origin.y,
+                            note: Some(format!("Hero flight: {}", tag)),
+                        },
+                    );
+                }
+            }
+        }
+        
+        self.runtime_state.hero.positions = current_heroes;
+    }
+
     pub fn handle_input(
         &mut self,
         event: InputEvent,
@@ -350,8 +391,7 @@ impl Runtime {
         use crate::input::text::TextInputController;
         use crate::input::slider::SliderController;
         use crate::input::gesture::GestureController;
-        use crate::hit_test::hit_test_with_scroll;
-        use crate::hit_test::find_next_focus_node;
+        use crate::hit_test::{hit_test_with_scroll, find_next_focus_node, find_neighbor_focus_node, FocusDirection};
 
         let mut dispatched_actions = Vec::new();
         let mut handled = false;
@@ -469,6 +509,21 @@ impl Runtime {
                         self.runtime_state.ime_preedit = None;
                     }
                     self.runtime_state.interaction.set_focused(next);
+                }
+                KeyCode::Up | KeyCode::Down | KeyCode::Left | KeyCode::Right => {
+                    if let Some(focused) = self.runtime_state.interaction.focused {
+                        let dir = match key_code {
+                            KeyCode::Up => FocusDirection::Up,
+                            KeyCode::Down => FocusDirection::Down,
+                            KeyCode::Left => FocusDirection::Left,
+                            KeyCode::Right => FocusDirection::Right,
+                            _ => unreachable!(),
+                        };
+                        if let Some(next) = find_neighbor_focus_node(ir, layout, focused, dir) {
+                            self.runtime_state.ime_preedit = None;
+                            self.runtime_state.interaction.set_focused(Some(next));
+                        }
+                    }
                 }
                 KeyCode::Enter | KeyCode::Space => {
                     if let Some(focused_id) = self.runtime_state.interaction.focused {
@@ -648,6 +703,57 @@ impl Runtime {
                                 FlexDirection::Row => child_point.x += offset,
                                 FlexDirection::Column => child_point.y += offset,
                             }
+                        }
+
+                        if let Op::Layout(LayoutOp::Transform { transform }) = &node.op {
+                            let mat = Mat4::from_cols_array(transform);
+                            // We need to transform the point relative to the node's origin?
+                            // Taffy coordinates are relative to parent.
+                            // In hit_test_recursive, `point` is relative to current `node_id`?
+                            // No, `point` is relative to the `geom.rect.origin` of `node_id`?
+                            // Let's check recursion.
+                            
+                            // hit_test starts at root with absolute point.
+                            // recursion: `child_point = point`.
+                            // wait, `hit_test_recursive` doesn't subtract location?
+                            // Ah, I see: `if geom.rect.contains(point)`.
+                            // This implies `point` is ABSOLUTE.
+                            
+                            // If `point` is absolute, and we want to transform into child local space:
+                            // 1. Move point to node local space: `point - node_pos`.
+                            // 2. Apply inverse transform.
+                            // 3. (Implicitly) Move back or keep local?
+                            // Recursive call expects absolute point?
+                            // No, `hit_test_recursive` calls itself with `child_point`.
+                            // If it expects absolute point, then `Transform` node doesn't work well with absolute recursion.
+                            
+                            // Actually, my `hit_test_recursive` impl seems to assume absolute points for all nodes?
+                            // `if geom.rect.contains(point)` confirms it.
+                            
+                            // So if I have a Transform, I MUST return a point that looks "absolute" to the child
+                            // but is logically transformed. 
+                            // Absolute child rect is NOT transformed by LayoutEngine.
+                            
+                            // This means `geom.rect` for children of a Transform is WRONG if they are visually moved.
+                            // BUT LayoutEngine doesn't know about Matrix4.
+                            // So the children think they are at `(0,0)` relative to parent.
+                            
+                            // To make hit test work:
+                            // 1. Convert absolute `point` to `node_local_point`.
+                            // 2. Apply inverse transform to `node_local_point` -> `transformed_local_point`.
+                            // 3. Convert `transformed_local_point` back to absolute for children -> `transformed_absolute_point`.
+                            
+                            let local_x = point.x - geom.rect.origin.x;
+                            let local_y = point.y - geom.rect.origin.y;
+                            
+                            let p = Vec4::new(local_x, local_y, 0.0, 1.0);
+                            let inv = mat.inverse();
+                            let transformed = inv * p;
+                            
+                            child_point = LayoutPoint::new(
+                                transformed.x + geom.rect.origin.x,
+                                transformed.y + geom.rect.origin.y
+                            );
                         }
                         
                         if let Some(hit) = self.hit_test_recursive(*child, child_point, ir, snapshot) {

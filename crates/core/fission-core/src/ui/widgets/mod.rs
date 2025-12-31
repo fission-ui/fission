@@ -2,10 +2,12 @@ pub mod button;
 pub mod column;
 pub mod image;
 pub mod row;
+pub mod safe_area;
 pub mod scroll;
 pub mod text;
-pub mod video;
 pub mod text_input;
+pub mod transform;
+pub mod video;
 pub mod stack;
 pub mod overlay;
 pub mod container;
@@ -23,10 +25,12 @@ pub use button::{Button, ButtonVariant};
 pub use column::Column;
 pub use image::Image;
 pub use row::Row;
+pub use safe_area::SafeArea;
 pub use scroll::Scroll;
 pub use text::{Text, TextContent};
-pub use video::Video;
 pub use text_input::TextInput;
+pub use transform::Transform;
+pub use video::Video;
 pub use stack::ZStack;
 pub use overlay::Overlay;
 pub use container::Container;
@@ -42,3 +46,9 @@ pub use icon::Icon;
 
 pub mod gesture_detector;
 pub use gesture_detector::GestureDetector;
+
+pub mod clip;
+pub use clip::Clip;
+
+pub mod focus_scope;
+pub use focus_scope::FocusScope;

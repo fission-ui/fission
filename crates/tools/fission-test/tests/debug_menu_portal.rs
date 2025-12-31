@@ -146,7 +146,7 @@ fn menu_portal_position_near_anchor() -> Result<()> {
         )?;
         let snap2 = pipe.last_snapshot.clone().expect("snapshot2");
 
-        let anchor_node = NodeId::derived(WidgetNodeId::explicit("filter_menu").as_u128(), &[]);
+        let anchor_node = NodeId::derived(WidgetNodeId::explicit("test_menu").as_u128(), &[]);
         let anchor_rect = snap2.get_node_rect(anchor_node).expect("anchor rect");
 
         // Find Flyout op and check its content's geometry

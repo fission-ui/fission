@@ -12,20 +12,19 @@ pub struct Badge {
 
 impl<S: fission_core::AppState> Widget<S> for Badge {
     fn build(&self, _ctx: &mut BuildCtx<S>, view: &View<S>) -> Node {
+        let theme = &view.env.theme.components.badge;
         let tokens = &view.env.theme.tokens;
         let bg_color = self.color.unwrap_or(tokens.colors.secondary);
         let text_color = self.text_color.unwrap_or(tokens.colors.on_secondary);
         
         Container::new(
-            Text {
-                content: TextContent::Literal(self.text.clone()),
-                font_size: Some(12.0),
-                color: Some(text_color),
-                ..Default::default()
-            }.into()
+            Text::new(self.text.clone())
+                .size(theme.font_size)
+                .color(text_color)
+                .into_node()
         )
         .bg(bg_color)
-        .border_radius(4.0)
+        .border_radius(theme.radius)
         .padding_all(4.0)
         .into_node()
     }

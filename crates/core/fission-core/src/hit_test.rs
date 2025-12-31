@@ -50,7 +50,6 @@ fn hit_test_recursive(
                         current_is_hit = true;
                     }
                     _ => {
-                        // Layout/Semantics nodes are transparent to hits unless they have specific logic
                         current_is_hit = false;
                     }
                 }
@@ -119,19 +118,69 @@ fn is_point_in_rounded_rect(p: LayoutPoint, r: LayoutRect, radius: LayoutUnit) -
     true
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FocusDirection {
+    Up,
+    Down,
+    Left,
+    Right,
+}
+
+pub fn find_focus_search_root(ir: &CoreIR, current_focus: Option<NodeId>) -> Option<NodeId> {
+    if let Some(curr) = current_focus {
+        let mut cur = Some(curr);
+        while let Some(id) = cur {
+            if let Some(node) = ir.nodes.get(&id) {
+                if let Op::Semantics(s) = &node.op {
+                    if s.is_focus_scope && s.is_focus_barrier {
+                        return Some(id);
+                    }
+                }
+                cur = node.parent;
+            } else {
+                break;
+            }
+        }
+    }
+    ir.root
+}
+
 pub fn find_next_focus_node(
     ir: &CoreIR,
     current_focus: Option<NodeId>,
     reverse: bool,
 ) -> Option<NodeId> {
     let mut focusable_nodes = Vec::new();
-    if let Some(root) = ir.root {
+    let search_root = find_focus_search_root(ir, current_focus);
+
+    if let Some(root) = search_root {
         collect_focusable_nodes(root, ir, &mut focusable_nodes);
     }
 
     if focusable_nodes.is_empty() {
         return None;
     }
+
+    // Sort focusable nodes by explicit focus_index, then stable tree order
+    focusable_nodes.sort_by(|a, b| {
+        let sem_a = if let Op::Semantics(s) = &ir.nodes.get(a).unwrap().op {
+            s
+        } else {
+            unreachable!()
+        };
+        let sem_b = if let Op::Semantics(s) = &ir.nodes.get(b).unwrap().op {
+            s
+        } else {
+            unreachable!()
+        };
+
+        match (sem_a.focus_index, sem_b.focus_index) {
+            (Some(ia), Some(ib)) => ia.cmp(&ib),
+            (Some(_), None) => std::cmp::Ordering::Less,
+            (None, Some(_)) => std::cmp::Ordering::Greater,
+            (None, None) => std::cmp::Ordering::Equal,
+        }
+    });
 
     if let Some(curr) = current_focus {
         if let Some(idx) = focusable_nodes.iter().position(|&id| id == curr) {
@@ -157,6 +206,60 @@ pub fn find_next_focus_node(
     } else {
         Some(focusable_nodes[0])
     }
+}
+
+pub fn find_neighbor_focus_node(
+    ir: &CoreIR,
+    layout: &LayoutSnapshot,
+    current_focus: NodeId,
+    direction: FocusDirection,
+) -> Option<NodeId> {
+    let current_rect = layout.get_node_rect(current_focus)?;
+    let center = LayoutPoint::new(
+        current_rect.x() + current_rect.width() / 2.0,
+        current_rect.y() + current_rect.height() / 2.0,
+    );
+
+    let mut focusable_nodes = Vec::new();
+    let search_root = find_focus_search_root(ir, Some(current_focus));
+    if let Some(root) = search_root {
+        collect_focusable_nodes(root, ir, &mut focusable_nodes);
+    }
+
+    let mut best_node = None;
+    let mut best_dist = f32::MAX;
+
+    for id in focusable_nodes {
+        if id == current_focus {
+            continue;
+        }
+        if let Some(rect) = layout.get_node_rect(id) {
+            let other_center = LayoutPoint::new(
+                rect.x() + rect.width() / 2.0,
+                rect.y() + rect.height() / 2.0,
+            );
+
+            let dx = other_center.x - center.x;
+            let dy = other_center.y - center.y;
+
+            let is_in_direction = match direction {
+                FocusDirection::Up => dy < 0.0 && dx.abs() <= rect.width(),
+                FocusDirection::Down => dy > 0.0 && dx.abs() <= rect.width(),
+                FocusDirection::Left => dx < 0.0 && dy.abs() <= rect.height(),
+                FocusDirection::Right => dx > 0.0 && dy.abs() <= rect.height(),
+            };
+
+            if is_in_direction {
+                let dist = dx * dx + dy * dy;
+                if dist < best_dist {
+                    best_dist = dist;
+                    best_node = Some(id);
+                }
+            }
+        }
+    }
+
+    best_node
 }
 
 fn collect_focusable_nodes(node_id: NodeId, ir: &CoreIR, list: &mut Vec<NodeId>) {

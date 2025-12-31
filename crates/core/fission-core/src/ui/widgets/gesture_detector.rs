@@ -23,6 +23,7 @@ pub struct GestureDetector {
     pub on_drop: Option<ActionEnvelope>,
     pub on_drag_enter: Option<ActionEnvelope>, // Drag over
     pub on_drag_leave: Option<ActionEnvelope>,
+    pub drag_payload: Option<Vec<u8>>,
 }
 
 impl Default for GestureDetector {
@@ -41,6 +42,7 @@ impl Default for GestureDetector {
             on_drop: None,
             on_drag_enter: None,
             on_drag_leave: None,
+            drag_payload: None,
         }
     }
 }
@@ -78,12 +80,17 @@ impl Lower for GestureDetector {
             ime_preedit_range: None,
             checked: None,
             disabled: false,
-            draggable: self.on_drag_start.is_some() || self.on_drag_update.is_some(),
+            draggable: self.on_drag_start.is_some() || self.on_drag_update.is_some() || self.drag_payload.is_some(),
             scrollable_x: false,
             scrollable_y: false,
             min_value: None,
             max_value: None,
             current_value: None,
+            is_focus_scope: false,
+            is_focus_barrier: false,
+            drag_payload: self.drag_payload.clone(),
+            hero_tag: None,
+            focus_index: None,
         };
 
         if let Some(a) = &self.on_tap {

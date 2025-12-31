@@ -1,4 +1,4 @@
-use fission_ir::{FlexDirection as IrFlexDirection, LayoutOp as IrLayoutOp, NodeId};
+use fission_ir::{FlexDirection as IrFlexDirection, LayoutOp as IrLayoutOp, NodeId, FlexWrap};
 use fission_layout::{FlexDirection, LayoutEngine, LayoutInputNode, LayoutOp, LayoutSize};
 use std::collections::HashSet;
 
@@ -18,6 +18,9 @@ fn test_taffy_integration_simple_box() {
             min_height: None,
             max_height: None,
             padding: [0.0; 4],
+            flex_grow: 0.0,
+            flex_shrink: 0.0,
+            aspect_ratio: None,
         },
         children_ids: vec![],
         debug_name: "root".into(),
@@ -53,6 +56,7 @@ fn test_taffy_integration_flex_row() {
             parent_id: None,
             op: IrLayoutOp::Flex {
                 direction: IrFlexDirection::Row,
+                wrap: FlexWrap::NoWrap,
                 flex_grow: 0.0,
                 flex_shrink: 0.0,
                 padding: [0.0; 4],
@@ -77,12 +81,15 @@ fn test_taffy_integration_flex_row() {
                 min_height: None,
                 max_height: None,
                 padding: [0.0; 4],
+                flex_grow: 0.0,
+                flex_shrink: 0.0,
+                aspect_ratio: None,
             },
             children_ids: vec![],
             debug_name: "child1".into(),
             width: Some(50.0),
             height: Some(50.0),
-            flex_grow: 0.0, // Fixed size
+            flex_grow: 0.0, 
             flex_shrink: 0.0,
             rich_text: None,
         },
@@ -97,12 +104,15 @@ fn test_taffy_integration_flex_row() {
                 min_height: None,
                 max_height: None,
                 padding: [0.0; 4],
+                flex_grow: 1.0,
+                flex_shrink: 0.0,
+                aspect_ratio: None,
             },
             children_ids: vec![],
             debug_name: "child2".into(),
             width: None,
             height: Some(50.0),
-            flex_grow: 1.0, // Grow to fill
+            flex_grow: 1.0, 
             flex_shrink: 0.0,
             rich_text: None,
         },
@@ -119,5 +129,5 @@ fn test_taffy_integration_flex_row() {
     let child2 = snapshot.get_node_geometry(child2_id).unwrap();
 
     assert_eq!(child1.rect.size.width, 50.0);
-    assert_eq!(child2.rect.size.width, 150.0); // 200 - 50 = 150
+    assert_eq!(child2.rect.size.width, 150.0); 
 }

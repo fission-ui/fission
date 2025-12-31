@@ -1,4 +1,4 @@
-pub use fission_core::ui::{Button, ButtonVariant, Checkbox, Column, Container, CustomNode, Grid, GridItem, Image, LazyColumn, Node, Overlay, Positioned, Radio, Row, Scroll, Slider, Spacer, Switch, ZStack, Text, TextContent, TextInput, Video};
+pub use fission_core::ui::{Button, ButtonVariant, Checkbox, Column, Container, CustomNode, FocusScope, Grid, GridItem, Image, LazyColumn, Node, Overlay, Positioned, Radio, Row, SafeArea, Scroll, Slider, Spacer, Switch, ZStack, Text, TextContent, TextInput, Video};
 pub use fission_core::ui::widgets::Icon;
 pub use fission_core::view::{Selector, View, Widget};
 pub use fission_core::BuildCtx;
@@ -94,6 +94,12 @@ pub use segmented_control::SegmentedControl;
 
 pub mod timeline;
 pub use timeline::{Timeline, TimelineItem};
+
+pub mod hero;
+pub use hero::Hero;
+
+pub mod draggable;
+pub use draggable::{Draggable, DragTarget};
 
 pub mod empty_state;
 pub use empty_state::EmptyState;

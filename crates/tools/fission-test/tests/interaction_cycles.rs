@@ -59,7 +59,7 @@ fn checkbox_toggle_has_no_ir_cycles() -> Result<()> {
         fn build(&self, ctx: &mut BuildCtx<AppState>, view: &View<AppState>) -> fission_core::ui::Node {
             Checkbox {
                 checked: view.state.checked,
-                on_toggle: Some(ctx.bind(Toggle, on_toggle)),
+                on_toggle: Some(ctx.bind(Toggle, on_toggle as fn(&mut AppState, Toggle))),
                 label: Some("check".into()),
                 ..Default::default()
             }.into()

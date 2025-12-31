@@ -47,6 +47,7 @@ impl TreeView {
         ctx: &mut BuildCtx<S>,
         view: &View<S>,
     ) {
+        let theme = &view.env.theme.components.tree_view;
         let tokens = &view.env.theme.tokens;
         let is_expanded = self.expanded_ids.contains(&item.id);
         let is_selected = self.selected_id.as_ref() == Some(&item.id);
@@ -56,7 +57,7 @@ impl TreeView {
         
         // Indentation
         row_children.push(
-            fission_core::ui::widgets::Spacer { width: Some(depth as f32 * 16.0), ..Default::default() }.into_node()
+            fission_core::ui::widgets::Spacer { width: Some(depth as f32 * theme.indent), ..Default::default() }.into_node()
         );
 
         // Chevron
@@ -66,33 +67,12 @@ impl TreeView {
             material::navigation::chevron_right::regular()
         };
         
-        // We use a Button for the whole row or separate toggle?
-        // Usually clicking the row selects, clicking chevron toggles.
-        // Or clicking row toggles if it has children.
-        
         if has_children {
              row_children.push(
                 Button {
                     variant: ButtonVariant::Ghost,
                     child: Some(Box::new(Icon::svg(chevron_icon).size(16.0).color(tokens.colors.text_secondary).into_node())),
-                    // We need to bind action with payload `item.id`.
-                    // Same issue as Select. User must provide generic action logic?
-                    // Or we assume `on_toggle` is an envelope that we clone?
-                    // We can't change payload of envelope easily.
-                    // Assuming user handles mapping via ID if we had dynamic actions.
-                    // For now, TreeView is read-only or we skip interactions requiring dynamic payload injection.
-                    // Wait, `Select` used `ctx.bind` inside the build loop.
-                    // We can do that if we accept a factory? No.
-                    // We accept `on_toggle` as a template? No.
-                    // `Select` items HAD `on_select` envelopes pre-built by user.
-                    // `TreeItem` doesn't have `on_toggle` envelope.
-                    // So `TreeItem` should carry the actions?
-                    // Yes, `TreeItem` should probably carry `on_toggle` and `on_select` envelopes if we want interactivity.
-                    // Or we change `TreeView` to take `items` that include actions.
-                    // Let's add `on_toggle` and `on_select` to `TreeItem` for now to unblock.
-                    // But that makes `TreeItem` coupled to Actions.
-                    // That's acceptable for Fission model.
-                    on_press: None, // Placeholder
+                    on_press: item.on_toggle.clone(),
                     width: Some(20.0), height: Some(20.0),
                     ..Default::default()
                 }.into_node()
@@ -114,17 +94,24 @@ impl TreeView {
                 .into_node()
         );
 
-        let row = Container::new(
+        let row_content = Container::new(
             HStack {
                 spacing: Some(0.0),
                 children: row_children,
             }.into_node()
         )
-        .bg(if is_selected { tokens.colors.primary.with_alpha(20) } else { Color::WHITE })
+        .bg(if is_selected { theme.selected_bg } else { fission_core::op::Color { r:0,g:0,b:0,a:0 } })
         .padding_all(4.0)
         .into_node();
         
-        nodes.push(row);
+        nodes.push(
+            Button {
+                variant: ButtonVariant::Ghost,
+                child: Some(Box::new(row_content)),
+                on_press: item.on_select.clone(),
+                ..Default::default()
+            }.into_node()
+        );
 
         if is_expanded {
             for child in &item.children {

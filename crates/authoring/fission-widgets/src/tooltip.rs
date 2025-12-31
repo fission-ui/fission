@@ -1,7 +1,5 @@
-use fission_core::ui::{Container, Node, Text, TextContent, Positioned};
-use fission_core::{BuildCtx, View, Widget, WidgetNodeId, NodeId};
-use fission_core::op::Color;
-use crate::flyout;
+use fission_core::ui::{Container, Node, Text};
+use fission_core::{BuildCtx, View, Widget, WidgetNodeId};
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -9,30 +7,30 @@ pub struct Tooltip {
     pub id: WidgetNodeId,
     pub child: Box<Node>,
     pub text: String,
+    pub is_visible: bool,
 }
 
 impl<S: fission_core::AppState> Widget<S> for Tooltip {
     fn build(&self, ctx: &mut BuildCtx<S>, view: &View<S>) -> Node {
-        let node_id: NodeId = self.id.into();
+        let theme = &view.env.theme.components.tooltip;
         
         let trigger = Container::new(*self.child.clone())
-            .id(node_id)
+            .id(fission_ir::NodeId::derived(self.id.as_u128(), &[]))
             .into_node();
 
-        let is_hovered = view.runtime.interaction.is_hovered(node_id);
+        if self.is_visible {
+            let tooltip_card = Container::new(
+                Text::new(self.text.clone())
+                    .size(theme.font_size)
+                    .color(theme.text_color)
+                    .into_node()
+            )
+            .bg(theme.bg_color)
+            .padding_all(8.0)
+            .border_radius(theme.radius)
+            .into_node();
 
-        if is_hovered {
-            let tooltip_node = Container::new(
-                    Text::new(self.text.clone())
-                        .color(Color::WHITE)
-                        .size(12.0)
-                        .into_node(),
-                )
-                .bg(Color { r: 50, g: 50, b: 50, a: 255 })
-                .border_radius(4.0)
-                .padding_all(4.0)
-                .into_node();
-            let flyout_node = crate::flyout(node_id, tooltip_node);
+            let flyout_node = crate::flyout(fission_ir::NodeId::derived(self.id.as_u128(), &[]), tooltip_card);
             ctx.register_portal(flyout_node);
         }
 

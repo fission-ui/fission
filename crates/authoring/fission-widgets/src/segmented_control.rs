@@ -22,6 +22,7 @@ impl std::fmt::Debug for SegmentedControl {
 
 impl<S: fission_core::AppState> Widget<S> for SegmentedControl {
     fn build(&self, _ctx: &mut BuildCtx<S>, view: &View<S>) -> Node {
+        let theme = &view.env.theme.components.segmented_control;
         let tokens = &view.env.theme.tokens;
         let mut children = Vec::new();
         
@@ -33,12 +34,10 @@ impl<S: fission_core::AppState> Widget<S> for SegmentedControl {
                 Button {
                     variant: if is_selected { ButtonVariant::Filled } else { ButtonVariant::Ghost },
                     child: Some(Box::new(Text::new(opt.clone())
-                        .color(if is_selected { tokens.colors.on_primary } else { tokens.colors.text_primary })
+                        .color(if is_selected { theme.active_text } else { tokens.colors.text_primary })
                         .into_node()
                     )),
                     on_press: cb.map(|f| f(i)),
-                    // Remove default padding to fit tightly?
-                    // padding: Some([4.0; 4]),
                     ..Default::default()
                 }.into_node()
             );
@@ -51,9 +50,9 @@ impl<S: fission_core::AppState> Widget<S> for SegmentedControl {
             }.into_node()
         )
         .padding_all(2.0)
-        .bg(tokens.colors.surface) // or slightly darker/lighter
-        .border(tokens.colors.border, 1.0)
-        .border_radius(tokens.radii.full) // Pill shape
+        .bg(theme.bg_color)
+        .border(theme.border_color, 1.0)
+        .border_radius(theme.radius)
         .into_node()
     }
 }

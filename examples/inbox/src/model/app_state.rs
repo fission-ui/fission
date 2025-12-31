@@ -3,9 +3,11 @@ use fission_core::AppState;
 use std::collections::HashSet;
 use super::email::Folder;
 use chrono::NaiveDate;
+use fission_i18n::Locale;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct InboxState {
+    pub locale: Locale,
     // Router
     pub current_path: String,
     
@@ -57,6 +59,7 @@ pub struct InboxState {
 impl Default for InboxState {
     fn default() -> Self {
         Self {
+            locale: Locale("en-US".into()),
             current_path: "/inbox".into(),
             selected_folder: Folder::Inbox,
             selected_email_id: None,

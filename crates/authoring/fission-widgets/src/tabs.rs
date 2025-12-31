@@ -1,6 +1,5 @@
-use fission_core::ui::{Button, ButtonVariant, Container, Node, Text, TextContent};
+use fission_core::ui::{Button, ButtonVariant, Container, Node, Text};
 use fission_core::{BuildCtx, View, Widget, ActionEnvelope};
-use fission_core::op::Color;
 use crate::stack::{HStack, VStack};
 use serde::{Deserialize, Serialize};
 
@@ -8,62 +7,60 @@ use serde::{Deserialize, Serialize};
 pub struct TabItem {
     pub title: String,
     pub content: Node,
-    pub on_select: Option<ActionEnvelope>,
+    pub on_press: Option<ActionEnvelope>,
 }
 
 #[derive(Default, Clone, Debug, Serialize, Deserialize)]
 pub struct Tabs {
-    pub selected_index: usize,
-    pub tabs: Vec<TabItem>,
+    pub active_index: usize,
+    pub items: Vec<TabItem>,
 }
 
 impl<S: fission_core::AppState> Widget<S> for Tabs {
     fn build(&self, ctx: &mut BuildCtx<S>, view: &View<S>) -> Node {
-        let tokens = &view.env.theme.tokens;
+        let theme = &view.env.theme.components.tabs;
+        let mut tab_buttons = vec![];
         
-        // Tab Headers
-        let mut headers = Vec::new();
-        for (i, tab) in self.tabs.iter().enumerate() {
-            let is_selected = i == self.selected_index;
+        for (i, item) in self.items.iter().enumerate() {
+            let is_active = i == self.active_index;
+            let color = if is_active { theme.active_color } else { theme.inactive_color };
             
-            // Styled Tab Button
-            let btn = Button {
-                variant: ButtonVariant::Ghost,
-                child: Some(Box::new(
-                    Container::new(
-                        Text {
-                            content: TextContent::Literal(tab.title.clone()),
-                            color: Some(if is_selected { tokens.colors.primary } else { tokens.colors.text_secondary }),
+            tab_buttons.push(
+                VStack {
+                    spacing: Some(2.0),
+                    children: vec![
+                        Button {
+                            variant: ButtonVariant::Ghost,
+                            child: Some(Box::new(Text::new(item.title.clone()).color(color).into_node())),
+                            on_press: item.on_press.clone(),
                             ..Default::default()
-                        }.into()
-                    )
-                    .padding_all(tokens.spacing.m)
-                    // Bottom border if selected
-                    .border(
-                        if is_selected { tokens.colors.primary } else { Color { r:0,g:0,b:0,a:0 } }, // Transparent if not selected
-                        if is_selected { 2.0 } else { 0.0 }
-                    )
-                    .into_node()
-                )),
-                on_press: tab.on_select.clone(),
-                ..Default::default()
-            }.into();
-            headers.push(btn);
+                        }.into_node(),
+                        if is_active {
+                            Container::new(fission_core::ui::widgets::spacer::Spacer::default().into_node())
+                                .height(theme.indicator_height)
+                                .bg(theme.active_color)
+                                .into_node()
+                        } else {
+                            fission_core::ui::widgets::spacer::Spacer::default().into_node()
+                        }
+                    ]
+                }.into_node()
+            );
         }
 
-        // Tab Content
-        let content = if let Some(tab) = self.tabs.get(self.selected_index) {
-            tab.content.clone()
-        } else {
-            Container::new(fission_core::ui::Row::default().into()).into_node()
-        };
-
         VStack {
-            spacing: Some(0.0),
+            spacing: Some(16.0),
             children: vec![
-                HStack { spacing: Some(0.0), children: headers }.build(ctx, view),
-                content,
+                HStack {
+                    spacing: Some(16.0),
+                    children: tab_buttons,
+                }.into_node(),
+                if let Some(tab) = self.items.get(self.active_index) {
+                    tab.content.clone()
+                } else {
+                    fission_core::ui::widgets::spacer::Spacer::default().into_node()
+                }
             ]
-        }.build(ctx, view)
+        }.into_node()
     }
 }

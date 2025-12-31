@@ -92,6 +92,10 @@ impl GridItem {
         self.col_end = GridPlacement::Span(col_span);
         self
     }
+
+    pub fn into_node(self) -> Node {
+        Node::GridItem(self)
+    }
 }
 
 impl Lower for GridItem {

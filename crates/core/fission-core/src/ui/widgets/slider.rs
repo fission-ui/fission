@@ -258,6 +258,11 @@ impl Lower for Slider {
             min_value: Some(self.min),
             max_value: Some(self.max),
             current_value: Some(self.value),
+            is_focus_scope: false,
+            is_focus_barrier: false,
+            drag_payload: None,
+            hero_tag: None,
+            focus_index: None,
         };
         
         if let Some(action) = &self.on_change {

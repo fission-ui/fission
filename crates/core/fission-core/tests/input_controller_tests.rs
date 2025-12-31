@@ -2,7 +2,8 @@ use fission_core::input::{ControllerContext, InputController};
 use fission_core::input::text::TextInputController;
 use fission_core::env::{Clipboard, InteractionStateMap, ScrollStateMap, TextEditStateMap};
 use fission_core::event::{InputEvent, KeyCode, KeyEvent};
-use fission_ir::{CoreIR, NodeId, Op, Semantics, Role, ActionSet, ActionEntry};
+use fission_core::ActionInput;
+use fission_ir::{CoreIR, NodeId, Op, Semantics, Role, ActionSet, ActionEntry, semantics::ActionTrigger};
 use fission_layout::{LayoutSnapshot, LayoutSize, TextMeasurer, LineMetric};
 use std::sync::{Arc, Mutex};
 use unicode_segmentation::UnicodeSegmentation;
@@ -55,7 +56,6 @@ impl TextMeasurer for MockTextMeasurer {
         let char_width = 10.0;
         let line_height = 20.0;
 
-        let mut current_byte_idx = 0;
         let mut current_y = 0.0;
         let mut current_line_start_byte_idx = 0;
 
@@ -109,14 +109,13 @@ impl TextMeasurer for MockTextMeasurer {
         }
     }
 
-    fn get_line_metrics(&self, text: &str, font_size: f32, available_width: Option<f32>) -> Vec<LineMetric> {
+    fn get_line_metrics(&self, text: &str, _font_size: f32, available_width: Option<f32>) -> Vec<LineMetric> {
         let char_width = 10.0;
         let line_height = 20.0;
         
         let mut metrics = Vec::new();
         let mut current_start_index = 0;
         let mut current_y = 0.0;
-        let mut line_num = 0;
 
         if let Some(aw) = available_width {
             let mut current_line_width = 0.0;
@@ -179,7 +178,6 @@ impl TextMeasurer for MockTextMeasurer {
         
         let mut current_x = 0.0;
         let mut current_y = 0.0;
-        let mut current_line_start_byte_idx = 0;
 
         if let Some(aw) = available_width {
             let mut current_line_width = 0.0; // in grapheme width, not actual pixels for now
@@ -190,7 +188,6 @@ impl TextMeasurer for MockTextMeasurer {
                     current_y += line_height;
                     current_x = 0.0;
                     current_line_width = 0.0;
-                    current_line_start_byte_idx = grapheme_byte_offset + grapheme.len();
                     continue;
                 }
 
@@ -199,7 +196,6 @@ impl TextMeasurer for MockTextMeasurer {
                     current_y += line_height;
                     current_x = g_width;
                     current_line_width = g_width;
-                    current_line_start_byte_idx = grapheme_byte_offset;
                 } else {
                     current_x += g_width;
                     current_line_width += g_width;
@@ -251,7 +247,7 @@ fn create_text_node(id: NodeId, val: &str, multiline: bool) -> CoreIR {
             role: Role::TextInput,
             value: Some(val.to_string()),
             label: None,
-            actions: ActionSet { entries: vec![ActionEntry { action_id: 1, payload_data: None }] },
+            actions: ActionSet { entries: vec![ActionEntry { trigger: ActionTrigger::Change, action_id: 1, payload_data: None }] },
             focusable: true,
             multiline,
             masked: false,
@@ -265,6 +261,11 @@ fn create_text_node(id: NodeId, val: &str, multiline: bool) -> CoreIR {
             min_value: None,
             max_value: None,
             current_value: None,
+            is_focus_scope: false,
+            is_focus_barrier: false,
+            drag_payload: None,
+            hero_tag: None,
+            focus_index: None,
         }),
         hash: 0,
     });
@@ -292,7 +293,7 @@ fn test_text_input_typing() {
     let event = InputEvent::Keyboard(KeyEvent::Down { key_code: KeyCode::Char('!'), modifiers: 0 });
     assert!(controller.handle_event(&mut ctx, &event));
     
-    let (target, env) = &ctx.dispatched_actions[0];
+    let (target, env, _input) = &ctx.dispatched_actions[0];
     assert_eq!(*target, node_id);
     let new_text: String = serde_json::from_slice(&env.payload).unwrap();
     assert_eq!(new_text, "Hello!");
@@ -473,7 +474,8 @@ fn test_selection_mechanics() {
         let event = InputEvent::Keyboard(KeyEvent::Down { key_code: KeyCode::Char('X'), modifiers: 0 });
         assert!(controller.handle_event(&mut ctx, &event));
         
-        let new_text: String = serde_json::from_slice(&ctx.dispatched_actions[0].1.payload).unwrap();
+        let (_target, env, _input) = &ctx.dispatched_actions[0];
+        let new_text: String = serde_json::from_slice(&env.payload).unwrap();
         assert_eq!(new_text, "XCD");
         
         let st = ctx.text_edit.get(node_id).unwrap();
@@ -542,7 +544,7 @@ fn test_multiline_enter_key() {
     let event = InputEvent::Keyboard(KeyEvent::Down { key_code: KeyCode::Enter, modifiers: 0 });
     assert!(controller.handle_event(&mut ctx, &event));
 
-    let (target, env) = &ctx.dispatched_actions[0];
+    let (target, env, _input) = &ctx.dispatched_actions[0];
     assert_eq!(*target, node_id);
     let new_text: String = serde_json::from_slice(&env.payload).unwrap();
     assert_eq!(new_text, "Line One\n");

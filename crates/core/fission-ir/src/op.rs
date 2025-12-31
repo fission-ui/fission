@@ -140,6 +140,12 @@ pub enum LayoutOp {
         anchor: NodeId,
         content: NodeId,
     },
+    Transform {
+        transform: [f32; 16],
+    },
+    Clip {
+        path: Option<String>,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]

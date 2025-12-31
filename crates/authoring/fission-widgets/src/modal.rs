@@ -26,22 +26,17 @@ pub struct ModalAction {
 impl<S: fission_core::AppState> Widget<S> for Modal {
     fn build(&self, ctx: &mut BuildCtx<S>, view: &View<S>) -> Node {
         if !self.is_open {
-            return fission_core::ui::widgets::Spacer::default().into_node();
+            return fission_core::ui::widgets::spacer::Spacer::default().into_node();
         }
 
+        let theme = &view.env.theme.components.modal;
         let tokens = &view.env.theme.tokens;
-        let node_id = NodeId::derived(self.id.as_u128(), &[]);
 
         // Dimmed backdrop
-        let backdrop = Container::new(fission_core::ui::widgets::Spacer::default().into_node())
-            .bg(Color { r: 0, g: 0, b: 0, a: 128 }) // 50% opacity black
+        let backdrop = Container::new(fission_core::ui::widgets::spacer::Spacer::default().into_node())
+            .bg(Color { r: 0, g: 0, b: 0, a: 128 }) 
             .into_node();
         
-        // Backdrop click handling? 
-        // fission-core Button only wraps children.
-        // We can make the backdrop a Ghost Button that fills available space.
-        // For now, assume backdrop is just visual.
-        // We'll wrap it in a Button if we want click-to-dismiss.
         let backdrop_btn = Button {
             variant: ButtonVariant::Ghost,
             child: Some(Box::new(backdrop)),
@@ -64,7 +59,7 @@ impl<S: fission_core::AppState> Widget<S> for Modal {
             );
         }
 
-        let modal_card = Container::new(
+        let mut modal_card_builder = Container::new(
             VStack {
                 spacing: Some(16.0),
                 children: vec![
@@ -75,7 +70,7 @@ impl<S: fission_core::AppState> Widget<S> for Modal {
                             Text::new(self.title.clone())
                                 .size(20.0)
                                 .into_node(),
-                            fission_core::ui::widgets::Spacer { flex_grow: 1.0, ..Default::default() }.into_node(),
+                            fission_core::ui::widgets::spacer::Spacer { flex_grow: 1.0, ..Default::default() }.into_node(),
                             Button {
                                 variant: ButtonVariant::Ghost,
                                 child: Some(Box::new(Icon::svg(fission_icons::material::navigation::close::regular()).size(20.0).into_node())),
@@ -91,44 +86,36 @@ impl<S: fission_core::AppState> Widget<S> for Modal {
                     // Footer Actions
                     HStack {
                         spacing: Some(8.0),
-                        // Align right using spacer
                         children: vec![
-                            fission_core::ui::widgets::Spacer { flex_grow: 1.0, ..Default::default() }.into_node(),
+                            fission_core::ui::widgets::spacer::Spacer { flex_grow: 1.0, ..Default::default() }.into_node(),
                         ].into_iter().chain(action_buttons).collect(),
                     }.into_node(),
                 ]
             }.into_node()
         )
-        .bg(tokens.colors.surface)
-        .border_radius(tokens.radii.large)
-        .shadow(tokens.elevations.level3.unwrap_or(BoxShadow {
-            color: Color { r: 0, g: 0, b: 0, a: 60 },
-            blur_radius: 16.0,
-            offset: (0.0, 8.0),
-        }))
-        .width(self.width.unwrap_or(400.0))
-        .padding_all(24.0)
-        .into_node();
-
-        // Center the modal
-        // We use a ZStack for the portal root (which fills window).
-        // Layer 1: Backdrop (fills window).
-        // Layer 2: Modal (centered).
+        .bg(theme.bg_color)
+        .border_radius(theme.radius);
         
+        if let Some(s) = theme.shadow {
+            modal_card_builder = modal_card_builder.shadow(s);
+        }
+        
+        let modal_card = modal_card_builder
+            .width(self.width.unwrap_or(theme.max_width))
+            .padding_all(24.0)
+            .into_node();
+
         let root = Container::new(
             ZStack {
                 children: vec![
-                    // Layer 1: Absolute fill backdrop
                     fission_core::ui::Positioned {
                         left: Some(0.0), right: Some(0.0), top: Some(0.0), bottom: Some(0.0),
                         child: Some(Box::new(backdrop_btn)),
                         ..Default::default()
                     }.into_node(),
-                    
-                    // Layer 2: Modal Card (Flex item, centered by parent Container)
                     modal_card
                 ],
-                id: None,
+                ..Default::default()
             }.into_node()
         )
         .into_node();
@@ -141,7 +128,6 @@ impl<S: fission_core::AppState> Widget<S> for Modal {
 
         ctx.register_portal(positioned_root);
 
-        // Return empty node for the widget tree position
-        fission_core::ui::widgets::Spacer::default().into_node()
+        fission_core::ui::widgets::spacer::Spacer::default().into_node()
     }
 }

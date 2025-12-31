@@ -18,15 +18,10 @@ impl InputController for GestureController {
                         
                         if let Some(hit) = crate::hit_test::hit_test_with_scroll(ctx.ir, ctx.layout, ctx.scroll, *point) {
                             ctx.gesture.target_node = Some(hit);
-                            
-                            // Dispatch DragStart if draggable
-                            // Note: DragStart might fire only after threshold? 
-                            // Usually "Down" fires DragStart immediately or waits.
-                            // But Tap also fires on Down/Up sequence.
-                            // Let's fire DragStart only when panning starts.
-                            // For now, Down is just tracking.
+                            ctx.gesture.dragging_payload = self.find_drag_payload(ctx, hit);
                         } else {
                             ctx.gesture.target_node = None;
+                            ctx.gesture.dragging_payload = None;
                         }
                     }
                     PointerEvent::Move { point } => {
@@ -68,6 +63,15 @@ impl InputController for GestureController {
                     PointerEvent::Up { point, .. } => {
                         let mut handled = false;
                         if ctx.gesture.is_panning {
+                            // Internal Drop
+                            if let Some(payload) = ctx.gesture.dragging_payload.take() {
+                                if let Some(up_hit) = crate::hit_test::hit_test_with_scroll(ctx.ir, ctx.layout, ctx.scroll, *point) {
+                                    if self.dispatch_internal_drop(ctx, up_hit, payload, *point) {
+                                        handled = true;
+                                    }
+                                }
+                            }
+                            
                             if let Some(target) = ctx.gesture.target_node {
                                 self.dispatch_trigger(ctx, target, ActionTrigger::DragEnd, *point, None);
                             }
@@ -75,21 +79,8 @@ impl InputController for GestureController {
                         } else {
                             // Tap
                             if let Some(target) = ctx.gesture.target_node {
-                                // Verify we are still over the target? Or loose tap?
-                                // Usually Tap fires if Up is inside target bounds.
-                                // hit_test check:
                                 if let Some(up_hit) = crate::hit_test::hit_test_with_scroll(ctx.ir, ctx.layout, ctx.scroll, *point) {
                                     if up_hit == target || self.is_descendant(ctx, up_hit, target) || self.is_descendant(ctx, target, up_hit) {
-                                        // Dispatch Tap (Default)
-                                        // NOTE: `runtime.rs` Pointer::Up also dispatches.
-                                        // We should consume it here if we want GestureController to own it.
-                                        // But `runtime.rs` logic is fallback.
-                                        // If we return `true` (handled), runtime skips fallback?
-                                        // `handle_input` calls `gesture_controller` first.
-                                        // If it returns true, `handle_input` returns Ok.
-                                        // BUT `runtime.rs` logic is *after* the controller block.
-                                        // So yes, returning true here suppresses `runtime.rs` default click logic.
-                                        
                                         if self.dispatch_trigger(ctx, target, ActionTrigger::Default, *point, None) {
                                             handled = true;
                                         }
@@ -100,6 +91,7 @@ impl InputController for GestureController {
                         
                         ctx.gesture.start_point = None;
                         ctx.gesture.is_panning = false;
+                        ctx.gesture.dragging_payload = None;
                         return handled; 
                     }
                     _ => {}
@@ -123,6 +115,53 @@ impl GestureController {
         false
     }
 
+    fn find_drag_payload(&self, ctx: &ControllerContext, start_node: NodeId) -> Option<Vec<u8>> {
+        let mut current_id = Some(start_node);
+        while let Some(node_id) = current_id {
+            if let Some(node) = ctx.ir.nodes.get(&node_id) {
+                println!("[drag] Checking node {:?} for payload. op: {:?}", node_id, node.op);
+                if let Op::Semantics(sem) = &node.op {
+                    if let Some(p) = &sem.drag_payload {
+                        println!("[drag] Found payload on node {:?}", node_id);
+                        return Some(p.clone());
+                    }
+                }
+                current_id = node.parent;
+            } else { break; }
+        }
+        println!("[drag] No payload found starting from {:?}", start_node);
+        None
+    }
+
+    fn dispatch_internal_drop(&self, ctx: &mut ControllerContext, target_node: NodeId, payload: Vec<u8>, point: LayoutPoint) -> bool {
+        let mut current_id = Some(target_node);
+        while let Some(node_id) = current_id {
+            if let Some(node) = ctx.ir.nodes.get(&node_id) {
+                if let Op::Semantics(sem) = &node.op {
+                    for entry in &sem.actions.entries {
+                        if entry.trigger == ActionTrigger::Drop {
+                            let envelope = ActionEnvelope {
+                                id: ActionId::from_u128(entry.action_id),
+                                payload: entry.payload_data.clone().unwrap_or_default(),
+                            };
+                            
+                            let input = ActionInput::InternalDrop { 
+                                payload: payload.clone(),
+                                x: point.x, 
+                                y: point.y, 
+                            };
+                            
+                            ctx.dispatched_actions.push((node_id, envelope, input));
+                            return true;
+                        }
+                    }
+                }
+                current_id = node.parent;
+            } else { break; }
+        }
+        false
+    }
+
     fn dispatch_trigger(&self, ctx: &mut ControllerContext, start_node: NodeId, trigger: ActionTrigger, point: LayoutPoint, delta: Option<LayoutPoint>) -> bool {
         let mut current_id = Some(start_node);
         while let Some(node_id) = current_id {
@@ -135,7 +174,7 @@ impl GestureController {
                                 payload: entry.payload_data.clone().unwrap_or_default(),
                             };
                             
-                            let input = crate::ActionInput::Pointer { 
+                            let input = ActionInput::Pointer { 
                                 x: point.x, 
                                 y: point.y, 
                                 delta_x: delta.map(|d| d.x).unwrap_or(0.0), 
@@ -143,7 +182,7 @@ impl GestureController {
                             };
                             
                             ctx.dispatched_actions.push((node_id, envelope, input));
-                            return true; // Stop bubbling once handled
+                            return true; 
                         }
                     }
                 }
@@ -154,17 +193,12 @@ impl GestureController {
     }
 
     fn handle_pan_update(&self, ctx: &mut ControllerContext, delta: LayoutPoint) -> bool {
-        // SCROLL DRAGGING LOGIC
         if let Some(target) = ctx.gesture.target_node {
             let mut current = Some(target);
             while let Some(id) = current {
                 if let Some(node) = ctx.ir.nodes.get(&id) {
                     if let fission_ir::Op::Semantics(sem) = &node.op {
                         if sem.draggable {
-                            // If marked draggable but didn't handle DragUpdate (checked before),
-                            // maybe it handles DragEnd only?
-                            // Do we stop scroll?
-                            // Usually yes.
                             return false; 
                         }
                     }

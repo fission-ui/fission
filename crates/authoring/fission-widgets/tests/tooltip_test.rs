@@ -23,9 +23,10 @@ fn test_tooltip_registers_portal_when_hovered() {
     let view = View::new(runtime.get_app_state::<State>().unwrap(), &runtime.runtime_state, &env, None);
     
     let tooltip = Tooltip {
-        id: tooltip_id,
-        child: Box::new(Text::new("Hover me").into_node()),
-        text: "I am a tooltip".into(),
+        id: WidgetNodeId::explicit("test"),
+        child: Box::new(fission_core::ui::widgets::spacer::Spacer::default().into_node()),
+        text: "hello".into(),
+        is_visible: true,
     };
     
     let _ = tooltip.build(&mut ctx, &view);

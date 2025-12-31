@@ -59,14 +59,14 @@ impl fission_core::view::Widget<AppState> for Root {
         let mut children: Vec<Node> = vec![
             Checkbox {
                 checked: view.state.checked,
-                on_toggle: Some(ctx.bind(Toggle, on_toggle)),
+                on_toggle: Some(ctx.bind(Toggle, on_toggle as fn(&mut AppState, Toggle))),
                 label: Some("check".into()),
                 ..Default::default()
             }.into(),
             TextInput {
                 value: view.state.text.clone(),
                 placeholder: Some("type".into()),
-                on_change: Some(ctx.bind(UpdateText("".into()), on_update)),
+                on_change: Some(ctx.bind(UpdateText("".into()), on_update as fn(&mut AppState, UpdateText))),
                 width: Some(200.0),
                 height: Some(40.0),
                 ..Default::default()

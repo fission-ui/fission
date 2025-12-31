@@ -1,13 +1,18 @@
-use fission_core::{BuildCtx, View, Widget, WidgetNodeId, NodeId, Handler};
+use fission_core::{BuildCtx, View, Widget, WidgetNodeId, NodeId, Handler, ActionEnvelope, ActionId};
 use fission_core::ui::{Text, Node};
 use fission_core::op::Color;
-use fission_widgets::{Modal, ModalAction, VStack, HStack, Select, NumberInput, FormControl};
-use crate::model::{InboxState, ToggleSettings, SetDensity};
+use fission_widgets::{Modal, ModalAction, VStack, HStack, Select, NumberInput, FormControl, SegmentedControl};
+use crate::model::{InboxState, ToggleSettings, SetLocale};
+use fission_i18n::{Locale};
+use std::sync::Arc;
+use serde_json;
 
 pub struct SettingsModal;
 
 impl Widget<InboxState> for SettingsModal {
     fn build(&self, ctx: &mut BuildCtx<InboxState>, view: &View<InboxState>) -> Node {
+        let locale_id = ctx.bind(SetLocale(Locale("".into())), (|s: &mut InboxState, a: SetLocale, _| s.locale = a.0) as Handler<InboxState, SetLocale>).id;
+
         Modal {
             id: WidgetNodeId::explicit("settings_modal"),
             title: "Settings".into(),
@@ -18,6 +23,19 @@ impl Widget<InboxState> for SettingsModal {
                 VStack {
                     spacing: Some(16.0),
                     children: vec![
+                        Text::new("Language").into_node(),
+                        SegmentedControl {
+                            options: vec!["English".into(), "Español".into()],
+                            selected_index: if view.state.locale.0 == "es-ES" { 1 } else { 0 },
+                            on_change: Some(Arc::new(move |idx| {
+                                let loc = if idx == 1 { "es-ES" } else { "en-US" };
+                                ActionEnvelope {
+                                    id: locale_id,
+                                    payload: serde_json::to_vec(&SetLocale(Locale(loc.into()))).unwrap(),
+                                }
+                            })),
+                        }.build(ctx, view),
+
                         Text::new("Appearance").into_node(),
                         
                         FormControl {

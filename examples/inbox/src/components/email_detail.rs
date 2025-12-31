@@ -1,7 +1,7 @@
 use fission_core::{BuildCtx, View, Widget, WidgetNodeId, NodeId, Handler};
 use fission_core::ui::{Container, Node, Text, TextContent, Button, ButtonVariant, Scroll};
 use fission_core::op::Color;
-use fission_widgets::{VStack, HStack, Avatar, Accordion, AccordionItem, Card, Image, Spinner, Radio, Breadcrumb, BreadcrumbItem, Alert, AlertKind, Divider, Icon, Timeline, TimelineItem};
+use fission_widgets::{VStack, HStack, Avatar, Accordion, AccordionItem, Card, Image, Spinner, Radio, Breadcrumb, BreadcrumbItem, Alert, AlertKind, Divider, Icon, Timeline, TimelineItem, Hero};
 use crate::model::{InboxState, DismissDropdown, ToggleDetails, ToggleToast, SelectReplyMode, Navigate};
 use fission_icons::material;
 
@@ -35,11 +35,14 @@ impl Widget<InboxState> for EmailDetail {
                     HStack {
                         spacing: Some(8.0),
                         children: vec![
-                            Text {
-                                content: TextContent::Literal(format!("Subject of Email {}", self.id)),
-                                font_size: Some(24.0),
-                                ..Default::default()
-                            }.into(),
+                            Hero {
+                                tag: format!("email_subject_{}", self.id),
+                                child: Box::new(Text {
+                                    content: TextContent::Literal(format!("Subject of Email {}", self.id)),
+                                    font_size: Some(24.0),
+                                    ..Default::default()
+                                }.into()),
+                            }.build(ctx, view),
                             fission_core::ui::widgets::Spacer { flex_grow: 1.0, ..Default::default() }.into_node(),
                             Button {
                                 variant: ButtonVariant::Outline,

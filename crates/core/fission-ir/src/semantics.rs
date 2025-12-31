@@ -64,6 +64,40 @@ pub struct Semantics {
     pub min_value: Option<f32>,
     pub max_value: Option<f32>,
     pub current_value: Option<f32>,
+    pub is_focus_scope: bool,
+    pub is_focus_barrier: bool,
+    pub drag_payload: Option<Vec<u8>>,
+    pub hero_tag: Option<String>,
+    pub focus_index: Option<i32>,
+}
+
+impl Default for Semantics {
+    fn default() -> Self {
+        Self {
+            role: Role::Generic,
+            label: None,
+            value: None,
+            actions: ActionSet::default(),
+            focusable: false,
+            multiline: false,
+            masked: false,
+            input_mask: None,
+            ime_preedit_range: None,
+            checked: None,
+            disabled: false,
+            draggable: false,
+            scrollable_x: false,
+            scrollable_y: false,
+            min_value: None,
+            max_value: None,
+            current_value: None,
+            is_focus_scope: false,
+            is_focus_barrier: false,
+            drag_payload: None,
+            hero_tag: None,
+            focus_index: None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]

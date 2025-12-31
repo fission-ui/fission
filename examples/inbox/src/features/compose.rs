@@ -1,6 +1,6 @@
 use fission_core::{BuildCtx, View, Widget, WidgetNodeId, NodeId, Handler, ActionEnvelope, ActionId};
 use fission_core::ui::Node;
-use fission_widgets::{Modal, ModalAction, VStack, HStack, TextInput, FormControl, Combobox, DatePicker, TimePicker, FileUpload, Dropzone};
+use fission_widgets::{Modal, ModalAction, VStack, HStack, TextInput, FormControl, Combobox, DatePicker, TimePicker, FileUpload, Dropzone, FocusScope};
 use crate::model::{InboxState, ToggleCompose, ToggleToast, SetComposeTo, SetScheduleDate, SetScheduleTime, ToggleDatePicker, FileSelected};
 use std::sync::Arc;
 use serde_json;
@@ -122,16 +122,22 @@ impl Widget<InboxState> for ComposeModal {
             on_dismiss: Some(ctx.bind(ToggleCompose, (|s: &mut InboxState, _: ToggleCompose, _| s.show_compose = false) as Handler<InboxState, ToggleCompose>)),
             width: Some(600.0),
             content: Box::new(
-                Dropzone {
-                    child: Box::new(content),
-                    on_drop: Some(ctx.bind(FileSelected, (|s: &mut InboxState, _a: FileSelected, ctx| {
-                        if let Some(paths) = ctx.input.as_drop_paths() {
-                            s.compose_attachments.extend(paths.iter().cloned());
-                        }
-                    }) as Handler<InboxState, FileSelected>)),
-                    on_drag_enter: None,
-                    on_drag_leave: None,
-                }.build(ctx, view)
+                FocusScope {
+                    id: None,
+                    is_barrier: true,
+                    children: vec![
+                        Dropzone {
+                            child: Box::new(content),
+                            on_drop: Some(ctx.bind(FileSelected, (|s: &mut InboxState, _a: FileSelected, ctx| {
+                                if let Some(paths) = ctx.input.as_drop_paths() {
+                                    s.compose_attachments.extend(paths.iter().cloned());
+                                }
+                            }) as Handler<InboxState, FileSelected>)),
+                            on_drag_enter: None,
+                            on_drag_leave: None,
+                        }.build(ctx, view)
+                    ],
+                }.into()
             ),
             actions: vec![
                 ModalAction { label: "Cancel".into(), is_primary: false, on_press: Some(ctx.bind(ToggleCompose, (|s: &mut InboxState, _: ToggleCompose, _| s.show_compose = false) as Handler<InboxState, ToggleCompose>)) },

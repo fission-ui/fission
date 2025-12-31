@@ -1,7 +1,7 @@
 use super::traits::{Lower, LowerDyn};
 use super::widgets::{
-    Button, Checkbox, Column, Container, GestureDetector, Grid, GridItem, Icon, Image, LazyColumn, Overlay, Positioned, Radio, Row, Scroll, Slider, Spacer,
-    Switch, Text, TextInput, Video, ZStack,
+    Button, Checkbox, Clip, Column, Container, GestureDetector, FocusScope, Grid, GridItem, Icon, Image, LazyColumn, Overlay, Positioned, Radio, Row, SafeArea, Scroll, Slider, Spacer,
+    Switch, Text, TextInput, Transform, Video, ZStack,
 };
 use crate::lowering::LoweringContext;
 use fission_ir::{NodeId, Op, StructuralOp};
@@ -12,7 +12,10 @@ use std::sync::Arc;
 pub enum Node {
     Row(Row),
     Column(Column),
+    FocusScope(FocusScope),
+    Clip(Clip),
     Text(Text),
+    Transform(Transform),
     Button(Button),
     TextInput(TextInput),
     Scroll(Scroll),
@@ -27,6 +30,7 @@ pub enum Node {
     Checkbox(Checkbox),
     Switch(Switch),
     Radio(Radio),
+    SafeArea(SafeArea),
     Positioned(Positioned),
     Spacer(Spacer),
     Slider(Slider),
@@ -40,7 +44,10 @@ impl Node {
         match self {
             Node::Row(w) => w.lower(cx),
             Node::Column(w) => w.lower(cx),
+            Node::FocusScope(w) => w.lower(cx),
+            Node::Clip(w) => w.lower(cx),
             Node::Text(w) => w.lower(cx),
+            Node::Transform(w) => w.lower(cx),
             Node::Button(w) => w.lower(cx),
             Node::TextInput(w) => w.lower(cx),
             Node::Scroll(w) => w.lower(cx),
@@ -55,6 +62,7 @@ impl Node {
             Node::Checkbox(w) => w.lower(cx),
             Node::Switch(w) => w.lower(cx),
             Node::Radio(w) => w.lower(cx),
+            Node::SafeArea(w) => w.lower(cx),
             Node::Positioned(w) => w.lower(cx),
             Node::Spacer(w) => w.lower(cx),
             Node::Slider(w) => w.lower(cx),
@@ -87,9 +95,24 @@ impl From<Column> for Node {
         Node::Column(w)
     }
 }
+impl From<FocusScope> for Node {
+    fn from(w: FocusScope) -> Self {
+        Node::FocusScope(w)
+    }
+}
+impl From<Clip> for Node {
+    fn from(w: Clip) -> Self {
+        Node::Clip(w)
+    }
+}
 impl From<Text> for Node {
     fn from(w: Text) -> Self {
         Node::Text(w)
+    }
+}
+impl From<Transform> for Node {
+    fn from(w: Transform) -> Self {
+        Node::Transform(w)
     }
 }
 impl From<Button> for Node {
@@ -155,6 +178,11 @@ impl From<Switch> for Node {
 impl From<Radio> for Node {
     fn from(w: Radio) -> Self {
         Node::Radio(w)
+    }
+}
+impl From<SafeArea> for Node {
+    fn from(w: SafeArea) -> Self {
+        Node::SafeArea(w)
     }
 }
 impl From<Positioned> for Node {

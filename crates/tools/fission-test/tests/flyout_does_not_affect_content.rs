@@ -36,13 +36,11 @@ impl Widget<AppState> for Root {
                 GridItem::new(
                     VStack { spacing: Some(0.0), children: vec![
                         HStack { spacing: Some(8.0), children: vec![
-                            // A stable reference input whose geometry must not change
                             TextInput { width: Some(200.0), ..Default::default() }.into(),
-                            // The menu under test
                     MenuButton {
                         id: WidgetNodeId::explicit("test_menu"),
                         label: "Filter".into(),
-                        is_open: true,
+                        is_open: view.state.open,
                         on_toggle: None,
                         items: vec![
                             MenuItem { label: "All".into(), icon: None, on_select: None },
@@ -66,7 +64,7 @@ fn flyout_does_not_shift_content() -> Result<()> {
     runtime.add_app_state(Box::new(AppState { open: false }))?;
     let mut layout = LayoutEngine::new().with_measurer(Arc::new(MockMeasurer));
     let mut pipe = Pipeline::new();
-
+    
     // Frame 1: closed
     let (node_tree, portals) = {
         let state = runtime.get_app_state::<AppState>().unwrap();
@@ -75,54 +73,58 @@ fn flyout_does_not_shift_content() -> Result<()> {
         let node = Root.build(&mut ctx, &view);
         (node, ctx.take_portals())
     };
-    let final_root = if portals.is_empty() {
-        node_tree
-    } else {
-        use fission_core::ui::{Overlay, ZStack};
-        Node::Overlay(Overlay { id: None, content: Box::new(node_tree), overlay: Box::new(Node::ZStack(ZStack { children: portals, ..Default::default() })) })
-    };
-    let mut cx = LoweringContext::new(&env, &runtime.runtime_state, None, pipe.last_snapshot.as_ref());
-    let root_id = final_root.lower(&mut cx);
+
+    let mut cx = LoweringContext::new(&env, &runtime.runtime_state, None, None);
+    let root_id = node_tree.lower(&mut cx);
     cx.ir.root = Some(root_id);
     let ir1 = cx.ir;
+
     let viewport = fission_layout::LayoutSize { width: 1024.0, height: 768.0 };
     let _ = pipe.render(ir1.clone(), viewport, &mut layout, &runtime.runtime_state.scroll, &mut MockRenderer, &runtime.runtime_state.video)?;
-    let snap1 = pipe.last_snapshot.clone().expect("snap1");
+    let snap1 = pipe.last_snapshot.clone().expect("snapshot1");
 
-    // Record geometry of a stable node (the TextInput)
-    let input_id = NodeId::derived(WidgetNodeId::explicit("filter_menu").as_u128(), &[]);
-    let anchor_rect1 = snap1.get_node_rect(input_id).expect("anchor rect1");
+    let anchor_node = NodeId::derived(WidgetNodeId::explicit("test_menu").as_u128(), &[]);
+    let anchor_rect1 = snap1.get_node_rect(anchor_node).expect("anchor rect1");
 
     // Frame 2: open
-    if let Some(state) = runtime.get_app_state_mut::<AppState>() { state.open = true; }
-    let (node_tree2, portals2) = {
-        let state = runtime.get_app_state::<AppState>().unwrap();
-        let view = View::new(state, &runtime.runtime_state, &env, pipe.last_snapshot.as_ref());
-        let mut ctx = BuildCtx::new();
-        let node = Root.build(&mut ctx, &view);
-        (node, ctx.take_portals())
-    };
-    let final_root2 = if portals2.is_empty() {
-        node_tree2
-    } else {
-        use fission_core::ui::{Overlay, ZStack};
-        Node::Overlay(Overlay { id: None, content: Box::new(node_tree2), overlay: Box::new(Node::ZStack(ZStack { children: portals2, ..Default::default() })) })
-    };
-    let mut cx2 = LoweringContext::new(&env, &runtime.runtime_state, None, pipe.last_snapshot.as_ref());
-    let root_id2 = final_root2.lower(&mut cx2);
-    cx2.ir.root = Some(root_id2);
-    let ir2 = cx2.ir;
-    let _ = pipe.render(ir2.clone(), viewport, &mut layout, &runtime.runtime_state.scroll, &mut MockRenderer, &runtime.runtime_state.video)?;
-    let snap2 = pipe.last_snapshot.clone().expect("snap2");
+    {
+        if let Some(state) = runtime.get_app_state_mut::<AppState>() {
+            state.open = true;
+        }
 
-    let anchor_rect2 = snap2.get_node_rect(input_id).expect("anchor rect2");
+        let (node_tree, portals) = {
+            let state = runtime.get_app_state::<AppState>().unwrap();
+            let view = View::new(state, &runtime.runtime_state, &env, pipe.last_snapshot.as_ref());
+            let mut ctx = BuildCtx::new();
+            let node = Root.build(&mut ctx, &view);
+            (node, ctx.take_portals())
+        };
 
-    // Assert anchor rect unchanged (opening flyout must not affect normal layout)
-    assert!((anchor_rect1.x() - anchor_rect2.x()).abs() < 1.0, "anchor x changed when opening flyout");
-    assert!((anchor_rect1.y() - anchor_rect2.y()).abs() < 1.0, "anchor y changed when opening flyout");
-    assert!((anchor_rect1.width() - anchor_rect2.width()).abs() < 1.0, "anchor w changed when opening flyout");
-    assert!((anchor_rect1.height() - anchor_rect2.height()).abs() < 1.0, "anchor h changed when opening flyout");
+        let final_root = if portals.is_empty() {
+            node_tree
+        } else {
+            use fission_core::ui::{Overlay, ZStack};
+            Node::Overlay(Overlay {
+                id: None,
+                content: Box::new(node_tree),
+                overlay: Box::new(Node::ZStack(ZStack { children: portals, ..Default::default() })),
+            })
+        };
+
+        let mut cx = LoweringContext::new(&env, &runtime.runtime_state, None, pipe.last_snapshot.as_ref());
+        let root_id = final_root.lower(&mut cx);
+        cx.ir.root = Some(root_id);
+        let ir2 = cx.ir;
+
+        let _ = pipe.render(ir2.clone(), viewport, &mut layout, &runtime.runtime_state.scroll, &mut MockRenderer, &runtime.runtime_state.video)?;
+        let snap2 = pipe.last_snapshot.clone().expect("snapshot2");
+
+        let anchor_rect2 = snap2.get_node_rect(anchor_node).expect("anchor rect2");
+
+        // The anchor's geometry must be IDENTICAL to frame 1.
+        // Flyout (overlay) must not push the anchor around.
+        assert_eq!(anchor_rect1, anchor_rect2, "anchor shifted when flyout opened!");
+    }
 
     Ok(())
 }
-

@@ -526,6 +526,8 @@ impl LayoutEngine {
                 padding,
             } => {
                 style.display = Display::Flex;
+                style.align_items = Some(AlignItems::Start);
+                style.justify_content = Some(JustifyContent::Start);
                 style.flex_direction = match direction {
                     IrFlexDirection::Row => taffy::style::FlexDirection::Row,
                     IrFlexDirection::Column => taffy::style::FlexDirection::Column,
@@ -678,6 +680,12 @@ impl LayoutEngine {
             }
             LayoutOp::Flyout { .. } => {
                 style.display = Display::None;
+            }
+            LayoutOp::Transform { .. } => {
+                style.display = Display::Flex;
+            }
+            LayoutOp::Clip { .. } => {
+                style.display = Display::Flex;
             }
             _ => {
                 style.display = Display::Flex;
@@ -916,15 +924,39 @@ impl LayoutEngine {
         }
 
         for child_id in &node.children_ids {
-            self.extract_geometry_recursive_with_visited(
-                *child_id,
-                LayoutPoint::new(child_origin_x, child_origin_y),
-                node_map,
-                geometries,
-                visited,
-                scroll_source,
-                overlay_fill_nodes,
-            );
+            if self.taffy_map.contains_key(child_id) {
+                self.extract_geometry_recursive_with_visited(
+                    *child_id,
+                    LayoutPoint::new(child_origin_x, child_origin_y),
+                    node_map,
+                    geometries,
+                    visited,
+                    scroll_source,
+                    overlay_fill_nodes,
+                );
+            } else {
+                // Decorator node (e.g. PaintOp) - inherit parent geometry
+                // We still need to record it in geometries so hit-test finds it.
+                let child_rect = LayoutRect::new(absolute_x, absolute_y, width, height);
+                geometries.insert(*child_id, LayoutNodeGeometry { 
+                    rect: child_rect, 
+                    content_size: LayoutSize::new(width, height) 
+                });
+                // Recurse into decorators too (they might have children!)
+                if let Some(child_node) = node_map.get(child_id) {
+                    for gc_id in &child_node.children_ids {
+                         self.extract_geometry_recursive_with_visited(
+                            *gc_id,
+                            LayoutPoint::new(child_origin_x, child_origin_y),
+                            node_map,
+                            geometries,
+                            visited,
+                            scroll_source,
+                            overlay_fill_nodes,
+                        );
+                    }
+                }
+            }
         }
 
         let mut content_w = width;

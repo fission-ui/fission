@@ -61,6 +61,7 @@ pub struct DesktopApp<S: AppState, W: Widget<S>> {
     env: Env,
     pipeline: Pipeline,
     measurer: Arc<VelloTextMeasurer>,
+    sync_env: Option<Arc<dyn Fn(&S, &mut Env) + Send + Sync>>,
     _phantom: std::marker::PhantomData<S>,
 }
 
@@ -87,12 +88,19 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
             env,
             pipeline: Pipeline::new(),
             measurer,
+            sync_env: None,
             _phantom: std::marker::PhantomData,
         }
     }
 
     pub fn with_env(mut self, env: Env) -> Self {
         self.env = env;
+        self
+    }
+
+    pub fn with_sync_env<F>(mut self, f: F) -> Self 
+    where F: Fn(&S, &mut Env) + Send + Sync + 'static {
+        self.sync_env = Some(Arc::new(f));
         self
     }
 
@@ -141,7 +149,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
         let mut runtime = self.runtime;
         let mut layout_engine = self.layout_engine;
         let root_widget = self.root_widget;
-        let env = self.env;
+        let mut env = self.env;
         let mut pipeline = self.pipeline;
         let measurer = self.measurer;
 
@@ -296,6 +304,11 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                     let scale_factor = window.scale_factor();
                                     let layout_width = (size.width as f64 / scale_factor) as f32;
                                     let layout_height = (size.height as f64 / scale_factor) as f32;
+
+                                    if let Some(sync) = &self.sync_env {
+                                        let state = runtime.get_app_state::<S>().unwrap();
+                                        sync(state, &mut env);
+                                    }
 
                                     let (node_tree, registry, anims, videos, portals) = {
                                         let state = runtime.get_app_state::<S>().unwrap();

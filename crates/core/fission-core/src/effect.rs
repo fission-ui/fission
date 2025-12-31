@@ -44,12 +44,14 @@ pub enum ActionInput {
     EffectErr { req_id: u64, message: String },
     Pointer { x: f32, y: f32, delta_x: f32, delta_y: f32 },
     Drop { paths: Vec<String>, x: f32, y: f32 },
+    InternalDrop { payload: Vec<u8>, x: f32, y: f32 },
 }
 
 impl ActionInput {
     pub fn as_bytes(&self) -> Option<&[u8]> {
         match self {
             ActionInput::EffectOk { payload: EffectPayload::InlineBytes(b), .. } => Some(b),
+            ActionInput::InternalDrop { payload, .. } => Some(payload),
             _ => None,
         }
     }
@@ -58,6 +60,7 @@ impl ActionInput {
         match self {
             ActionInput::Pointer { x, y, delta_x, delta_y } => Some((*x, *y, *delta_x, *delta_y)),
             ActionInput::Drop { x, y, .. } => Some((*x, *y, 0.0, 0.0)),
+            ActionInput::InternalDrop { x, y, .. } => Some((*x, *y, 0.0, 0.0)),
             _ => None,
         }
     }
@@ -65,6 +68,13 @@ impl ActionInput {
     pub fn as_drop_paths(&self) -> Option<&[String]> {
         match self {
             ActionInput::Drop { paths, .. } => Some(paths),
+            _ => None,
+        }
+    }
+
+    pub fn as_internal_drop(&self) -> Option<&[u8]> {
+        match self {
+            ActionInput::InternalDrop { payload, .. } => Some(payload),
             _ => None,
         }
     }

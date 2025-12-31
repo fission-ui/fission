@@ -128,6 +128,11 @@ impl Lower for Checkbox {
             min_value: None,
             max_value: None,
             current_value: None,
+            is_focus_scope: false,
+            is_focus_barrier: false,
+            drag_payload: None,
+            hero_tag: None,
+            focus_index: None,
         };
         if let Some(action) = &self.on_toggle {
              semantics.actions.entries.push(fission_ir::ActionEntry { 

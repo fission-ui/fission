@@ -17,31 +17,29 @@ pub struct Timeline {
 
 impl<S: fission_core::AppState> Widget<S> for Timeline {
     fn build(&self, _ctx: &mut BuildCtx<S>, view: &View<S>) -> Node {
+        let theme = &view.env.theme.components.timeline;
         let tokens = &view.env.theme.tokens;
         let mut children = Vec::new();
         
         for (i, item) in self.items.iter().enumerate() {
             let is_last = i == self.items.len() - 1;
             
-            // Layout: Row [ (Dot + Line), (Content) ]
-            // Using Grid 2 columns? Or Row.
-            
             let marker = VStack {
                 spacing: Some(0.0),
                 children: vec![
                     // Dot
                     Container::new(fission_core::ui::widgets::Spacer::default().into_node())
-                        .width(12.0).height(12.0)
-                        .border_radius(6.0)
-                        .bg(tokens.colors.primary)
+                        .width(theme.dot_size).height(theme.dot_size)
+                        .border_radius(theme.dot_size / 2.0)
+                        .bg(theme.dot_color)
                         .into_node(),
                     
                     // Line
                     if !is_last {
                         Container::new(fission_core::ui::widgets::Spacer::default().into_node())
-                            .width(2.0)
-                            .flex_grow(1.0) // Fill height to next item
-                            .bg(tokens.colors.border)
+                            .width(theme.line_width)
+                            .flex_grow(1.0)
+                            .bg(theme.line_color)
                             .into_node()
                     } else {
                         fission_core::ui::widgets::Spacer::default().into_node()

@@ -26,6 +26,9 @@ pub struct ToggleDatePicker;
 pub struct FileSelected;
 
 #[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+pub struct SetLocale(pub fission_i18n::Locale);
+
+#[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct SelectFolder(pub Folder);
 
 #[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]

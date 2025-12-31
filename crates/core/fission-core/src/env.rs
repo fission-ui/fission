@@ -6,12 +6,21 @@ use fission_theme::Theme;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
+pub struct WindowInsets {
+    pub top: f32,
+    pub bottom: f32,
+    pub left: f32,
+    pub right: f32,
+}
+
 // Static environment data (Theme, I18n)
 #[derive(Clone, Debug, Default)]
 pub struct Env {
     pub theme: Theme,
     pub i18n: I18nRegistry,
     pub locale: Locale,
+    pub window_insets: WindowInsets,
 }
 
 pub trait Clipboard: Send + Sync {
@@ -36,6 +45,13 @@ pub struct RuntimeState {
     pub clipboard: String,
     pub caret_visible: HashMap<NodeId, bool>,
     pub gesture: GestureState,
+    pub hero: HeroState,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct HeroState {
+    // tag -> (Last Known NodeId, Last Known Rect)
+    pub positions: HashMap<String, (NodeId, fission_layout::LayoutRect)>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -44,6 +60,7 @@ pub struct GestureState {
     pub last_point: Option<LayoutPoint>,
     pub is_panning: bool,
     pub target_node: Option<NodeId>,
+    pub dragging_payload: Option<Vec<u8>>,
 }
 
 #[derive(Clone, Debug, Default)]

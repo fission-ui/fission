@@ -1,7 +1,7 @@
 use fission_core::{BuildCtx, View, Widget, WidgetNodeId, NodeId, Handler};
 use fission_core::ui::{Container, Node, Text, TextContent, Button, ButtonVariant, Scroll, Checkbox};
 use fission_core::op::Color;
-use fission_widgets::{VStack, HStack, LazyColumn, Tabs, TabItem, TextInput, MenuButton, MenuItem, Badge, Divider, Icon, Skeleton, SegmentedControl, Pagination, EmptyState};
+use fission_widgets::{VStack, HStack, LazyColumn, Tabs, TabItem, TextInput, MenuButton, MenuItem, Badge, Divider, Icon, Skeleton, SegmentedControl, Pagination, EmptyState, Hero};
 use crate::model::{InboxState, SelectTab, UpdateSearch, ToggleFilterDropdown, DismissDropdown, SelectEmail, ToggleEmailSelection, ToggleCompose, Navigate, ToggleMobileMenu, SetFilterMode, SetPage};
 use fission_icons::material;
 use std::sync::Arc;
@@ -35,7 +35,7 @@ impl Widget<InboxState> for EmailList {
                     fission_core::ui::widgets::Spacer { flex_grow: 1.0, ..Default::default() }.into_node(),
                     Button {
                         variant: ButtonVariant::Filled,
-                        child: Some(Box::new(Text::new("Compose").color(Color::WHITE).into_node())),
+                        child: Some(Box::new(Text::new(TextContent::Key("button.compose".into())).color(Color::WHITE).into_node())),
                         on_press: Some(ctx.bind(ToggleCompose, (|s: &mut InboxState, _: ToggleCompose, _| s.show_compose = true) as Handler<InboxState, ToggleCompose>)),
                         ..Default::default()
                     }.into_node()
@@ -87,17 +87,19 @@ impl Widget<InboxState> for EmailList {
                         VStack {
                             spacing: Some(4.0),
                             children: vec![
-                                HStack {
-                                    spacing: Some(8.0),
-                                    children: vec![
-                                        Text {
-                                            content: TextContent::Literal(format!("Subject {}", id)),
-                                            font_size: Some(16.0),
-                                            ..Default::default()
-                                        }.into(),
-                                    ]
-                                }.build(ctx, view),
-                                Text {
+                                                                    HStack {
+                                                                        spacing: Some(8.0),
+                                                                        children: vec![
+                                                                            Hero {
+                                                                                tag: format!("email_subject_{}", id),
+                                                                                child: Box::new(Text {
+                                                                                    content: TextContent::Literal(format!("Subject {}", id)),
+                                                                                    font_size: Some(16.0),
+                                                                                    ..Default::default()
+                                                                                }.into()),
+                                                                            }.build(ctx, view),
+                                                                        ]
+                                                                    }.build(ctx, view),                                Text {
                                     content: TextContent::Literal("Short preview...".into()),
                                     font_size: Some(12.0),
                                     color: Some(Color { r: 100, g: 100, b: 100, a: 255 }),

@@ -194,9 +194,225 @@ impl TextInputTheme {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct CalendarTheme {
+    pub bg_color: Color,
+    pub border_color: Color,
+    pub radius: f32,
+    pub selected_bg: Color,
+    pub selected_text: Color,
+    pub today_outline: Color,
+}
+
+impl CalendarTheme {
+    pub fn from_tokens(tokens: &Tokens) -> Self {
+        Self {
+            bg_color: tokens.colors.surface,
+            border_color: tokens.colors.border,
+            radius: tokens.radii.medium,
+            selected_bg: tokens.colors.primary,
+            selected_text: tokens.colors.on_primary,
+            today_outline: tokens.colors.secondary,
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct PaginationTheme {
+    pub spacing: f32,
+    pub active_bg: Color,
+    pub active_text: Color,
+}
+
+impl PaginationTheme {
+    pub fn from_tokens(tokens: &Tokens) -> Self {
+        Self {
+            spacing: tokens.spacing.s,
+            active_bg: tokens.colors.primary,
+            active_text: tokens.colors.on_primary,
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct TimelineTheme {
+    pub dot_size: f32,
+    pub line_width: f32,
+    pub dot_color: Color,
+    pub line_color: Color,
+}
+
+impl TimelineTheme {
+    pub fn from_tokens(tokens: &Tokens) -> Self {
+        Self {
+            dot_size: 12.0,
+            line_width: 2.0,
+            dot_color: tokens.colors.primary,
+            line_color: tokens.colors.border,
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct SegmentedControlTheme {
+    pub bg_color: Color,
+    pub border_color: Color,
+    pub radius: f32,
+    pub active_bg: Color,
+    pub active_text: Color,
+}
+
+impl SegmentedControlTheme {
+    pub fn from_tokens(tokens: &Tokens) -> Self {
+        Self {
+            bg_color: tokens.colors.surface,
+            border_color: tokens.colors.border,
+            radius: tokens.radii.full,
+            active_bg: tokens.colors.primary,
+            active_text: tokens.colors.on_primary,
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct AlertTheme {
+    pub info_bg: Color,
+    pub warning_bg: Color,
+    pub error_bg: Color,
+    pub success_bg: Color,
+    pub radius: f32,
+}
+
+impl AlertTheme {
+    pub fn from_tokens(tokens: &Tokens) -> Self {
+        Self {
+            info_bg: Color { r: 230, g: 242, b: 255, a: 255 },
+            warning_bg: Color { r: 255, g: 244, b: 229, a: 255 },
+            error_bg: tokens.colors.error.with_alpha(30),
+            success_bg: Color { r: 237, g: 247, b: 237, a: 255 },
+            radius: tokens.radii.medium,
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct BadgeTheme {
+    pub radius: f32,
+    pub font_size: f32,
+}
+
+impl BadgeTheme {
+    pub fn from_tokens(tokens: &Tokens) -> Self {
+        Self {
+            radius: tokens.radii.small,
+            font_size: 10.0,
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct TabsTheme {
+    pub active_color: Color,
+    pub inactive_color: Color,
+    pub indicator_height: f32,
+}
+
+impl TabsTheme {
+    pub fn from_tokens(tokens: &Tokens) -> Self {
+        Self {
+            active_color: tokens.colors.primary,
+            inactive_color: tokens.colors.text_secondary,
+            indicator_height: 2.0,
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ModalTheme {
+    pub bg_color: Color,
+    pub radius: f32,
+    pub shadow: Option<BoxShadow>,
+    pub max_width: f32,
+}
+
+impl ModalTheme {
+    pub fn from_tokens(tokens: &Tokens) -> Self {
+        Self {
+            bg_color: tokens.colors.surface,
+            radius: tokens.radii.large,
+            shadow: tokens.elevations.level3,
+            max_width: 600.0,
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct TreeViewTheme {
+    pub indent: f32,
+    pub selected_bg: Color,
+    pub hover_bg: Color,
+}
+
+impl TreeViewTheme {
+    pub fn from_tokens(tokens: &Tokens) -> Self {
+        Self {
+            indent: 16.0,
+            selected_bg: tokens.colors.primary.with_alpha(40),
+            hover_bg: tokens.colors.surface,
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ProgressTheme {
+    pub height: f32,
+    pub track_color: Color,
+    pub bar_color: Color,
+}
+
+impl ProgressTheme {
+    pub fn from_tokens(tokens: &Tokens) -> Self {
+        Self {
+            height: 8.0,
+            track_color: tokens.colors.border,
+            bar_color: tokens.colors.primary,
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct TooltipTheme {
+    pub bg_color: Color,
+    pub text_color: Color,
+    pub radius: f32,
+    pub font_size: f32,
+}
+
+impl TooltipTheme {
+    pub fn from_tokens(tokens: &Tokens) -> Self {
+        Self {
+            bg_color: Color { r: 50, g: 50, b: 50, a: 255 },
+            text_color: Color::WHITE,
+            radius: tokens.radii.small,
+            font_size: 12.0,
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ComponentTheme {
     pub button: ButtonTheme,
     pub text_input: TextInputTheme,
+    pub calendar: CalendarTheme,
+    pub pagination: PaginationTheme,
+    pub timeline: TimelineTheme,
+    pub segmented_control: SegmentedControlTheme,
+    pub alert: AlertTheme,
+    pub badge: BadgeTheme,
+    pub tabs: TabsTheme,
+    pub modal: ModalTheme,
+    pub tree_view: TreeViewTheme,
+    pub progress: ProgressTheme,
+    pub tooltip: TooltipTheme,
 }
 
 impl ComponentTheme {
@@ -204,6 +420,17 @@ impl ComponentTheme {
         Self {
             button: ButtonTheme::from_tokens(tokens),
             text_input: TextInputTheme::from_tokens(tokens),
+            calendar: CalendarTheme::from_tokens(tokens),
+            pagination: PaginationTheme::from_tokens(tokens),
+            timeline: TimelineTheme::from_tokens(tokens),
+            segmented_control: SegmentedControlTheme::from_tokens(tokens),
+            alert: AlertTheme::from_tokens(tokens),
+            badge: BadgeTheme::from_tokens(tokens),
+            tabs: TabsTheme::from_tokens(tokens),
+            modal: ModalTheme::from_tokens(tokens),
+            tree_view: TreeViewTheme::from_tokens(tokens),
+            progress: ProgressTheme::from_tokens(tokens),
+            tooltip: TooltipTheme::from_tokens(tokens),
         }
     }
 }
