@@ -73,11 +73,12 @@ impl Lower for LazyColumn {
             col_id, 
             Op::Layout(LayoutOp::Flex {
                 direction: FlexDirection::Column,
+                wrap: fission_ir::op::FlexWrap::NoWrap,
                 flex_grow: 0.0,
                 flex_shrink: 0.0,
                 padding: [0.0; 4],
                 gap: None,
-            })
+            }),
         );
         col.add_children(column_children);
         let col_id = col.build(cx);

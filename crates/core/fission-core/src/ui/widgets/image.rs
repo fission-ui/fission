@@ -45,6 +45,7 @@ impl Lower for Image {
                 padding: [0.0; 4],
                 flex_grow: 0.0,
                 flex_shrink: 0.0,
+                aspect_ratio: None,
             }),
         );
         layout_builder.add_child(paint_id);

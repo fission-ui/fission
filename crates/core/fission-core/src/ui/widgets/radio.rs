@@ -64,6 +64,7 @@ impl Lower for Radio {
                 width: Some(dot_size), height: Some(dot_size), 
                 min_width: None, max_width: None, min_height: None, max_height: None, padding: [0.0;4],
                 flex_grow: 0.0, flex_shrink: 0.0,
+                aspect_ratio: None,
             }));
             dot_box.add_child(dot);
             Some(dot_box.build(cx))
@@ -71,7 +72,7 @@ impl Lower for Radio {
 
         let mut radio_box = NodeBuilder::new(
             cx.next_node_id(),
-            Op::Layout(LayoutOp::Box { width: Some(size), height: Some(size), min_width: None, max_width: None, min_height: None, max_height: None, padding: [0.0; 4], flex_grow: 0.0, flex_shrink: 0.0 }),
+            Op::Layout(LayoutOp::Box { width: Some(size), height: Some(size), min_width: None, max_width: None, min_height: None, max_height: None, padding: [0.0; 4], flex_grow: 0.0, flex_shrink: 0.0, aspect_ratio: None }),
         );
         radio_box.add_child(outer_node);
         if let Some(d) = dot_node { radio_box.add_child(d); }
@@ -91,7 +92,7 @@ impl Lower for Radio {
             ).build(cx);
             let mut layout = NodeBuilder::new(
                 cx.next_node_id(),
-                Op::Layout(LayoutOp::Box { width: None, height: None, min_width: None, max_width: None, min_height: None, max_height: None, padding: [tokens.spacing.s, 0.0, 0.0, 0.0], flex_grow: 0.0, flex_shrink: 0.0 }), 
+                Op::Layout(LayoutOp::Box { width: None, height: None, min_width: None, max_width: None, min_height: None, max_height: None, padding: [tokens.spacing.s, 0.0, 0.0, 0.0], flex_grow: 0.0, flex_shrink: 0.0, aspect_ratio: None }), 
             );
             layout.add_child(text_id);
             Some(layout.build(cx))
@@ -100,7 +101,7 @@ impl Lower for Radio {
         let layout_id = cx.next_node_id();
         let mut row = NodeBuilder::new(
             layout_id,
-            Op::Layout(LayoutOp::Flex { direction: fission_ir::FlexDirection::Row, flex_grow: 0.0, flex_shrink: 0.0, padding: [0.0; 4], gap: None }),
+            Op::Layout(LayoutOp::Flex { direction: fission_ir::FlexDirection::Row, wrap: fission_ir::op::FlexWrap::NoWrap, flex_grow: 0.0, flex_shrink: 0.0, padding: [0.0; 4], gap: None }),
         );
         row.add_child(radio_final);
         if let Some(l) = label_id { row.add_child(l); }

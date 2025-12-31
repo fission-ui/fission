@@ -143,6 +143,7 @@ pub fn build_layout_tree(ir: &CoreIR) -> Vec<LayoutInputNode> {
                 padding,
                 flex_grow,
                 flex_shrink,
+                aspect_ratio,
             }) => (
                 LayoutOp::Box {
                     width: *width,
@@ -154,6 +155,7 @@ pub fn build_layout_tree(ir: &CoreIR) -> Vec<LayoutInputNode> {
                     padding: *padding,
                     flex_grow: *flex_grow,
                     flex_shrink: *flex_shrink,
+                    aspect_ratio: *aspect_ratio,
                 },
                 *width,
                 *height,
@@ -162,6 +164,7 @@ pub fn build_layout_tree(ir: &CoreIR) -> Vec<LayoutInputNode> {
             ),
             Op::Layout(LayoutOp::Flex {
                 direction,
+                wrap,
                 flex_grow,
                 flex_shrink,
                 padding,
@@ -169,6 +172,7 @@ pub fn build_layout_tree(ir: &CoreIR) -> Vec<LayoutInputNode> {
             }) => (
                 LayoutOp::Flex {
                     direction: *direction,
+                    wrap: *wrap,
                     flex_grow: *flex_grow,
                     flex_shrink: *flex_shrink,
                     padding: *padding,
@@ -257,6 +261,7 @@ pub fn build_layout_tree(ir: &CoreIR) -> Vec<LayoutInputNode> {
                         padding: [0.0; 4],
                         flex_grow: 0.0,
                         flex_shrink: 0.0,
+                        aspect_ratio: None,
                     },
                     None,
                     None,
@@ -274,6 +279,7 @@ pub fn build_layout_tree(ir: &CoreIR) -> Vec<LayoutInputNode> {
                         padding: [0.0; 4],
                         flex_grow: 0.0,
                         flex_shrink: 0.0,
+                        aspect_ratio: None,
                     },
                     None,
                     None,
@@ -328,6 +334,7 @@ pub fn build_layout_tree(ir: &CoreIR) -> Vec<LayoutInputNode> {
                     padding: [0.0; 4],
                     flex_grow: 0.0,
                     flex_shrink: 0.0,
+                    aspect_ratio: None,
                 },
                 None,
                 None,

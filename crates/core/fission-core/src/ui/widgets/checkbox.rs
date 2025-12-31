@@ -65,6 +65,7 @@ impl Lower for Checkbox {
                 width: Some(10.0), height: Some(10.0), 
                 min_width: None, max_width: None, min_height: None, max_height: None, padding: [0.0;4],
                 flex_grow: 0.0, flex_shrink: 0.0,
+                aspect_ratio: None,
             }));
             check_box.add_child(check);
             Some(check_box.build(cx))
@@ -72,7 +73,7 @@ impl Lower for Checkbox {
 
         let mut square_box = NodeBuilder::new(
             square_id,
-            Op::Layout(LayoutOp::Box { width: Some(size), height: Some(size), min_width: None, max_width: None, min_height: None, max_height: None, padding: [0.0; 4], flex_grow: 0.0, flex_shrink: 0.0 }),
+            Op::Layout(LayoutOp::Box { width: Some(size), height: Some(size), min_width: None, max_width: None, min_height: None, max_height: None, padding: [0.0; 4], flex_grow: 0.0, flex_shrink: 0.0, aspect_ratio: None }),
         );
         square_box.add_child(bg_node);
         if let Some(c) = check_node { square_box.add_child(c); }
@@ -92,7 +93,7 @@ impl Lower for Checkbox {
             ).build(cx);
             let mut layout = NodeBuilder::new(
                 cx.next_node_id(),
-                Op::Layout(LayoutOp::Box { width: None, height: None, min_width: None, max_width: None, min_height: None, max_height: None, padding: [tokens.spacing.s, 0.0, 0.0, 0.0], flex_grow: 0.0, flex_shrink: 0.0 }), 
+                Op::Layout(LayoutOp::Box { width: None, height: None, min_width: None, max_width: None, min_height: None, max_height: None, padding: [tokens.spacing.s, 0.0, 0.0, 0.0], flex_grow: 0.0, flex_shrink: 0.0, aspect_ratio: None }), 
             );
             layout.add_child(text_id);
             Some(layout.build(cx))
@@ -101,7 +102,7 @@ impl Lower for Checkbox {
         let layout_id = cx.next_node_id();
         let mut row = NodeBuilder::new(
             layout_id,
-            Op::Layout(LayoutOp::Flex { direction: fission_ir::FlexDirection::Row, flex_grow: 0.0, flex_shrink: 0.0, padding: [0.0; 4], gap: None }),
+            Op::Layout(LayoutOp::Flex { direction: fission_ir::FlexDirection::Row, wrap: fission_ir::op::FlexWrap::NoWrap, flex_grow: 0.0, flex_shrink: 0.0, padding: [0.0; 4], gap: None }),
         );
         row.add_child(square_final);
         if let Some(l) = label_id { row.add_child(l); }

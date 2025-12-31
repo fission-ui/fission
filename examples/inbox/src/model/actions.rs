@@ -57,6 +57,9 @@ pub struct ToggleContacts;
 #[derive(Action, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ToggleCompose;
 
+#[derive(Action, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ToggleMobileMenu;
+
 // Toast
 #[derive(Action, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ToggleToast(pub bool);

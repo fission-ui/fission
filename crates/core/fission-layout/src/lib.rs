@@ -1,6 +1,6 @@
 use anyhow::Result;
 use fission_diagnostics::prelude as diag;
-use fission_ir::{FlexDirection as IrFlexDirection, NodeId, Op, PaintOp};
+use fission_ir::{FlexDirection as IrFlexDirection, FlexWrap as IrFlexWrap, NodeId, Op, PaintOp};
 use fission_ir::op::{TextRun, TextStyle};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
@@ -456,11 +456,13 @@ impl LayoutEngine {
                 min_height,
                 max_height,
                 padding,
+                aspect_ratio,
                 ..
             } => {
                 style.display = Display::Flex;
                 style.align_items = Some(AlignItems::Center);
                 style.justify_content = Some(JustifyContent::Center);
+                style.aspect_ratio = *aspect_ratio;
                 style.padding = taffy::geometry::Rect {
                     left: points(padding[0]),
                     right: points(padding[1]),
@@ -481,12 +483,17 @@ impl LayoutEngine {
                 };
             }
             LayoutOp::Flex {
-                direction, padding, gap, ..
+                direction, wrap, padding, gap, ..
             } => {
                 style.display = Display::Flex;
                 style.flex_direction = match direction {
                     IrFlexDirection::Row => taffy::style::FlexDirection::Row,
                     IrFlexDirection::Column => taffy::style::FlexDirection::Column,
+                };
+                style.flex_wrap = match wrap {
+                    IrFlexWrap::NoWrap => taffy::style::FlexWrap::NoWrap,
+                    IrFlexWrap::Wrap => taffy::style::FlexWrap::Wrap,
+                    IrFlexWrap::WrapReverse => taffy::style::FlexWrap::WrapReverse,
                 };
                 style.align_items = Some(AlignItems::Stretch);
                 style.padding = taffy::geometry::Rect {
@@ -613,9 +620,9 @@ impl LayoutEngine {
                 style.display = Display::Flex;
                 let map_p = |p: &fission_ir::op::GridPlacement| -> TaffyGridPlacement { 
                     match p {
-                        GridPlacement::Auto => TaffyGridPlacement::Auto,
-                        GridPlacement::Line(l) => TaffyGridPlacement::Line((*l).into()),
-                        GridPlacement::Span(s) => TaffyGridPlacement::Span(*s),
+                        fission_ir::op::GridPlacement::Auto => TaffyGridPlacement::Auto,
+                        fission_ir::op::GridPlacement::Line(l) => TaffyGridPlacement::Line((*l).into()),
+                        fission_ir::op::GridPlacement::Span(s) => TaffyGridPlacement::Span(*s),
                     }
                 };
                 style.grid_row = Line { start: map_p(row_start), end: map_p(row_end) };

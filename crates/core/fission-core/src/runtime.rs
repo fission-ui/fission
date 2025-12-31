@@ -1,178 +1,455 @@
-use crate::action::{Action, ActionEnvelope, ActionId, AppState, Reducer, Animate};
-use crate::env::{Env, RuntimeState, VideoStatus, VideoStateMap, AnimationStateMap, ActiveAnimation, Clock, InteractionStateMap, ScrollStateMap}; 
-use fission_ir::{CoreIR, NodeId, Op, LayoutOp};
-use fission_layout::{LayoutSnapshot, LayoutPoint};
-use fission_semantics::{InputEvent, PointerEvent, PointerButton, KeyCode, KeyEvent};
+use crate::action::{Action, ActionEnvelope, ActionId, AppState};
+use crate::env::{Env, RuntimeState, VideoStatus, VideoStateMap, AnimationStateMap, ActiveAnimation, InteractionStateMap, ScrollStateMap}; 
+use crate::registry::{ActionRegistry, AnimationRequest, AnimationStartValue, VideoRegistration};
+use crate::BoxedReducer;
+use crate::effect::{EffectEnvelope, ActionInput};
+use crate::{Clock, CurrentTime, InputEvent, PointerEvent, PointerButton, KeyCode, KeyEvent, Clipboard, ImeHandler};
+use fission_ir::{CoreIR, NodeId, Op, LayoutOp, WidgetNodeId, FlexDirection};
+use fission_layout::{LayoutSnapshot, LayoutPoint, LayoutRect, TextMeasurer, LayoutUnit};
+use fission_diagnostics::prelude as diag;
 use std::any::{Any, TypeId};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use serde_json;
 
 pub struct Runtime {
-    pub app_states: HashMap<TypeId, Box<dyn Any>>,
+    pub reducers: HashMap<ActionId, Vec<BoxedReducer>>,
+    pub app_states: HashMap<TypeId, Box<dyn AppState>>,
     pub runtime_state: RuntimeState,
-    pub reducers: HashMap<ActionId, Box<dyn Fn(&mut dyn Any, &ActionEnvelope, NodeId) -> Result<()>>>,
-    pub clock: Clock,
+    pub measurer: Option<Arc<dyn TextMeasurer>>,
+    pub clipboard_backend: Option<Arc<dyn Clipboard>>,
+    pub ime_handler: Option<Arc<dyn ImeHandler>>,
+    
+    // Effects
+    pub pending_effects: Vec<EffectEnvelope>,
+    // For ReqId generation (seeded/deterministic)
+    pub next_req_id: u64,
 }
 
 impl Default for Runtime {
     fn default() -> Self {
-        Self {
+        let mut runtime = Self {
+            reducers: HashMap::new(),
             app_states: HashMap::new(),
             runtime_state: RuntimeState::default(),
-            reducers: HashMap::new(),
-            clock: Clock::default(),
-        }
+            measurer: None,
+            clipboard_backend: None,
+            ime_handler: None,
+            pending_effects: Vec::new(),
+            next_req_id: 0,
+        };
+
+        runtime
+            .add_app_state(Box::new(Clock::default()))
+            .expect("Failed to add Clock state");
+
+        runtime.register_base_reducers();
+
+        runtime
     }
 }
 
 impl Runtime {
-    pub fn add_app_state<S: AppState + 'static>(&mut self, state: Box<S>) -> Result<()> {
-        self.app_states.insert(TypeId::of::<S>(), state);
-        Ok(())
+    pub fn with_measurer(mut self, measurer: Arc<dyn TextMeasurer>) -> Self {
+        self.measurer = Some(measurer);
+        self
     }
 
-    pub fn get_app_state<S: AppState + 'static>(&self) -> Option<&S> {
-        self.app_states.get(&TypeId::of::<S>()).and_then(|b| b.downcast_ref::<S>())
-    }
-    
-    pub fn get_app_state_mut<S: AppState + 'static>(&mut self) -> Option<&mut S> {
-        self.app_states.get_mut(&TypeId::of::<S>()).and_then(|b| b.downcast_mut::<S>())
+    pub fn with_clipboard(mut self, backend: Arc<dyn Clipboard>) -> Self {
+        self.clipboard_backend = Some(backend);
+        self
     }
 
+    pub fn with_ime_handler(mut self, handler: Arc<dyn ImeHandler>) -> Self {
+        self.ime_handler = Some(handler);
+        self
+    }
+
+    pub fn caret_from_point_in_text(&self, value: &str, font_size: f32, viewport_x: f32, viewport_w: f32, content_w: f32, scroll_offset: f32, point_x: f32) -> usize {
+        crate::input::text::caret_from_point_in_text(
+            self.measurer.as_ref(),
+            value,
+            font_size,
+            viewport_x,
+            viewport_w,
+            content_w,
+            scroll_offset,
+            point_x
+        )
+    }
+
+    // Helper for manual reducer registration (internal use)
     pub fn register_reducer<S: AppState + 'static>(
         &mut self,
         action_id: ActionId,
-        reducer: fn(&mut S, &ActionEnvelope, NodeId) -> Result<()>,
+        reducer_fn: fn(&mut S, &ActionEnvelope, NodeId) -> Result<()>,
     ) -> Result<()> {
-        let boxed_reducer = Box::new(move |state_any: &mut dyn Any, env: &ActionEnvelope, target: NodeId| {
-            if let Some(state) = state_any.downcast_mut::<S>() {
-                reducer(state, env, target)
-            } else {
-                Err(anyhow::anyhow!("State type mismatch for reducer"))
-            }
-        });
-        self.reducers.insert(action_id, boxed_reducer);
-        Ok(())
-    }
-    
-    pub fn dispatch(&mut self, envelope: ActionEnvelope, target: NodeId) -> Result<()> {
-        if envelope.id == Animate::static_id() {
-            if let Ok(anim) = serde_json::from_slice::<Animate>(&envelope.payload) {
-                self.runtime_state.animation.active.push(ActiveAnimation {
-                    key: anim.property.clone(),
-                    node_id: anim.target,
-                    property: anim.property.clone(),
-                    start_value: anim.start,
-                    end_value: anim.end,
-                    start_time: self.clock.now(),
-                    duration: anim.duration,
-                });
-                return Ok(());
-            }
-        }
+        let state_type_id = TypeId::of::<S>();
 
-        if let Some(reducer) = self.reducers.get(&envelope.id) {
-            for state in self.app_states.values_mut() {
-                if let Ok(_) = reducer(state.as_mut(), &envelope, target) {
-                    return Ok(());
+        // Wrap legacy 3-arg reducer into 5-arg BoxedReducer
+        let boxed_reducer: BoxedReducer = Box::new(
+            move |app_states: &mut HashMap<TypeId, Box<dyn AppState>>,
+                  action: &ActionEnvelope,
+                  target: NodeId,
+                  _effects: &mut Vec<EffectEnvelope>,
+                  _input: &ActionInput|
+                  -> Result<()> {
+                if let Some(state_box) = app_states.get_mut(&state_type_id) {
+                    let concrete_state = state_box.downcast_mut::<S>().ok_or_else(|| {
+                        anyhow!("Failed to downcast AppState to concrete type for reducer")
+                    })?;
+                    reducer_fn(concrete_state, action, target)
+                } else {
+                    anyhow::bail!("Target AppState for reducer not found in runtime.");
                 }
-            }
-        }
+            },
+        );
+
+        self.reducers
+            .entry(action_id)
+            .or_default()
+            .push(boxed_reducer);
         Ok(())
     }
-    
+
+    pub fn register_base_reducers(&mut self) {
+        use crate::{Tick, AdvanceTo, TICK_ACTION_ID, ADVANCE_TO_ACTION_ID};
+        
+        self.register_reducer::<Clock>(
+            *TICK_ACTION_ID,
+            |state: &mut Clock, action: &ActionEnvelope, _target| {
+                let tick_action: Tick = serde_json::from_slice(&action.payload)
+                    .map_err(|e| anyhow!("Failed to deserialize Tick: {}", e))?;
+                state.advance_by(tick_action.dt)
+            },
+        )
+        .expect("Failed to register Tick reducer");
+
+        self.register_reducer::<Clock>(
+            *ADVANCE_TO_ACTION_ID,
+            |state: &mut Clock, action: &ActionEnvelope, _target| {
+                let advance_action: AdvanceTo = serde_json::from_slice(&action.payload)
+                    .map_err(|e| anyhow!("Failed to deserialize AdvanceTo: {}", e))?;
+                state.set_to(advance_action.time)
+            },
+        )
+        .expect("Failed to register AdvanceTo reducer");
+    }
+
     pub fn clear_reducers(&mut self) {
         self.reducers.clear();
-    }
-    
-    pub fn absorb_registry(&mut self, registry: HashMap<ActionId, Box<dyn Fn(&mut dyn Any, &ActionEnvelope, NodeId) -> Result<()>>>) {
-        self.reducers.extend(registry);
+        self.register_base_reducers();
     }
 
-    pub fn tick(&mut self, dt_ms: u64) -> Result<()> {
-        self.clock.advance(dt_ms);
-        
-        let mut finished_anims = Vec::new();
-        for (i, anim) in self.runtime_state.animation.active.iter_mut().enumerate() {
-            let elapsed = self.clock.now().saturating_sub(anim.start_time);
-            let progress = (elapsed as f32 / anim.duration as f32).min(1.0);
-            
-            let val = anim.start_value + (anim.end_value - anim.start_value) * progress;
-            self.runtime_state.animation.values.insert((anim.node_id, anim.property.clone()), val);
-            
-            if elapsed >= anim.duration {
-                finished_anims.push(i);
-            }
+    pub fn absorb_registry<S: AppState>(&mut self, registry: ActionRegistry<S>) {
+        let new_reducers = registry.into_runtime_reducers();
+        for (id, mut list) in new_reducers {
+            self.reducers.entry(id).or_default().append(&mut list);
         }
-        
-        for i in finished_anims.into_iter().rev() {
-            self.runtime_state.animation.active.remove(i);
+    }
+
+    pub fn clock(&self) -> &Clock {
+        self.get_app_state::<Clock>()
+            .expect("Clock state must always be present")
+    }
+
+    pub fn get_app_state<S: AppState + 'static>(&self) -> Option<&S> {
+        self.app_states
+            .get(&TypeId::of::<S>())
+            .and_then(|s_box| s_box.downcast_ref::<S>())
+    }
+
+    pub fn get_app_state_mut<S: AppState + 'static>(&mut self) -> Option<&mut S> {
+        self.app_states
+            .get_mut(&TypeId::of::<S>())
+            .and_then(|s_box| s_box.downcast_mut::<S>())
+    }
+
+    pub fn add_app_state<S: AppState + 'static>(&mut self, state: Box<S>) -> Result<()> {
+        let type_id = TypeId::of::<S>();
+        if self.app_states.insert(type_id, state).is_some() {
+            anyhow::bail!("App state of this type already registered.");
         }
         Ok(())
     }
+
+    pub fn dispatch(&mut self, action: ActionEnvelope, target: NodeId) -> Result<()> {
+        self.dispatch_with_input(action, target, &ActionInput::None)
+    }
     
-    pub fn clock(&self) -> &Clock {
-        &self.clock
-    }
-
-    pub fn handle_input(&mut self, event: InputEvent, ir: &CoreIR, snapshot: &LayoutSnapshot) -> Result<()> {
-        match event {
-            InputEvent::Pointer(pe) => self.handle_pointer(pe, ir, snapshot),
-            InputEvent::Keyboard(ke) => self.handle_keyboard(ke, ir, snapshot),
+    pub fn dispatch_with_input(&mut self, action: ActionEnvelope, target: NodeId, input: &ActionInput) -> Result<()> {
+        diag::emit(
+            diag::DiagCategory::Input,
+            diag::DiagLevel::Debug,
+            diag::DiagEventKind::InputEvent { kind: "dispatch_start".into(), target: Some(target.as_u128()), position: None },
+        );
+        
+        // Delegate video actions to media module
+        if crate::media::handle_video_action(&mut self.runtime_state.video, &action)? {
+            return Ok(());
         }
+
+        let action_id = action.id;
+        if let Some(reducers) = self.reducers.get_mut(&action_id) {
+            diag::emit(
+                diag::DiagCategory::Input,
+                diag::DiagLevel::Debug,
+                diag::DiagEventKind::InputEvent { kind: format!("reducers:{}", reducers.len()), target: Some(target.as_u128()), position: None },
+            );
+            
+            // Collect effects from this dispatch
+            let mut effects = Vec::new();
+            
+            let mut temp_reducers: Vec<BoxedReducer> = reducers.drain(..).collect();
+
+            for reducer_wrapper in temp_reducers.iter_mut() {
+                // Pass accumulated effects list
+                reducer_wrapper(&mut self.app_states, &action, target, &mut effects, input)?;
+            }
+            reducers.extend(temp_reducers);
+            
+            // Process effects: Assign ReqIds and queue them
+            for mut envelope in effects {
+                // Assign deterministic ReqId
+                envelope.req_id = self.next_req_id;
+                self.next_req_id += 1;
+                self.pending_effects.push(envelope);
+            }
+        }
+        
+        diag::emit(
+            diag::DiagCategory::Input,
+            diag::DiagLevel::Debug,
+            diag::DiagEventKind::InputEvent { kind: "dispatch_end".into(), target: Some(target.as_u128()), position: None },
+        );
+        Ok(())
     }
 
-    fn handle_pointer(&mut self, event: PointerEvent, ir: &CoreIR, snapshot: &LayoutSnapshot) -> Result<()> {
-        let point = match event {
-            PointerEvent::Move { point } | PointerEvent::Down { point, .. } | PointerEvent::Up { point, .. } => point,
-            PointerEvent::Scroll { point, .. } => point,
+    pub fn tick(&mut self, dt: CurrentTime) -> Result<()> {
+        use crate::Tick;
+        let action = Tick { dt };
+        let envelope: ActionEnvelope = action.into();
+        self.dispatch(envelope, NodeId::derived(0, &[0]))?;
+
+        let current_time = self.clock().current_time();
+
+        let mut finished = Vec::new();
+        for ((target, property), anim) in self.runtime_state.animation.active.iter_mut() {
+            let elapsed = current_time.saturating_sub(anim.start_time);
+            let mut progress = if anim.duration == 0 {
+                1.0
+            } else {
+                (elapsed as f32 / anim.duration as f32)
+            };
+            
+            if anim.repeat && progress >= 1.0 {
+                progress = progress % 1.0; 
+            } else {
+                progress = progress.clamp(0.0, 1.0);
+            }
+
+            let value = anim.start_value + (anim.end_value - anim.start_value) * progress;
+            self.runtime_state
+                .animation
+                .values
+                .insert((*target, property.clone()), value);
+            
+            if !anim.repeat && (elapsed >= anim.duration || anim.duration == 0) {
+                finished.push((*target, property.clone()));
+            }
+        }
+
+        for key in finished {
+            self.runtime_state.animation.active.remove(&key);
+        }
+
+        Ok(())
+    }
+
+    pub fn enqueue_animation(&mut self, target: WidgetNodeId, request: AnimationRequest) {
+        let key = (target, request.property.clone());
+        
+        // Declarative deduplication: If we are already animating to this target, ignore the new request.
+        if let Some(active) = self.runtime_state.animation.active.get(&key) {
+            // Fuzzy float comparison
+            if (active.end_value - request.to).abs() < 0.001 && active.duration == request.duration_ms && active.repeat == request.repeat {
+                // Continue existing animation
+                return;
+            }
+        }
+
+        let current_value = self
+            .runtime_state
+            .animation
+            .values
+            .get(&key)
+            .copied()
+            .unwrap_or_else(|| request.property.default_value());
+            
+        // If we are already at the target value and no animation is running, do we need to start one?
+        // Yes, because we might want to ensure it's "set" or trigger completion events (if we had them).
+        // But if start == end and duration > 0, it's a no-op animation?
+        // Optimization: if current == to, maybe skip? 
+        // But if we want to "hold" the value, active animation keeps it?
+        // Let's simpler logic: Start new if target changed.
+
+        let start_value = match request.from {
+            AnimationStartValue::Explicit(v) => v,
+            AnimationStartValue::Current => current_value,
         };
 
-        let target_id = self.hit_test(point, ir, snapshot);
-        
-        match event {
-            PointerEvent::Move { .. } => {
-                self.runtime_state.interaction.hovered.clear();
-                if let Some(id) = target_id {
-                    let mut current = Some(id);
-                    while let Some(node_id) = current {
-                        self.runtime_state.interaction.set_hovered(node_id, true);
-                        if let Some(node) = ir.nodes.get(&node_id) {
-                            current = node.parent;
-                        } else {
-                            break;
-                        }
+        let anim = ActiveAnimation {
+            target,
+            property: request.property.clone(),
+            start_value,
+            end_value: request.to,
+            start_time: self.clock().current_time() + request.delay_ms,
+            duration: request.duration_ms,
+            repeat: request.repeat,
+        };
+
+        self.runtime_state
+            .animation
+            .values
+            .insert(key.clone(), start_value);
+        self.runtime_state.animation.active.insert(key, anim);
+    }
+
+    pub fn sync_video_nodes(&mut self, registrations: &[VideoRegistration]) {
+        let mut seen: HashSet<WidgetNodeId> = HashSet::new();
+
+        for reg in registrations {
+            seen.insert(reg.node_id);
+            let entry = self
+                .runtime_state
+                .video
+                .states
+                .entry(reg.node_id)
+                .or_insert_with(crate::env::VideoState::default);
+            entry.asset_source = reg.source.clone();
+            entry.looped = reg.loop_playback;
+            if reg.autoplay && entry.status == VideoStatus::Stopped {
+                entry.status = VideoStatus::Playing;
+            }
+        }
+
+        self.runtime_state
+            .video
+            .states
+            .retain(|node_id, _| seen.contains(node_id));
+    }
+
+    pub fn handle_input(
+        &mut self,
+        event: InputEvent,
+        ir: &CoreIR,
+        layout: &LayoutSnapshot,
+    ) -> Result<()> {
+        use crate::input::{ControllerContext, InputController};
+        use crate::input::text::TextInputController;
+        use crate::input::slider::SliderController;
+        use crate::input::gesture::GestureController;
+        use crate::hit_test::hit_test_with_scroll;
+        use crate::hit_test::find_next_focus_node;
+
+        let mut dispatched_actions = Vec::new();
+        let mut handled = false;
+
+        {
+            let mut ctx = ControllerContext {
+                ir,
+                layout,
+                text_edit: &mut self.runtime_state.text_edit,
+                interaction: &mut self.runtime_state.interaction,
+                scroll: &mut self.runtime_state.scroll,
+                ime_preedit: &mut self.runtime_state.ime_preedit,
+                gesture: &mut self.runtime_state.gesture,
+                clipboard: self.clipboard_backend.as_ref(), 
+                measurer: self.measurer.as_ref(),
+                dispatched_actions: Vec::new(),
+            };
+
+            let mut gesture_controller = GestureController;
+            if gesture_controller.handle_event(&mut ctx, &event) {
+                handled = true;
+            } else {
+                let mut text_controller = TextInputController;
+                if text_controller.handle_event(&mut ctx, &event) {
+                    handled = true;
+                } else {
+                    let mut slider_controller = SliderController;
+                    if slider_controller.handle_event(&mut ctx, &event) {
+                        handled = true;
                     }
                 }
-            },
-            PointerEvent::Down { .. } => {
-                if let Some(id) = target_id {
-                    self.runtime_state.interaction.set_pressed(id, true);
-                    self.runtime_state.interaction.set_focused(Some(id));
-                }
-            },
-            PointerEvent::Up { .. } => {
-                self.runtime_state.interaction.pressed.clear();
-            },
-            PointerEvent::Scroll { delta, .. } => {
-                if let Some(id) = target_id {
-                    let mut current = Some(id);
-                    while let Some(curr_id) = current {
-                        if let Some(node) = ir.nodes.get(&curr_id) {
-                            if let Op::Layout(LayoutOp::Scroll { .. }) = &node.op {
-                                if let Some(geom) = snapshot.nodes.get(&curr_id) {
-                                    let current_offset = self.runtime_state.scroll.get_offset(curr_id);
-                                    let max_offset = (geom.content_size.height - geom.rect.height()).max(0.0);
-                                    let new_offset = (current_offset + delta.y).clamp(0.0, max_offset);
-                                    
-                                self.runtime_state.scroll.set_offset(node_id, new_offset);
-                                
-                                // Only consume event if we actually scrolled
-                                if (new_offset - current_offset).abs() > 0.001 {
-                                    break;
+            }
+            dispatched_actions = ctx.dispatched_actions;
+        }
+
+        for (target, action) in dispatched_actions {
+            self.dispatch(action, target)?;
+        }
+
+        if handled {
+            return Ok(());
+        }
+
+        match event {
+            InputEvent::Pointer(PointerEvent::Scroll { point, delta }) => {
+                if let Some(hit_node_id) =
+                    hit_test_with_scroll(ir, layout, &self.runtime_state.scroll, point)
+                {
+                    let mut current_id = Some(hit_node_id);
+                    while let Some(node_id) = current_id {
+                        if let Some(node) = ir.nodes.get(&node_id) {
+                            if let Op::Layout(LayoutOp::Scroll { direction, .. }) = &node.op {
+                                let current_offset = self.runtime_state.scroll.get_offset(node_id);
+                                let delta_val = match direction { FlexDirection::Row => delta.x, FlexDirection::Column => delta.y };
+                                let mut new_offset = current_offset + delta_val;
+
+                                let mut max_offset = 0.0f32;
+                                let mut viewport_w = 0.0f32;
+                                let mut viewport_h = 0.0f32;
+                                let mut content_w = 0.0f32;
+                                let mut content_h = 0.0f32;
+                                if let Some(geom) = layout.get_node_geometry(node_id) {
+                                    viewport_w = geom.rect.width();
+                                    viewport_h = geom.rect.height();
+                                    content_w = geom.content_size.width;
+                                    content_h = geom.content_size.height;
+                                    max_offset = if matches!(direction, FlexDirection::Row) {
+                                        (geom.content_size.width - geom.rect.width()).max(0.0)
+                                    } else {
+                                        (geom.content_size.height - geom.rect.height()).max(0.0)
+                                    };
+                                    new_offset = new_offset.clamp(0.0, max_offset);
                                 }
+
+                                {
+                                    use fission_diagnostics::prelude as diag;
+                                    diag::emit(
+                                        diag::DiagCategory::Input,
+                                        diag::DiagLevel::Debug,
+                                        diag::DiagEventKind::ScrollUpdate {
+                                            node: node_id.as_u128(),
+                                            axis: match direction { FlexDirection::Row => "x".into(), FlexDirection::Column => "y".into() },
+                                            point_x: point.x,
+                                            point_y: point.y,
+                                            delta: delta_val,
+                                            old_offset: current_offset,
+                                            new_offset,
+                                            max_offset,
+                                            viewport_w,
+                                            viewport_h,
+                                            content_w,
+                                            content_h,
+                                        },
+                                    );
+                                }
+
+                                self.runtime_state.scroll.set_offset(node_id, new_offset);
+                                break;
                             }
                             current_id = node.parent;
                         } else {
@@ -180,12 +457,173 @@ impl Runtime {
                         }
                     }
                 }
+            }
+            InputEvent::Keyboard(KeyEvent::Down {
+                key_code,
+                modifiers,
+            }) => match key_code {
+                KeyCode::Tab => {
+                    let reverse = (modifiers & 1) != 0;
+                    let next = find_next_focus_node(ir, self.runtime_state.interaction.focused, reverse);
+                    if next != self.runtime_state.interaction.focused {
+                        self.runtime_state.ime_preedit = None;
+                    }
+                    self.runtime_state.interaction.set_focused(next);
+                }
+                KeyCode::Enter | KeyCode::Space => {
+                    if let Some(focused_id) = self.runtime_state.interaction.focused {
+                        let mut current_id = Some(focused_id);
+                        while let Some(node_id) = current_id {
+                            if let Some(node) = ir.nodes.get(&node_id) {
+                                if let Op::Semantics(semantics) = &node.op {
+                                    if let Some(action_entry) = semantics.actions.entries.first() {
+                                        if let Some(payload) = &action_entry.payload_data {
+                                            let envelope = ActionEnvelope {
+                                                id: ActionId::from_u128(action_entry.action_id),
+                                                payload: payload.clone(),
+                                            };
+                                            return self.dispatch(envelope, node_id);
+                                        }
+                                    }
+                                }
+                                current_id = node.parent;
+                            } else {
+                                break;
+                            }
+                        }
+                    }
+                }
+                _ => {}
             },
-        }
-        Ok(())
-    }
+            InputEvent::Pointer(PointerEvent::Down { point, .. }) => {
+                if let Some(hit_node_id) =
+                    hit_test_with_scroll(ir, layout, &self.runtime_state.scroll, point)
+                {
+                    diag::emit(
+                        diag::DiagCategory::Input,
+                        diag::DiagLevel::Debug,
+                        diag::DiagEventKind::InputEvent { kind: "pointer_down_hit".into(), target: Some(hit_node_id.as_u128()), position: Some((point.x, point.y)) },
+                    );
+                    let mut focus_candidate = Some(hit_node_id);
+                    while let Some(node_id) = focus_candidate {
+                        if let Some(node) = ir.nodes.get(&node_id) {
+                            if let Op::Semantics(s) = &node.op {
+                                if s.focusable {
+                                    let old_focused_id = self.runtime_state.interaction.focused;
+                                    if Some(node_id) != old_focused_id {
+                                        self.runtime_state.ime_preedit = None;
 
-    fn handle_keyboard(&mut self, _event: KeyEvent, _ir: &CoreIR, _snapshot: &LayoutSnapshot) -> Result<()> {
+                                        if s.role == fission_ir::semantics::Role::TextInput {
+                                            if let Some(ime_handler) = &self.ime_handler {
+                                                ime_handler.set_ime_allowed(true);
+                                            }
+                                        } else if let Some(ime_handler) = &self.ime_handler {
+                                            ime_handler.set_ime_allowed(false);
+                                        }
+                                    }
+                                    self.runtime_state.interaction.set_focused(Some(node_id));
+                                    break;
+                                }
+                            }
+                            focus_candidate = node.parent;
+                        } else {
+                            break;
+                        }
+                    }
+                    if focus_candidate.is_none() {
+                        if let Some(old_focused_id) = self.runtime_state.interaction.focused {
+                            if let Some(old_node) = ir.nodes.get(&old_focused_id) {
+                                if let Op::Semantics(s) = &old_node.op {
+                                    if s.role == fission_ir::semantics::Role::TextInput {
+                                        if let Some(ime_handler) = &self.ime_handler {
+                                            ime_handler.set_ime_allowed(false);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        self.runtime_state.interaction.set_focused(None);
+                    }
+
+                    let mut current_pressed_id = Some(hit_node_id);
+                    while let Some(node_id) = current_pressed_id {
+                        self.runtime_state.interaction.set_pressed(node_id, true);
+                        if let Some(node) = ir.nodes.get(&node_id) {
+                            current_pressed_id = node.parent;
+                        } else {
+                            break;
+                        }
+                    }
+                    self.runtime_state.interaction.last_down_point = Some(point);
+
+                    if let Some(focused_id) = self.runtime_state.interaction.focused {
+                        if let Some(node) = ir.nodes.get(&focused_id) {
+                            if let Op::Semantics(s) = &node.op {
+                                if s.role == fission_ir::semantics::Role::TextInput {
+                                    if let Some(ime_handler) = &self.ime_handler {
+                                        ime_handler.set_ime_cursor_area(LayoutRect::new(point.x, point.y, 2.0, 16.0));
+                                    }
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    if let Some(old_focused_id) = self.runtime_state.interaction.focused {
+                        if let Some(old_node) = ir.nodes.get(&old_focused_id) {
+                            if let Op::Semantics(s) = &old_node.op {
+                                if s.role == fission_ir::semantics::Role::TextInput {
+                                    if let Some(ime_handler) = &self.ime_handler {
+                                        ime_handler.set_ime_allowed(false);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    self.runtime_state.interaction.set_focused(None);
+                }
+            }
+            InputEvent::Pointer(PointerEvent::Up { point, .. }) => {
+                if let Some(hit_node_id) =
+                    hit_test_with_scroll(ir, layout, &self.runtime_state.scroll, point)
+                {
+                    self.runtime_state.interaction.pressed.clear();
+
+                    let mut current_id = Some(hit_node_id);
+                    while let Some(node_id) = current_id {
+                        if let Some(node) = ir.nodes.get(&node_id) {
+                            if let Op::Semantics(semantics) = &node.op {
+                                if semantics.role == fission_ir::semantics::Role::TextInput {
+                                    // No action
+                                } else if let Some(action_entry) = semantics.actions.entries.first() {
+                                    if let Some(payload) = &action_entry.payload_data {
+                                        let envelope = ActionEnvelope {
+                                            id: ActionId::from_u128(action_entry.action_id),
+                                            payload: payload.clone(),
+                                        };
+                                        diag::emit(
+                                            diag::DiagCategory::Input,
+                                            diag::DiagLevel::Debug,
+                                            diag::DiagEventKind::InputEvent { kind: "pointer_up_dispatch".into(), target: Some(node_id.as_u128()), position: Some((point.x, point.y)) },
+                                        );
+                                        return self.dispatch(envelope, node_id);
+                                    }
+                                }
+                            }
+                            current_id = node.parent;
+                        } else {
+                            break;
+                        }
+                    }
+
+                    self.runtime_state.interaction.last_down_point = None;
+                }
+            }
+            InputEvent::Pointer(PointerEvent::Up { point: _, .. }) => {
+                self.runtime_state.interaction.pressed.clear();
+                self.runtime_state.interaction.last_down_point = None;
+            }
+            _ => {}
+        }
         Ok(())
     }
 
@@ -201,14 +639,14 @@ impl Runtime {
             if geom.rect.contains(point) {
                 if let Some(node) = ir.nodes.get(&node_id) {
                     for child in node.children.iter().rev() {
-                        let child_point = point;
+                        let mut child_point = point;
                         
                         if let Op::Layout(LayoutOp::Scroll { direction, .. }) = &node.op {
                             if !geom.rect.contains(point) { continue; }
                             let offset = self.runtime_state.scroll.get_offset(node_id);
                             match direction {
-                                fission_ir::FlexDirection::Row => child_point.x += offset,
-                                fission_ir::FlexDirection::Column => child_point.y += offset,
+                                FlexDirection::Row => child_point.x += offset,
+                                FlexDirection::Column => child_point.y += offset,
                             }
                         }
                         
@@ -217,7 +655,6 @@ impl Runtime {
                         }
                     }
                     
-                    // Only return self as hit if we are a "paintable" or interactive leaf/container
                     match &node.op {
                         Op::Paint(_) | 
                         Op::Layout(LayoutOp::Scroll { .. }) | 

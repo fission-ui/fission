@@ -62,12 +62,16 @@ impl Lower for Scroll {
             let mut content_box = NodeBuilder::new(
                 content_id,
                 Op::Layout(LayoutOp::Box {
-                    width: None, height: None,
-                    min_width: None, max_width: None,
-                    min_height: None, max_height: None,
+                    width: self.width,
+                    height: self.height,
+                    min_width: None,
+                    max_width: None,
+                    min_height: None,
+                    max_height: None,
                     padding: [0.0; 4],
                     flex_grow: 0.0,
                     flex_shrink: 0.0,
+                    aspect_ratio: None,
                 })
             );
             content_box.add_child(child.lower(cx));

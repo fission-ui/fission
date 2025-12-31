@@ -9,7 +9,7 @@ use fission_core::ui::{
 use fission_core::{
     op::Color as IrColor, ActionEnvelope, AnimationPropertyId, AnimationRequest,
     AnimationStartValue, AppState, BuildCtx, FlexDirection, LowerDyn, LoweringContext, NodeBuilder,
-    NodeId, Selector, View, Widget, WidgetNodeId,
+    NodeId, Selector, View, Widget, WidgetNodeId, Handler, ReducerContext,
 };
 use fission_macros::Action;
 use fission_shell_desktop::DesktopApp;
@@ -41,7 +41,7 @@ impl AppState for CounterState {}
 #[derive(fission_macros::Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 struct Increment;
 
-fn on_increment(state: &mut CounterState, _action: Increment) {
+fn on_increment(state: &mut CounterState, _action: Increment, _ctx: &mut ReducerContext<CounterState>) {
     state.value += 1;
     println!("Counter incremented to: {}", state.value);
 }
@@ -56,7 +56,7 @@ struct ToggleChecked;
 #[derive(fission_macros::Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 struct ToggleModal;
 
-fn on_toggle_modal(state: &mut CounterState, _action: ToggleModal) {
+fn on_toggle_modal(state: &mut CounterState, _action: ToggleModal, _ctx: &mut ReducerContext<CounterState>) {
     state.show_modal = !state.show_modal;
 }
 
@@ -143,6 +143,7 @@ impl LowerDyn for StatusIndicatorLowerer {
                 padding: [0.0; 4],
                 flex_grow: 0.0,
                 flex_shrink: 0.0,
+                aspect_ratio: None,
             }),
         );
         layout_builder.add_child(paint_id);
@@ -173,15 +174,6 @@ impl Widget<CounterState> for CounterApp {
             delay_ms: 0,
         });
 
-        let video_state: VideoState = view
-            .video_state(*DEMO_VIDEO_WIDGET_ID)
-            .cloned()
-            .unwrap_or_default();
-
-        let video_controls = ctx.video_controls(*DEMO_VIDEO_WIDGET_ID);
-
-        let half_duration = video_state.duration_ms.unwrap_or(0) / 2;
-
         let mut children = vec![
             Image {
                 source: "docs/fission_logo.png".into(),
@@ -190,80 +182,33 @@ impl Widget<CounterState> for CounterApp {
                 ..Default::default()
             }
             .into(),
-            // Canvas demo
-            canvas(Some(220.0), Some(60.0), |cx| {
-                use fission_core::op::{Color as IrColor, Fill};
-                let r1 = NodeBuilder::new(
-                    cx.next_node_id(),
-                    fission_core::Op::Paint(PaintOp::DrawRect {
-                        fill: Some(Fill {
-                            color: IrColor {
-                                r: 30,
-                                g: 144,
-                                b: 255,
-                                a: 255,
-                            },
-                        }),
-                        stroke: None,
-                        corner_radius: 6.0,
-                        shadow: None,
-                    }),
-                )
-                .build(cx);
-                let r2 = NodeBuilder::new(
-                    cx.next_node_id(),
-                    fission_core::Op::Paint(PaintOp::DrawRect {
-                        fill: Some(Fill {
-                            color: IrColor {
-                                r: 46,
-                                g: 204,
-                                b: 113,
-                                a: 255,
-                            },
-                        }),
-                        stroke: None,
-                        corner_radius: 6.0,
-                        shadow: None,
-                    }),
-                )
-                .build(cx);
-                vec![r1, r2]
-            }),
+            
             Spacer { width: Some(0.0), height: Some(8.0), ..Default::default() }.into(),
-            Video {
-                id: Some(*DEMO_VIDEO_WIDGET_ID),
-                source: "docs/video1.mp4".into(),
-                width: Some(300.0),
-                height: Some(200.0),
-                autoplay: true,
-                loop_playback: true,
-                ..Default::default()
-            }
-            .build(ctx, view),
+            
             Text {
                 content: TextContent::Literal(vm.label.clone()),
                 font_size: Some(24.0),
                 ..Default::default()
             }
             .into(),
+            
             Row {
                 children: vec![
-                    // Checkbox demo
                     Checkbox {
                         checked: view.state.checked,
                         on_toggle: Some(ctx.bind(
                             ToggleChecked,
-                            |state: &mut CounterState, _action: ToggleChecked| {
+                            (|state: &mut CounterState, _action: ToggleChecked, _| {
                                 state.checked = !state.checked;
                                 println!("Checked: {}", state.checked);
-                            },
+                            }) as Handler<CounterState, ToggleChecked>,
                         )),
                         label: Some("Enable feature".into()),
                         ..Default::default()
                     }.build(ctx, view),
                     Spacer { width: Some(16.0), height: None, ..Default::default() }.into(),
                     Button {
-                        on_press: Some(ctx.bind(ToggleModal, on_toggle_modal)),
+                        on_press: Some(ctx.bind(ToggleModal, on_toggle_modal as Handler<CounterState, ToggleModal>)),
                         child: Some(Box::new(
                             Text {
                                 content: TextContent::Literal(if view.state.show_modal {
@@ -283,216 +228,37 @@ impl Widget<CounterState> for CounterApp {
                 ..Default::default()
             }
             .into(),
-            Row {
-                children: vec![
-                    Button {
-                        on_press: Some(video_controls.play()),
-                        child: Some(Box::new(
-                            Text {
-                                content: TextContent::Literal("Play Video".into()),
-                                ..Default::default()
-                            }
-                            .into(),
-                        )),
-                        width: Some(140.0),
-                        ..Default::default()
-                    }
-                    .into(),
-                    Button {
-                        on_press: Some(video_controls.pause()),
-                        child: Some(Box::new(
-                            Text {
-                                content: TextContent::Literal("Pause Video".into()),
-                                ..Default::default()
-                            }
-                            .into(),
-                        )),
-                        width: Some(140.0),
-                        ..Default::default()
-                    }
-                    .into(),
-                ],
-                ..Default::default()
-            }
-            .into(),
-            Row {
-                children: vec![
-                    Button {
-                        on_press: Some(video_controls.stop()),
-                        child: Some(Box::new(
-                            Text {
-                                content: TextContent::Literal("Stop".into()),
-                                ..Default::default()
-                            }
-                            .into(),
-                        )),
-                        width: Some(140.0),
-                        ..Default::default()
-                    }
-                    .into(),
-                    Button {
-                        on_press: Some(video_controls.seek_to(0)),
-                        child: Some(Box::new(
-                            Text {
-                                content: TextContent::Literal("Seek Start".into()),
-                                ..Default::default()
-                            }
-                            .into(),
-                        )),
-                        width: Some(140.0),
-                        ..Default::default()
-                    }
-                    .into(),
-                    Button {
-                        on_press: Some(video_controls.seek_to(half_duration)),
-                        child: Some(Box::new(
-                            Text {
-                                content: TextContent::Literal("Seek Mid".into()),
-                                ..Default::default()
-                            }
-                            .into(),
-                        )),
-                        width: Some(140.0),
-                        ..Default::default()
-                    }
-                    .into(),
-                ],
-                ..Default::default()
-            }
-            .into(),
-            Row {
-                children: vec![
-                    Button {
-                        on_press: Some(video_controls.set_rate(1.0)),
-                        child: Some(Box::new(
-                            Text {
-                                content: TextContent::Literal("Rate 1x".into()),
-                                ..Default::default()
-                            }
-                            .into(),
-                        )),
-                        width: Some(140.0),
-                        ..Default::default()
-                    }
-                    .into(),
-                    Button {
-                        on_press: Some(video_controls.set_rate(1.5)),
-                        child: Some(Box::new(
-                            Text {
-                                content: TextContent::Literal("Rate 1.5x".into()),
-                                ..Default::default()
-                            }
-                            .into(),
-                        )),
-                        width: Some(140.0),
-                        ..Default::default()
-                    }
-                    .into(),
-                ],
-                ..Default::default()
-            }
-            .into(),
-            Row {
-                children: vec![
-                    Button {
-                        on_press: Some(video_controls.set_volume(0.0)),
-                        child: Some(Box::new(
-                            Text {
-                                content: TextContent::Literal("Vol 0".into()),
-                                ..Default::default()
-                            }
-                            .into(),
-                        )),
-                        width: Some(120.0),
-                        ..Default::default()
-                    }
-                    .into(),
-                    Button {
-                        on_press: Some(video_controls.set_volume(0.5)),
-                        child: Some(Box::new(
-                            Text {
-                                content: TextContent::Literal("Vol 50%".into()),
-                                ..Default::default()
-                            }
-                            .into(),
-                        )),
-                        width: Some(120.0),
-                        ..Default::default()
-                    }
-                    .into(),
-                    Button {
-                        on_press: Some(video_controls.set_volume(1.0)),
-                        child: Some(Box::new(
-                            Text {
-                                content: TextContent::Literal("Vol 100%".into()),
-                                ..Default::default()
-                            }
-                            .into(),
-                        )),
-                        width: Some(120.0),
-                        ..Default::default()
-                    }
-                    .into(),
-                    Button {
-                        on_press: Some(video_controls.set_muted(!video_state.muted)),
-                        child: Some(Box::new(
-                            Text {
-                                content: TextContent::Literal(
-                                    if video_state.muted { "Unmute" } else { "Mute" }.into(),
-                                ),
-                                ..Default::default()
-                            }
-                            .into(),
-                        )),
-                        width: Some(120.0),
-                        ..Default::default()
-                    }
-                    .into(),
-                ],
-                ..Default::default()
-            }
-            .into(),
-            Text {
-                content: TextContent::Literal(format!(
-                    "Video status: {:?} at {}ms / {:?} (rate {:.1}x, vol {:.0}%, muted {})",
-                    video_state.status,
-                    video_state.position_ms,
-                    video_state.duration_ms,
-                    video_state.rate,
-                    video_state.volume * 100.0,
-                    video_state.muted
-                )),
-                ..Default::default()
-            }
-            .into(),
+            
             TextInput {
                 value: vm.text_value.clone(),
                 placeholder: Some("Type something...".into()),
                 on_change: Some(ctx.bind(
                     UpdateText(String::new()),
-                    |state: &mut CounterState, action: UpdateText| {
+                    (|state: &mut CounterState, action: UpdateText, _| {
                         state.text_value = action.0;
                         println!("Text updated: {}", state.text_value);
-                    },
+                    }) as Handler<CounterState, UpdateText>,
                 )),
                 width: Some(200.0),
                 ..Default::default()
             }
             .into(),
-            // Live echo of input below the field
+            
             Text {
                 content: TextContent::Literal(format!("Echo: {}", vm.text_value)),
                 ..Default::default()
             }
             .into(),
+            
             StatusIndicator {
                 id: *STATUS_WIDGET_ID,
                 active: vm.is_even,
                 anim_val: vm.anim_val,
             }
             .build(ctx, view),
+            
             Button {
-                on_press: Some(ctx.bind(Increment, on_increment)),
+                on_press: Some(ctx.bind(Increment, on_increment as Handler<CounterState, Increment>)),
                 child: Some(Box::new(
                     Text {
                         content: TextContent::Literal("Increment".into()),
@@ -505,6 +271,7 @@ impl Widget<CounterState> for CounterApp {
                 ..Default::default()
             }
             .into(),
+            
             Text {
                 content: TextContent::Literal("Scroll down to see more...".into()),
                 ..Default::default()
@@ -512,7 +279,6 @@ impl Widget<CounterState> for CounterApp {
             .into(),
         ];
 
-        // Show a modal using Portal + Overlay layering above everything
         if view.state.show_modal {
             let modal = Overlay {
                 id: None,
@@ -522,12 +288,10 @@ impl Widget<CounterState> for CounterApp {
                 })),
                 overlay: Box::new(Node::ZStack(ZStack {
                     children: vec![
-                        // Dim background
                         Node::Custom(CustomNode {
                             debug_tag: "Dimmer".into(),
                             lowerer: Some(Arc::new(ModalDimLowerer)),
                         }),
-                        // Modal box content
                         Node::Custom(CustomNode {
                             debug_tag: "Modal".into(),
                             lowerer: Some(Arc::new(ModalBoxLowerer)),
@@ -553,6 +317,7 @@ impl Widget<CounterState> for CounterApp {
                 .into(),
             );
         }
+        
         Scroll {
             direction: FlexDirection::Column,
             width: Some(600.0),
@@ -577,17 +342,11 @@ struct ModalDimLowerer;
 
 impl LowerDyn for ModalDimLowerer {
     fn lower_dyn(&self, cx: &mut LoweringContext) -> NodeId {
-        // Full-screen dim overlay (AbsoluteFill)
         let paint = NodeBuilder::new(
             cx.next_node_id(),
             fission_core::Op::Paint(PaintOp::DrawRect {
                 fill: Some(fission_core::op::Fill {
-                    color: IrColor {
-                        r: 0,
-                        g: 0,
-                        b: 0,
-                        a: 150,
-                    },
+                    color: IrColor { r: 0, g: 0, b: 0, a: 150 },
                 }),
                 stroke: None,
                 corner_radius: 0.0,
@@ -609,13 +368,10 @@ struct ModalBoxLowerer;
 
 impl LowerDyn for ModalBoxLowerer {
     fn lower_dyn(&self, cx: &mut LoweringContext) -> NodeId {
-        // Centered box using AbsoluteFill + inner Box
         let content = NodeBuilder::new(
             cx.next_node_id(),
             fission_core::Op::Paint(PaintOp::DrawRect {
-                fill: Some(fission_core::op::Fill {
-                    color: IrColor::WHITE,
-                }),
+                fill: Some(fission_core::op::Fill { color: IrColor::WHITE }),
                 stroke: None,
                 corner_radius: 8.0,
                 shadow: None,
@@ -631,12 +387,12 @@ impl LowerDyn for ModalBoxLowerer {
                 padding: [16.0; 4],
                 flex_grow: 0.0,
                 flex_shrink: 0.0,
+                aspect_ratio: None,
             }),
         );
         inner.add_child(content);
         let inner_id = inner.build(cx);
 
-        // Wrap in AbsoluteFill to overlay and roughly center via padding
         let mut fill = NodeBuilder::new(
             cx.next_node_id(),
             fission_core::Op::Layout(fission_core::LayoutOp::AbsoluteFill),

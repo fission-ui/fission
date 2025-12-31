@@ -31,17 +31,14 @@ fn test_scroll_hit_test_logic() {
         vec![column_id],
     );
 
-    // Column (Content)
+    // Column (Content) - Changed to PaintOp to be a hit target
     ir.add_node(
         column_id,
-        Op::Layout(LayoutOp::Box {
-            width: Some(100.0),
-            height: Some(200.0),
-            min_width: None,
-            max_width: None,
-            min_height: None,
-            max_height: None,
-            padding: [0.0; 4],
+        Op::Paint(PaintOp::DrawRect {
+            fill: None,
+            stroke: None,
+            corner_radius: 0.0,
+            shadow: None,
         }),
         vec![button_id],
     );

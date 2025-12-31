@@ -24,6 +24,7 @@ pub struct Button {
     pub semantics: Option<Semantics>,
     pub width: Option<f32>,
     pub height: Option<f32>,
+    pub padding: Option<[f32; 4]>,
     pub style: Option<ButtonStyleOverride>,
     pub variant: ButtonVariant,
 }
@@ -155,14 +156,15 @@ impl Lower for Button {
                 max_width: None,
                 min_height: Some(resolved_style.height),
                 max_height: None,
-                padding: [
+                padding: self.padding.unwrap_or([
                     resolved_style.padding_horizontal,
                     resolved_style.padding_horizontal,
                     0.0,
                     0.0,
-                ],
+                ]),
                 flex_grow: 0.0,
                 flex_shrink: 0.0,
+                aspect_ratio: None,
             }),
         );
         button_builder.add_child(background_id);

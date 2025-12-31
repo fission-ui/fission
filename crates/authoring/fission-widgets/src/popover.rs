@@ -1,97 +1,85 @@
-use fission_core::ui::{Container, Node, Positioned};
-use fission_core::{BuildCtx, View, Widget, WidgetNodeId, NodeId};
-use crate::Portal; // Assuming Portal is re-exported or available
+use fission_core::ui::{Container, Node};
+use fission_core::{BuildCtx, View, Widget, WidgetNodeId, NodeId, ActionEnvelope};
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Popover {
+    pub id: WidgetNodeId,
+    pub is_open: bool,
+    pub on_toggle: Option<ActionEnvelope>,
+    pub on_close: Option<ActionEnvelope>,
+    
     pub trigger: Box<Node>,
     pub content: Box<Node>,
-    pub is_open: bool,
-    pub anchor_id: WidgetNodeId,
 }
 
 impl<S: fission_core::AppState> Widget<S> for Popover {
     fn build(&self, ctx: &mut BuildCtx<S>, view: &View<S>) -> Node {
-        // Trigger with anchor ID
-        // Note: anchor_id is WidgetNodeId (u128). NodeId is u64.
-        // We use from_u128 (if available) or assume NodeId logic.
-        // Fission NodeId::from_u128? NodeId is u64 wrapper? No, u64.
-        // WidgetNodeId is u128.
-        // We cannot map u128 to u64 losslessly.
-        // However, `View::get_rect` uses `NodeId::from_u128`?
-        // Wait, NodeId is u64.
-        // My `View::get_rect` implementation used `NodeId::from_u128`.
-        // Does `NodeId` have `from_u128`?
-        // `crates/core/fission-ir/src/node_id.rs`?
-        // NodeId is `derive(..., Copy, ...)` around `u64`?
-        // Let's check NodeId definition.
+        // Derive stable anchor ID
+        let anchor_id = NodeId::derived(self.id.as_u128(), &[0]);
         
-        // Assuming I can't check now, I'll rely on the standard pattern:
-        // Use `WidgetNodeId` for logical ID.
-        // `cx.widget_node_id(w_id)` -> `NodeId`.
-        // We need that specific `NodeId` to be assigned to the container.
-        // BUT `Container` takes `NodeId`.
-        // `Widget` build doesn't return `NodeId`, it returns `Node`.
-        // `Node::lower` generates IDs.
-        
-        // To anchor, we need the `NodeId` that `Container` WILL use.
-        // `Container::lower` uses `self.id` OR `cx.next_node_id()`.
-        // If we provide `self.id`, we control it.
-        // BUT we need `cx` to convert `WidgetNodeId` to `NodeId`?
-        // `LoweringContext` does that. `BuildCtx` does NOT.
-        
-        // This is a Catch-22. We are in `build` (Authoring), but we need Layout ID (Core).
-        // Layout IDs are generated during Lowering.
-        // Anchoring requires knowing the Layout ID *before* layout?
-        // Or persistently.
-        
-        // Solution: Use explicit `NodeId` if possible? 
-        // No, `NodeId` is transient (u64).
-        
-        // We need `View::get_rect` to take `WidgetNodeId` and look up the *mapped* `NodeId` from previous frame.
-        // Does `Runtime` track `WidgetNodeId -> NodeId` mapping?
-        // `Runtime` uses `NodeId` for everything.
-        // `VideoStateMap` uses `WidgetNodeId`.
-        // `InteractionState` uses `NodeId`.
-        
-        // Fission seems to rely on `WidgetNodeId` for persistence.
-        // But `LayoutSnapshot` is keyed by `NodeId`.
-        // We need a map `WidgetNodeId -> NodeId`.
-        // `LoweringContext` builds this map?
-        // We assume `NodeId` *is* stable if derived from `WidgetNodeId`.
-        // `NodeId::derived(u128, ...)` uses hashing.
-        
-        // If we set `Container.id = NodeId::derived(anchor_id.as_u128(), &[])`, 
-        // then `View::get_rect` can re-derive it!
-        // `NodeId::derived` logic is deterministic.
-        
-        let node_id = NodeId::derived(self.anchor_id.as_u128(), &[]);
-        
-        let trigger_node = Container::new(*self.trigger.clone())
-            .id(node_id)
+        let trigger_wrapper = Container::new(*self.trigger.clone())
+            .id(anchor_id)
             .into_node();
             
-        // Portal
+        // Wrap trigger in a clickable area if on_toggle provided?
+        // Or assume trigger handles clicks.
+        // Usually trigger handles clicks.
+        
         if self.is_open {
-            if let Some(rect) = view.get_rect(self.anchor_id) {
-                // We assume View::get_rect re-derives NodeId same way.
-                
-                let x = rect.origin.x;
-                let y = rect.bottom() + 4.0;
-                
-                let content = Positioned {
-                    left: Some(x),
-                    top: Some(y),
-                    child: Some(self.content.clone()),
-                    ..Default::default()
-                }.build(ctx, view);
-                
-                // Return Trigger + Portal (via ctx registration)
-                ctx.register_portal(content);
-            }
+            let content_node = *self.content.clone();
+            
+            // Backdrop to handle click-outside (on_close)
+            // But Flyout positioning is special.
+            // If we use Backdrop (AbsoluteFill), it covers screen.
+            // Then Flyout (Absolute) sits on top?
+            // Yes.
+            
+            use fission_core::ui::{Button, ButtonVariant};
+            use fission_core::op::Color;
+            
+            let backdrop = Button {
+                variant: ButtonVariant::Ghost,
+                child: Some(Box::new(
+                    Container::new(fission_core::ui::widgets::Spacer::default().into_node())
+                        .bg(Color { r: 0, g: 0, b: 0, a: 0 }) // Transparent
+                        .into_node()
+                )),
+                on_press: self.on_close.clone(),
+                ..Default::default()
+            }.into_node();
+            
+            let flyout_node = crate::flyout(anchor_id, content_node);
+            
+            // We need to render [Backdrop, Flyout].
+            // Backdrop is ZStack layer 0. Flyout layer 1.
+            use fission_core::ui::ZStack;
+            
+            let overlay = ZStack {
+                children: vec![
+                    // Backdrop must fill screen. 
+                    // Lowering of Button -> Box -> Flex.
+                    // We need it to be AbsoluteFill.
+                    // Wrap button in AbsoluteFill container?
+                    // Or Container with AbsoluteFill op?
+                    // fission-widgets::Portal wraps child.
+                    // If child is ZStack, it's fine.
+                    // How to make Backdrop fill screen?
+                    // Use Positioned { left:0, top:0, bottom:0, right:0 }.
+                    fission_core::ui::Positioned {
+                        left: Some(0.0), top: Some(0.0), right: Some(0.0), bottom: Some(0.0),
+                        child: Some(Box::new(backdrop)),
+                        ..Default::default()
+                    }.into_node(),
+                    
+                    flyout_node
+                ],
+                ..Default::default()
+            }.into_node();
+            
+            ctx.register_portal(overlay);
         }
         
-        trigger_node
+        trigger_wrapper
     }
 }

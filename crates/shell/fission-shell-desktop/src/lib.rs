@@ -17,7 +17,7 @@ use fission_core::{Action, ActionId, AppState, BuildCtx, Clock, Env, InputEvent,
     KeyEvent as FissionKeyEvent, Lower, Node, PointerButton, PointerEvent, Runtime, ScrollStateMap,
     View, Widget,
 };
-use fission_ir::{Color as IrColor, CoreIR, FlexDirection, NodeId, Op, PaintOp, WidgetNodeId};
+use fission_ir::{op::Color as IrColor, CoreIR, FlexDirection, NodeId, Op, PaintOp, WidgetNodeId};
 use fission_layout::{LayoutEngine, LayoutSize};
 use fission_render::{
     Color as RenderColor, DisplayList, LayoutPoint, LayoutRect, LayoutUnit, Renderer,

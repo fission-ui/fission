@@ -29,6 +29,7 @@ pub struct InboxState {
     pub show_contacts: bool,
     pub show_compose: bool,
     pub show_toast: bool,
+    pub show_mobile_menu: bool,
     pub toast_message: Option<String>,
     
     // Preferences
@@ -57,6 +58,7 @@ impl Default for InboxState {
             show_contacts: false,
             show_compose: false,
             show_toast: false,
+            show_mobile_menu: false,
             toast_message: None,
             theme_mode: "Light".into(),
             density_mode: "Comfortable".into(),

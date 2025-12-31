@@ -1,8 +1,9 @@
-use fission_core::{BuildCtx, View, Widget, WidgetNodeId, NodeId};
+use fission_core::{BuildCtx, View, Widget, WidgetNodeId, NodeId, Handler};
 use fission_core::ui::{Container, Node, Text, TextContent, Button, ButtonVariant, Scroll, Checkbox};
 use fission_core::op::Color;
-use fission_widgets::{VStack, HStack, LazyColumn, Tabs, TabItem, TextInput, MenuButton, MenuItem, Badge, Divider};
-use crate::model::{InboxState, SelectTab, UpdateSearch, ToggleFilterDropdown, DismissDropdown, SelectEmail, ToggleEmailSelection, ToggleCompose, Navigate};
+use fission_widgets::{VStack, HStack, LazyColumn, Tabs, TabItem, TextInput, MenuButton, MenuItem, Badge, Divider, Icon, Skeleton};
+use crate::model::{InboxState, SelectTab, UpdateSearch, ToggleFilterDropdown, DismissDropdown, SelectEmail, ToggleEmailSelection, ToggleCompose, Navigate, ToggleMobileMenu};
+use fission_icons::material;
 
 pub struct EmailList {
     pub folder: String,
@@ -16,12 +17,18 @@ impl Widget<InboxState> for EmailList {
             HStack {
                 spacing: Some(8.0),
                 children: vec![
+                    Button {
+                        variant: ButtonVariant::Ghost,
+                        child: Some(Box::new(Icon::svg(material::navigation::menu::regular()).size(24.0).into_node())),
+                        on_press: Some(ctx.bind(ToggleMobileMenu, (|s: &mut InboxState, _: ToggleMobileMenu, _| s.show_mobile_menu = true) as Handler<InboxState, ToggleMobileMenu>)),
+                        ..Default::default()
+                    }.into_node(),
                     Text::new(self.folder.clone()).size(24.0).into_node(), 
                     fission_core::ui::widgets::Spacer { flex_grow: 1.0, ..Default::default() }.into_node(),
                     Button {
                         variant: ButtonVariant::Filled,
                         child: Some(Box::new(Text::new("Compose").color(Color::WHITE).into_node())),
-                        on_press: Some(ctx.bind(ToggleCompose, |s, _| s.show_compose = true)),
+                        on_press: Some(ctx.bind(ToggleCompose, (|s: &mut InboxState, _: ToggleCompose, _| s.show_compose = true) as Handler<InboxState, ToggleCompose>)),
                         ..Default::default()
                     }.into_node()
                 ]
@@ -51,12 +58,21 @@ impl Widget<InboxState> for EmailList {
                                     }.into(),
                                 ]
                             }.build(ctx, view),
-                            Text {
-                                content: TextContent::Literal("Short preview...".into()),
-                                font_size: Some(12.0),
-                                color: Some(Color { r: 100, g: 100, b: 100, a: 255 }),
-                                ..Default::default()
-                            }.into(),
+                            if i == 0 {
+                                Skeleton { 
+                                    id: WidgetNodeId::explicit("snippet_skeleton"), 
+                                    width: Some(200.0), 
+                                    height: Some(12.0), 
+                                    circle: false 
+                                }.build(ctx, view)
+                            } else {
+                                Text {
+                                    content: TextContent::Literal("Short preview...".into()),
+                                    font_size: Some(12.0),
+                                    color: Some(Color { r: 100, g: 100, b: 100, a: 255 }),
+                                    ..Default::default()
+                                }.into()
+                            },
                         ]
                     }.build(ctx, view)
                 ]
@@ -72,7 +88,7 @@ impl Widget<InboxState> for EmailList {
                 Button {
                     variant: ButtonVariant::Ghost,
                     child: Some(Box::new(item)),
-                    on_press: Some(ctx.bind(Navigate(path), |s, a| s.current_path = a.0)),
+                    on_press: Some(ctx.bind(Navigate(path), (|s: &mut InboxState, a: Navigate, _| s.current_path = a.0) as Handler<InboxState, Navigate>)),
                     ..Default::default()
                 }
                 .into()

@@ -1,10 +1,8 @@
-use crate::lowering::{LoweringContext, NodeBuilder};
-use crate::ui::traits::Lower;
-use crate::ui::Node;
+use crate::{Lower, LoweringContext, Node, NodeBuilder};
 use crate::ActionEnvelope;
 use fission_ir::{
     op::{Color, Fill, GridTrack, LayoutOp, Op, PaintOp, Stroke},
-    NodeId,
+    NodeId, FlexDirection,
 };
 use serde::{Deserialize, Serialize};
 
@@ -96,6 +94,7 @@ impl Lower for Slider {
                     padding: [0.0; 4],
                     flex_grow: 0.0,
                     flex_shrink: 0.0,
+                    aspect_ratio: None,
                 })
             );
             track_box.add_child(track_paint);
@@ -105,12 +104,13 @@ impl Lower for Slider {
             let mut center_col = NodeBuilder::new(
                 cx.next_node_id(),
                 Op::Layout(LayoutOp::Flex {
-                    direction: fission_ir::FlexDirection::Column, // Vertical
-                    flex_grow: 1.0,
-                    flex_shrink: 1.0,
+                    direction: FlexDirection::Row,
+                    wrap: fission_ir::op::FlexWrap::NoWrap,
+                    flex_grow: 0.0,
+                    flex_shrink: 0.0,
                     padding: [0.0; 4],
                     gap: None,
-                })
+                }),
             );
             // We need `justify_content: center`. `LayoutOp::Flex` maps to `AlignItems: Center` (cross axis) but justification?
             // `fission-layout` hardcodes `justify_content: FlexStart`.
@@ -142,6 +142,7 @@ impl Lower for Slider {
                     padding: [0.0, 0.0, p_y, p_y],
                     flex_grow: 0.0,
                     flex_shrink: 0.0,
+                    aspect_ratio: None,
                 })
             );
             
@@ -200,6 +201,7 @@ impl Lower for Slider {
                     padding: [0.0; 4],
                     flex_grow: 0.0,
                     flex_shrink: 0.0,
+                    aspect_ratio: None,
                 })
             );
             thumb_box.add_child(thumb_paint);

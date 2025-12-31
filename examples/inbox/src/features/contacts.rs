@@ -1,4 +1,4 @@
-use fission_core::{BuildCtx, View, Widget, WidgetNodeId, NodeId};
+use fission_core::{BuildCtx, View, Widget, WidgetNodeId, NodeId, Handler};
 use fission_core::ui::Node;
 use fission_widgets::{Modal, ModalAction, DataTable, TableColumn, TableRow};
 use crate::model::{InboxState, ToggleContacts};
@@ -17,7 +17,7 @@ impl Widget<InboxState> for ContactsModal {
             id: WidgetNodeId::explicit("contacts_modal"),
             title: "Contacts".into(),
             is_open: true,
-            on_dismiss: Some(ctx.bind(ToggleContacts, |s, _| s.show_contacts = false)),
+            on_dismiss: Some(ctx.bind(ToggleContacts, (|s, _, _| s.show_contacts = false) as Handler<InboxState, ToggleContacts>)),
             width: Some(500.0),
             content: Box::new(
                 DataTable {
@@ -32,7 +32,7 @@ impl Widget<InboxState> for ContactsModal {
                 }.build(ctx, view)
             ),
             actions: vec![
-                ModalAction { label: "Done".into(), is_primary: true, on_press: Some(ctx.bind(ToggleContacts, |s, _| s.show_contacts = false)) }
+                ModalAction { label: "Done".into(), is_primary: true, on_press: Some(ctx.bind(ToggleContacts, (|s, _, _| s.show_contacts = false) as Handler<InboxState, ToggleContacts>)) }
             ]
         }.build(ctx, view)
     }

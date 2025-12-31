@@ -66,6 +66,7 @@ impl Lower for Switch {
                 padding: [0.0; 4],
                 flex_grow: 0.0,
                 flex_shrink: 0.0,
+                aspect_ratio: None,
             })
         );
         thumb_wrapper.add_child(thumb_paint_node);
@@ -88,6 +89,7 @@ impl Lower for Switch {
                     padding: [left_padding, 0.0, padding, 0.0],
                     flex_grow: 0.0,
                     flex_shrink: 0.0,
+                    aspect_ratio: None,
                 })
             );
             thumb_track.add_child(thumb_id);

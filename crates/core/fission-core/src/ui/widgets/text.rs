@@ -39,6 +39,7 @@ pub struct Text {
     pub height: Option<f32>,
     pub font_size: Option<f32>,
     pub color: Option<IrColor>,
+    pub underline: bool,
 }
 
 impl Text {
@@ -49,15 +50,21 @@ impl Text {
         }
     }
 
-    pub fn size(mut self, s: f32) -> Self {
-        self.font_size = Some(s);
+    pub fn color(mut self, color: IrColor) -> Self {
+        self.color = Some(color);
         self
     }
 
-    pub fn color(mut self, c: IrColor) -> Self {
-        self.color = Some(c);
+    pub fn underline(mut self, u: bool) -> Self {
+        self.underline = u;
         self
     }
+
+    pub fn size(mut self, size: f32) -> Self {
+        self.font_size = Some(size);
+        self
+    }
+
     
     // Stub for weight until we add font support to IR
     pub fn weight(self, _w: impl std::fmt::Debug) -> Self {
@@ -89,7 +96,7 @@ impl Lower for Text {
                 text: resolved_text,
                 size: self.font_size.unwrap_or(cx.env.theme.tokens.typography.body_medium_size),
                 color: self.color.unwrap_or(cx.env.theme.tokens.colors.text_primary),
-                underline: false,
+                underline: self.underline,
                 caret_index: None,
             }),
         )
@@ -107,6 +114,7 @@ impl Lower for Text {
                 padding: [0.0; 4],
                 flex_grow: 0.0,
                 flex_shrink: 0.0,
+                aspect_ratio: None,
             }),
         );
         layout_builder.add_child(paint_node_id);

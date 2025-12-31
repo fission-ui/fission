@@ -59,6 +59,26 @@ impl Container {
         self.height = Some(h);
         self
     }
+
+    pub fn min_width(mut self, w: f32) -> Self {
+        self.min_width = Some(w);
+        self
+    }
+
+    pub fn max_width(mut self, w: f32) -> Self {
+        self.max_width = Some(w);
+        self
+    }
+
+    pub fn min_height(mut self, h: f32) -> Self {
+        self.min_height = Some(h);
+        self
+    }
+
+    pub fn max_height(mut self, h: f32) -> Self {
+        self.max_height = Some(h);
+        self
+    }
     
     pub fn padding_all(mut self, p: f32) -> Self {
         self.padding = [p; 4];
@@ -136,6 +156,7 @@ impl Lower for Container {
             padding: self.padding,
             flex_grow: self.flex_grow,
             flex_shrink: self.flex_shrink,
+            aspect_ratio: None,
         }));
         
         for cid in children_ids {

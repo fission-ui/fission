@@ -44,9 +44,6 @@ pub use tooltip::Tooltip;
 pub mod menu;
 pub use menu::{Menu, MenuButton, MenuItem};
 
-pub mod popover;
-pub use popover::Popover;
-
 pub mod toast;
 pub use toast::{Toast, ToastKind};
 
@@ -79,6 +76,45 @@ pub use breadcrumb::{Breadcrumb, BreadcrumbItem};
 
 pub mod tree_view;
 pub use tree_view::{TreeView, TreeItem};
+
+pub mod transition;
+pub use transition::Transition;
+
+pub mod simple_grid;
+pub use simple_grid::SimpleGrid;
+
+pub mod wrap;
+pub use wrap::Wrap;
+
+pub mod center;
+pub use center::Center;
+
+pub mod aspect_ratio;
+pub use aspect_ratio::AspectRatio;
+
+pub mod range_slider;
+pub use range_slider::RangeSlider;
+
+pub mod editable;
+pub use editable::Editable;
+
+pub mod code;
+pub use code::{Code, Kbd};
+
+pub mod stat;
+pub use stat::Stat;
+
+pub mod circular_progress;
+pub use circular_progress::CircularProgress;
+
+pub mod stepper;
+pub use stepper::Stepper;
+
+pub mod link;
+pub use link::Link;
+
+pub mod popover;
+pub use popover::Popover;
 
 pub mod router;
 pub use router::{Router, Route, RouteParams};
@@ -113,6 +149,7 @@ impl LowerDyn for CanvasLowerer {
                 padding: [0.0; 4],
                 flex_grow: 0.0,
                 flex_shrink: 0.0,
+                aspect_ratio: None,
             }),
         )
         .build(cx);

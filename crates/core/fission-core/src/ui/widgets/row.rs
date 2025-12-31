@@ -1,8 +1,9 @@
 use crate::{Lower, LoweringContext, Node, NodeBuilder};
 use fission_ir::{FlexDirection, LayoutOp, NodeId, Op, Semantics};
+use fission_ir::op::FlexWrap;
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Default, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Row {
     pub id: Option<NodeId>,
     pub children: Vec<Node>,
@@ -10,6 +11,21 @@ pub struct Row {
     pub flex_grow: f32,
     pub flex_shrink: f32,
     pub gap: Option<f32>,
+    pub wrap: FlexWrap,
+}
+
+impl Default for Row {
+    fn default() -> Self {
+        Self {
+            id: None,
+            children: Vec::new(),
+            semantics: None,
+            flex_grow: 0.0,
+            flex_shrink: 0.0,
+            gap: None,
+            wrap: FlexWrap::NoWrap,
+        }
+    }
 }
 
 impl Row {
@@ -28,6 +44,7 @@ impl Lower for Row {
             layout_id,
             Op::Layout(LayoutOp::Flex {
                 direction: FlexDirection::Row,
+                wrap: self.wrap,
                 flex_grow: self.flex_grow,
                 flex_shrink: self.flex_shrink,
                 padding: [0.0; 4],

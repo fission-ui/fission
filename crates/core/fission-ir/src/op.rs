@@ -60,6 +60,19 @@ impl Default for GridPlacement {
     fn default() -> Self { Self::Auto }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub enum FlexWrap {
+    NoWrap,
+    Wrap,
+    WrapReverse,
+}
+
+impl Default for FlexWrap {
+    fn default() -> Self {
+        FlexWrap::NoWrap
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum LayoutOp {
     Box {
@@ -72,9 +85,11 @@ pub enum LayoutOp {
         padding: [LayoutUnit; 4],
         flex_grow: LayoutUnit,
         flex_shrink: LayoutUnit,
+        aspect_ratio: Option<f32>,
     },
     Flex {
         direction: FlexDirection,
+        wrap: FlexWrap,
         flex_grow: LayoutUnit,
         flex_shrink: LayoutUnit,
         padding: [LayoutUnit; 4],

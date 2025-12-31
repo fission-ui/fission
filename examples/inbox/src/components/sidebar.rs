@@ -1,4 +1,4 @@
-use fission_core::{BuildCtx, View, Widget, WidgetNodeId, NodeId};
+use fission_core::{BuildCtx, View, Widget, WidgetNodeId, NodeId, Handler};
 use fission_core::ui::{Container, Node, Text, TextContent, Button, ButtonVariant};
 use fission_core::op::Color;
 use fission_widgets::{VStack, HStack, Tooltip, Switch, Slider, ProgressBar, TreeView, TreeItem, Divider};
@@ -24,7 +24,7 @@ impl Widget<InboxState> for Sidebar {
                                 icon: Some(material::content::mail::regular().into()), 
                                 children: vec![], 
                                 on_toggle: None, 
-                                on_select: Some(ctx.bind(Navigate("/inbox".into()), |s, a| s.current_path = a.0)) 
+                                on_select: Some(ctx.bind(Navigate("/inbox".into()), (|s: &mut InboxState, a: Navigate, _| s.current_path = a.0) as Handler<InboxState, Navigate>)) 
                             },
                             TreeItem { 
                                 id: "starred".into(), 
@@ -32,7 +32,7 @@ impl Widget<InboxState> for Sidebar {
                                 icon: Some(material::toggle::star::regular().into()), 
                                 children: vec![], 
                                 on_toggle: None, 
-                                on_select: Some(ctx.bind(Navigate("/starred".into()), |s, a| s.current_path = a.0)) 
+                                on_select: Some(ctx.bind(Navigate("/starred".into()), (|s: &mut InboxState, a: Navigate, _| s.current_path = a.0) as Handler<InboxState, Navigate>)) 
                             },
                             TreeItem { 
                                 id: "sent".into(), 
@@ -40,19 +40,19 @@ impl Widget<InboxState> for Sidebar {
                                 icon: Some(material::content::send::regular().into()), 
                                 children: vec![], 
                                 on_toggle: None, 
-                                on_select: Some(ctx.bind(Navigate("/sent".into()), |s, a| s.current_path = a.0)) 
+                                on_select: Some(ctx.bind(Navigate("/sent".into()), (|s: &mut InboxState, a: Navigate, _| s.current_path = a.0) as Handler<InboxState, Navigate>)) 
                             },
                             TreeItem { 
                                 id: "folders".into(), 
                                 label: "Folders".into(), 
                                 icon: Some(material::file::folder::regular().into()), 
-                                on_toggle: Some(ctx.bind(ToggleFolderExpand("folders".into()), |s, a| { 
+                                on_toggle: Some(ctx.bind(ToggleFolderExpand("folders".into()), (|s: &mut InboxState, a: ToggleFolderExpand, _| { 
                                     if s.expanded_folders.contains(&a.0) { s.expanded_folders.remove(&a.0); } else { s.expanded_folders.insert(a.0); } 
-                                })),
+                                }) as Handler<InboxState, ToggleFolderExpand>)),
                                 on_select: None,
                                 children: vec![
-                                    TreeItem { id: "work".into(), label: "Work".into(), icon: None, children: vec![], on_toggle: None, on_select: Some(ctx.bind(Navigate("/work".into()), |s, a| s.current_path = a.0)) },
-                                    TreeItem { id: "personal".into(), label: "Personal".into(), icon: None, children: vec![], on_toggle: None, on_select: Some(ctx.bind(Navigate("/personal".into()), |s, a| s.current_path = a.0)) },
+                                    TreeItem { id: "work".into(), label: "Work".into(), icon: None, children: vec![], on_toggle: None, on_select: Some(ctx.bind(Navigate("/work".into()), (|s: &mut InboxState, a: Navigate, _| s.current_path = a.0) as Handler<InboxState, Navigate>)) },
+                                    TreeItem { id: "personal".into(), label: "Personal".into(), icon: None, children: vec![], on_toggle: None, on_select: Some(ctx.bind(Navigate("/personal".into()), (|s: &mut InboxState, a: Navigate, _| s.current_path = a.0) as Handler<InboxState, Navigate>)) },
                                 ]
                             },
                         ],
@@ -67,14 +67,14 @@ impl Widget<InboxState> for Sidebar {
                     Button {
                         variant: ButtonVariant::Ghost,
                         child: Some(Box::new(Text::new("Contacts").into_node())),
-                        on_press: Some(ctx.bind(ToggleContacts, |s, _| s.show_contacts = true)),
+                        on_press: Some(ctx.bind(ToggleContacts, (|s: &mut InboxState, _: ToggleContacts, _| s.show_contacts = true) as Handler<InboxState, ToggleContacts>)),
                         ..Default::default()
                     }.into_node(),
                     
                     Button {
                         variant: ButtonVariant::Ghost,
                         child: Some(Box::new(Text::new("Settings").into_node())),
-                        on_press: Some(ctx.bind(ToggleSettings, |s, _| s.show_settings = true)),
+                        on_press: Some(ctx.bind(ToggleSettings, (|s: &mut InboxState, _: ToggleSettings, _| s.show_settings = true) as Handler<InboxState, ToggleSettings>)),
                         ..Default::default()
                     }.into_node(),
                 ],

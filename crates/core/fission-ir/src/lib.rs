@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 pub use node_id::NodeId;
-pub use op::{Color, EmbedKind, FlexDirection, GridPlacement, GridTrack, LayoutOp, Op, PaintOp, StructuralOp};
+pub use op::{EmbedKind, FlexDirection, FlexWrap, GridPlacement, GridTrack, LayoutOp, Op, PaintOp, StructuralOp};
 pub use semantics::{ActionEntry, ActionSet, Role, Semantics};
 pub use widget_id::WidgetNodeId;
 

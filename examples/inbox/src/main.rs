@@ -1,8 +1,8 @@
-use fission_core::{BuildCtx, View, Widget, NodeId, WidgetNodeId, Env};
+use fission_core::{BuildCtx, View, Widget, NodeId, WidgetNodeId, Env, Handler};
 use fission_core::ui::{Node, Text, Container};
 use fission_core::op::{Color, BoxShadow};
 use fission_widgets::{
-    Grid, GridItem, SplitView, SplitDirection, Router, Route, Toast, ToastKind
+    Grid, GridItem, SplitView, SplitDirection, Router, Route, Toast, ToastKind, Drawer, DrawerSide
 };
 use fission_shell_desktop::DesktopApp;
 use fission_i18n::{I18nRegistry, Locale, TranslationBundle};
@@ -38,13 +38,48 @@ impl Widget<InboxState> for InboxApp {
             ctx.register_portal(node);
         }
         
+        // Register Mobile Drawer
+        // Note: We always build it but control visibility via state passed to Drawer
+        // Actually Drawer takes `is_open`.
+        // We put Sidebar inside it.
+        let drawer_node = Drawer {
+            id: WidgetNodeId::explicit("mobile_drawer"),
+            side: DrawerSide::Left,
+            is_open: view.state.show_mobile_menu,
+            on_dismiss: Some(ctx.bind(ToggleMobileMenu, (|s, _, _| s.show_mobile_menu = false) as Handler<InboxState, ToggleMobileMenu>)),
+            content: Box::new(Sidebar.build(ctx, view)),
+            width: Some(250.0),
+        }.build(ctx, view);
+        
+        // We register portal if open? Or Drawer handles it?
+        // Drawer handles portal registration internally if open.
+        // But wait, Drawer `build` returns Spacer if closed?
+        // Yes. So we can just call build.
+        // Wait, if Drawer `build` registers portal, it modifies `ctx`.
+        // So we just call it.
+        // BUT `build` returns a Node. We must include that Node in the tree?
+        // Drawer returns a Spacer.
+        // So we can ignore it? No, we must return a single Root node.
+        // We can't just call it and discard.
+        // We can put it in a ZStack?
+        // Or just let it register portal and discard the spacer?
+        // `ctx.register_portal` is side-effect.
+        // So `let _ = drawer_node;` works?
+        // Yes.
+        // BUT strict widget rules: "build" should be pure?
+        // `build` mutates `ctx`.
+        // So we should include the returned node in the tree or just drop it if it's spacer.
+        // Let's drop it.
+        
+        let _ = drawer_node; 
+        
         // Register Toast
         if view.state.show_toast {
             let toast = Toast {
                 id: WidgetNodeId::explicit("app_toast"),
                 kind: ToastKind::Success,
                 message: "Action completed successfully".into(),
-                on_close: Some(ctx.bind(ToggleToast(false), |s, _| s.show_toast = false)),
+                on_close: Some(ctx.bind(ToggleToast(false), (|s, _, _| s.show_toast = false) as Handler<InboxState, ToggleToast>)),
             }.build(ctx, view);
             
             ctx.register_portal(

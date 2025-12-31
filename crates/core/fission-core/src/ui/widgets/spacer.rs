@@ -27,10 +27,14 @@ impl Lower for Spacer {
             Op::Layout(LayoutOp::Box {
                 width: self.width,
                 height: self.height,
-                min_width: None, max_width: None, min_height: None, max_height: None,
+                min_width: None,
+                max_width: None,
+                min_height: None,
+                max_height: None,
                 padding: [0.0; 4],
                 flex_grow: self.flex_grow,
                 flex_shrink: 0.0,
+                aspect_ratio: None,
             }),
         )
         .build(cx)

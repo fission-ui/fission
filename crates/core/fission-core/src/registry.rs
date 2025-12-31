@@ -4,6 +4,8 @@ use crate::{
     },
     Action, ActionEnvelope, ActionId, AppState, BoxedReducer,
     ui::Node,
+    context::{Effects, ReducerContext},
+    effect::{EffectEnvelope, ActionInput},
 };
 use anyhow::{anyhow, Result};
 use fission_ir::{NodeId, WidgetNodeId};
@@ -12,11 +14,30 @@ use std::any::TypeId;
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 
-pub type Handler<S, A> = fn(&mut S, A);
+// The canonical handler signature
+pub type Handler<S, A> = for<'a, 'b> fn(&mut S, A, &mut ReducerContext<'a, 'b, S>);
 
-// We store a factory that can create the runtime-compatible reducer.
-// Or we just store the typed closure logic.
-type TypedReducer<S> = Box<dyn Fn(&mut S, &ActionEnvelope) -> Result<()> + Send + Sync>;
+// The trait for backward compatibility
+pub trait IntoHandler<S: AppState, A> {
+    fn call<'a, 'b>(&self, state: &mut S, action: A, ctx: &mut ReducerContext<'a, 'b, S>);
+}
+
+// Impl for Legacy (2-arg)
+impl<S: AppState, A> IntoHandler<S, A> for fn(&mut S, A) {
+    fn call<'a, 'b>(&self, state: &mut S, action: A, _ctx: &mut ReducerContext<'a, 'b, S>) {
+        (self)(state, action);
+    }
+}
+
+// Impl for Modern (3-arg)
+impl<S: AppState, A> IntoHandler<S, A> for for<'a, 'b> fn(&mut S, A, &mut ReducerContext<'a, 'b, S>) {
+    fn call<'a, 'b>(&self, state: &mut S, action: A, ctx: &mut ReducerContext<'a, 'b, S>) {
+        (self)(state, action, ctx);
+    }
+}
+
+// Internal typed reducer storage
+type TypedReducer<S> = Box<dyn for<'a, 'b, 'c> Fn(&mut S, &ActionEnvelope, &mut Effects<'a, S>, &'b ActionInput) -> Result<()> + Send + Sync>;
 
 pub struct ActionRegistry<S: AppState> {
     handlers: BTreeMap<ActionId, TypedReducer<S>>,
@@ -35,14 +56,20 @@ impl<S: AppState> ActionRegistry<S> {
         Self::default()
     }
 
-    pub fn register<A: Action>(&mut self, handler: Handler<S, A>) {
+    pub fn register<A: Action, H: IntoHandler<S, A> + Send + Sync + 'static>(&mut self, handler: H) {
         let action_id = A::static_id();
 
         let typed_reducer = Box::new(
-            move |state: &mut S, envelope: &ActionEnvelope| -> Result<()> {
+            move |state: &mut S, envelope: &ActionEnvelope, effects: &mut Effects<S>, input: &ActionInput| -> Result<()> {
                 let action: A = serde_json::from_slice(&envelope.payload)
                     .map_err(|e| anyhow!("Failed to deserialize action: {}", e))?;
-                handler(state, action);
+                
+                let mut ctx = ReducerContext {
+                    effects,
+                    input,
+                };
+                
+                handler.call(state, action, &mut ctx);
                 Ok(())
             },
         );
@@ -50,26 +77,31 @@ impl<S: AppState> ActionRegistry<S> {
         self.handlers.insert(action_id, typed_reducer);
     }
 
-    // Convert this registry into the format Runtime expects
     pub fn into_runtime_reducers(self) -> HashMap<ActionId, Vec<BoxedReducer>> {
         let mut runtime_reducers: HashMap<ActionId, Vec<BoxedReducer>> = HashMap::new();
         let state_type_id = TypeId::of::<S>();
 
         for (action_id, typed_reducer) in self.handlers {
-            // Wrap the typed_reducer into a BoxedReducer that looks up S from the Runtime's state map
             let boxed_reducer: BoxedReducer = Box::new(
                 move |app_states: &mut HashMap<TypeId, Box<dyn AppState>>,
                       action: &ActionEnvelope,
-                      _target: NodeId|
+                      _target: NodeId,
+                      out_effects: &mut Vec<EffectEnvelope>,
+                      input: &ActionInput|
                       -> Result<()> {
                     if let Some(state_box) = app_states.get_mut(&state_type_id) {
                         let concrete_state = state_box.downcast_mut::<S>().ok_or_else(|| {
                             anyhow!("Failed to downcast AppState to concrete type")
                         })?;
-                        typed_reducer(concrete_state, action)
+                        
+                        let mut effects_builder = Effects::new_headless(0); 
+                        
+                        typed_reducer(concrete_state, action, &mut effects_builder, input)?;
+                        
+                        out_effects.extend(effects_builder.out);
+                        
+                        Ok(())
                     } else {
-                        // If the state isn't present, we can't run this reducer.
-                        // Should we error? Yes.
                         anyhow::bail!("Target AppState for reducer not found in runtime.");
                     }
                 },
@@ -84,6 +116,7 @@ impl<S: AppState> ActionRegistry<S> {
     }
 }
 
+// ... Rest of file same ...
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum AnimationPropertyId {
     Opacity,
@@ -95,30 +128,12 @@ pub enum AnimationPropertyId {
 }
 
 impl AnimationPropertyId {
-    pub fn opacity() -> Self {
-        Self::Opacity
-    }
-
-    pub fn translate_x() -> Self {
-        Self::TranslateX
-    }
-
-    pub fn translate_y() -> Self {
-        Self::TranslateY
-    }
-
-    pub fn scale() -> Self {
-        Self::Scale
-    }
-
-    pub fn rotation() -> Self {
-        Self::Rotation
-    }
-
-    pub fn custom(name: impl Into<String>) -> Self {
-        Self::Custom(Arc::from(name.into()))
-    }
-
+    pub fn opacity() -> Self { Self::Opacity }
+    pub fn translate_x() -> Self { Self::TranslateX }
+    pub fn translate_y() -> Self { Self::TranslateY }
+    pub fn scale() -> Self { Self::Scale }
+    pub fn rotation() -> Self { Self::Rotation }
+    pub fn custom(name: impl Into<String>) -> Self { Self::Custom(Arc::from(name.into())) }
     pub fn default_value(&self) -> f32 {
         match self {
             Self::Opacity => 1.0,
@@ -169,7 +184,9 @@ impl<S: AppState> BuildCtx<S> {
         }
     }
 
-    pub fn bind<A: Action>(&mut self, action: A, handler: Handler<S, A>) -> ActionEnvelope {
+    pub fn bind<A: Action, H>(&mut self, action: A, handler: H) -> ActionEnvelope 
+    where H: IntoHandler<S, A> + Send + Sync + 'static 
+    {
         self.registry.register(handler);
 
         ActionEnvelope {

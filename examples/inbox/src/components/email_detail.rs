@@ -1,4 +1,4 @@
-use fission_core::{BuildCtx, View, Widget, WidgetNodeId, NodeId};
+use fission_core::{BuildCtx, View, Widget, WidgetNodeId, NodeId, Handler};
 use fission_core::ui::{Container, Node, Text, TextContent, Button, ButtonVariant, Scroll};
 use fission_core::op::Color;
 use fission_widgets::{VStack, HStack, Avatar, Accordion, AccordionItem, Card, Image, Spinner, Radio, Breadcrumb, BreadcrumbItem, Alert, AlertKind, Divider, Icon};
@@ -19,7 +19,7 @@ impl Widget<InboxState> for EmailDetail {
                     // Breadcrumb
                     Breadcrumb {
                         items: vec![
-                            BreadcrumbItem { label: self.folder.clone(), on_click: Some(ctx.bind(Navigate(format!("/{}", self.folder)), |s, a| s.current_path = a.0)) },
+                            BreadcrumbItem { label: self.folder.clone(), on_click: Some(ctx.bind(Navigate(format!("/{}", self.folder)), (|s: &mut InboxState, a: Navigate, _| s.current_path = a.0) as Handler<InboxState, Navigate>)) },
                             BreadcrumbItem { label: format!("Email {}", self.id), on_click: None },
                         ]
                     }.build(ctx, view),
@@ -44,7 +44,7 @@ impl Widget<InboxState> for EmailDetail {
                             Button {
                                 variant: ButtonVariant::Outline,
                                 child: Some(Box::new(Icon::svg(material::action::delete::regular()).size(20.0).into_node())),
-                                on_press: Some(ctx.bind(ToggleToast(true), |s, _| s.show_toast = true)),
+                                on_press: Some(ctx.bind(ToggleToast(true), (|s: &mut InboxState, _: ToggleToast, _| s.show_toast = true) as Handler<InboxState, ToggleToast>)),
                                 ..Default::default()
                             }.into_node(),
                         ]
@@ -74,7 +74,7 @@ impl Widget<InboxState> for EmailDetail {
                             AccordionItem {
                                 title: "Details".into(),
                                 is_expanded: view.state.details_expanded,
-                                on_toggle: Some(ctx.bind(ToggleDetails, |s,_| s.details_expanded = !s.details_expanded)),
+                                on_toggle: Some(ctx.bind(ToggleDetails, (|s: &mut InboxState, _: ToggleDetails, _| s.details_expanded = !s.details_expanded) as Handler<InboxState, ToggleDetails>)),
                                 content: Text {
                                     content: TextContent::Literal(format!("Date: Dec 28, 2025\nTo: Me\nCc: Boss")),
                                     font_size: Some(12.0),

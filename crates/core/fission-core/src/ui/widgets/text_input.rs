@@ -178,6 +178,7 @@ impl Lower for TextInput {
                 padding: [0.0; 4],
                 flex_grow: 0.0,
                 flex_shrink: 0.0,
+                aspect_ratio: None,
             })
         );
         text_box.add_child(text_id);
@@ -210,6 +211,7 @@ impl Lower for TextInput {
                 padding: [theme.padding_h, theme.padding_h, 4.0, 4.0], // Padding applied here
                 flex_grow: 0.0,
                 flex_shrink: 0.0,
+                aspect_ratio: None,
             })
         );
         wrapper.add_child(background_id); // Fill
