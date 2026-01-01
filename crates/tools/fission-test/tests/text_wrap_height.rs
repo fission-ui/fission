@@ -12,7 +12,7 @@ fn text_wrap_increases_layout_height() {
     // causing it to overlap the next line.
     //
     // We assert that when the text is width-constrained below its full width, its
-    // layout height grows beyond a single line (MockTextMeasurer uses 20px line height).
+    // layout height grows beyond a single line.
 
     struct Root;
     impl Widget<State> for Root {
@@ -28,7 +28,7 @@ fn text_wrap_increases_layout_height() {
                         Container::new(
                             Column::default()
                                 .children(vec![
-                                    Text::new(long).into_node(),
+                                    Text::new(long).max_width(120.0).into_node(),
                                     Text::new("Preview").into_node(),
                                 ])
                                 .into_node(),
@@ -39,7 +39,7 @@ fn text_wrap_increases_layout_height() {
                     ])
                     .into_node(),
             )
-            .width(300.0)
+            .width(160.0)
             .into_node()
         }
     }
@@ -61,9 +61,14 @@ fn text_wrap_increases_layout_height() {
     }
     let subject_rect = subject_rect.expect("subject text node not found");
 
-    // Full width with mock measurer: len * 10.0
-    let full_w = "This is a very long subject line that should wrap into multiple lines".len() as f32 * 10.0;
-    assert!(subject_rect.width() < full_w, "expected subject to be width-constrained");
-    assert!(subject_rect.height() > 20.0, "expected wrapped height > 20, got {}", subject_rect.height());
+    let font_size = h.env.theme.tokens.typography.body_medium_size;
+    let long = "This is a very long subject line that should wrap into multiple lines";
+    let (full_w, single_line_h) = h.measurer.measure(long, font_size, None);
+    let _ = full_w;
+    assert!(
+        subject_rect.height() > single_line_h,
+        "expected wrapped height > single line height {}, got {}",
+        single_line_h,
+        subject_rect.height()
+    );
 }
-

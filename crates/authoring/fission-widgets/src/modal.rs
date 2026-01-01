@@ -1,10 +1,9 @@
-use fission_core::ui::{Button, ButtonVariant, Container, GestureDetector, Node, Text, TextContent, ZStack, CustomNode};
-use fission_core::{BuildCtx, View, Widget, ActionEnvelope, WidgetNodeId, NodeId, LowerDyn, LoweringContext};
-use fission_core::op::{Color, BoxShadow, LayoutOp, Op};
-use crate::stack::{VStack, HStack};
-use crate::{Icon, Portal};
+use fission_core::ui::{Align, Button, ButtonVariant, Container, GestureDetector, Node, Text, TextContent, ZStack};
+use fission_core::{BuildCtx, View, Widget, ActionEnvelope, WidgetNodeId, NodeId};
+use fission_core::op::{Color, BoxShadow};
+use crate::stack::{HStack, VStack};
+use crate::Icon;
 use serde::{Deserialize, Serialize};
-use std::sync::Arc;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Modal {
@@ -22,23 +21,6 @@ pub struct ModalAction {
     pub label: String,
     pub on_press: Option<ActionEnvelope>,
     pub is_primary: bool,
-}
-
-#[derive(Debug)]
-struct Centered {
-    child: Node,
-}
-
-impl LowerDyn for Centered {
-    fn lower_dyn(&self, cx: &mut LoweringContext) -> NodeId {
-        let child_id = self.child.lower(cx);
-        let id = cx.next_node_id();
-        // LayoutOp::Align centers children
-        let mut builder = fission_core::lowering::NodeBuilder::new(id, Op::Layout(LayoutOp::Align));
-        builder.add_child(child_id);
-        builder.build(cx)
-    }
-    fn stable_key(&self) -> u64 { 0 } // Static key OK for now
 }
 
 impl<S: fission_core::AppState> Widget<S> for Modal {
@@ -123,6 +105,12 @@ impl<S: fission_core::AppState> Widget<S> for Modal {
             .padding_all(24.0)
             .into_node();
 
+        let center_layer = fission_core::ui::Positioned {
+            left: Some(0.0), right: Some(0.0), top: Some(0.0), bottom: Some(0.0),
+            child: Some(Box::new(Align::new(modal_card.clone()).into_node())),
+            ..Default::default()
+        }.into_node();
+
         let root = Container::new(
             ZStack {
                 children: vec![
@@ -132,34 +120,8 @@ impl<S: fission_core::AppState> Widget<S> for Modal {
                         child: Some(Box::new(backdrop_btn)),
                         ..Default::default()
                     }.into_node(),
-
                     // Full-screen container with flex spacers to center the modal card
-                    fission_core::ui::Positioned {
-                        left: Some(0.0), right: Some(0.0), top: Some(0.0), bottom: Some(0.0),
-                        child: Some(Box::new(
-                            VStack {
-                                spacing: None,
-                                children: vec![
-                                    // Top spacer
-                                    fission_core::ui::widgets::spacer::Spacer { flex_grow: 1.0, ..Default::default() }.into_node(),
-
-                                    // Middle row: left spacer, card, right spacer
-                                    HStack {
-                                        spacing: None,
-                                        children: vec![
-                                            fission_core::ui::widgets::spacer::Spacer { flex_grow: 1.0, ..Default::default() }.into_node(),
-                                            modal_card.clone(),
-                                            fission_core::ui::widgets::spacer::Spacer { flex_grow: 1.0, ..Default::default() }.into_node(),
-                                        ],
-                                    }.into_node(),
-
-                                    // Bottom spacer
-                                    fission_core::ui::widgets::spacer::Spacer { flex_grow: 1.0, ..Default::default() }.into_node(),
-                                ],
-                            }.into_node()
-                        )),
-                        ..Default::default()
-                    }.into_node(),
+                    center_layer,
                 ],
                 ..Default::default()
             }.into_node()
@@ -172,7 +134,6 @@ impl<S: fission_core::AppState> Widget<S> for Modal {
             child: Some(Box::new(root)),
             ..Default::default()
         }.into_node();
-
         ctx.register_portal_with_layer(fission_core::PortalLayer::Modal, positioned_root);
 
         fission_core::ui::widgets::spacer::Spacer::default().into_node()

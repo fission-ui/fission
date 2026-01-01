@@ -52,11 +52,11 @@ impl Widget<InboxState> for InboxApp {
                 side: DrawerSide::Left,
                 is_open: view.state.show_mobile_menu,
                 on_dismiss: Some(ctx.bind(SetMobileMenuOpen(false), (|s, a, _| s.show_mobile_menu = a.0) as Handler<InboxState, SetMobileMenuOpen>)),
-                content: Box::new(Text::new("Drawer").build(ctx, view)),
+                content: Box::new(Sidebar.build(ctx, view)),
                 width: Some(250.0),
             }.build(ctx, view);
 
-            let _ = drawer_node; 
+            ctx.register_portal(drawer_node);
         }
         // Register Toast
         if view.state.show_toast {

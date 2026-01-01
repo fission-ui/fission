@@ -104,7 +104,7 @@ impl<S: fission_core::AppState> Widget<S> for Drawer {
                     child: Some(Box::new(backdrop)),
                     ..Default::default()
                 }.into_node(),
-                positioned_content
+                positioned_content,
             ],
             id: None,
         }.into_node();
@@ -114,7 +114,6 @@ impl<S: fission_core::AppState> Widget<S> for Drawer {
             child: Some(Box::new(root)),
             ..Default::default()
         }.into_node();
-
         ctx.register_portal_with_layer(fission_core::PortalLayer::Modal, overlay_root);
 
         fission_core::ui::widgets::Spacer::default().into_node()

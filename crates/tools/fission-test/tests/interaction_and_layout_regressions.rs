@@ -142,6 +142,7 @@ fn test_modal_backdrop_dismiss() {
     let mut h = TestHarness::new(State { modal_open: true, ..Default::default() });
     h = h.with_root_widget(ModalTest);
     h.pump().unwrap();
+
     
     h.send_event(fission_core::InputEvent::Pointer(fission_core::PointerEvent::Down { 
         point: fission_core::LayoutPoint::new(10.0, 10.0),

@@ -16,6 +16,9 @@ serde = { version = "1.0", features = ["derive"] }
 lazy_static = "1.4"
 fission-macros = { path = "../../authoring/fission-macros" }
 fission-diagnostics = { version = "0.1.0", path = "../fission-diagnostics" }
+fission-render-vello = { path = "../../rendering/fission-render-vello" }
+fission-theme = { path = "../../core/fission-theme" }
+fontique = "0.7"
 
 [dev-dependencies]
 serde_json = "1.0"

@@ -109,6 +109,16 @@ fn hit_test_recursive(
             Op::Paint(_) | Op::Layout(LayoutOp::Scroll { .. }) | Op::Layout(LayoutOp::Embed { .. }) => {
                 current_is_hit = true;
             }
+            Op::Semantics(semantics) => {
+                if !semantics.actions.entries.is_empty()
+                    || semantics.focusable
+                    || semantics.draggable
+                    || semantics.scrollable_x
+                    || semantics.scrollable_y
+                {
+                    current_is_hit = true;
+                }
+            }
             _ => {}
         }
     }

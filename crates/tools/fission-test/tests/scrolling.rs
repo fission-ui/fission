@@ -5,7 +5,7 @@ use fission_test::TestHarness;
 
 #[test]
 fn test_scroll_input_updates_display_list() {
-    let mut harness = TestHarness::new(Clock::default());
+    let mut harness = TestHarness::new_with_mock_measurer(Clock::default());
 
     // Create a scroll widget with small height to ensure content overflows
     harness = harness.with_root_widget(Scroll {

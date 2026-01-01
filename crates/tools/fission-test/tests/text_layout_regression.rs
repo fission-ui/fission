@@ -97,9 +97,17 @@ fn test_email_list_overlap_regression() {
     println!("Subject: {:?}", subject);
     println!("Preview: {:?}", preview);
     
-    // Subject height should reflect wrapping (approx 60.0-80.0 for 3-4 lines)
-    // If it's 20.0 (1 line), it failed to wrap in Layout.
-    assert!(subject.height() > 20.0, "Subject text did not wrap in layout! Height is {}", subject.height());
+    let font_size = h.env.theme.tokens.typography.body_medium_size;
+    let (_single_line_w, single_line_h) = h
+        .measurer
+        .measure("Subject 10 Subject 10 Subject 10", font_size, None);
+    // Subject height should reflect wrapping. If it's a single line height,
+    // it failed to wrap in layout.
+    assert!(
+        subject.height() > single_line_h,
+        "Subject text did not wrap in layout! Height is {}",
+        subject.height()
+    );
     
     // Preview Y should be below Subject
     assert!(preview.y() >= subject.y() + subject.height(), 

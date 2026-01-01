@@ -219,6 +219,29 @@ where
     })
 }
 
+// AbsoluteFill convenience
+#[derive(Debug)]
+struct AbsoluteFillLowerer {
+    child: Node,
+}
+
+impl LowerDyn for AbsoluteFillLowerer {
+    fn lower_dyn(&self, cx: &mut LoweringContext) -> NodeId {
+        let child_id = self.child.lower(cx);
+        let mut builder = NodeBuilder::new(cx.next_node_id(), Op::Layout(fission_core::LayoutOp::AbsoluteFill));
+        builder.add_child(child_id);
+        builder.build(cx)
+    }
+    fn stable_key(&self) -> u64 { 0 }
+}
+
+pub fn absolute_fill(child: Node) -> Node {
+    Node::Custom(fission_core::CustomNode {
+        debug_tag: "AbsoluteFill".into(),
+        lowerer: Some(Arc::new(AbsoluteFillLowerer { child })),
+    })
+}
+
 // Flyout (anchor-relative absolute positioning) convenience
 #[derive(Debug)]
 struct FlyoutLowerer {

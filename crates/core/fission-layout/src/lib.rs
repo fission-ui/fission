@@ -683,6 +683,12 @@ impl LayoutEngine {
                 // so overlay children (e.g., Align) can center within the viewport.
                 style.align_items = Some(AlignItems::Stretch);
                 style.justify_items = Some(JustifyItems::Stretch);
+                if style.flex_grow == 0.0 {
+                    style.flex_grow = 1.0;
+                }
+                if style.flex_shrink == 0.0 {
+                    style.flex_shrink = 1.0;
+                }
                 style.size = taffy::geometry::Size {
                     width: node.width.map(Dimension::Points).unwrap_or(Dimension::Auto),
                     height: node.height.map(Dimension::Points).unwrap_or(Dimension::Auto),

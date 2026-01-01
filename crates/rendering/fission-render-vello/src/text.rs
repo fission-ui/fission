@@ -27,6 +27,7 @@ pub struct VelloTextMeasurer {
     layout_cx: Mutex<LayoutContext<ParleyBrush>>,
     // Simple cache for single-style text
     simple_cache: Mutex<HashMap<SimpleLayoutKey, Arc<Layout<ParleyBrush>>>>,
+    default_family: String,
 }
 
 impl VelloTextMeasurer {
@@ -35,6 +36,16 @@ impl VelloTextMeasurer {
             font_cx,
             layout_cx: Mutex::new(LayoutContext::new()),
             simple_cache: Mutex::new(HashMap::new()),
+            default_family: "system-ui".to_string(),
+        }
+    }
+
+    pub fn new_with_default_family(font_cx: Arc<Mutex<FontContext>>, family: impl Into<String>) -> Self {
+        Self {
+            font_cx,
+            layout_cx: Mutex::new(LayoutContext::new()),
+            simple_cache: Mutex::new(HashMap::new()),
+            default_family: family.into(),
         }
     }
 
@@ -60,7 +71,7 @@ impl VelloTextMeasurer {
         let mut builder = layout_cx.ranged_builder(&mut font_cx, text, 1.0, false);
         
         builder.push_default(StyleProperty::FontSize(font_size));
-        builder.push_default(StyleProperty::FontStack(FontStack::Source(Cow::Borrowed("system-ui"))));
+        builder.push_default(StyleProperty::FontStack(FontStack::Source(Cow::Owned(self.default_family.clone()))));
         
         let mut layout = builder.build(text);
         layout.break_all_lines(width);
@@ -82,7 +93,7 @@ impl VelloTextMeasurer {
         
         let mut builder = layout_cx.ranged_builder(&mut font_cx, text, 1.0, false);
         builder.push_default(StyleProperty::FontSize(base_size));
-        builder.push_default(StyleProperty::FontStack(FontStack::Source(Cow::Borrowed("system-ui"))));
+        builder.push_default(StyleProperty::FontStack(FontStack::Source(Cow::Owned(self.default_family.clone()))));
         let brush = ParleyBrush([base_color.r, base_color.g, base_color.b, base_color.a]);
         builder.push_default(StyleProperty::Brush(brush));
         
@@ -122,7 +133,7 @@ impl TextMeasurer for VelloTextMeasurer {
         }
         
         let mut builder = layout_cx.ranged_builder(&mut font_cx, &full_text, 1.0, false);
-        builder.push_default(StyleProperty::FontStack(FontStack::Source(Cow::Borrowed("system-ui"))));
+        builder.push_default(StyleProperty::FontStack(FontStack::Source(Cow::Owned(self.default_family.clone()))));
         builder.push_default(StyleProperty::FontSize(16.0));
         
         let mut offset = 0;

@@ -53,22 +53,28 @@ fn test_modal_layout_cramping() {
     let snap = h.last_snapshot.as_ref().unwrap();
     let ir = h.last_ir.as_ref().unwrap();
 
-    // Helper to find rect by text
-    let find_rect = |text: &str| -> fission_layout::LayoutRect {
+    // Helper to find container rect by text (text paint -> text layout -> container).
+    let find_container_rect = |text: &str| -> fission_layout::LayoutRect {
         for (id, node) in &ir.nodes {
             if let fission_ir::Op::Paint(fission_ir::PaintOp::DrawText { text: t, .. }) = &node.op {
                 if t == text {
-                    return snap.get_node_geometry(*id).unwrap().rect;
+                    let text_layout_id = node.parent.expect("text layout parent");
+                    let container_id = ir
+                        .nodes
+                        .get(&text_layout_id)
+                        .and_then(|n| n.parent)
+                        .expect("text container parent");
+                    return snap.get_node_geometry(container_id).unwrap().rect;
                 }
             }
         }
         panic!("Text '{}' not found", text);
     };
 
-    let name_header = find_rect("Name");
-    let email_header = find_rect("Email");
-    let name_item = find_rect("Alice");
-    let email_item = find_rect("alice@example.com");
+    let name_header = find_container_rect("Name");
+    let email_header = find_container_rect("Email");
+    let name_item = find_container_rect("Alice");
+    let email_item = find_container_rect("alice@example.com");
 
     println!("Name Header: {:?}", name_header);
     println!("Email Header: {:?}", email_header);
@@ -82,7 +88,7 @@ fn test_modal_layout_cramping() {
 
     // Assert Spacing/Cramping
     // Name width should be substantial (not 0 or tiny)
-    assert!(name_header.width() > 50.0, "Name column too narrow: {}", name_header.width());
+    assert!(name_header.width() > 120.0, "Name column too narrow: {}", name_header.width());
     
     // Check overlap between checkbox and text?
     // We can assume if x positions differ significantly, they don't overlap.

@@ -135,19 +135,26 @@ impl Widget<InboxState> for EmailList {
                             MenuItem { label: t("menu.archive_all"), icon: None, on_select: None },
                         ],
                     }.build(ctx, view),
-                    Tooltip {
-                        id: WidgetNodeId::explicit("help_tooltip"),
-                        text: t("tooltip.shortcuts"),
-                        is_visible: false,
-                        child: Box::new(
-                            Button {
-                                variant: ButtonVariant::Ghost,
-                                child: Some(Box::new(Icon::svg(material::action::help_outline::regular()).size(20.0).into_node())),
-                                on_press: None,
-                                ..Default::default()
-                            }.into_node()
-                        ),
-                    }.build(ctx, view),
+                    {
+                        let help_toggle = ctx.bind(
+                            SetHelpPopoverOpen(!view.state.show_help_popover),
+                            (|s: &mut InboxState, a: SetHelpPopoverOpen, _| s.show_help_popover = a.0)
+                                as Handler<InboxState, SetHelpPopoverOpen>,
+                        );
+                        Tooltip {
+                            id: WidgetNodeId::explicit("help_tooltip"),
+                            text: t("tooltip.shortcuts"),
+                            is_visible: view.state.show_help_popover,
+                            child: Box::new(
+                                Button {
+                                    variant: ButtonVariant::Ghost,
+                                    child: Some(Box::new(Icon::svg(material::action::help_outline::regular()).size(20.0).into_node())),
+                                    on_press: Some(help_toggle),
+                                    ..Default::default()
+                                }.into_node()
+                            ),
+                        }.build(ctx, view)
+                    },
                 ],
                 ..Default::default()
             }.into_node()

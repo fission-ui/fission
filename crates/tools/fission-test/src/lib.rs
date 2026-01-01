@@ -10,6 +10,10 @@ use fission_layout::{LayoutEngine, LayoutSize, LayoutSnapshot, TextMeasurer};
 use fission_render::{
     BoxShadow, Color, DisplayList, DisplayOp, Fill, LayoutRect, Renderer, Stroke,
 };
+use fission_render_vello::VelloTextMeasurer;
+use fission_render_vello::parley::FontContext;
+use fission_theme::fonts;
+use fontique::{Blob, FontInfoOverride};
 use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
 
@@ -64,6 +68,40 @@ impl TextMeasurer for MockTextMeasurer {
     }
 }
 
+const DEFAULT_TEST_FONT_FAMILY: &str = "Fission Default";
+
+fn should_use_mock_measurer() -> bool {
+    let env_mock = std::env::var("FISSION_TEST_USE_MOCK_MEASURER")
+        .map(|v| {
+            let v = v.to_ascii_lowercase();
+            v == "1" || v == "true" || v == "yes"
+        })
+        .unwrap_or(false);
+    let env_kind = std::env::var("FISSION_TEST_MEASURER")
+        .map(|v| v.to_ascii_lowercase())
+        .ok();
+    env_mock || matches!(env_kind.as_deref(), Some("mock"))
+}
+
+fn build_vello_measurer() -> Arc<dyn TextMeasurer> {
+    let font_cx = Arc::new(Mutex::new(FontContext::default()));
+    {
+        let mut font_cx = font_cx.lock().unwrap();
+        let font_data = fonts::default_font_bytes().to_vec();
+        let info_override = FontInfoOverride {
+            family_name: Some(DEFAULT_TEST_FONT_FAMILY),
+            ..Default::default()
+        };
+        font_cx
+            .collection
+            .register_fonts(Blob::from(font_data), Some(info_override));
+    }
+    Arc::new(VelloTextMeasurer::new_with_default_family(
+        font_cx,
+        DEFAULT_TEST_FONT_FAMILY,
+    ))
+}
+
 pub mod linter;
 pub use linter::*;
 
@@ -98,14 +136,23 @@ impl<S: AppState> TestHarness<S> {
     }
 
     pub fn new(initial_state: S) -> Self {
+        if should_use_mock_measurer() {
+            return Self::new_with_measurer(initial_state, Arc::new(MockTextMeasurer));
+        }
+        Self::new_with_measurer(initial_state, build_vello_measurer())
+    }
+
+    pub fn new_with_mock_measurer(initial_state: S) -> Self {
+        Self::new_with_measurer(initial_state, Arc::new(MockTextMeasurer))
+    }
+
+    pub fn new_with_measurer(initial_state: S, measurer: Arc<dyn TextMeasurer>) -> Self {
         let mut runtime = Runtime::default();
         if std::any::TypeId::of::<S>() != std::any::TypeId::of::<Clock>() {
             runtime
                 .add_app_state(Box::new(initial_state))
                 .expect("Failed to add initial state");
         }
-
-        let measurer = Arc::new(MockTextMeasurer);
 
         Self {
             runtime: runtime.with_measurer(measurer.clone()),
