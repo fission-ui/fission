@@ -13,6 +13,14 @@ pub struct RightSidebar;
 
 impl Widget<InboxState> for RightSidebar {
     fn build(&self, ctx: &mut BuildCtx<InboxState>, view: &View<InboxState>) -> Node {
+        let tokens = &view.env.theme.tokens;
+        let t = |key: &str| {
+            view.env
+                .i18n
+                .get(&view.env.locale, key)
+                .map(|s| s.to_string())
+                .unwrap_or_else(|| key.to_string())
+        };
         let today = Local::now().date_naive();
 
         let meet_camera_id = ctx.bind(SetMeetCameraOn(false), (|s: &mut InboxState, a: SetMeetCameraOn, _| s.meet_camera_on = a.0) as Handler<InboxState, SetMeetCameraOn>).id;
@@ -34,27 +42,27 @@ impl Widget<InboxState> for RightSidebar {
         let quick_actions = Menu {
             items: vec![
                 MenuItem {
-                    label: "New event".into(),
+                    label: t("quick.new_event"),
                     icon: None,
                     on_select: Some(fission_core::ActionEnvelope {
                         id: toast_id,
-                        payload: serde_json::to_vec(&ShowToast("Created a new event".into())).unwrap(),
+                        payload: serde_json::to_vec(&ShowToast(t("toast.new_event"))).unwrap(),
                     }),
                 },
                 MenuItem {
-                    label: "New task".into(),
+                    label: t("quick.new_task"),
                     icon: None,
                     on_select: Some(fission_core::ActionEnvelope {
                         id: toast_id,
-                        payload: serde_json::to_vec(&ShowToast("Created a new task".into())).unwrap(),
+                        payload: serde_json::to_vec(&ShowToast(t("toast.new_task"))).unwrap(),
                     }),
                 },
                 MenuItem {
-                    label: "Add reminder".into(),
+                    label: t("quick.add_reminder"),
                     icon: None,
                     on_select: Some(fission_core::ActionEnvelope {
                         id: toast_id,
-                        payload: serde_json::to_vec(&ShowToast("Added a reminder".into())).unwrap(),
+                        payload: serde_json::to_vec(&ShowToast(t("toast.add_reminder"))).unwrap(),
                     }),
                 },
             ],
@@ -74,8 +82,8 @@ impl Widget<InboxState> for RightSidebar {
                                     VStack {
                                         spacing: Some(2.0),
                                         children: vec![
-                                            Text::new("Syncing").size(12.0).into_node(),
-                                            Text::new("Last update 2 min ago").size(10.0).color(Color { r: 120, g: 120, b: 120, a: 255 }).into_node(),
+                                            Text::new(TextContent::Key("quick.syncing".into())).size(12.0).into_node(),
+                                            Text::new(TextContent::Key("quick.last_update".into())).size(10.0).color(tokens.colors.text_secondary).into_node(),
                                             Skeleton {
                                                 id: WidgetNodeId::explicit("sync_skeleton"),
                                                 width: Some(120.0),
@@ -109,7 +117,7 @@ impl Widget<InboxState> for RightSidebar {
                             VStack {
                                 spacing: Some(8.0),
                                 children: vec![
-                                    Text::new("Quick actions").size(14.0).into_node(),
+                                    Text::new(TextContent::Key("quick.actions".into())).size(14.0).into_node(),
                                     quick_actions,
                                 ],
                             }.into_node()
@@ -122,13 +130,13 @@ impl Widget<InboxState> for RightSidebar {
                             VStack {
                                 spacing: Some(8.0),
                                 children: vec![
-                                    Text::new("Meet").size(14.0).into_node(),
+                                    Text::new(TextContent::Key("quick.meet".into())).size(14.0).into_node(),
                                     HStack {
                                         spacing: Some(8.0),
                                         children: vec![
                                             Tooltip {
                                                 id: fission_core::WidgetNodeId::explicit("meet_camera_tip"),
-                                                text: "Camera".into(),
+                                                text: t("quick.camera"),
                                                 is_visible: false,
                                                 child: Box::new(
                                                     Switch {
@@ -143,7 +151,7 @@ impl Widget<InboxState> for RightSidebar {
                                             }.build(ctx, view),
                                             Tooltip {
                                                 id: fission_core::WidgetNodeId::explicit("meet_mic_tip"),
-                                                text: "Microphone".into(),
+                                                text: t("quick.microphone"),
                                                 is_visible: false,
                                                 child: Box::new(
                                                     Switch {
@@ -165,7 +173,7 @@ impl Widget<InboxState> for RightSidebar {
                                                 spacing: Some(8.0),
                                                 children: vec![
                                                     Icon::svg(material::av::video_call::regular()).size(18.0).into_node(),
-                                                    Text::new("Start meeting").into_node(),
+                                                    Text::new(TextContent::Key("quick.start_meeting".into())).into_node(),
                                                 ],
                                             }.into_node()
                                         )),
@@ -183,12 +191,12 @@ impl Widget<InboxState> for RightSidebar {
                             VStack {
                                 spacing: Some(8.0),
                                 children: vec![
-                                    Text::new("Mailbox stats").size(14.0).into_node(),
+                                    Text::new(TextContent::Key("quick.mailbox_stats".into())).size(14.0).into_node(),
                                     HStack {
                                         spacing: Some(8.0),
                                         children: vec![
-                                            Stat { label: "Unread".into(), value: unread_total.to_string(), help_text: Some("In Inbox".into()) }.build(ctx, view),
-                                            Stat { label: "Starred".into(), value: starred_total.to_string(), help_text: Some("All folders".into()) }.build(ctx, view),
+                                            Stat { label: t("quick.unread"), value: unread_total.to_string(), help_text: Some(t("quick.in_inbox")) }.build(ctx, view),
+                                            Stat { label: t("quick.starred"), value: starred_total.to_string(), help_text: Some(t("quick.all_folders")) }.build(ctx, view),
                                         ],
                                     }.into_node(),
                                 ],
@@ -202,9 +210,9 @@ impl Widget<InboxState> for RightSidebar {
                             VStack {
                                 spacing: Some(12.0),
                                 children: vec![
-                                    Text::new("Setup").size(14.0).into_node(),
+                                    Text::new(TextContent::Key("quick.setup".into())).size(14.0).into_node(),
                                     Stepper {
-                                        steps: vec!["Import".into(), "Customize".into(), "Invite".into()],
+                                        steps: vec![t("quick.import"), t("quick.customize"), t("quick.invite")],
                                         active_index: 1,
                                     }.build(ctx, view),
                                 ],
@@ -218,7 +226,7 @@ impl Widget<InboxState> for RightSidebar {
         )
         .padding_all(16.0)
         .width(320.0)
-        .bg(Color { r: 250, g: 250, b: 252, a: 255 })
+        .bg(tokens.colors.surface)
         .into_node()
     }
 }

@@ -25,6 +25,14 @@ fn folder_from_route(route: &str) -> Folder {
 
 impl Widget<InboxState> for EmailList {
     fn build(&self, ctx: &mut BuildCtx<InboxState>, view: &View<InboxState>) -> Node {
+        let tokens = &view.env.theme.tokens;
+        let t = |key: &str| {
+            view.env
+                .i18n
+                .get(&view.env.locale, key)
+                .map(|s| s.to_string())
+                .unwrap_or_else(|| key.to_string())
+        };
         let mut list_items = vec![];
 
         let folder = folder_from_route(&self.folder);
@@ -85,7 +93,6 @@ impl Widget<InboxState> for EmailList {
         }) as Handler<InboxState, Navigate>).id;
         let tab_id = ctx.bind(SelectTab(0), (|s: &mut InboxState, a: SelectTab, _| s.active_tab = a.0) as Handler<InboxState, SelectTab>).id;
         let menu_toggle = ctx.bind(ToggleFilterDropdown, (|s: &mut InboxState, _: ToggleFilterDropdown, _| s.show_filter_dropdown = !s.show_filter_dropdown) as Handler<InboxState, ToggleFilterDropdown>);
-        let help_toggle = ctx.bind(SetHelpPopoverOpen(false), (|s: &mut InboxState, a: SetHelpPopoverOpen, _| s.show_help_popover = a.0) as Handler<InboxState, SetHelpPopoverOpen>).id;
         
         // Header
         list_items.push(
@@ -100,18 +107,18 @@ impl Widget<InboxState> for EmailList {
                         ..Default::default()
                     }.into_node(),
                     Text::new(folder_label).size(24.0).into_node(),
-                    Badge { text: format!("{} new", unread_count), ..Default::default() }.build(ctx, view),
+                    Badge { text: format!("{} {}", unread_count, t("badge.new")), ..Default::default() }.build(ctx, view),
                     Spinner { id: WidgetNodeId::explicit("sync_spinner"), color: None }.build(ctx, view),
                     fission_core::ui::widgets::Spacer { flex_grow: 1.0, ..Default::default() }.into_node(),
                     Tooltip {
                         id: WidgetNodeId::explicit("compose_tooltip"),
-                        text: "Compose new email".into(),
+                        text: t("tooltip.compose"),
                         is_visible: false,
                         child: Box::new(
                             Button {
                                 id: Some(NodeId::derived(WidgetNodeId::explicit("compose_button").as_u128(), &[])),
                                 variant: ButtonVariant::Filled,
-                                child: Some(Box::new(Text::new(TextContent::Key("button.compose".into())).color(Color::WHITE).into_node())),
+                                child: Some(Box::new(Text::new(TextContent::Key("button.compose".into())).color(tokens.colors.on_primary).into_node())),
                                 on_press: Some(ctx.bind(SetComposeOpen(true), (|s: &mut InboxState, a: SetComposeOpen, _| s.show_compose = a.0) as Handler<InboxState, SetComposeOpen>)),
                                 ..Default::default()
                             }.into_node()
@@ -119,27 +126,24 @@ impl Widget<InboxState> for EmailList {
                     }.build(ctx, view),
                     MenuButton {
                         id: WidgetNodeId::explicit("list_more_menu"),
-                        label: "More".into(),
+                        label: t("header.more"),
                         is_open: view.state.show_filter_dropdown,
                         on_toggle: Some(menu_toggle),
                         items: vec![
-                            MenuItem { label: "Mark all as read".into(), icon: None, on_select: None },
-                            MenuItem { label: "Add label".into(), icon: None, on_select: None },
-                            MenuItem { label: "Archive all".into(), icon: None, on_select: None },
+                            MenuItem { label: t("menu.mark_all_read"), icon: None, on_select: None },
+                            MenuItem { label: t("menu.add_label"), icon: None, on_select: None },
+                            MenuItem { label: t("menu.archive_all"), icon: None, on_select: None },
                         ],
                     }.build(ctx, view),
                     Tooltip {
                         id: WidgetNodeId::explicit("help_tooltip"),
-                        text: "Shortcuts available".into(),
-                        is_visible: view.state.show_help_popover,
+                        text: t("tooltip.shortcuts"),
+                        is_visible: false,
                         child: Box::new(
                             Button {
                                 variant: ButtonVariant::Ghost,
                                 child: Some(Box::new(Icon::svg(material::action::help_outline::regular()).size(20.0).into_node())),
-                                on_press: Some(ActionEnvelope {
-                                    id: help_toggle,
-                                    payload: serde_json::to_vec(&SetHelpPopoverOpen(!view.state.show_help_popover)).unwrap(),
-                                }),
+                                on_press: None,
                                 ..Default::default()
                             }.into_node()
                         ),
@@ -203,7 +207,7 @@ impl Widget<InboxState> for EmailList {
                                     spacing: Some(6.0),
                                     children: vec![
                                         Icon::svg(material::content::filter_list::regular()).size(18.0).into_node(),
-                                        Text::new("Filters").into_node(),
+                                        Text::new(TextContent::Key("header.filters".into())).into_node(),
                                     ],
                                 }.into_node())),
                                 ..Default::default()
@@ -214,7 +218,7 @@ impl Widget<InboxState> for EmailList {
                                 VStack {
                                     spacing: Some(12.0),
                                     children: vec![
-                                        Text::new("Date range").size(12.0).into_node(),
+                                        Text::new(TextContent::Key("filter.date_range".into())).size(12.0).into_node(),
                                         DateRangePicker {
                                             id_start: WidgetNodeId::explicit("filter_date_start"),
                                             id_end: WidgetNodeId::explicit("filter_date_end"),
@@ -228,7 +232,7 @@ impl Widget<InboxState> for EmailList {
                                             on_close_start: None,
                                             on_close_end: None,
                                         }.build(ctx, view),
-                                        Text::new("Size (MB)").size(12.0).into_node(),
+                                        Text::new(TextContent::Key("filter.size_mb".into())).size(12.0).into_node(),
                                         RangeSlider {
                                             id: None,
                                             start: 5.0,
@@ -254,7 +258,7 @@ impl Widget<InboxState> for EmailList {
                 active_index: view.state.active_tab,
                 items: vec![
                     TabItem {
-                        title: "Primary".into(),
+                        title: t("tabs.primary"),
                         content: fission_core::ui::widgets::Spacer::default().into_node(),
                         on_press: Some(ActionEnvelope {
                             id: tab_id,
@@ -262,7 +266,7 @@ impl Widget<InboxState> for EmailList {
                         }),
                     },
                     TabItem {
-                        title: "Social".into(),
+                        title: t("tabs.social"),
                         content: fission_core::ui::widgets::Spacer::default().into_node(),
                         on_press: Some(ActionEnvelope {
                             id: tab_id,
@@ -270,7 +274,7 @@ impl Widget<InboxState> for EmailList {
                         }),
                     },
                     TabItem {
-                        title: "Promotions".into(),
+                        title: t("tabs.promotions"),
                         content: fission_core::ui::widgets::Spacer::default().into_node(),
                         on_press: Some(ActionEnvelope {
                             id: tab_id,
@@ -314,18 +318,18 @@ impl Widget<InboxState> for EmailList {
         if emails.is_empty() {
             list_items.push(
                 EmptyState {
-                    icon: Some(Box::new(Icon::svg(material::content::inbox::regular()).size(48.0).color(Color::BLACK).into_node())),
-                    title: "No emails here".into(),
-                    description: Some("You are all caught up.".into()),
-                    action: Some(Box::new(
-                        Button {
-                            child: Some(Box::new(Text::new("Refresh").into_node())),
-                            on_press: None,
-                            ..Default::default()
-                        }.into_node()
-                    )),
-                }.build(ctx, view)
-            );
+                                icon: Some(Box::new(Icon::svg(material::content::inbox::regular()).size(48.0).color(tokens.colors.text_primary).into_node())),
+                                title: t("empty.no_emails"),
+                                description: Some(t("empty.caught_up")),
+                                action: Some(Box::new(
+                                    Button {
+                                        child: Some(Box::new(Text::new(t("action.refresh")).into_node())),
+                                        on_press: None,
+                                        ..Default::default()
+                                    }.into_node()
+                                )),
+                            }.build(ctx, view)
+                        );
         } else {
             let mut email_nodes = Vec::new();
             for email in &emails[start_idx..end_idx] {
@@ -337,13 +341,14 @@ impl Widget<InboxState> for EmailList {
                     material::toggle::star_border::regular()
                 };
                 let subject_color = if email.is_read {
-                    Color { r: 90, g: 90, b: 90, a: 255 }
+                    tokens.colors.text_secondary
                 } else {
-                    Color { r: 25, g: 25, b: 25, a: 255 }
+                    tokens.colors.text_primary
                 };
 
-                let item_content = HStack {
-                    spacing: Some(12.0),
+                let item_content = Row {
+                    gap: Some(12.0),
+                    align_items: fission_ir::op::AlignItems::Start,
                     children: vec![
                         Checkbox {
                             checked: is_selected,
@@ -353,9 +358,10 @@ impl Widget<InboxState> for EmailList {
                             }),
                             ..Default::default()
                         }.into_node(),
-                        VStack {
-                            spacing: Some(6.0),
-                            children: vec![
+                        Container::new(
+                            VStack {
+                                spacing: Some(6.0),
+                                children: vec![
                                 HStack {
                                     spacing: Some(8.0),
                                     children: vec![
@@ -363,7 +369,7 @@ impl Widget<InboxState> for EmailList {
                                         fission_core::ui::widgets::Spacer { flex_grow: 1.0, ..Default::default() }.into_node(),
                                         Text::new(email.last_message().sent_at.format("%b %d").to_string())
                                             .size(12.0)
-                                            .color(Color { r: 120, g: 120, b: 120, a: 255 })
+                                            .color(tokens.colors.text_secondary)
                                             .into_node(),
                                         Button {
                                             variant: ButtonVariant::Ghost,
@@ -389,7 +395,7 @@ impl Widget<InboxState> for EmailList {
                                 Text {
                                     content: TextContent::Literal(email.preview.clone()),
                                     font_size: Some(12.0),
-                                    color: Some(Color { r: 100, g: 100, b: 100, a: 255 }),
+                                    color: Some(tokens.colors.text_secondary),
                                     max_width: Some(420.0),
                                     ..Default::default()
                                 }.into(),
@@ -400,15 +406,19 @@ impl Widget<InboxState> for EmailList {
                                         Tag { label: label.clone(), on_close: None }.build(ctx, view)
                                     }).collect(),
                                 }.build(ctx, view),
-                            ]
-                        }.build(ctx, view)
-                    ]
-                }.build(ctx, view);
+                                ]
+                            }.build(ctx, view)
+                        )
+                        .flex_grow(1.0)
+                        .into_node()
+                    ],
+                    ..Default::default()
+                }.into_node();
 
                 let item = Container::new(item_content)
                     .padding_all(12.0)
-                    .bg(if is_selected { Color { r: 235, g: 245, b: 255, a: 255 } } else { Color::WHITE })
-                    .border(Color { r: 230, g: 230, b: 230, a: 255 }, 1.0)
+                    .bg(if is_selected { tokens.colors.primary.with_alpha(20) } else { tokens.colors.surface })
+                    .border(tokens.colors.border, 1.0)
                     .into_node();
 
                 email_nodes.push(

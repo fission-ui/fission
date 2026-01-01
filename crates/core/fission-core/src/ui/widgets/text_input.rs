@@ -210,12 +210,15 @@ impl Lower for TextInput {
         let mut wrapper = NodeBuilder::new(
             wrapper_id,
             Op::Layout(LayoutOp::Box {
-                width: self.width.or(Some(200.0)), // TODO: width auto?
+                width: self.width,
                 height: self.height.or(if self.multiline { None } else { Some(theme.height) }),
-                min_width: None, max_width: None, min_height: None, max_height: None,
+                min_width: None,
+                max_width: None,
+                min_height: None,
+                max_height: None,
                 padding: [theme.padding_h, theme.padding_h, 4.0, 4.0], // Padding applied here
-                flex_grow: 0.0,
-                flex_shrink: 0.0,
+                flex_grow: if self.width.is_none() { 1.0 } else { 0.0 },
+                flex_shrink: 1.0,
                 aspect_ratio: None,
             })
         );

@@ -17,3 +17,4 @@ fission-diagnostics = { path = "../../tools/fission-diagnostics" }
 chrono = { version = "0.4", default-features = false, features = ["alloc", "clock", "serde"] }
 
 [dev-dependencies]
+fission-layout = { path = "../../core/fission-layout" }

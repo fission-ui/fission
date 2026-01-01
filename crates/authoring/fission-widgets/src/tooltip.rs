@@ -13,16 +13,21 @@ pub struct Tooltip {
 impl<S: fission_core::AppState> Widget<S> for Tooltip {
     fn build(&self, ctx: &mut BuildCtx<S>, view: &View<S>) -> Node {
         let theme = &view.env.theme.components.tooltip;
-        
+
+        let trigger_id = fission_ir::NodeId::derived(self.id.as_u128(), &[]);
+        let is_hovered = view.runtime.interaction.is_hovered(trigger_id);
+        let show_tooltip = self.is_visible || is_hovered;
+
         let trigger = Container::new(*self.child.clone())
-            .id(fission_ir::NodeId::derived(self.id.as_u128(), &[]))
+            .id(trigger_id)
             .into_node();
 
-        if self.is_visible {
+        if show_tooltip {
             let tooltip_card = Container::new(
                 Text::new(self.text.clone())
                     .size(theme.font_size)
                     .color(theme.text_color)
+                    .max_width(220.0)
                     .into_node()
             )
             .bg(theme.bg_color)

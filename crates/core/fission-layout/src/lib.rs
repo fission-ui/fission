@@ -289,6 +289,11 @@ impl LayoutEngine {
             // We clone the Arc<TextMeasurer> into the closure.
                     let runs: Vec<TextRun> = runs.clone();
                     let measurer_ref = self.measurer.clone();
+                    let max_width = match &node.op {
+                        LayoutOp::Box { max_width, .. } => *max_width,
+                        LayoutOp::Scroll { max_width, .. } => *max_width,
+                        _ => None,
+                    };
                     self.taffy.set_measure(
                         t_id,
                         Some(taffy::node::MeasureFunc::Boxed(Box::new(move |known_dims, available_space| {
@@ -301,7 +306,7 @@ impl LayoutEngine {
                                 AvailableSpace::Definite(w) => Some(w),
                                 AvailableSpace::MaxContent => None,
                                 AvailableSpace::MinContent => Some(0.0),
-                            });
+                            }).or(max_width);
                             let (w, h) = measurer.measure_rich_text(&runs, avail_width);
                             taffy::geometry::Size { width: w, height: h }
                         }))),
@@ -488,6 +493,10 @@ impl LayoutEngine {
                     width: max_width.map(Dimension::Points).unwrap_or(Dimension::Auto),
                     height: max_height.map(Dimension::Points).unwrap_or(Dimension::Auto),
                 };
+                if node.rich_text.is_some() {
+                    // Text nodes should keep intrinsic width instead of stretching to the parent.
+                    style.align_self = Some(AlignSelf::FlexStart);
+                }
             }
             LayoutOp::Flex {
                 direction, wrap, padding, gap, align_items, justify_content, ..
@@ -547,7 +556,7 @@ impl LayoutEngine {
                 padding,
             } => {
                 style.display = Display::Flex;
-                style.align_items = Some(AlignItems::Start);
+                style.align_items = Some(AlignItems::Stretch);
                 style.justify_content = Some(JustifyContent::Start);
                 style.flex_direction = match direction {
                     IrFlexDirection::Row => taffy::style::FlexDirection::Row,

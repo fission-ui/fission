@@ -1,4 +1,4 @@
-use fission_core::ui::{Button, ButtonVariant, Container, Node, ZStack, Text, TextContent};
+use fission_core::ui::{Container, GestureDetector, Node, ZStack};
 use fission_core::{BuildCtx, View, Widget, ActionEnvelope, WidgetNodeId, NodeId, AnimationPropertyId, AnimationRequest, AnimationStartValue};
 use fission_core::op::{Color, BoxShadow};
 use crate::stack::VStack;
@@ -41,14 +41,14 @@ impl<S: fission_core::AppState> Widget<S> for Drawer {
         let width = self.width.unwrap_or(300.0);
         
         // Backdrop
-        let backdrop = Button {
-            variant: ButtonVariant::Ghost,
-            child: Some(Box::new(
+        let backdrop = GestureDetector {
+            on_tap: self.on_dismiss.clone(),
+            child: Box::new(
                 Container::new(fission_core::ui::widgets::Spacer::default().into_node())
                     .bg(Color { r: 0, g: 0, b: 0, a: 128 })
+                    .flex_grow(1.0)
                     .into_node()
-            )),
-            on_press: self.on_dismiss.clone(),
+            ),
             ..Default::default()
         }.into_node();
 

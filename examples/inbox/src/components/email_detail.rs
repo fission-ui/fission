@@ -14,10 +14,18 @@ pub struct EmailDetail {
 
 impl Widget<InboxState> for EmailDetail {
     fn build(&self, ctx: &mut BuildCtx<InboxState>, view: &View<InboxState>) -> Node {
+        let tokens = &view.env.theme.tokens;
+        let t = |key: &str| {
+            view.env
+                .i18n
+                .get(&view.env.locale, key)
+                .map(|s| s.to_string())
+                .unwrap_or_else(|| key.to_string())
+        };
         let email = if let Some(email) = view.state.emails.iter().find(|e| e.id == self.id) {
             email
         } else {
-            return Container::new(Text::new("Email not found").into_node())
+            return Container::new(Text::new(TextContent::Key("email.not_found".into())).into_node())
                 .padding_all(24.0)
                 .into_node();
         };
@@ -82,8 +90,8 @@ impl Widget<InboxState> for EmailDetail {
 
                     Alert {
                         kind: AlertKind::Warning,
-                        title: "External Sender".into(),
-                        description: Some("This email is from outside your organization.".into()),
+                        title: t("alert.external_sender.title"),
+                        description: Some(t("alert.external_sender.desc")),
                     }.build(ctx, view),
 
                     HStack {
@@ -119,7 +127,7 @@ impl Widget<InboxState> for EmailDetail {
                                 spacing: Some(2.0),
                                 children: vec![
                                     Text { content: TextContent::Literal(latest.from.clone()), font_size: Some(14.0), ..Default::default() }.into(),
-                                    Text { content: TextContent::Literal(latest.sent_at.format("%b %d, %I:%M %p").to_string()), font_size: Some(12.0), color: Some(Color { r: 120, g: 120, b: 120, a: 255 }), ..Default::default() }.into(),
+                                    Text { content: TextContent::Literal(latest.sent_at.format("%b %d, %I:%M %p").to_string()), font_size: Some(12.0), color: Some(tokens.colors.text_secondary), ..Default::default() }.into(),
                                 ]
                             }.build(ctx, view)
                         ]
@@ -136,13 +144,13 @@ impl Widget<InboxState> for EmailDetail {
                     Accordion {
                         items: vec![
                             AccordionItem {
-                                title: "Details".into(),
+                                title: t("email.details"),
                                 is_expanded: view.state.details_expanded,
                                 on_toggle: Some(ctx.bind(ToggleDetails, (|s: &mut InboxState, _: ToggleDetails, _| s.details_expanded = !s.details_expanded) as Handler<InboxState, ToggleDetails>)),
                                 content: Text {
                                     content: TextContent::Literal(format!("Date: {}\nTo: {}\nCc: {}", latest.sent_at.format("%b %d, %Y"), latest.to.join(", "), latest.cc.join(", "))),
                                     font_size: Some(12.0),
-                                    color: Some(Color { r: 100, g: 100, b: 100, a: 255 }),
+                                    color: Some(tokens.colors.text_secondary),
                                     ..Default::default()
                                 }.into()
                             }
@@ -164,16 +172,16 @@ impl Widget<InboxState> for EmailDetail {
                         }.into_node()
                     )
                     .padding_all(12.0)
-                    .bg(Color { r: 250, g: 250, b: 252, a: 255 })
-                    .border(Color { r: 230, g: 230, b: 230, a: 255 }, 1.0)
+                    .bg(tokens.colors.surface)
+                    .border(tokens.colors.border, 1.0)
                     .into_node(),
 
-                    Text::new("Attachments").size(16.0).into_node(),
+                    Text::new(TextContent::Key("email.attachments".into())).size(16.0).into_node(),
                     HStack {
                         spacing: Some(8.0),
                         children: vec![
                             Spinner { id: WidgetNodeId::explicit("attachments_spinner"), color: None }.build(ctx, view),
-                            Text::new("Scanning attachments...").size(12.0).color(Color { r: 120, g: 120, b: 120, a: 255 }).into_node(),
+                            Text::new(TextContent::Key("email.scanning_attachments".into())).size(12.0).color(tokens.colors.text_secondary).into_node(),
                         ],
                     }.build(ctx, view),
                     SimpleGrid {
@@ -219,7 +227,7 @@ impl Widget<InboxState> for EmailDetail {
                             VStack {
                                 spacing: Some(8.0),
                                 children: vec![
-                                    Text::new("Power user tip").size(14.0).into_node(),
+                                    Text::new(TextContent::Key("email.power_tip".into())).size(14.0).into_node(),
                                     Code { text: "label:important after:2025/01/01".into() }.build(ctx, view),
                                     HStack {
                                         spacing: Some(6.0),
@@ -235,9 +243,9 @@ impl Widget<InboxState> for EmailDetail {
                         ..Default::default()
                     }.build(ctx, view),
 
-                    Text::new("History").size(18.0).into_node(),
+                    Text::new(TextContent::Key("email.history".into())).size(18.0).into_node(),
                     if history.is_empty() {
-                        Text::new("No earlier messages in this thread.").size(12.0).into_node()
+                        Text::new(TextContent::Key("email.no_history".into())).size(12.0).into_node()
                     } else {
                         Timeline {
                             items: history.iter().map(|m| {
@@ -250,13 +258,13 @@ impl Widget<InboxState> for EmailDetail {
                         }.build(ctx, view)
                     },
 
-                    Text::new("Reply mode").size(12.0).into_node(),
+                    Text::new(TextContent::Key("email.reply_mode".into())).size(12.0).into_node(),
                     HStack {
                         spacing: Some(12.0),
                         children: vec![
                             Radio {
                                 checked: view.state.reply_mode == 0,
-                                label: Some("Reply".into()),
+                                label: Some(t("email.reply")),
                                 on_select: Some(ActionEnvelope {
                                     id: reply_id,
                                     payload: serde_json::to_vec(&SelectReplyMode(0)).unwrap(),
@@ -265,7 +273,7 @@ impl Widget<InboxState> for EmailDetail {
                             }.into_node(),
                             Radio {
                                 checked: view.state.reply_mode == 1,
-                                label: Some("Reply all".into()),
+                                label: Some(t("email.reply_all")),
                                 on_select: Some(ActionEnvelope {
                                     id: reply_id,
                                     payload: serde_json::to_vec(&SelectReplyMode(1)).unwrap(),
@@ -274,7 +282,7 @@ impl Widget<InboxState> for EmailDetail {
                             }.into_node(),
                             Radio {
                                 checked: view.state.reply_mode == 2,
-                                label: Some("Forward".into()),
+                                label: Some(t("email.forward")),
                                 on_select: Some(ActionEnvelope {
                                     id: reply_id,
                                     payload: serde_json::to_vec(&SelectReplyMode(2)).unwrap(),
@@ -287,10 +295,10 @@ impl Widget<InboxState> for EmailDetail {
                     VStack {
                         spacing: Some(8.0),
                         children: vec![
-                            Text::new("Reply").size(14.0).into_node(),
+                            Text::new(TextContent::Key("email.reply".into())).size(14.0).into_node(),
                             fission_widgets::TextInput {
                                 value: view.state.reply_body.clone(),
-                                placeholder: Some("Write your reply...".into()),
+                                placeholder: Some(TextContent::Key("email.reply_placeholder".into())),
                                 on_change: Some(ActionEnvelope { id: reply_body_id, payload: Vec::new() }),
                                 multiline: true,
                                 height: Some(140.0),
@@ -302,7 +310,7 @@ impl Widget<InboxState> for EmailDetail {
                                     fission_core::ui::widgets::Spacer { flex_grow: 1.0, ..Default::default() }.into_node(),
                                     Button {
                                         variant: ButtonVariant::Filled,
-                                        child: Some(Box::new(Text::new("Send reply").color(Color::WHITE).into_node())),
+                                        child: Some(Box::new(Text::new(TextContent::Key("email.send_reply".into())).color(tokens.colors.on_primary).into_node())),
                                         on_press: Some(ActionEnvelope {
                                             id: send_reply_id,
                                             payload: serde_json::to_vec(&SendReply(email.id)).unwrap(),
@@ -318,7 +326,7 @@ impl Widget<InboxState> for EmailDetail {
             .build(ctx, view)
         )
         .padding_all(32.0)
-        .bg(Color::WHITE)
+        .bg(tokens.colors.background)
         .flex_grow(1.0)
         .into_node()
     }

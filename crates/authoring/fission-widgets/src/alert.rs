@@ -1,7 +1,7 @@
-use fission_core::ui::{Container, Node, Text, TextContent};
+use fission_core::ui::{Container, Node, Row, Text, TextContent};
 use fission_core::{BuildCtx, View, Widget};
 use fission_core::op::Color;
-use crate::stack::{HStack, VStack};
+use crate::stack::VStack;
 use crate::Icon;
 use fission_icons::material;
 use serde::{Deserialize, Serialize};
@@ -34,27 +34,33 @@ impl<S: fission_core::AppState> Widget<S> for Alert {
         };
 
         Container::new(
-            HStack {
-                spacing: Some(12.0),
+            Row {
+                gap: Some(12.0),
+                align_items: fission_ir::op::AlignItems::Center,
                 children: vec![
                     Icon::svg(icon).size(24.0).color(color).into_node(),
-                    VStack {
-                        spacing: Some(2.0),
-                        children: vec![
-                            Text::new(self.title.clone())
-                                .size(tokens.typography.body_large_size)
-                                .into_node(),
-                            if let Some(desc) = &self.description {
-                                Text::new(desc.clone())
-                                    .size(tokens.typography.body_medium_size)
-                                    .color(tokens.colors.text_secondary)
-                                    .into_node()
-                            } else {
-                                fission_core::ui::widgets::spacer::Spacer::default().into_node()
-                            }
-                        ]
-                    }.into_node()
-                ]
+                    Container::new(
+                        VStack {
+                            spacing: Some(2.0),
+                            children: vec![
+                                Text::new(self.title.clone())
+                                    .size(tokens.typography.body_large_size)
+                                    .into_node(),
+                                if let Some(desc) = &self.description {
+                                    Text::new(desc.clone())
+                                        .size(tokens.typography.body_medium_size)
+                                        .color(tokens.colors.text_secondary)
+                                        .into_node()
+                                } else {
+                                    fission_core::ui::widgets::spacer::Spacer::default().into_node()
+                                }
+                            ]
+                        }.into_node()
+                    )
+                    .flex_grow(1.0)
+                    .into_node()
+                ],
+                ..Default::default()
             }.into_node()
         )
         .bg(bg)

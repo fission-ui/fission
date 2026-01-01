@@ -1,4 +1,4 @@
-use fission_core::ui::{Container, Node, Text};
+use fission_core::ui::{Container, Node, Text, Row};
 use fission_core::{BuildCtx, View, Widget};
 use fission_core::op::Color;
 use crate::stack::{HStack, VStack};
@@ -20,7 +20,7 @@ impl<S: fission_core::AppState> Widget<S> for Stepper {
             let is_completed = i < self.active_index;
             
             let color = if is_active || is_completed { tokens.colors.primary } else { tokens.colors.border };
-            let text_color = if is_active || is_completed { tokens.colors.text_primary } else { tokens.colors.text_secondary };
+            let text_color = if is_active || is_completed { tokens.colors.on_primary } else { tokens.colors.text_secondary };
             
             // Connector line
             if i > 0 {
@@ -40,12 +40,19 @@ impl<S: fission_core::AppState> Widget<S> for Stepper {
                     children: vec![
                         // Circle
                         Container::new(
-                            if is_completed {
-                                // Checkmark? Use Text for now
-                                Text::new("✓").color(Color::WHITE).into_node()
-                            } else {
-                                Text::new(format!("{}", i + 1)).color(if is_active { Color::WHITE } else { text_color }).into_node()
-                            }
+                            fission_core::ui::Row {
+                                align_items: fission_ir::op::AlignItems::Center,
+                                justify_content: fission_ir::op::JustifyContent::Center,
+                                flex_grow: 1.0,
+                                children: vec![
+                                    if is_completed {
+                                        Text::new("✓").color(text_color).into_node()
+                                    } else {
+                                        Text::new(format!("{}", i + 1)).color(text_color).into_node()
+                                    }
+                                ],
+                                ..Default::default()
+                            }.into_node()
                         )
                         .width(24.0)
                         .height(24.0)

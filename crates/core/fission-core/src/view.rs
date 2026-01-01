@@ -1,7 +1,7 @@
 use crate::{
     env::VideoState,
     registry::{AnimationPropertyId, VideoRegistration},
-    ui::{Button, Checkbox, Column, Container, Grid, GridItem, Image, LazyColumn, Node, Overlay, Positioned, Radio, Row, Scroll, Slider, Spacer, Switch, Text, TextInput, Video, ZStack},
+    ui::{Align, Button, Checkbox, Column, Container, Grid, GridItem, Image, LazyColumn, Node, Overlay, Positioned, Radio, Row, Scroll, Slider, Spacer, Switch, Text, TextInput, Video, ZStack},
     AppState, BuildCtx, Env, RuntimeState, LayoutSnapshot, LayoutRect,
 };
 use fission_i18n::I18nRegistry;
@@ -83,6 +83,7 @@ macro_rules! impl_widget_for_primitive {
 
 impl_widget_for_primitive!(Row, Row);
 impl_widget_for_primitive!(Column, Column);
+impl_widget_for_primitive!(Align, Align);
 impl_widget_for_primitive!(Text, Text);
 impl_widget_for_primitive!(Button, Button);
 impl_widget_for_primitive!(TextInput, TextInput);

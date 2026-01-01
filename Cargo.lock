@@ -905,6 +905,7 @@ dependencies = [
  "fission-diagnostics",
  "fission-icons",
  "fission-ir",
+ "fission-layout",
  "fission-macros",
  "fission-theme",
  "lazy_static",

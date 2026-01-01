@@ -1,4 +1,4 @@
-use fission_core::ui::{Container, Node};
+use fission_core::ui::{Align, Node};
 use fission_core::{BuildCtx, View, Widget};
 use serde::{Deserialize, Serialize};
 
@@ -9,8 +9,6 @@ pub struct Center {
 
 impl<S: fission_core::AppState> Widget<S> for Center {
     fn build(&self, _ctx: &mut BuildCtx<S>, _view: &View<S>) -> Node {
-        Container::new(*self.child.clone())
-            .flex_grow(1.0)
-            .into_node()
+        Align::new(*self.child.clone()).into_node()
     }
 }

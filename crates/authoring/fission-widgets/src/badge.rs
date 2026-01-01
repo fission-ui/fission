@@ -1,4 +1,4 @@
-use fission_core::ui::{Container, Text, TextContent, Node};
+use fission_core::ui::{Align, Container, Text, TextContent, Node};
 use fission_core::{BuildCtx, View, Widget};
 use fission_core::op::Color;
 use serde::{Deserialize, Serialize};
@@ -18,10 +18,12 @@ impl<S: fission_core::AppState> Widget<S> for Badge {
         let text_color = self.text_color.unwrap_or(tokens.colors.on_secondary);
         
         Container::new(
-            Text::new(self.text.clone())
-                .size(theme.font_size)
-                .color(text_color)
-                .into_node()
+            Align::new(
+                Text::new(self.text.clone())
+                    .size(theme.font_size)
+                    .color(text_color)
+                    .into_node()
+            ).into_node()
         )
         .bg(bg_color)
         .border_radius(theme.radius)

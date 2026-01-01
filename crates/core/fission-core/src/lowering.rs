@@ -132,6 +132,25 @@ pub fn build_layout_tree(ir: &CoreIR) -> Vec<LayoutInputNode> {
 
     for (id, node) in &ir.nodes {
         let mut rich_text_content: Option<Vec<fission_ir::op::TextRun>> = None;
+        let mut inherited_box = None;
+        if let Some(parent_id) = parent_map.get(id) {
+            if let Some(parent) = ir.nodes.get(parent_id) {
+                if parent.children.len() == 1 {
+                    if let Op::Layout(LayoutOp::Box {
+                        width,
+                        height,
+                        min_width,
+                        max_width,
+                        min_height,
+                        max_height,
+                        ..
+                    }) = &parent.op
+                    {
+                        inherited_box = Some((*width, *height, *min_width, *max_width, *min_height, *max_height));
+                    }
+                }
+            }
+        }
 
         let (layout_op_variant, width, height, flex_grow, flex_shrink) = match &node.op {
             Op::Layout(LayoutOp::Box {
@@ -254,40 +273,50 @@ pub fn build_layout_tree(ir: &CoreIR) -> Vec<LayoutInputNode> {
             ),
 
             Op::Paint(PaintOp::DrawText { text, size, color, underline, caret_index: _ }) => {
+                let (inherit_width, inherit_height, inherit_min_width, inherit_max_width, inherit_min_height, inherit_max_height) =
+                    inherited_box.unwrap_or((None, None, None, None, None, None));
                 rich_text_content = Some(vec![fission_ir::op::TextRun {
                     text: text.clone(),
                     style: fission_ir::op::TextStyle { font_size: *size, color: *color, underline: *underline },
                 }]);
                 (
                     LayoutOp::Box {
-                        width: None,
-                        height: None,
-                        min_width: None, max_width: None, min_height: None, max_height: None,
+                        width: inherit_width,
+                        height: inherit_height,
+                        min_width: inherit_min_width,
+                        max_width: inherit_max_width,
+                        min_height: inherit_min_height,
+                        max_height: inherit_max_height,
                         padding: [0.0; 4],
                         flex_grow: 0.0,
                         flex_shrink: 1.0,
                         aspect_ratio: None,
                     },
-                    None,
-                    None,
+                    inherit_width,
+                    inherit_height,
                     0.0,
                     0.0,
                 )
             }
             Op::Paint(PaintOp::DrawRichText { runs, caret_index: _ }) => {
+                let (inherit_width, inherit_height, inherit_min_width, inherit_max_width, inherit_min_height, inherit_max_height) =
+                    inherited_box.unwrap_or((None, None, None, None, None, None));
                 rich_text_content = Some(runs.clone());
                 (
                     LayoutOp::Box {
-                        width: None,
-                        height: None,
-                        min_width: None, max_width: None, min_height: None, max_height: None,
+                        width: inherit_width,
+                        height: inherit_height,
+                        min_width: inherit_min_width,
+                        max_width: inherit_max_width,
+                        min_height: inherit_min_height,
+                        max_height: inherit_max_height,
                         padding: [0.0; 4],
                         flex_grow: 0.0,
                         flex_shrink: 1.0,
                         aspect_ratio: None,
                     },
-                    None,
-                    None,
+                    inherit_width,
+                    inherit_height,
                     0.0,
                     0.0,
                 )

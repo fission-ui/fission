@@ -16,6 +16,14 @@ pub enum ButtonVariant {
     Ghost,
 }
 
+#[derive(Debug, Default, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub enum ButtonContentAlign {
+    #[default]
+    Center,
+    Start,
+    End,
+}
+
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct Button {
     pub id: Option<NodeId>,
@@ -27,6 +35,8 @@ pub struct Button {
     pub padding: Option<[f32; 4]>,
     pub style: Option<ButtonStyleOverride>,
     pub variant: ButtonVariant,
+    #[serde(default)]
+    pub content_align: ButtonContentAlign,
     pub disabled: bool,
 }
 
@@ -190,12 +200,38 @@ impl Lower for Button {
             } else {
                 child_widget.lower(cx)
             };
-            // Center the content within the button's box (vertically + horizontally).
-            let mut align_builder =
-                NodeBuilder::new(cx.next_node_id(), Op::Layout(LayoutOp::Align));
-            align_builder.add_child(child_id);
-            let align_id = align_builder.build(cx);
-            button_builder.add_child(align_id);
+            let aligned_id = match self.content_align {
+                ButtonContentAlign::Center => {
+                    // Center the content within the button's box (vertically + horizontally).
+                    let mut align_builder =
+                        NodeBuilder::new(cx.next_node_id(), Op::Layout(LayoutOp::Align));
+                    align_builder.add_child(child_id);
+                    align_builder.build(cx)
+                }
+                ButtonContentAlign::Start | ButtonContentAlign::End => {
+                    let justify = match self.content_align {
+                        ButtonContentAlign::Start => fission_ir::op::JustifyContent::Start,
+                        ButtonContentAlign::End => fission_ir::op::JustifyContent::End,
+                        ButtonContentAlign::Center => fission_ir::op::JustifyContent::Center,
+                    };
+                    let mut flex_builder = NodeBuilder::new(
+                        cx.next_node_id(),
+                        Op::Layout(LayoutOp::Flex {
+                            direction: fission_ir::FlexDirection::Row,
+                            wrap: fission_ir::FlexWrap::NoWrap,
+                            flex_grow: 1.0,
+                            flex_shrink: 1.0,
+                            padding: [0.0; 4],
+                            gap: None,
+                            align_items: fission_ir::op::AlignItems::Center,
+                            justify_content: justify,
+                        }),
+                    );
+                    flex_builder.add_child(child_id);
+                    flex_builder.build(cx)
+                }
+            };
+            button_builder.add_child(aligned_id);
         }
         
         cx.pop_scope();

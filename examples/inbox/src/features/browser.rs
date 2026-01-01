@@ -11,6 +11,7 @@ pub struct BrowserModal;
 
 impl Widget<InboxState> for BrowserModal {
     fn build(&self, ctx: &mut BuildCtx<InboxState>, view: &View<InboxState>) -> Node {
+        let tokens = &view.env.theme.tokens;
         Modal {
             id: WidgetNodeId::explicit("browser_modal"),
             title: "Browser & Links Demo".into(),
@@ -28,7 +29,7 @@ impl Widget<InboxState> for BrowserModal {
                                 Text::new("Mechanism 1: Embedded Widget").size(16.0).into_node(),
                                 Text::new("A native WebView embedded directly in the layout.")
                                     .size(12.0)
-                                    .color(Color { r: 128, g: 128, b: 128, a: 255 })
+                                    .color(tokens.colors.text_secondary)
                                     .into_node(),
                                 
                                 Container::new(
@@ -40,7 +41,7 @@ impl Widget<InboxState> for BrowserModal {
                                 )
                                 .width(600.0)
                                 .height(300.0)
-                                .border(Color::BLACK, 1.0)
+                                .border(tokens.colors.border, 1.0)
                                 .into_node(),
                             ]
                         }.into_node(),
@@ -62,7 +63,7 @@ impl Widget<InboxState> for BrowserModal {
                                         
                                         fission_widgets::Button {
                                             variant: fission_widgets::ButtonVariant::Filled,
-                                            child: Some(Box::new(Text::new("Open In-App (Custom Tab)").color(Color::WHITE).into_node())),
+                                            child: Some(Box::new(Text::new("Open In-App (Custom Tab)").color(tokens.colors.on_primary).into_node())),
                                             on_press: Some(OpenInAppLink("https://fission.rs".into()).into()),
                                             ..Default::default()
                                         }.build(ctx, view),
@@ -78,7 +79,7 @@ impl Widget<InboxState> for BrowserModal {
                                 Text::new("Mechanism 3: Secure Auth").size(16.0).into_node(),
                                 fission_widgets::Button {
                                     variant: fission_widgets::ButtonVariant::Filled,
-                                    child: Some(Box::new(Text::new("Log in with Provider").color(Color::WHITE).into_node())),
+                                    child: Some(Box::new(Text::new("Log in with Provider").color(tokens.colors.on_primary).into_node())),
                                     on_press: Some(StartAuth.into()),
                                     ..Default::default()
                                 }.build(ctx, view),

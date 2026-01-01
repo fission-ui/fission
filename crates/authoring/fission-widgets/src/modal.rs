@@ -1,4 +1,4 @@
-use fission_core::ui::{Button, ButtonVariant, Container, Node, Text, TextContent, ZStack, CustomNode};
+use fission_core::ui::{Button, ButtonVariant, Container, GestureDetector, Node, Text, TextContent, ZStack, CustomNode};
 use fission_core::{BuildCtx, View, Widget, ActionEnvelope, WidgetNodeId, NodeId, LowerDyn, LoweringContext};
 use fission_core::op::{Color, BoxShadow, LayoutOp, Op};
 use crate::stack::{VStack, HStack};
@@ -52,13 +52,13 @@ impl<S: fission_core::AppState> Widget<S> for Modal {
 
         // Dimmed backdrop
         let backdrop = Container::new(fission_core::ui::widgets::spacer::Spacer::default().into_node())
-            .bg(Color { r: 0, g: 0, b: 0, a: 128 }) 
+            .bg(Color { r: 0, g: 0, b: 0, a: 128 })
+            .flex_grow(1.0)
             .into_node();
         
-        let backdrop_btn = Button {
-            variant: ButtonVariant::Ghost,
-            child: Some(Box::new(backdrop)),
-            on_press: self.on_dismiss.clone(),
+        let backdrop_btn = GestureDetector {
+            on_tap: self.on_dismiss.clone(),
+            child: Box::new(backdrop),
             ..Default::default()
         }.into_node();
 

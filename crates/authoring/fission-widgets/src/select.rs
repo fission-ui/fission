@@ -1,4 +1,4 @@
-use fission_core::ui::{Button, ButtonVariant, Container, Node, Text, TextContent, Positioned, Row};
+use fission_core::ui::{Button, ButtonVariant, ButtonContentAlign, Container, Node, Text, TextContent, Positioned, Row};
 use fission_core::{BuildCtx, View, Widget, ActionEnvelope, WidgetNodeId, NodeId};
 use fission_core::op::{Color, BoxShadow};
 use crate::stack::{VStack, HStack};
@@ -69,6 +69,7 @@ impl<S: fission_core::AppState> Widget<S> for Select {
         let trigger = Button {
             id: Some(anchor_id),
             variant: ButtonVariant::Outline,
+            content_align: ButtonContentAlign::Start,
             child: Some(Box::new(trigger_content)),
             on_press: self.on_toggle.clone(),
             width: self.width,

@@ -1,5 +1,5 @@
 use fission_core::{BuildCtx, View, Widget, WidgetNodeId, Handler, ActionEnvelope, ActionId};
-use fission_core::ui::{Text, Node, Container, Grid, GridItem, ZStack, Positioned, Button, ButtonVariant};
+use fission_core::ui::{Text, TextContent, Node, Container, Grid, GridItem, ZStack, Positioned, Button, ButtonVariant};
 use fission_core::ui::widgets::{Clip, GestureDetector, Transform};
 use fission_core::op::{Color, GridTrack};
 use fission_widgets::{
@@ -28,6 +28,13 @@ fn theme_preview(
     accent: Color,
     is_active: bool,
 ) -> Node {
+    let t = |key: &str| {
+        view.env
+            .i18n
+            .get(&view.env.locale, key)
+            .map(|s| s.to_string())
+            .unwrap_or_else(|| key.to_string())
+    };
     let angle = 0.18_f32;
     let (sin, cos) = angle.sin_cos();
     let rotate = [
@@ -38,7 +45,7 @@ fn theme_preview(
     ];
 
     let badge = if is_active {
-        Some(Badge { text: "Active".into(), ..Default::default() }.build(ctx, view))
+        Some(Badge { text: t("settings.theme.active"), ..Default::default() }.build(ctx, view))
     } else {
         None
     };
@@ -93,6 +100,14 @@ fn theme_preview(
 
 impl Widget<InboxState> for SettingsModal {
     fn build(&self, ctx: &mut BuildCtx<InboxState>, view: &View<InboxState>) -> Node {
+        let tokens = &view.env.theme.tokens;
+        let t = |key: &str| {
+            view.env
+                .i18n
+                .get(&view.env.locale, key)
+                .map(|s| s.to_string())
+                .unwrap_or_else(|| key.to_string())
+        };
         let locale_id = ctx.bind(SetLocale(Locale("".into())), (|s: &mut InboxState, a: SetLocale, _| s.locale = a.0) as Handler<InboxState, SetLocale>).id;
         let theme_id = ctx.bind(SetTheme("".into()), (|s: &mut InboxState, a: SetTheme, _| {
             s.theme_mode = a.0;
@@ -148,7 +163,7 @@ impl Widget<InboxState> for SettingsModal {
 
         let theme_items = vec![
             SelectItem {
-                label: "Light".into(),
+                label: t("settings.theme.light"),
                 icon: None,
                 on_select: ActionEnvelope {
                     id: theme_id,
@@ -156,7 +171,7 @@ impl Widget<InboxState> for SettingsModal {
                 },
             },
             SelectItem {
-                label: "Dark".into(),
+                label: t("settings.theme.dark"),
                 icon: None,
                 on_select: ActionEnvelope {
                     id: theme_id,
@@ -164,7 +179,7 @@ impl Widget<InboxState> for SettingsModal {
                 },
             },
             SelectItem {
-                label: "System".into(),
+                label: t("settings.theme.system"),
                 icon: None,
                 on_select: ActionEnvelope {
                     id: theme_id,
@@ -175,7 +190,7 @@ impl Widget<InboxState> for SettingsModal {
 
         let density_items = vec![
             SelectItem {
-                label: "Comfortable".into(),
+                label: t("settings.density.comfortable"),
                 icon: None,
                 on_select: ActionEnvelope {
                     id: density_id,
@@ -183,7 +198,7 @@ impl Widget<InboxState> for SettingsModal {
                 },
             },
             SelectItem {
-                label: "Compact".into(),
+                label: t("settings.density.compact"),
                 icon: None,
                 on_select: ActionEnvelope {
                     id: density_id,
@@ -191,7 +206,7 @@ impl Widget<InboxState> for SettingsModal {
                 },
             },
             SelectItem {
-                label: "Cozy".into(),
+                label: t("settings.density.cozy"),
                 icon: None,
                 on_select: ActionEnvelope {
                     id: density_id,
@@ -225,11 +240,11 @@ impl Widget<InboxState> for SettingsModal {
             }),
             child: Box::new(
                 Container::new(
-                    Text::new("Drop label here to pin").size(12.0).into_node()
+                    Text::new(TextContent::Key("settings.labels.drop_target".into())).size(12.0).into_node()
                 )
                 .padding_all(8.0)
-                .bg(if view.state.drag_in_progress { Color { r: 245, g: 245, b: 255, a: 255 } } else { Color { r: 0, g: 0, b: 0, a: 0 } })
-                .border(Color { r: 210, g: 210, b: 210, a: 255 }, 1.0)
+                .bg(if view.state.drag_in_progress { tokens.colors.primary.with_alpha(20) } else { tokens.colors.background.with_alpha(0) })
+                .border(tokens.colors.border, 1.0)
                 .border_radius(8.0)
                 .into_node()
             ),
@@ -238,7 +253,7 @@ impl Widget<InboxState> for SettingsModal {
         let pinned_badge = if let Some(label) = &view.state.last_drag_label {
             Badge { text: format!("Pinned: {}", label), ..Default::default() }.build(ctx, view)
         } else {
-            Text::new("Pin a label for quick access.").size(12.0).color(Color { r: 120, g: 120, b: 120, a: 255 }).into_node()
+            Text::new(TextContent::Key("settings.labels.helper".into())).size(12.0).color(tokens.colors.text_secondary).into_node()
         };
 
         let signature_editor = Editable {
@@ -263,9 +278,24 @@ impl Widget<InboxState> for SettingsModal {
             }),
         }.build(ctx, view);
 
+        let theme_display = match view.state.theme_mode.as_str() {
+            "Dark" => t("settings.theme.dark"),
+            "System" => t("settings.theme.system"),
+            _ => t("settings.theme.light"),
+        };
+        let density_display = match view.state.density_mode.as_str() {
+            "Compact" => t("settings.density.compact"),
+            "Cozy" => t("settings.density.cozy"),
+            _ => t("settings.density.comfortable"),
+        };
+        let inbox_type_display = match view.state.inbox_type.as_str() {
+            "Priority Inbox" => t("settings.inbox_type.priority"),
+            _ => t("settings.inbox_type.default"),
+        };
+
         Modal {
             id: WidgetNodeId::explicit("settings_modal"),
-            title: "Settings".into(),
+            title: t("settings.title"),
             is_open: true,
             on_dismiss: Some(ctx.bind(SetSettingsOpen(false), (|s, a, _| s.show_settings = a.0) as Handler<InboxState, SetSettingsOpen>)),
             width: Some(560.0),
@@ -273,9 +303,9 @@ impl Widget<InboxState> for SettingsModal {
                 VStack {
                     spacing: Some(16.0),
                     children: vec![
-                        Text::new("General").size(14.0).into_node(),
+                        Text::new(TextContent::Key("settings.general".into())).size(14.0).into_node(),
                         SegmentedControl {
-                            options: vec!["English".into(), "Español".into()],
+                            options: vec![t("settings.lang_en"), t("settings.lang_es")],
                             selected_index: if view.state.locale.0 == "es-ES" { 1 } else { 0 },
                             on_change: Some(Arc::new(move |idx| {
                                 let loc = if idx == 1 { "es-ES" } else { "en-US" };
@@ -288,14 +318,14 @@ impl Widget<InboxState> for SettingsModal {
 
                         FormControl {
                             id: None,
-                            label: Some("Inbox type".into()),
+                            label: Some(t("settings.inbox_type.label")),
                             required: false,
                             error: None,
-                            helper: Some("Choose a default layout".into()),
+                            helper: Some(t("settings.inbox_type.helper")),
                             child: Box::new(Select {
                                 id: WidgetNodeId::explicit("inbox_type_select"),
-                                selected_label: Some(view.state.inbox_type.clone()),
-                                placeholder: "Select type".into(),
+                                selected_label: Some(inbox_type_display),
+                                placeholder: t("settings.inbox_type.placeholder"),
                                 is_open: view.state.show_inbox_type_select,
                                 on_toggle: Some(ActionEnvelope {
                                     id: inbox_type_open_id,
@@ -303,12 +333,12 @@ impl Widget<InboxState> for SettingsModal {
                                 }),
                                 items: vec![
                                     SelectItem {
-                                        label: "Default".into(),
+                                        label: t("settings.inbox_type.default"),
                                         icon: None,
                                         on_select: ActionEnvelope { id: inbox_type_id, payload: serde_json::to_vec(&SetInboxType("Default".into())).unwrap() },
                                     },
                                     SelectItem {
-                                        label: "Priority Inbox".into(),
+                                        label: t("settings.inbox_type.priority"),
                                         icon: None,
                                         on_select: ActionEnvelope { id: inbox_type_id, payload: serde_json::to_vec(&SetInboxType("Priority Inbox".into())).unwrap() },
                                     },
@@ -319,17 +349,17 @@ impl Widget<InboxState> for SettingsModal {
 
                         Divider { orientation: fission_widgets::divider::Orientation::Horizontal }.build(ctx, view),
 
-                        Text::new("Appearance").size(14.0).into_node(),
+                        Text::new(TextContent::Key("settings.appearance".into())).size(14.0).into_node(),
                         FormControl {
                             id: None,
-                            label: Some("Theme".into()),
+                            label: Some(t("settings.theme.label")),
                             required: false,
                             error: None,
                             helper: None,
                             child: Box::new(Select {
                                 id: WidgetNodeId::explicit("theme_select"),
-                                selected_label: Some(view.state.theme_mode.clone()),
-                                placeholder: "Select Theme".into(),
+                                selected_label: Some(theme_display),
+                                placeholder: t("settings.theme.placeholder"),
                                 is_open: view.state.show_theme_select,
                                 on_toggle: Some(ActionEnvelope {
                                     id: theme_open_id,
@@ -342,14 +372,14 @@ impl Widget<InboxState> for SettingsModal {
 
                         FormControl {
                             id: None,
-                            label: Some("Density".into()),
+                            label: Some(t("settings.density.label")),
                             required: false,
                             error: None,
-                            helper: Some("Controls spacing".into()),
+                            helper: Some(t("settings.density.helper")),
                             child: Box::new(Select {
                                 id: WidgetNodeId::explicit("density_select"),
-                                selected_label: Some(view.state.density_mode.clone()),
-                                placeholder: "Select Density".into(),
+                                selected_label: Some(density_display),
+                                placeholder: t("settings.density.placeholder"),
                                 is_open: view.state.show_density_select,
                                 on_toggle: Some(ActionEnvelope {
                                     id: density_open_id,
@@ -362,10 +392,10 @@ impl Widget<InboxState> for SettingsModal {
 
                         FormControl {
                             id: None,
-                            label: Some("Zoom".into()),
+                            label: Some(t("settings.zoom.label")),
                             required: false,
                             error: None,
-                            helper: Some("Adjust UI scale".into()),
+                            helper: Some(t("settings.zoom.helper")),
                             child: Box::new(Slider {
                                 id: None,
                                 value: view.state.zoom_level,
@@ -392,7 +422,7 @@ impl Widget<InboxState> for SettingsModal {
                                             VStack {
                                                 spacing: Some(8.0),
                                                 children: vec![
-                                                    Text::new("Light preview").size(12.0).into_node(),
+                                                    Text::new(TextContent::Key("settings.theme.preview_light".into())).size(12.0).into_node(),
                                                     theme_preview(ctx, view, theme_id, "Light", Color { r: 245, g: 245, b: 248, a: 255 }, Color { r: 30, g: 144, b: 255, a: 255 }, view.state.theme_mode == "Light"),
                                                 ],
                                             }.into_node()
@@ -406,7 +436,7 @@ impl Widget<InboxState> for SettingsModal {
                                             VStack {
                                                 spacing: Some(8.0),
                                                 children: vec![
-                                                    Text::new("Dark preview").size(12.0).into_node(),
+                                                    Text::new(TextContent::Key("settings.theme.preview_dark".into())).size(12.0).into_node(),
                                                     theme_preview(ctx, view, theme_id, "Dark", Color { r: 28, g: 30, b: 34, a: 255 }, Color { r: 255, g: 214, b: 10, a: 255 }, view.state.theme_mode == "Dark"),
                                                 ],
                                             }.into_node()
@@ -419,7 +449,7 @@ impl Widget<InboxState> for SettingsModal {
 
                         Divider { orientation: fission_widgets::divider::Orientation::Horizontal }.build(ctx, view),
 
-                        Text::new("Signature").size(14.0).into_node(),
+                        Text::new(TextContent::Key("settings.signature.title".into())).size(14.0).into_node(),
                         FormControl {
                             id: None,
                             label: Some("Signature".into()),
@@ -430,7 +460,7 @@ impl Widget<InboxState> for SettingsModal {
                         }.build(ctx, view),
                         Button {
                             variant: ButtonVariant::Outline,
-                            child: Some(Box::new(Text::new("Save signature").into_node())),
+                            child: Some(Box::new(Text::new(TextContent::Key("settings.signature.save".into())).into_node())),
                             on_press: Some(ActionEnvelope {
                                 id: signature_edit_id,
                                 payload: serde_json::to_vec(&SetSignatureEditing(false)).unwrap(),
@@ -440,7 +470,7 @@ impl Widget<InboxState> for SettingsModal {
 
                         Divider { orientation: fission_widgets::divider::Orientation::Horizontal }.build(ctx, view),
 
-                        Text::new("Labs").size(14.0).into_node(),
+                        Text::new(TextContent::Key("settings.labs.title".into())).size(14.0).into_node(),
                         Card {
                             child: Box::new(
                                 VStack {
@@ -450,7 +480,7 @@ impl Widget<InboxState> for SettingsModal {
                                             spacing: Some(8.0),
                                             children: vec![
                                                 Icon::svg(material::action::check_circle::regular()).size(18.0).into_node(),
-                                                Text::new("Smart Compose").into_node(),
+                                                Text::new(TextContent::Key("settings.labs.smart_compose".into())).into_node(),
                                                 fission_core::ui::widgets::Spacer { flex_grow: 1.0, ..Default::default() }.into_node(),
                                                 Switch {
                                                     checked: view.state.smart_compose_enabled,
@@ -466,7 +496,7 @@ impl Widget<InboxState> for SettingsModal {
                                             spacing: Some(8.0),
                                             children: vec![
                                                 Icon::svg(material::action::report_problem::regular()).size(18.0).into_node(),
-                                                Text::new("Offline mail").into_node(),
+                                                Text::new(TextContent::Key("settings.labs.offline".into())).into_node(),
                                                 fission_core::ui::widgets::Spacer { flex_grow: 1.0, ..Default::default() }.into_node(),
                                                 Switch {
                                                     checked: view.state.offline_enabled,
@@ -482,7 +512,7 @@ impl Widget<InboxState> for SettingsModal {
                                             spacing: Some(8.0),
                                             children: vec![
                                                 Icon::svg(material::action::info::regular()).size(18.0).into_node(),
-                                                Text::new("Auto-advance").into_node(),
+                                                Text::new(TextContent::Key("settings.labs.auto_advance".into())).into_node(),
                                                 fission_core::ui::widgets::Spacer { flex_grow: 1.0, ..Default::default() }.into_node(),
                                                 Switch {
                                                     checked: view.state.auto_advance_enabled,
@@ -500,7 +530,7 @@ impl Widget<InboxState> for SettingsModal {
                             ..Default::default()
                         }.build(ctx, view),
 
-                        Text::new("Label ordering").size(12.0).into_node(),
+                        Text::new(TextContent::Key("settings.labels.title".into())).size(12.0).into_node(),
                         Wrap {
                             direction: fission_ir::op::FlexDirection::Row,
                             spacing: Some(6.0),
@@ -522,7 +552,7 @@ impl Widget<InboxState> for SettingsModal {
                                             spacing: Some(6.0),
                                             children: vec![
                                                 Icon::svg(material::action::info::regular()).size(16.0).into_node(),
-                                                Text::new("Show quick tips").size(12.0).into_node(),
+                                                Text::new(TextContent::Key("settings.tips.show".into())).size(12.0).into_node(),
                                             ],
                                         }.into_node()
                                     ),

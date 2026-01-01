@@ -1,4 +1,4 @@
-use fission_core::ui::{Button, ButtonVariant, Container, Node, Text, TextContent, Positioned, Scroll, Row};
+use fission_core::ui::{Button, ButtonVariant, ButtonContentAlign, Container, Node, Text, TextContent, Positioned, Scroll, Row};
 use fission_core::{BuildCtx, View, Widget, ActionEnvelope, WidgetNodeId, NodeId};
 use fission_core::op::{Color, BoxShadow};
 use crate::stack::{VStack, HStack};
@@ -34,6 +34,7 @@ impl<S: fission_core::AppState> Widget<S> for Menu {
             menu_items.push(
                 Button {
                     variant: ButtonVariant::Ghost,
+                    content_align: ButtonContentAlign::Start,
                     child: Some(Box::new(
                         HStack {
                             spacing: Some(12.0),
@@ -91,6 +92,7 @@ impl<S: fission_core::AppState> Widget<S> for MenuButton {
         let trigger = Button {
             id: Some(anchor_id),
             variant: ButtonVariant::Outline,
+            content_align: ButtonContentAlign::Start,
             child: Some(Box::new(
                 Text { 
                     content: TextContent::Literal(self.label.clone()), 

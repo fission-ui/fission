@@ -4,6 +4,8 @@ use crate::ui::traits::Lower;
 use crate::ui::Node;
 use fission_ir::{LayoutOp, Op};
 use fission_layout::{LayoutEngine, LayoutSize};
+use crate::ui::widgets::{Container, Text};
+use crate::ui::widgets::text::TextContent;
 
 struct SimpleMeasurer;
 impl fission_layout::TextMeasurer for SimpleMeasurer {
@@ -88,4 +90,45 @@ fn test_text_wrapping_in_constrained_flex() {
     // "Hello World" (110px) in 50px -> 3 lines (50, 50, 10). Height 60.
     assert_eq!(text_geom.rect.width(), 50.0);
     assert!(text_geom.rect.height() > 20.0, "Text should wrap");
+}
+
+#[test]
+fn text_parent_max_width_drives_wrapping() {
+    let env = Env::default();
+    let runtime_state = RuntimeState::default();
+    let mut cx = LoweringContext::new(&env, &runtime_state, None, None);
+
+    let text = Text {
+        content: TextContent::Literal("HelloWorld".into()),
+        max_width: Some(40.0),
+        ..Default::default()
+    };
+    let root = Container::new(Node::from(text))
+        .width(200.0)
+        .height(200.0)
+        .into_node();
+
+    let root_id = root.lower(&mut cx);
+    cx.ir.root = Some(root_id);
+
+    let input_nodes = build_layout_tree(&cx.ir);
+    let mut engine = LayoutEngine::new().with_measurer(std::sync::Arc::new(SimpleMeasurer));
+    engine.rebuild(&input_nodes).unwrap();
+    let snapshot = engine.compute_layout(
+        &input_nodes,
+        root_id,
+        LayoutSize::new(800.0, 600.0),
+        &|_| 0.0,
+    ).unwrap();
+
+    let text_paint_id = cx.ir.nodes.iter().find_map(|(id, node)| {
+        match &node.op {
+            Op::Paint(fission_ir::PaintOp::DrawText { text, .. }) if text == "HelloWorld" => Some(*id),
+            _ => None,
+        }
+    }).expect("expected DrawText node");
+
+    let text_geom = snapshot.get_node_geometry(text_paint_id).unwrap();
+    assert_eq!(text_geom.rect.width(), 40.0);
+    assert!(text_geom.rect.height() > 20.0, "text should wrap when parent max_width is set");
 }

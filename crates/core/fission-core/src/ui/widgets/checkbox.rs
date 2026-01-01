@@ -68,7 +68,10 @@ impl Lower for Checkbox {
                 aspect_ratio: None,
             }));
             check_box.add_child(check);
-            Some(check_box.build(cx))
+            let check_box_id = check_box.build(cx);
+            let mut align = NodeBuilder::new(cx.next_node_id(), Op::Layout(LayoutOp::Align));
+            align.add_child(check_box_id);
+            Some(align.build(cx))
         } else { None };
 
         let mut square_box = NodeBuilder::new(

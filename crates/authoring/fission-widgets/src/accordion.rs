@@ -1,4 +1,4 @@
-use fission_core::ui::{Button, ButtonVariant, Container, Node, Text, TextContent};
+use fission_core::ui::{Button, ButtonVariant, ButtonContentAlign, Container, Node, Text, TextContent};
 use fission_core::{BuildCtx, View, Widget, ActionEnvelope};
 use fission_core::op::Color;
 use crate::stack::{HStack, VStack};
@@ -28,6 +28,7 @@ impl<S: fission_core::AppState> Widget<S> for Accordion {
             children.push(
                 Button {
                     variant: ButtonVariant::Ghost,
+                    content_align: ButtonContentAlign::Start,
                     child: Some(Box::new(
                         Container::new(
                             HStack {

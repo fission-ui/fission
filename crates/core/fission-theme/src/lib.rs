@@ -335,7 +335,7 @@ pub struct BadgeTheme {
 impl BadgeTheme {
     pub fn from_tokens(tokens: &Tokens) -> Self {
         Self {
-            radius: tokens.radii.small,
+            radius: tokens.radii.full,
             font_size: 10.0,
         }
     }

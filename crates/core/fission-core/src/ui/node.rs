@@ -1,6 +1,6 @@
 use super::traits::{Lower, LowerDyn};
 use super::widgets::{
-    Button, Checkbox, Clip, Column, Container, GestureDetector, FocusScope, Grid, GridItem, Icon, Image, LazyColumn, Overlay, Positioned, Radio, Row, SafeArea, Scroll, Slider, Spacer,
+    Align, Button, Checkbox, Clip, Column, Container, GestureDetector, FocusScope, Grid, GridItem, Icon, Image, LazyColumn, Overlay, Positioned, Radio, Row, SafeArea, Scroll, Slider, Spacer,
     Switch, Text, TextInput, Transform, Video, ZStack,
 };
 use crate::lowering::LoweringContext;
@@ -12,6 +12,7 @@ use std::sync::Arc;
 pub enum Node {
     Row(Row),
     Column(Column),
+    Align(Align),
     FocusScope(FocusScope),
     Clip(Clip),
     Text(Text),
@@ -44,6 +45,7 @@ impl Node {
         match self {
             Node::Row(w) => w.lower(cx),
             Node::Column(w) => w.lower(cx),
+            Node::Align(w) => w.lower(cx),
             Node::FocusScope(w) => w.lower(cx),
             Node::Clip(w) => w.lower(cx),
             Node::Text(w) => w.lower(cx),
@@ -93,6 +95,11 @@ impl From<Row> for Node {
 impl From<Column> for Node {
     fn from(w: Column) -> Self {
         Node::Column(w)
+    }
+}
+impl From<Align> for Node {
+    fn from(w: Align) -> Self {
+        Node::Align(w)
     }
 }
 impl From<FocusScope> for Node {

@@ -11,6 +11,7 @@ pub struct Sidebar;
 
 impl Widget<InboxState> for Sidebar {
     fn build(&self, ctx: &mut BuildCtx<InboxState>, view: &View<InboxState>) -> Node {
+        let tokens = &view.env.theme.tokens;
         let t = |key: &str| {
             view.env
                 .i18n
@@ -42,7 +43,7 @@ impl Widget<InboxState> for Sidebar {
 
                     Button {
                         variant: ButtonVariant::Filled,
-                        child: Some(Box::new(Text { content: TextContent::Key("button.compose".into()), color: Some(Color::WHITE), ..Default::default() }.into_node())),
+                        child: Some(Box::new(Text { content: TextContent::Key("button.compose".into()), color: Some(tokens.colors.on_primary), ..Default::default() }.into_node())),
                         on_press: Some(ctx.bind(SetComposeOpen(true), (|s: &mut InboxState, a: SetComposeOpen, _| s.show_compose = a.0) as Handler<InboxState, SetComposeOpen>)),
                         ..Default::default()
                     }.into_node(),
@@ -166,7 +167,7 @@ impl Widget<InboxState> for Sidebar {
                 ],
             }.build(ctx, view)
         )
-        .bg(Color { r: 245, g: 245, b: 247, a: 255 })
+        .bg(tokens.colors.surface)
         .padding_all(16.0)
         .into_node()
     }

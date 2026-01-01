@@ -1,7 +1,6 @@
-use fission_core::ui::{Button, ButtonVariant, Container, Node, Text, TextContent};
+use fission_core::ui::{Button, ButtonVariant, ButtonContentAlign, Container, Node, Row, Text, TextContent};
 use fission_core::{BuildCtx, View, Widget, ActionEnvelope};
 use fission_core::op::Color;
-use crate::stack::HStack;
 use crate::Icon;
 use fission_icons::material;
 use serde::{Deserialize, Serialize};
@@ -38,6 +37,7 @@ impl<S: fission_core::AppState> Widget<S> for Breadcrumb {
                 children.push(
                     Text::new(item.label.clone())
                         .color(if is_last { tokens.colors.text_primary } else { tokens.colors.text_secondary })
+                        .flex_shrink(0.0)
                         // .weight(if is_last { Bold } else { Normal })
                         .into_node()
                 );
@@ -45,9 +45,11 @@ impl<S: fission_core::AppState> Widget<S> for Breadcrumb {
                 children.push(
                     Button {
                         variant: ButtonVariant::Ghost,
+                        content_align: ButtonContentAlign::Start,
                         child: Some(Box::new(
                             Text::new(item.label.clone())
                                 .color(tokens.colors.text_secondary)
+                                .flex_shrink(0.0)
                                 .into_node()
                         )),
                         on_press: item.on_click.clone(),
@@ -57,9 +59,11 @@ impl<S: fission_core::AppState> Widget<S> for Breadcrumb {
             }
         }
 
-        HStack {
-            spacing: Some(8.0),
+        Row {
+            gap: Some(8.0),
+            align_items: fission_ir::op::AlignItems::Center,
             children,
-        }.build(ctx, view)
+            ..Default::default()
+        }.into_node()
     }
 }
