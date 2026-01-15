@@ -7,7 +7,6 @@ edition = "2021"
 fission-ir = { path = "../fission-ir" }
 serde = { version = "1.0", features = ["derive"] }
 anyhow = "1.0"
-taffy = "0.3.18"
 fission-diagnostics = { path = "../../tools/fission-diagnostics" }
 
 [dev-dependencies]

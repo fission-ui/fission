@@ -62,7 +62,7 @@ fn test_inbox_header_layout_coords() -> Result<()> {
         if let Some(geom) = snapshot.get_node_geometry(filter_btn_id) {
             println!("Filter Button Rect: {:?}", geom.rect);
             // Expected: 220 (Col 1) + 200 (Input) + 8 (Gap) = 428? 
-            // Wait, Taffy gap/spacing.
+            // Gap spacing is accounted for in the row layout.
             // If Input is 200.
             // Button is at X=428?
             // Let's assert it is reasonable.

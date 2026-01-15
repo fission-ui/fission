@@ -56,20 +56,9 @@ impl SliderController {
                     let min = sem.min_value.unwrap_or(0.0);
                     let max = sem.max_value.unwrap_or(1.0);
                     
-                    // Note: Slider Semantics node might wrap the Layout node directly, 
-                    // or be an ancestor. Usually Semantics wraps Layout.
-                    // The geom for Semantics node should match the Layout child?
-                    // In `Slider::lower`, we wrap `layout_id` in `sem_node`.
-                    // But `sem_node` itself doesn't have geometry in Taffy map if it's just Semantics op?
-                    // `fission-layout` visits ALL nodes. 
-                    // `LayoutEngine::compute_layout` extracts geometry for all nodes.
-                    // But `Semantics` Op doesn't produce Taffy node usually?
-                    // Wait, `compute_style` matches `LayoutOp`.
-                    // `compute_style` has `_ => Display::Flex`.
-                    // So Semantics nodes ARE layout nodes (Flex, default).
-                    // They wrap their child.
-                    // So they have geometry.
-                    // The geometry of Semantics node should match its child (Flex Item).
+                    // Note: Slider semantics nodes often wrap the layout node directly.
+                    // Layout traversal records geometry for all nodes, including semantics
+                    // wrappers, so the semantics geometry should match its child.
                     
                     let width = geom.rect.width();
                     if width > 0.0 {

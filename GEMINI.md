@@ -37,7 +37,7 @@ The system is divided into four distinct layers:
 *   **Key Components:**
     *   **Lowering:** Compiles `Node` tree -> `CoreIR` (Ops).
     *   **Runtime:** Manages `AppState`, `RuntimeState` (Scroll, Focus, Anim), and dispatches `Actions`.
-    *   **Layout:** Computes geometry using `Taffy` (Flexbox).
+*   **Layout:** Computes geometry using a constraint-based layout engine (Flutter-style).
     *   **Diffing:** Compares `CoreIR` trees to optimize updates (Hybrid Retained Mode).
 *   **Data:** `CoreIR` is a flat list of `Op`s (Layout, Paint, Semantics).
 
@@ -88,9 +88,9 @@ The `Lower` trait compiles high-level `Node`s into low-level `CoreIR` operations
 *   **Dispatch:** The Runtime receives the envelope, looks up the handler in the registry, and invokes it with mutable access to `AppState`.
 
 ### 3.4 Layout Engine
-*   **Backing:** `Taffy` (Flexbox).
-*   **Integration:** `fission-layout` maps `LayoutOp` to Taffy styles.
-*   **Text:** `TextMeasurer` trait abstracts platform text sizing (implemented by `SkiaTextMeasurer`).
+*   **Backing:** Constraint-based layout engine (Flutter-style).
+*   **Integration:** `fission-layout` consumes `LayoutOp` directly.
+*   **Text:** `TextMeasurer` trait abstracts platform text sizing (implementation-dependent).
 *   **Scroll:** Implemented via unbounded constraints in the scroll axis + clamping in the runtime.
 
 ### 3.5 Rendering
@@ -108,7 +108,7 @@ The `Lower` trait compiles high-level `Node`s into low-level `CoreIR` operations
 | **Scrolling** | ✅ Beta | `LayoutOp::Scroll`. `RuntimeState` stores offsets. Input (Wheel/Drag) updates offset. |
 | **Video** | ✅ Beta | `VideoBackend` trait (Platform vs Mock). `Runtime` tracks state (Play/Pause). Shell compositing via Layers. |
 | **Text Input** | ✅ Alpha | `TextInput` widget. Runtime handles `Char`/`Backspace`. Static cursor. No IME composition yet. |
-| **Layout** | ✅ Stable | Flexbox (Taffy). Intrinsic sizing. Padding/Border support. |
+| **Layout** | ✅ Stable | Constraint-based sizing. Intrinsics + padding/border support. |
 | **Theming** | 🚧 Planned | `fission-theme` crate exists. Tokens defined. Logic for inheritance pending. |
 | **I18n** | 🚧 Planned | `fission-i18n` crate exists. Basic registry pending. |
 
@@ -126,7 +126,7 @@ The `Lower` trait compiles high-level `Node`s into low-level `CoreIR` operations
 │   ├── core/
 │   │   ├── fission-core/     (Runtime, Node, Lowering, Env)
 │   │   ├── fission-ir/       (Ops, IDs, Semantics)
-│   │   ├── fission-layout/   (Taffy integration)
+│   │   ├── fission-layout/   (constraint layout engine)
 │   │   ├── fission-theme/    (Token definitions)
 │   │   └── fission-semantics/(Accessibility types)
 │   ├── rendering/

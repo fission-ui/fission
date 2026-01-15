@@ -69,7 +69,7 @@ impl<'a> LayoutLinter<'a> {
                         if !allows_overflow && !is_absolute {
                             // Check if child is roughly inside parent (allow small float error)
                             // A child can be smaller than parent, but shouldn't exceed bounds unless allowed.
-                            // Actually, Taffy allows overflow by default (visible).
+                            // Overflow is visible by default in our layout model.
                             // But "Toast border smaller than content" is an overflow issue we want to catch.
                             // Let's flag if child is strictly larger than parent in dimensions?
                             // Or if child rect is not contained in parent rect?

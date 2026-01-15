@@ -791,7 +791,7 @@ impl Runtime {
                         if let Op::Layout(LayoutOp::Transform { transform }) = &node.op {
                             let mat = Mat4::from_cols_array(transform);
                             // We need to transform the point relative to the node's origin?
-                            // Taffy coordinates are relative to parent.
+                            // Layout coordinates are relative to the parent.
                             // In hit_test_recursive, `point` is relative to current `node_id`?
                             // No, `point` is relative to the `geom.rect.origin` of `node_id`?
                             // Let's check recursion.
