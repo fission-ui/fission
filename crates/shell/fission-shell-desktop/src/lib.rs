@@ -440,6 +440,10 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                     let scale_factor = window.scale_factor();
                                     let layout_width = (size.width as f64 / scale_factor) as f32;
                                     let layout_height = (size.height as f64 / scale_factor) as f32;
+                                    env.viewport_size = LayoutSize {
+                                        width: layout_width,
+                                        height: layout_height,
+                                    };
 
                                     if let Some(sync) = &self.sync_env {
                                         let state = runtime.get_app_state::<S>().unwrap();

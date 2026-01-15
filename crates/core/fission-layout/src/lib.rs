@@ -175,6 +175,8 @@ pub struct LayoutNodeGeometry {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct LayoutSnapshot {
     pub nodes: HashMap<NodeId, LayoutNodeGeometry>,
+    #[serde(skip)]
+    pub constraints: HashMap<NodeId, BoxConstraints>,
     pub viewport_size: LayoutSize,
 }
 
@@ -182,6 +184,7 @@ impl LayoutSnapshot {
     pub fn new(viewport_size: LayoutSize) -> Self {
         Self {
             nodes: HashMap::new(),
+            constraints: HashMap::new(),
             viewport_size,
         }
     }
@@ -192,6 +195,10 @@ impl LayoutSnapshot {
 
     pub fn get_node_rect(&self, node_id: NodeId) -> Option<LayoutRect> {
         self.nodes.get(&node_id).map(|g| g.rect)
+    }
+
+    pub fn get_node_constraints(&self, node_id: NodeId) -> Option<BoxConstraints> {
+        self.constraints.get(&node_id).copied()
     }
 }
 
@@ -1100,6 +1107,7 @@ impl LayoutEngine {
             LayoutPoint::ZERO,
             &node_map,
             &mut snapshot.nodes,
+            &mut snapshot.constraints,
             scroll_source,
             true,
         );
@@ -1234,6 +1242,7 @@ impl LayoutEngine {
         origin: LayoutPoint,
         node_map: &HashMap<NodeId, &LayoutInputNode>,
         out: &mut HashMap<NodeId, LayoutNodeGeometry>,
+        constraints_out: &mut HashMap<NodeId, BoxConstraints>,
         scroll_source: &impl ScrollDataSource,
         record: bool,
     ) -> LayoutSize {
@@ -1242,6 +1251,10 @@ impl LayoutEngine {
             Some(n) => *n,
             None => return LayoutSize::ZERO,
         };
+
+        if record {
+            constraints_out.insert(node_id, constraints);
+        }
 
         let mut content_size = LayoutSize::ZERO;
         let size = match &node.op {
@@ -1321,6 +1334,7 @@ impl LayoutEngine {
                         LayoutPoint::ZERO,
                         node_map,
                         out,
+                        constraints_out,
                         scroll_source,
                         false,
                     );
@@ -1341,6 +1355,7 @@ impl LayoutEngine {
                             LayoutPoint::new(origin.x + padding[0], origin.y + padding[2]),
                             node_map,
                             out,
+                            constraints_out,
                             scroll_source,
                             record,
                         );
@@ -1389,6 +1404,7 @@ impl LayoutEngine {
                             LayoutPoint::ZERO,
                             node_map,
                             out,
+                            constraints_out,
                             scroll_source,
                             false,
                         );
@@ -1503,6 +1519,7 @@ impl LayoutEngine {
                                 child_origin,
                                 node_map,
                                 out,
+                                constraints_out,
                                 scroll_source,
                                 record,
                             );
@@ -1554,6 +1571,7 @@ impl LayoutEngine {
                             LayoutPoint::ZERO,
                             node_map,
                             out,
+                            constraints_out,
                             scroll_source,
                             false,
                         );
@@ -1599,6 +1617,7 @@ impl LayoutEngine {
                             LayoutPoint::ZERO,
                             node_map,
                             out,
+                            constraints_out,
                             scroll_source,
                             false,
                         );
@@ -1670,6 +1689,7 @@ impl LayoutEngine {
                             child_origin,
                             node_map,
                             out,
+                            constraints_out,
                             scroll_source,
                             record,
                         );
@@ -1690,6 +1710,7 @@ impl LayoutEngine {
                         LayoutPoint::ZERO,
                         node_map,
                         out,
+                        constraints_out,
                         scroll_source,
                         false,
                     );
@@ -1711,6 +1732,7 @@ impl LayoutEngine {
                         LayoutPoint::new(origin.x + dx, origin.y + dy),
                         node_map,
                         out,
+                        constraints_out,
                         scroll_source,
                         record,
                     );
@@ -1727,6 +1749,7 @@ impl LayoutEngine {
                         LayoutPoint::ZERO,
                         node_map,
                         out,
+                        constraints_out,
                         scroll_source,
                         false,
                     );
@@ -1750,6 +1773,7 @@ impl LayoutEngine {
                         child_origin,
                         node_map,
                         out,
+                        constraints_out,
                         scroll_source,
                         record,
                     );
@@ -1850,6 +1874,7 @@ impl LayoutEngine {
                         LayoutPoint::ZERO,
                         node_map,
                         out,
+                        constraints_out,
                         scroll_source,
                         false,
                     );
@@ -1887,6 +1912,7 @@ impl LayoutEngine {
                             LayoutPoint::new(x, y),
                             node_map,
                             out,
+                            constraints_out,
                             scroll_source,
                             record,
                         );
@@ -1907,6 +1933,7 @@ impl LayoutEngine {
                         origin,
                         node_map,
                         out,
+                        constraints_out,
                         scroll_source,
                         record,
                     );
@@ -1950,6 +1977,7 @@ impl LayoutEngine {
                         LayoutPoint::new(origin.x + padding[0], origin.y + padding[2]),
                         node_map,
                         out,
+                        constraints_out,
                         scroll_source,
                         record,
                     );
@@ -1980,6 +2008,7 @@ impl LayoutEngine {
                         origin,
                         node_map,
                         out,
+                        constraints_out,
                         scroll_source,
                         record,
                     );
@@ -1996,6 +2025,7 @@ impl LayoutEngine {
                         origin,
                         node_map,
                         out,
+                        constraints_out,
                         scroll_source,
                         record,
                     );
@@ -2026,6 +2056,7 @@ impl LayoutEngine {
                         LayoutPoint::ZERO,
                         node_map,
                         out,
+                        constraints_out,
                         scroll_source,
                         false,
                     );
@@ -2041,6 +2072,7 @@ impl LayoutEngine {
                         LayoutPoint::new(origin.x + x, origin.y + y),
                         node_map,
                         out,
+                        constraints_out,
                         scroll_source,
                         record,
                     );
@@ -2057,6 +2089,7 @@ impl LayoutEngine {
                         origin,
                         node_map,
                         out,
+                        constraints_out,
                         scroll_source,
                         record,
                     );

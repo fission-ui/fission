@@ -2,10 +2,11 @@ use crate::{
     env::VideoState,
     registry::{AnimationPropertyId, VideoRegistration},
     ui::{Align, Button, Checkbox, Column, Container, Grid, GridItem, Image, LazyColumn, Node, Overlay, Positioned, Radio, Row, Scroll, Slider, Spacer, Switch, Text, TextInput, Video, ZStack},
-    AppState, BuildCtx, Env, RuntimeState, LayoutSnapshot, LayoutRect,
+    AppState, BuildCtx, Env, RuntimeState, LayoutSnapshot, LayoutRect, LayoutSize,
 };
 use fission_i18n::I18nRegistry;
-use fission_ir::{WidgetNodeId, NodeId};
+use fission_ir::{NodeId, WidgetNodeId};
+use fission_layout::BoxConstraints;
 use fission_theme::Theme;
 
 pub struct View<'a, S: AppState> {
@@ -33,8 +34,17 @@ impl<'a, S: AppState> View<'a, S> {
     }
 
     pub fn get_rect(&self, id: WidgetNodeId) -> Option<LayoutRect> {
-        let node_id = NodeId::derived(id.as_u128(), &[]);
+        let node_id: NodeId = id.into();
         self.layout.and_then(|l| l.get_node_rect(node_id))
+    }
+
+    pub fn get_constraints(&self, id: WidgetNodeId) -> Option<BoxConstraints> {
+        let node_id: NodeId = id.into();
+        self.layout.and_then(|l| l.get_node_constraints(node_id))
+    }
+
+    pub fn viewport_size(&self) -> LayoutSize {
+        self.env.viewport_size
     }
 
     pub fn select<T: Selector<S>>(&self) -> T::Output {

@@ -41,7 +41,7 @@ pub use event::{InputEvent, KeyCode, KeyEvent, LifecycleEvent, PointerButton, Po
 pub use fission_ir::op;
 pub use fission_ir::{EmbedKind, NodeId, Op, WidgetNodeId};
 pub use fission_layout::{
-    FlexDirection, LayoutEngine, LayoutOp, LayoutPoint, LayoutRect, LayoutSize, LayoutSnapshot, LayoutUnit, TextMeasurer,
+    BoxConstraints, FlexDirection, LayoutEngine, LayoutOp, LayoutPoint, LayoutRect, LayoutSize, LayoutSnapshot, LayoutUnit, TextMeasurer,
 };
 use hit_test::{find_next_focus_node, hit_test, hit_test_with_scroll};
 pub use lowering::{LoweringContext, NodeBuilder};
@@ -50,7 +50,7 @@ pub use registry::{
     PortalLayer, VideoRegistration,
 };
 pub use time::{Clock, CurrentTime};
-pub use ui::{Button, Column, CustomNode, Lower, LowerDyn, Node, Row, Text};
+pub use ui::{Builder, Button, Column, CustomNode, LayoutBuilder, Lower, LowerDyn, Node, Row, Text};
 pub use view::{Selector, View, Widget};
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]

@@ -1,5 +1,5 @@
 use crate::{action::AppState, registry::AnimationPropertyId};
-use fission_layout::LayoutPoint;
+use fission_layout::{LayoutPoint, LayoutSize};
 use fission_i18n::{I18nRegistry, Locale};
 use fission_ir::{NodeId, WidgetNodeId};
 use fission_theme::Theme;
@@ -21,6 +21,7 @@ pub struct Env {
     pub i18n: I18nRegistry,
     pub locale: Locale,
     pub window_insets: WindowInsets,
+    pub viewport_size: LayoutSize,
 }
 
 pub trait Clipboard: Send + Sync {
