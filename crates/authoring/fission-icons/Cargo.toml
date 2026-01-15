@@ -8,6 +8,7 @@ edition = "2021"
 [build-dependencies]
 walkdir = "2.4"
 heck = "0.4" # For case conversion if needed
+serde_json = "1.0"
 
 [features]
 reflection = []

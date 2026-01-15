@@ -24,25 +24,31 @@ impl<S: fission_core::AppState> Widget<S> for Menu {
         let tokens = &view.env.theme.tokens;
         let mut menu_items = Vec::new();
 
+        let item_width = self.width.unwrap_or(200.0);
+
         for item in &self.items {
             let mut row_children = Vec::new();
             if let Some(icon_path) = &item.icon {
                 row_children.push(Icon::svg(icon_path.clone()).size(18.0).into_node());
             }
-            row_children.push(Text::new(item.label.clone()).into_node());
+            row_children.push(Text::new(item.label.clone()).flex_grow(1.0).into_node());
 
             menu_items.push(
                 Button {
                     variant: ButtonVariant::Ghost,
                     content_align: ButtonContentAlign::Start,
                     child: Some(Box::new(
-                        HStack {
-                            spacing: Some(12.0),
-                            children: row_children,
-                        }.into_node()
+                        Container::new(
+                            HStack {
+                                spacing: Some(12.0),
+                                children: row_children,
+                            }.into_node()
+                        )
+                        .flex_grow(1.0)
+                        .into_node()
                     )),
                     on_press: item.on_select.clone(),
-                    width: Some(self.width.unwrap_or(200.0) - 8.0),
+                    width: Some(item_width),
                     ..Default::default()
                 }.into()
             );
@@ -56,6 +62,7 @@ impl<S: fission_core::AppState> Widget<S> for Menu {
         let scrollable_content = Scroll {
             child: Some(Box::new(content)),
             height: self.max_height,
+            width: self.width,
             show_scrollbar: true,
             ..Default::default()
         }.into_node();

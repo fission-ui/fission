@@ -1,4 +1,4 @@
-use fission_core::ui::{Container, Node, Text, Row};
+use fission_core::ui::{Align, Container, Node, Text};
 use fission_core::{BuildCtx, View, Widget};
 use fission_core::op::Color;
 use crate::stack::{HStack, VStack};
@@ -40,19 +40,14 @@ impl<S: fission_core::AppState> Widget<S> for Stepper {
                     children: vec![
                         // Circle
                         Container::new(
-                            fission_core::ui::Row {
-                                align_items: fission_ir::op::AlignItems::Center,
-                                justify_content: fission_ir::op::JustifyContent::Center,
-                                flex_grow: 1.0,
-                                children: vec![
-                                    if is_completed {
-                                        Text::new("✓").color(text_color).into_node()
-                                    } else {
-                                        Text::new(format!("{}", i + 1)).color(text_color).into_node()
-                                    }
-                                ],
-                                ..Default::default()
-                            }.into_node()
+                            Align::new(
+                                if is_completed {
+                                    Text::new("✓").color(text_color).into_node()
+                                } else {
+                                    Text::new(format!("{}", i + 1)).color(text_color).into_node()
+                                }
+                            )
+                            .into_node()
                         )
                         .width(24.0)
                         .height(24.0)

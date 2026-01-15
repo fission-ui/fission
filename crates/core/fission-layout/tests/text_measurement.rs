@@ -118,8 +118,10 @@ fn text_single_line_size_matches_measure() {
     let snapshot = run_layout(&nodes, root_id);
     let text_geom = snapshot.get_node_geometry(text_id).unwrap();
 
-    assert_eq!(text_geom.rect.width(), 50.0);
-    assert_eq!(text_geom.rect.height(), 20.0);
+    assert_eq!(text_geom.content_size.width, 50.0);
+    assert_eq!(text_geom.content_size.height, 20.0);
+    assert!(text_geom.rect.width() >= text_geom.content_size.width);
+    assert!(text_geom.rect.height() >= text_geom.content_size.height);
 }
 
 #[test]

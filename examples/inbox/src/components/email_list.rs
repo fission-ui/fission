@@ -1,5 +1,5 @@
 use fission_core::{BuildCtx, View, Widget, WidgetNodeId, NodeId, Handler};
-use fission_core::ui::{Container, Node, Text, TextContent, Button, ButtonVariant, Scroll, Checkbox, Row};
+use fission_core::ui::{Button, ButtonContentAlign, ButtonVariant, Checkbox, Container, Node, Row, Scroll, Text, TextContent};
 use fission_core::op::Color;
 use fission_widgets::{VStack, HStack, LazyColumn, Tabs, TabItem, TextInput, MenuButton, MenuItem, Badge, Divider, Icon, Skeleton, SegmentedControl, Pagination, EmptyState, Hero, DropDown, Tooltip, Popover, DateRangePicker, RangeSlider, Wrap, Tag, Spinner};
 use crate::model::{InboxState, Folder, SelectTab, UpdateSearch, ToggleFilterDropdown, ToggleEmailSelection, ToggleFlag, SetComposeOpen, Navigate, SetMobileMenuOpen, SetFilterMode, SetPage, SetAdvancedFiltersOpen, SetSortOption, SetHelpPopoverOpen};
@@ -395,7 +395,6 @@ impl Widget<InboxState> for EmailList {
                                         content: TextContent::Literal(email.subject.clone()),
                                         font_size: Some(16.0),
                                         color: Some(subject_color),
-                                        max_width: Some(420.0),
                                         ..Default::default()
                                     }.into()),
                                 }.build(ctx, view),
@@ -403,7 +402,6 @@ impl Widget<InboxState> for EmailList {
                                     content: TextContent::Literal(email.preview.clone()),
                                     font_size: Some(12.0),
                                     color: Some(tokens.colors.text_secondary),
-                                    max_width: Some(420.0),
                                     ..Default::default()
                                 }.into(),
                                 Wrap {
@@ -426,11 +424,13 @@ impl Widget<InboxState> for EmailList {
                     .padding_all(12.0)
                     .bg(if is_selected { tokens.colors.primary.with_alpha(20) } else { tokens.colors.surface })
                     .border(tokens.colors.border, 1.0)
+                    .flex_grow(1.0)
                     .into_node();
 
                 email_nodes.push(
                     Button {
                         variant: ButtonVariant::Ghost,
+                        content_align: ButtonContentAlign::Start,
                         child: Some(Box::new(item)),
                         on_press: Some(ActionEnvelope {
                             id: navigate_id,
@@ -448,8 +448,8 @@ impl Widget<InboxState> for EmailList {
             list_items.push(
                 LazyColumn {
                     id: Some(node_id),
-                    children: email_nodes,
-                    item_height: 140.0,
+                    children: Arc::new(email_nodes),
+                    item_height: 0.0,
                 }.into()
             );
         }

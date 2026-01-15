@@ -1,4 +1,4 @@
-use crate::lowering::{LoweringContext, NodeBuilder};
+use crate::lowering::{LoweringContext, NodeBuilder, wrap_zstack_child};
 use crate::ui::traits::Lower;
 use crate::ui::{Node, Text, TextContent};
 use fission_ir::{LayoutOp, NodeId, Op};
@@ -47,9 +47,16 @@ impl Lower for Overlay {
         let overlay_fill_id = overlay_fill.build(cx);
 
         // Stack container: content first, overlay second.
-        let mut stack = NodeBuilder::new(cx.next_node_id(), Op::Layout(LayoutOp::ZStack));
-        stack.add_child(self.content.lower(cx));
-        stack.add_child(overlay_fill_id);
+        let stack_id = cx.next_node_id();
+        let content_id = self.content.lower(cx);
+        cx.push_scope(stack_id);
+        let content_wrapped = wrap_zstack_child(cx, content_id);
+        let overlay_wrapped = wrap_zstack_child(cx, overlay_fill_id);
+        cx.pop_scope();
+
+        let mut stack = NodeBuilder::new(stack_id, Op::Layout(LayoutOp::ZStack));
+        stack.add_child(content_wrapped);
+        stack.add_child(overlay_wrapped);
         let stack_id = stack.build(cx);
 
         // Ensure the stack fills available space so overlay AbsoluteFill can cover

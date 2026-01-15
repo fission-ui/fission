@@ -52,7 +52,6 @@ impl Text {
     pub fn new(content: impl Into<TextContent>) -> Self {
         Self {
             content: content.into(),
-            flex_shrink: 1.0,
             ..Default::default()
         }
     }

@@ -1,4 +1,4 @@
-use fission_core::ui::{Button, ButtonVariant, Container, Node, Text, TextContent};
+use fission_core::ui::{Button, ButtonContentAlign, ButtonVariant, Container, Node, Text, TextContent};
 use fission_core::{BuildCtx, View, Widget, ActionEnvelope};
 use fission_core::op::Color;
 use crate::stack::{VStack, HStack};
@@ -91,6 +91,7 @@ impl TreeView {
         row_children.push(
             Text::new(item.label.clone())
                 .color(if is_selected { tokens.colors.primary } else { tokens.colors.text_primary })
+                .flex_grow(1.0)
                 .into_node()
         );
 
@@ -102,11 +103,13 @@ impl TreeView {
         )
         .bg(if is_selected { theme.selected_bg } else { fission_core::op::Color { r:0,g:0,b:0,a:0 } })
         .padding_all(4.0)
+        .flex_grow(1.0)
         .into_node();
         
         nodes.push(
             Button {
                 variant: ButtonVariant::Ghost,
+                content_align: ButtonContentAlign::Start,
                 child: Some(Box::new(row_content)),
                 on_press: item.on_select.clone(),
                 ..Default::default()

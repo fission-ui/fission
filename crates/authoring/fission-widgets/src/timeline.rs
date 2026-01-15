@@ -79,6 +79,7 @@ impl<S: fission_core::AppState> Widget<S> for Timeline {
                 }.into_node()
             )
             .padding_all(0.0) // padding-bottom handled by item spacing?
+            .flex_grow(1.0)
             .into_node();
             
             // Item Row

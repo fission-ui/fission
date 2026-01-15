@@ -1,4 +1,4 @@
-use crate::lowering::{LoweringContext, NodeBuilder};
+use crate::lowering::{LoweringContext, NodeBuilder, wrap_zstack_child};
 use crate::ui::traits::Lower;
 use crate::ActionEnvelope;
 use fission_ir::{
@@ -96,9 +96,14 @@ impl Lower for Switch {
             thumb_track.build(cx)
         };
         
+        cx.push_scope(layout_id);
+        let bg_wrapped = wrap_zstack_child(cx, bg_id);
+        let content_wrapped = wrap_zstack_child(cx, content_id);
+        cx.pop_scope();
+
         let mut root = NodeBuilder::new(layout_id, Op::Layout(LayoutOp::ZStack));
-        root.add_child(bg_id);
-        root.add_child(content_id);
+        root.add_child(bg_wrapped);
+        root.add_child(content_wrapped);
         root.build(cx);
 
         cx.pop_scope();
@@ -140,5 +145,4 @@ impl Lower for Switch {
         sem_node.build(cx)
     }
 }
-
 

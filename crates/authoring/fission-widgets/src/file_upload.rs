@@ -36,6 +36,7 @@ impl<S: fission_core::AppState> Widget<S> for FileUpload {
                 
                 Text::new(self.selected_file.clone().unwrap_or("No file selected".into()))
                     .color(if self.selected_file.is_some() { tokens.colors.text_primary } else { tokens.colors.text_secondary })
+                    .flex_grow(1.0)
                     .into_node(),
             ]
         }.into_node()

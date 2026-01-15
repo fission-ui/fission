@@ -3,6 +3,7 @@ use fission_core::ui::{Node, Text, TextContent, Container, Grid, GridItem, Butto
 use fission_core::{BuildCtx, View, Widget, op::{GridTrack, GridPlacement}};
 use fission_widgets::{LazyColumn, VStack};
 use fission_test::TestHarness;
+use std::sync::Arc;
 
 #[derive(Debug, Default, Clone)]
 struct AppState {}
@@ -36,12 +37,12 @@ impl Widget<AppState> for Root {
                 GridItem::new(
                     LazyColumn {
                         id: None,
-                        children: (0..50).map(|i| 
+                        children: Arc::new((0..50).map(|i| 
                             Button { 
                                 child: Some(Box::new(Text { content: TextContent::Literal(format!("Item {}", i)), ..Default::default() }.into())),
                                 ..Default::default()
                             }.into()
-                        ).collect(),
+                        ).collect()),
                         item_height: 40.0,
                     }.into()
                 ).cell(1, 2).into(),

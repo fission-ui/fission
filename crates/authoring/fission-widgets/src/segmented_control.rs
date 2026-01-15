@@ -30,16 +30,20 @@ impl<S: fission_core::AppState> Widget<S> for SegmentedControl {
             let is_selected = i == self.selected_index;
             let cb = self.on_change.clone();
             
+            let button = Button {
+                variant: if is_selected { ButtonVariant::Filled } else { ButtonVariant::Ghost },
+                child: Some(Box::new(Text::new(opt.clone())
+                    .color(if is_selected { theme.active_text } else { tokens.colors.text_primary })
+                    .into_node()
+                )),
+                on_press: cb.map(|f| f(i)),
+                ..Default::default()
+            }.into_node();
+
             children.push(
-                Button {
-                    variant: if is_selected { ButtonVariant::Filled } else { ButtonVariant::Ghost },
-                    child: Some(Box::new(Text::new(opt.clone())
-                        .color(if is_selected { theme.active_text } else { tokens.colors.text_primary })
-                        .into_node()
-                    )),
-                    on_press: cb.map(|f| f(i)),
-                    ..Default::default()
-                }.into_node()
+                Container::new(button)
+                    .flex_grow(1.0)
+                    .into_node()
             );
         }
 

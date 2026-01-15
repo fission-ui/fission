@@ -39,6 +39,7 @@ impl<S: fission_core::AppState> Widget<S> for Toast {
                 Icon::svg(icon_path).color(icon_color).size(20.0).into_node(),
                 Text::new(self.message.clone())
                     .color(tokens.colors.on_surface)
+                    .flex_grow(1.0)
                     .into_node(),
                 Button {
                     variant: ButtonVariant::Ghost,

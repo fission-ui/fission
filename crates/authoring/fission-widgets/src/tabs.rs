@@ -25,26 +25,30 @@ impl<S: fission_core::AppState> Widget<S> for Tabs {
             let is_active = i == self.active_index;
             let color = if is_active { theme.active_color } else { theme.inactive_color };
             
+            let tab_button = VStack {
+                spacing: Some(2.0),
+                children: vec![
+                    Button {
+                        variant: ButtonVariant::Ghost,
+                        child: Some(Box::new(Text::new(item.title.clone()).color(color).into_node())),
+                        on_press: item.on_press.clone(),
+                        ..Default::default()
+                    }.into_node(),
+                    if is_active {
+                        Container::new(fission_core::ui::widgets::spacer::Spacer::default().into_node())
+                            .height(theme.indicator_height)
+                            .bg(theme.active_color)
+                            .into_node()
+                    } else {
+                        fission_core::ui::widgets::spacer::Spacer::default().into_node()
+                    }
+                ]
+            }.into_node();
+
             tab_buttons.push(
-                VStack {
-                    spacing: Some(2.0),
-                    children: vec![
-                        Button {
-                            variant: ButtonVariant::Ghost,
-                            child: Some(Box::new(Text::new(item.title.clone()).color(color).into_node())),
-                            on_press: item.on_press.clone(),
-                            ..Default::default()
-                        }.into_node(),
-                        if is_active {
-                            Container::new(fission_core::ui::widgets::spacer::Spacer::default().into_node())
-                                .height(theme.indicator_height)
-                                .bg(theme.active_color)
-                                .into_node()
-                        } else {
-                            fission_core::ui::widgets::spacer::Spacer::default().into_node()
-                        }
-                    ]
-                }.into_node()
+                Container::new(tab_button)
+                    .flex_grow(1.0)
+                    .into_node()
             );
         }
 

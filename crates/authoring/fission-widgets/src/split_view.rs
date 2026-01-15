@@ -103,12 +103,20 @@ impl<S: fission_core::AppState> Widget<S> for SplitView {
             SplitDirection::Horizontal => {
                 Row {
                     children: vec![first_pane, handle.into_node(), second_pane],
+                    align_items: fission_ir::op::AlignItems::Stretch,
+                    justify_content: fission_ir::op::JustifyContent::Start,
+                    flex_grow: 1.0,
+                    flex_shrink: 1.0,
                     ..Default::default()
                 }.into_node()
             }
             SplitDirection::Vertical => {
                 Column {
                     children: vec![first_pane, handle.into_node(), second_pane],
+                    align_items: fission_ir::op::AlignItems::Stretch,
+                    justify_content: fission_ir::op::JustifyContent::Start,
+                    flex_grow: 1.0,
+                    flex_shrink: 1.0,
                     ..Default::default()
                 }.into_node()
             }

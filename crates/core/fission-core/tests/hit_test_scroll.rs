@@ -27,6 +27,8 @@ fn test_scroll_hit_test_logic() {
             min_height: None,
             max_height: None,
             padding: [0.0; 4],
+            flex_grow: 0.0,
+            flex_shrink: 0.0,
         }),
         vec![column_id],
     );

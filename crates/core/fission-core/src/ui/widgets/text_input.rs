@@ -200,6 +200,8 @@ impl Lower for TextInput {
                 height: None, 
                 min_width: None, max_width: None, min_height: None, max_height: None,
                 padding: [0.0; 4],
+                flex_grow: 1.0,
+                flex_shrink: 1.0,
             })
         );
         scroll.add_child(text_layout_id);

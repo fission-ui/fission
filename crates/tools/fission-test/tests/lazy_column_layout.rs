@@ -4,6 +4,7 @@ use fission_core::{BuildCtx, View, Widget};
 use fission_widgets::LazyColumn;
 use fission_test::TestHarness;
 use fission_layout::LayoutRect;
+use std::sync::Arc;
 
 #[derive(Debug, Default, Clone)]
 struct AppState {}
@@ -28,7 +29,7 @@ impl Widget<AppState> for Root {
         
         LazyColumn {
             id: None,
-            children,
+            children: Arc::new(children),
             item_height: 50.0,
         }.into()
     }

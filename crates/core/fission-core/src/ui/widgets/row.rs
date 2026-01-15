@@ -26,7 +26,7 @@ impl Default for Row {
             flex_shrink: 1.0,
             gap: None,
             wrap: FlexWrap::NoWrap,
-            align_items: AlignItems::Stretch,
+            align_items: AlignItems::Center,
             justify_content: JustifyContent::Start,
         }
     }

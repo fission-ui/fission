@@ -1,3 +1,0 @@
-[submodule "crates/authoring/fission-icons/material-design-icons"]
-	path = crates/authoring/fission-icons/material-design-icons
-	url = https://github.com/worka-ai/material-design-icons.git

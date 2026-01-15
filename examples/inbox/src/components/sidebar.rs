@@ -1,5 +1,5 @@
 use fission_core::{BuildCtx, View, Widget, Handler, WidgetNodeId};
-use fission_core::ui::{Container, Node, Text, Button, ButtonVariant, TextContent};
+use fission_core::ui::{Button, ButtonContentAlign, ButtonVariant, Container, Node, Text, TextContent};
 use fission_core::op::Color;
 use fission_widgets::{VStack, HStack, TreeView, TreeItem, Divider, Icon, Tag, Wrap, ProgressBar, Link};
 use crate::model::{
@@ -129,10 +129,11 @@ impl Widget<InboxState> for Sidebar {
                                 spacing: Some(12.0),
                                 children: vec![
                                     Icon::svg(fission_icons::material::action::language::regular()).size(20.0).into_node(),
-                                    Text::new(t("nav.browser_demo")).into_node(),
+                                    Text::new(t("nav.browser_demo")).flex_grow(1.0).into_node(),
                                 ]
                             }.into_node()
                         )),
+                        content_align: ButtonContentAlign::Start,
                         on_press: Some(ctx.bind(ToggleBrowserDemo(true), (|s: &mut InboxState, a, _| s.show_browser_demo = a.0) as Handler<InboxState, ToggleBrowserDemo>)),
                         ..Default::default()
                     }.into_node(),
@@ -154,6 +155,7 @@ impl Widget<InboxState> for Sidebar {
                     Button {
                         variant: ButtonVariant::Ghost,
                         child: Some(Box::new(Text::new(t("nav.contacts")).into_node())),
+                        content_align: ButtonContentAlign::Start,
                         on_press: Some(ctx.bind(SetContactsOpen(true), (|s: &mut InboxState, a: SetContactsOpen, _| s.show_contacts = a.0) as Handler<InboxState, SetContactsOpen>)),
                         ..Default::default()
                     }.into_node(),
@@ -161,6 +163,7 @@ impl Widget<InboxState> for Sidebar {
                     Button {
                         variant: ButtonVariant::Ghost,
                         child: Some(Box::new(Text::new(t("nav.settings")).into_node())),
+                        content_align: ButtonContentAlign::Start,
                         on_press: Some(ctx.bind(SetSettingsOpen(true), (|s: &mut InboxState, a: SetSettingsOpen, _| s.show_settings = a.0) as Handler<InboxState, SetSettingsOpen>)),
                         ..Default::default()
                     }.into_node(),

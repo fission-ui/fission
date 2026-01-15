@@ -1,4 +1,4 @@
-use crate::lowering::{LoweringContext, NodeBuilder};
+use crate::lowering::{LoweringContext, NodeBuilder, wrap_zstack_child};
 use crate::ui::traits::Lower;
 use crate::ui::Node;
 use fission_ir::{LayoutOp, NodeId, Op};
@@ -29,7 +29,8 @@ impl Lower for ZStack {
         
         let mut builder = NodeBuilder::new(id, Op::Layout(LayoutOp::ZStack));
         for child in &self.children {
-            builder.add_child(child.lower(cx));
+            let child_id = child.lower(cx);
+            builder.add_child(wrap_zstack_child(cx, child_id));
         }
         
         cx.pop_scope();
@@ -37,4 +38,3 @@ impl Lower for ZStack {
         builder.build(cx)
     }
 }
-

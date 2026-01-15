@@ -1,6 +1,9 @@
 use fission_core::action::{Action, ActionEnvelope, AppState};
-use fission_core::ui::{Button, Text, TextContent};
+use fission_core::ui::{Button, ButtonContentAlign, Text, TextContent};
 use fission_core::{Node, Widget, BuildCtx, View};
+use crate::stack::HStack;
+use crate::Icon;
+use fission_icons::material;
 
 #[derive(Default, Clone)]
 pub struct DropDown {
@@ -11,18 +14,32 @@ pub struct DropDown {
 }
 
 impl<S: AppState + 'static> Widget<S> for DropDown {
-    fn build(&self, _ctx: &mut BuildCtx<S>, _view: &View<S>) -> Node {
+    fn build(&self, _ctx: &mut BuildCtx<S>, view: &View<S>) -> Node {
         let button_text = self.selected.as_deref().unwrap_or("Select an option");
+        let tokens = &view.env.theme.tokens;
 
         Button {
             child: Some(Box::new(
-                Text {
-                    content: TextContent::Literal(button_text.into()),
-                    ..Default::default()
+                HStack {
+                    spacing: Some(8.0),
+                    children: vec![
+                        Text {
+                            content: TextContent::Literal(button_text.into()),
+                            color: Some(tokens.colors.text_primary),
+                            flex_grow: 1.0,
+                            ..Default::default()
+                        }
+                        .into(),
+                        Icon::svg(material::navigation::expand_more::regular())
+                            .size(18.0)
+                            .color(tokens.colors.text_secondary)
+                            .into_node(),
+                    ],
                 }
-                .into(),
+                .into_node(),
             )),
             on_press: self.on_toggle.clone(),
+            content_align: ButtonContentAlign::Start,
             ..Default::default()
         }
         .into()

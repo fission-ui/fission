@@ -490,9 +490,22 @@ impl Runtime {
 
         match event {
             InputEvent::Pointer(PointerEvent::Scroll { point, delta }) => {
+                let trace_scroll = std::env::var("FISSION_SCROLL_TRACE")
+                    .ok()
+                    .as_deref()
+                    == Some("1");
+                if trace_scroll {
+                    eprintln!(
+                        "[scroll-trace] event point=({:.1},{:.1}) delta=({:.1},{:.1})",
+                        point.x, point.y, delta.x, delta.y
+                    );
+                }
                 if let Some(hit_node_id) =
                     hit_test_with_scroll(ir, layout, &self.runtime_state.scroll, point)
                 {
+                    if trace_scroll {
+                        eprintln!("[scroll-trace] hit_node={}", hit_node_id.as_u128());
+                    }
                     let mut current_id = Some(hit_node_id);
                     while let Some(node_id) = current_id {
                         if let Some(node) = ir.nodes.get(&node_id) {
@@ -517,6 +530,21 @@ impl Runtime {
                                         (geom.content_size.height - geom.rect.height()).max(0.0)
                                     };
                                     new_offset = new_offset.clamp(0.0, max_offset);
+                                }
+
+                                if trace_scroll {
+                                    eprintln!(
+                                        "[scroll-trace] scroll_node={} axis={} offset={:.1}->{:.1} max={:.1} viewport=({:.1},{:.1}) content=({:.1},{:.1})",
+                                        node_id.as_u128(),
+                                        match direction { FlexDirection::Row => "x", FlexDirection::Column => "y" },
+                                        current_offset,
+                                        new_offset,
+                                        max_offset,
+                                        viewport_w,
+                                        viewport_h,
+                                        content_w,
+                                        content_h
+                                    );
                                 }
 
                                 {
@@ -549,6 +577,8 @@ impl Runtime {
                             break;
                         }
                     }
+                } else if trace_scroll {
+                    eprintln!("[scroll-trace] hit_test: no node");
                 }
             }
             InputEvent::Keyboard(KeyEvent::Down {

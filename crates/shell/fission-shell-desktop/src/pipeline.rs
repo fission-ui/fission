@@ -8,7 +8,7 @@ use fission_core::env::{VideoStateMap, WebStateMap};
 use fission_core::lowering::{build_layout_tree, LoweringContext};
 use fission_core::{LayoutPoint, ScrollStateMap};
 use fission_ir::op::EmbedKind;
-use fission_ir::{CoreIR, NodeId, WidgetNodeId};
+use fission_ir::{CoreIR, CoreNode, NodeId, Op, PaintOp, WidgetNodeId};
 use fission_layout::{LayoutEngine, LayoutRect, LayoutSize, LayoutSnapshot};
 use fission_render::{
     BoxShadow, Color as RenderColor, DisplayList, DisplayOp, Fill, ImageFit, Renderer, Stroke,
@@ -36,6 +36,32 @@ pub struct PipelineStats {
     pub paint_misses: usize,
     pub paint_hits: usize,
     pub video_surfaces: usize,
+}
+
+fn op_affects_layout(op: &Op) -> bool {
+    match op {
+        Op::Layout(_) => true,
+        Op::Structural(_) => true,
+        Op::Paint(PaintOp::DrawText { .. }) => true,
+        Op::Paint(PaintOp::DrawRichText { .. }) => true,
+        _ => false,
+    }
+}
+
+fn is_layout_affecting_change(prev: Option<&CoreNode>, next: Option<&CoreNode>) -> bool {
+    match (prev, next) {
+        (Some(prev), Some(next)) => {
+            if prev.op == next.op {
+                return false;
+            }
+            match (&prev.op, &next.op) {
+                (Op::Paint(PaintOp::DrawText { .. }), Op::Paint(PaintOp::DrawText { .. })) => true,
+                (Op::Paint(PaintOp::DrawRichText { .. }), Op::Paint(PaintOp::DrawRichText { .. })) => true,
+                _ => op_affects_layout(&prev.op) || op_affects_layout(&next.op),
+            }
+        }
+        _ => true,
+    }
 }
 
 impl Pipeline {
@@ -152,128 +178,166 @@ impl Pipeline {
             }
         }
 
-        // Heuristic: if the change set is large, force full rebuild
         let dirty_count = dirty_closure.len();
-        let total_nodes = next_ir.nodes.len();
-        let use_full = dirty_count * 2 > total_nodes;
 
-        let layout_input_nodes = build_layout_tree(&next_ir);
-        diag::emit(
-            diag::DiagCategory::Layout,
-            diag::DiagLevel::Debug,
-            diag::DiagEventKind::LayoutSummary {
-                nodes: layout_input_nodes.len() as u32,
-                dirty_count: dirty_count as u32,
-                full_rebuild: use_full,
-            },
-        );
-        // Invariant validation (fatal in debug/strict)
-        if let Some(root) = next_ir.root {
-            if let Err(e) = validate_layout_invariants(&layout_input_nodes, root) {
-                // Try to dump a snapshot for diagnostics
-                let dump_ref = if let Some(snap) = &self.last_snapshot {
-                    let path = std::env::temp_dir().join("fission_layout_snapshot.json");
-                    if let Ok(mut f) = File::create(&path) {
-                        if let Ok(json) = serde_json::to_string_pretty(snap) {
-                            let bytes = json.into_bytes();
-                            let _ = f.write_all(&bytes);
-                            Some(path.display().to_string())
-                        } else { None }
-                    } else { None }
-                } else { None };
-                diag::emit(
-                    diag::DiagCategory::Invariants,
-                    diag::DiagLevel::Error,
-                    diag::DiagEventKind::InvariantViolation {
-                        kind: "pre_update".into(),
-                        node: None,
-                        details: format!("{}", e),
-                        dump_ref,
-                    },
-                );
-                self.layout_invariant_violation_count += 1;
-                let strict = std::env::var("FISSION_LAYOUT_STRICT").ok().as_deref() == Some("1");
-                if cfg!(debug_assertions) || strict {
-                    panic!("layout invariant violation: {}", e);
-                } else {
-                    // optional diagnostic rebuild
-                    let allow_rebuild = std::env::var("FISSION_ALLOW_FULL_REBUILD").ok().as_deref() == Some("1");
-                    if allow_rebuild {
-                        diag::emit(
-                            diag::DiagCategory::Layout,
-                            diag::DiagLevel::Warn,
-                            diag::DiagEventKind::LayoutSummary {
-                                nodes: layout_input_nodes.len() as u32,
-                                dirty_count: dirty_count as u32,
-                                full_rebuild: true,
-                            },
-                        );
-                        layout_engine.rebuild(&layout_input_nodes)?;
-                        self.layout_full_rebuild_count += 1;
-                    } else {
-                        return Ok(PipelineStats { dirty_nodes: 0, layout_updates: 0, paint_misses: 0, paint_hits: 0, video_surfaces: 0 });
-                    }
+        let mut layout_dirty_base = std::collections::HashSet::new();
+        if let Some(prev) = &self.prev_ir {
+            for id in &dirty_set {
+                if is_layout_affecting_change(prev.nodes.get(id), next_ir.nodes.get(id)) {
+                    layout_dirty_base.insert(*id);
                 }
             }
-        }
-
-        if use_full {
-            let full: std::collections::HashSet<_> = layout_input_nodes.iter().map(|n| n.id).collect();
-            layout_engine.update(&layout_input_nodes, &full);
         } else {
-            layout_engine.update(&layout_input_nodes, &dirty_closure);
+            layout_dirty_base = dirty_set.clone();
         }
-        // End of layout update; nothing to emit here (summary above)
 
-        // Post-update verification
-        if let Some(root) = next_ir.root {
-            if let Err(e) = layout_engine.verify_post_update(&layout_input_nodes, root) {
-                // Try to dump a snapshot for diagnostics
-                let dump_ref = if let Some(snap) = &self.last_snapshot {
-                    let path = std::env::temp_dir().join("fission_layout_snapshot.json");
-                    if let Ok(mut f) = File::create(&path) {
-                        if let Ok(json) = serde_json::to_string_pretty(snap) {
-                            let bytes = json.into_bytes();
-                            let _ = f.write_all(&bytes);
-                            Some(path.display().to_string())
-                        } else { None }
-                    } else { None }
-                } else { None };
-                diag::emit(
-                    diag::DiagCategory::Invariants,
-                    diag::DiagLevel::Error,
-                    diag::DiagEventKind::InvariantViolation { kind: "post_update".into(), node: None, details: format!("{}", e), dump_ref },
-                );
-                self.layout_invariant_violation_count += 1;
-                let strict = std::env::var("FISSION_LAYOUT_STRICT").ok().as_deref() == Some("1");
-                if cfg!(debug_assertions) || strict {
-                    panic!("layout post-update verification failed: {}", e);
-                } else {
-                    let allow_rebuild = std::env::var("FISSION_ALLOW_FULL_REBUILD").ok().as_deref() == Some("1");
-                    if allow_rebuild {
-                        diag::emit(
-                            diag::DiagCategory::Layout,
-                            diag::DiagLevel::Warn,
-                            diag::DiagEventKind::LayoutSummary { nodes: layout_input_nodes.len() as u32, dirty_count: dirty_count as u32, full_rebuild: true },
-                        );
-                        layout_engine.rebuild(&layout_input_nodes)?;
-                        self.layout_full_rebuild_count += 1;
-                    } else {
-                        return Ok(PipelineStats { dirty_nodes: 0, layout_updates: 0, paint_misses: 0, paint_hits: 0, video_surfaces: 0 });
+        let mut layout_dirty_with_ancestors = layout_dirty_base.clone();
+        for id in &layout_dirty_base {
+            let mut cur = next_ir.nodes.get(id).and_then(|n| n.parent);
+            while let Some(p) = cur {
+                if !layout_dirty_with_ancestors.insert(p) { break; }
+                cur = next_ir.nodes.get(&p).and_then(|n| n.parent);
+            }
+        }
+
+        let mut layout_dirty_closure = layout_dirty_with_ancestors.clone();
+        let mut layout_stack: Vec<_> = layout_dirty_with_ancestors.iter().cloned().collect();
+        while let Some(id) = layout_stack.pop() {
+            if let Some(n) = next_ir.nodes.get(&id) {
+                for &child in &n.children {
+                    if layout_dirty_closure.insert(child) {
+                        layout_stack.push(child);
                     }
                 }
             }
         }
+
+        let layout_dirty_count = layout_dirty_closure.len();
+        let total_nodes = next_ir.nodes.len();
+        let use_full = layout_dirty_count * 2 > total_nodes;
 
         let root_id = next_ir.root.unwrap();
-        // compute_layout
-        let snapshot = layout_engine.compute_layout(
-            &layout_input_nodes, 
-            root_id, 
-            viewport,
-            &|id| scroll_map.get_offset(id)
-        )?;
-        // done
+        let needs_layout = self.last_snapshot.is_none() || !layout_dirty_closure.is_empty();
+
+        if needs_layout {
+            let layout_input_nodes = build_layout_tree(&next_ir);
+            diag::emit(
+                diag::DiagCategory::Layout,
+                diag::DiagLevel::Debug,
+                diag::DiagEventKind::LayoutSummary {
+                    nodes: layout_input_nodes.len() as u32,
+                    dirty_count: layout_dirty_count as u32,
+                    full_rebuild: use_full,
+                },
+            );
+            // Invariant validation (fatal in debug/strict)
+            if let Some(root) = next_ir.root {
+                if let Err(e) = validate_layout_invariants(&layout_input_nodes, root) {
+                    // Try to dump a snapshot for diagnostics
+                    let dump_ref = if let Some(snap) = &self.last_snapshot {
+                        let path = std::env::temp_dir().join("fission_layout_snapshot.json");
+                        if let Ok(mut f) = File::create(&path) {
+                            if let Ok(json) = serde_json::to_string_pretty(snap) {
+                                let bytes = json.into_bytes();
+                                let _ = f.write_all(&bytes);
+                                Some(path.display().to_string())
+                            } else { None }
+                        } else { None }
+                    } else { None };
+                    diag::emit(
+                        diag::DiagCategory::Invariants,
+                        diag::DiagLevel::Error,
+                        diag::DiagEventKind::InvariantViolation {
+                            kind: "pre_update".into(),
+                            node: None,
+                            details: format!("{}", e),
+                            dump_ref,
+                        },
+                    );
+                    self.layout_invariant_violation_count += 1;
+                    let strict = std::env::var("FISSION_LAYOUT_STRICT").ok().as_deref() == Some("1");
+                    if cfg!(debug_assertions) || strict {
+                        panic!("layout invariant violation: {}", e);
+                    } else {
+                        // optional diagnostic rebuild
+                        let allow_rebuild = std::env::var("FISSION_ALLOW_FULL_REBUILD").ok().as_deref() == Some("1");
+                        if allow_rebuild {
+                            diag::emit(
+                                diag::DiagCategory::Layout,
+                                diag::DiagLevel::Warn,
+                                diag::DiagEventKind::LayoutSummary {
+                                    nodes: layout_input_nodes.len() as u32,
+                                    dirty_count: layout_dirty_count as u32,
+                                    full_rebuild: true,
+                                },
+                            );
+                            layout_engine.rebuild(&layout_input_nodes)?;
+                            self.layout_full_rebuild_count += 1;
+                        } else {
+                            return Ok(PipelineStats { dirty_nodes: 0, layout_updates: 0, paint_misses: 0, paint_hits: 0, video_surfaces: 0 });
+                        }
+                    }
+                }
+            }
+
+            if use_full {
+                let full: std::collections::HashSet<_> = layout_input_nodes.iter().map(|n| n.id).collect();
+                layout_engine.update(&layout_input_nodes, &full);
+            } else {
+                layout_engine.update(&layout_input_nodes, &layout_dirty_closure);
+            }
+            // End of layout update; nothing to emit here (summary above)
+
+            // Post-update verification
+            if let Some(root) = next_ir.root {
+                if let Err(e) = layout_engine.verify_post_update(&layout_input_nodes, root) {
+                    // Try to dump a snapshot for diagnostics
+                    let dump_ref = if let Some(snap) = &self.last_snapshot {
+                        let path = std::env::temp_dir().join("fission_layout_snapshot.json");
+                        if let Ok(mut f) = File::create(&path) {
+                            if let Ok(json) = serde_json::to_string_pretty(snap) {
+                                let bytes = json.into_bytes();
+                                let _ = f.write_all(&bytes);
+                                Some(path.display().to_string())
+                            } else { None }
+                        } else { None }
+                    } else { None };
+                    diag::emit(
+                        diag::DiagCategory::Invariants,
+                        diag::DiagLevel::Error,
+                        diag::DiagEventKind::InvariantViolation { kind: "post_update".into(), node: None, details: format!("{}", e), dump_ref },
+                    );
+                    self.layout_invariant_violation_count += 1;
+                    let strict = std::env::var("FISSION_LAYOUT_STRICT").ok().as_deref() == Some("1");
+                    if cfg!(debug_assertions) || strict {
+                        panic!("layout post-update verification failed: {}", e);
+                    } else {
+                        let allow_rebuild = std::env::var("FISSION_ALLOW_FULL_REBUILD").ok().as_deref() == Some("1");
+                        if allow_rebuild {
+                            diag::emit(
+                                diag::DiagCategory::Layout,
+                                diag::DiagLevel::Warn,
+                                diag::DiagEventKind::LayoutSummary { nodes: layout_input_nodes.len() as u32, dirty_count: layout_dirty_count as u32, full_rebuild: true },
+                            );
+                            layout_engine.rebuild(&layout_input_nodes)?;
+                            self.layout_full_rebuild_count += 1;
+                        } else {
+                            return Ok(PipelineStats { dirty_nodes: 0, layout_updates: 0, paint_misses: 0, paint_hits: 0, video_surfaces: 0 });
+                        }
+                    }
+                }
+            }
+
+            let snapshot = layout_engine.compute_layout(
+                &layout_input_nodes, 
+                root_id, 
+                viewport,
+                &|id| scroll_map.get_offset(id)
+            )?;
+            self.last_snapshot = Some(snapshot);
+        }
+
+        let snapshot = self.last_snapshot.clone().expect("layout snapshot missing");
 
         let mut display_list =
             DisplayList::new(LayoutRect::new(0.0, 0.0, viewport.width, viewport.height));
@@ -306,14 +370,13 @@ impl Pipeline {
         renderer.render(&display_list)?;
 
         let video_surface_count = self.video_surfaces.len();
-        self.last_snapshot = Some(snapshot);
         self.paint_cache
             .retain(|k, _| next_ir.nodes.contains_key(k));
         self.prev_ir = Some(next_ir);
 
         Ok(PipelineStats {
             dirty_nodes: dirty_count,
-            layout_updates: dirty_count,
+            layout_updates: layout_dirty_count,
             paint_misses,
             paint_hits,
             video_surfaces: video_surface_count,
@@ -441,7 +504,7 @@ impl Pipeline {
             *miss_count += 1;
             let mut segment = Vec::new();
 
-            let mut pushed_clip = false;
+            let mut pushed_state = false;
             let mut child_offset = accumulated_offset;
 
             match &node.op {
@@ -474,7 +537,21 @@ impl Pipeline {
                             },
                         );
                     }
-                    pushed_clip = true;
+                    pushed_state = true;
+                }
+                fission_ir::Op::Layout(fission_ir::LayoutOp::Clip { path }) => {
+                    segment.push(DisplayOp::Save);
+                    if let Some(radius) = parse_clip_radius(path).filter(|r| *r > 0.0) {
+                        segment.push(DisplayOp::ClipRoundedRect { rect: geom.rect, radius });
+                    } else {
+                        segment.push(DisplayOp::ClipRect(geom.rect));
+                    }
+                    pushed_state = true;
+                }
+                fission_ir::Op::Layout(fission_ir::LayoutOp::Transform { transform }) => {
+                    segment.push(DisplayOp::Save);
+                    segment.push(DisplayOp::Transform(*transform));
+                    pushed_state = true;
                 }
                 fission_ir::Op::Paint(fission_ir::PaintOp::DrawRect {
                     fill,
@@ -734,7 +811,7 @@ impl Pipeline {
 
             segment.extend(temp_dl.ops);
 
-            if pushed_clip {
+            if pushed_state {
                 segment.push(DisplayOp::Restore);
 
                 if let fission_ir::Op::Layout(fission_ir::LayoutOp::Scroll {
@@ -941,6 +1018,32 @@ fn translate_rect(rect: LayoutRect, offset: LayoutPoint) -> LayoutRect {
     LayoutRect {
         origin: LayoutPoint::new(rect.origin.x + offset.x, rect.origin.y + offset.y),
         size: rect.size,
+    }
+}
+
+fn parse_clip_radius(path: &Option<String>) -> Option<f32> {
+    let path = path.as_ref()?;
+    let lower = path.to_ascii_lowercase();
+    let round_idx = lower.find("round")?;
+    let after = &lower[round_idx + "round".len()..];
+    parse_first_number(after)
+}
+
+fn parse_first_number(input: &str) -> Option<f32> {
+    let mut buf = String::new();
+    let mut started = false;
+    for c in input.chars() {
+        if c.is_ascii_digit() || c == '.' || (c == '-' && !started) {
+            buf.push(c);
+            started = true;
+        } else if started {
+            break;
+        }
+    }
+    if buf.is_empty() {
+        None
+    } else {
+        buf.parse::<f32>().ok()
     }
 }
 

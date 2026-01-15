@@ -624,6 +624,16 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                         };
                                         
                                         let event = InputEvent::Pointer(PointerEvent::Scroll { point, delta: scroll_delta });
+                                        if std::env::var("FISSION_SCROLL_TRACE").ok().as_deref() == Some("1") {
+                                            eprintln!(
+                                                "[scroll-trace] mousewheel raw={:?} point=({:.1},{:.1}) delta=({:.1},{:.1})",
+                                                delta,
+                                                point.x,
+                                                point.y,
+                                                scroll_delta.x,
+                                                scroll_delta.y
+                                            );
+                                        }
                                         if let Err(e) = runtime.handle_input(event, ir, layout) {
                                             eprintln!("Scroll error: {:?}", e);
                                         }

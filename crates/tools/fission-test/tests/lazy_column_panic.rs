@@ -3,6 +3,7 @@ use fission_core::ui::{Node, Text, TextContent};
 use fission_core::{BuildCtx, View, Widget};
 use fission_widgets::LazyColumn;
 use fission_test::TestHarness;
+use std::sync::Arc;
 
 #[derive(Debug, Default, Clone)]
 struct AppState {}
@@ -21,7 +22,7 @@ impl Widget<AppState> for Root {
         
         LazyColumn {
             id: None,
-            children,
+            children: Arc::new(children),
             item_height: 20.0,
         }.into()
     }

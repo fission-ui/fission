@@ -46,6 +46,8 @@ fn scroll_children_stretch_cross_axis() {
             min_height: None,
             max_height: None,
             padding: [0.0; 4],
+            flex_grow: 0.0,
+            flex_shrink: 0.0,
         },
         children_ids: vec![child_id],
         debug_name: "scroll".into(),

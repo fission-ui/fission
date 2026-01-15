@@ -58,7 +58,7 @@ impl<S: fission_core::AppState> Widget<S> for Select {
                     .color(label_color)
                     .into_node(),
                 // Spacer to push chevron to the right
-                fission_core::ui::widgets::spacer::Spacer::default().into_node(),
+                fission_core::ui::widgets::spacer::Spacer { flex_grow: 1.0, ..Default::default() }.into_node(),
                 Icon::svg(material::navigation::expand_more::regular())
                     .size(20.0)
                     .color(tokens.colors.text_secondary)

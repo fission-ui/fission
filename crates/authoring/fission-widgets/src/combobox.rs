@@ -48,7 +48,7 @@ impl<S: fission_core::AppState> Widget<S> for Combobox {
                 list_items.push(
                     Button {
                         variant: ButtonVariant::Ghost,
-                        child: Some(Box::new(Text::new(item.clone()).into_node())),
+                        child: Some(Box::new(Text::new(item.clone()).flex_grow(1.0).into_node())),
                         on_press: cb.map(|f| f(val)),
                         width: Some(200.0), // Fixed width or match anchor?
                         // Match anchor requires LayoutReadback or Flex behavior.

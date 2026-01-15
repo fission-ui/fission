@@ -1,5 +1,6 @@
 use fission_core::ui::Node;
 use fission_core::{BuildCtx, View, Widget, NodeBuilder, LowerDyn, LoweringContext, ActionEnvelope};
+use fission_core::lowering::wrap_zstack_child;
 use fission_ir::{LayoutOp, Op, NodeId, PaintOp, FlexDirection, op::{Fill, Stroke}};
 use serde::{Deserialize, Serialize};
 
@@ -162,9 +163,15 @@ impl LowerDyn for RangeSliderLowerer {
         
         let thumb_layer = grid.build(cx);
 
-        let mut zstack = NodeBuilder::new(cx.next_node_id(), Op::Layout(LayoutOp::ZStack));
-        zstack.add_child(track_layer);
-        zstack.add_child(thumb_layer);
+        let zstack_id = cx.next_node_id();
+        cx.push_scope(zstack_id);
+        let track_wrapped = wrap_zstack_child(cx, track_layer);
+        let thumb_wrapped = wrap_zstack_child(cx, thumb_layer);
+        cx.pop_scope();
+
+        let mut zstack = NodeBuilder::new(zstack_id, Op::Layout(LayoutOp::ZStack));
+        zstack.add_child(track_wrapped);
+        zstack.add_child(thumb_wrapped);
         
         cx.pop_scope();
         zstack.build(cx)

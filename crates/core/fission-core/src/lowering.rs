@@ -1,7 +1,7 @@
 use crate::env::{Env, RuntimeState};
 use blake3;
 use fission_diagnostics::prelude as diag;
-use fission_ir::{CoreIR, FlexDirection, LayoutOp, NodeId, Op, PaintOp, WidgetNodeId};
+use fission_ir::{CoreIR, FlexDirection, GridPlacement, LayoutOp, NodeId, Op, PaintOp, WidgetNodeId};
 use fission_ir::op::{TextRun, TextStyle};
 use fission_layout::{LayoutInputNode, LayoutPoint, LayoutSize, LayoutUnit, TextMeasurer};
 use serde_json;
@@ -118,6 +118,20 @@ impl NodeBuilder {
         cx.insert_node(self.node_id, self.op, self.children);
         self.node_id
     }
+}
+
+pub fn wrap_zstack_child(cx: &mut LoweringContext, child_id: NodeId) -> NodeId {
+    let mut item = NodeBuilder::new(
+        cx.next_node_id(),
+        Op::Layout(LayoutOp::GridItem {
+            row_start: GridPlacement::Line(1),
+            row_end: GridPlacement::Auto,
+            col_start: GridPlacement::Line(1),
+            col_end: GridPlacement::Auto,
+        }),
+    );
+    item.add_child(child_id);
+    item.build(cx)
 }
 
 pub fn build_layout_tree(ir: &CoreIR) -> Vec<LayoutInputNode> {
@@ -242,6 +256,8 @@ pub fn build_layout_tree(ir: &CoreIR) -> Vec<LayoutInputNode> {
                 min_height,
                 max_height,
                 padding,
+                flex_grow,
+                flex_shrink,
             }) => (
                 LayoutOp::Scroll {
                     direction: *direction,
@@ -253,11 +269,13 @@ pub fn build_layout_tree(ir: &CoreIR) -> Vec<LayoutInputNode> {
                     min_height: *min_height,
                     max_height: *max_height,
                     padding: *padding,
+                    flex_grow: *flex_grow,
+                    flex_shrink: *flex_shrink,
                 },
                 *width,
                 *height,
-                0.0,
-                0.0,
+                *flex_grow,
+                *flex_shrink,
             ),
             Op::Layout(LayoutOp::Embed { kind, widget_id, width, height }) => (
                 LayoutOp::Embed {

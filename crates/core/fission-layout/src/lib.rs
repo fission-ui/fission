@@ -169,6 +169,8 @@ pub struct LayoutEngine {
     prev_parent: HashMap<NodeId, Option<NodeId>>,
 }
 
+const UNBOUNDED_WRAP_WIDTH: f32 = 100_000.0;
+
 impl LayoutEngine {
     fn get_visual_absolute_location(
         &self,
@@ -302,12 +304,14 @@ impl LayoutEngine {
                             // Taffy may call the measurer with `MaxContent` during intrinsic
                             // sizing and later resolve a definite width. Prefer `known_dims`
                             // when present so we reflow/wrap to the resolved width.
-                            let avail_width = known_dims.width.or_else(|| match available_space.width {
-                                AvailableSpace::Definite(w) => Some(w),
-                                AvailableSpace::MaxContent => None,
-                                // MinContent is not a reliable width for wrapping. Treat as unconstrained to
-                                // avoid forcing pathological wraps (e.g. word-by-word).
-                                AvailableSpace::MinContent => None,
+                            let known_width = known_dims.width.filter(|w| *w > 0.0);
+                            let avail_width = known_width.or_else(|| match available_space.width {
+                                AvailableSpace::Definite(w) if w > 0.0 => Some(w),
+                                AvailableSpace::Definite(_) => None,
+                                AvailableSpace::MaxContent => Some(UNBOUNDED_WRAP_WIDTH),
+                                // Treat MinContent as unbounded to avoid word-by-word wrapping
+                                // when text isn't explicitly constrained by a definite width.
+                                AvailableSpace::MinContent => Some(UNBOUNDED_WRAP_WIDTH),
                             }).or(max_width);
                             let (w, h) = measurer.measure_rich_text(&runs, avail_width);
                             taffy::geometry::Size { width: w, height: h }
@@ -384,17 +388,24 @@ impl LayoutEngine {
             if let Some(runs) = &n.rich_text {
                 let runs: Vec<TextRun> = runs.clone();
                 let measurer_ref = self.measurer.clone();
+                let max_width = match &n.op {
+                    LayoutOp::Box { max_width, .. } => *max_width,
+                    LayoutOp::Scroll { max_width, .. } => *max_width,
+                    _ => None,
+                };
                 self.taffy.set_measure(
                     t_id,
                     Some(taffy::node::MeasureFunc::Boxed(Box::new(move |known_dims, available_space| {
                         let measurer = measurer_ref.as_ref().expect("Measurer not set for rich text");
-                        let avail_width = known_dims.width.or_else(|| match available_space.width {
-                            AvailableSpace::Definite(w) => Some(w),
-                            AvailableSpace::MaxContent => None,
-                            // MinContent is not a reliable width for wrapping. Treat as unconstrained to
-                            // avoid forcing pathological wraps (e.g. word-by-word).
-                            AvailableSpace::MinContent => None,
-                        });
+                        let known_width = known_dims.width.filter(|w| *w > 0.0);
+                        let avail_width = known_width.or_else(|| match available_space.width {
+                            AvailableSpace::Definite(w) if w > 0.0 => Some(w),
+                            AvailableSpace::Definite(_) => None,
+                            AvailableSpace::MaxContent => Some(UNBOUNDED_WRAP_WIDTH),
+                            // Treat MinContent as unbounded to avoid word-by-word wrapping
+                            // when text isn't explicitly constrained by a definite width.
+                            AvailableSpace::MinContent => Some(UNBOUNDED_WRAP_WIDTH),
+                        }).or(max_width);
                         let (w, h) = measurer.measure_rich_text(&runs, avail_width);
                         taffy::geometry::Size { width: w, height: h }
                     }))),
@@ -461,6 +472,13 @@ impl LayoutEngine {
         let mut style = Style::default();
         style.flex_grow = node.flex_grow;
         style.flex_shrink = node.flex_shrink;
+        // Default to allowing flex items to shrink below content size.
+        // This prevents scroll containers (and their ancestors) from expanding
+        // to content height, which disables overflow scrolling.
+        style.min_size = taffy::geometry::Size {
+            width: Dimension::Points(0.0),
+            height: Dimension::Points(0.0),
+        };
 
         match &node.op {
             LayoutOp::Box {
@@ -490,17 +508,16 @@ impl LayoutEngine {
                     height: height.map(Dimension::Points).unwrap_or(Dimension::Auto),
                 };
                 style.min_size = taffy::geometry::Size {
-                    width: min_width.map(Dimension::Points).unwrap_or(Dimension::Auto),
-                    height: min_height.map(Dimension::Points).unwrap_or(Dimension::Auto),
+                    // Allow scroll containers to shrink within flex parents so
+                    // overflow can occur (flexbox min-size defaults can clamp
+                    // to content height, preventing scroll).
+                    width: min_width.map(Dimension::Points).unwrap_or(Dimension::Points(0.0)),
+                    height: min_height.map(Dimension::Points).unwrap_or(Dimension::Points(0.0)),
                 };
                 style.max_size = taffy::geometry::Size {
                     width: max_width.map(Dimension::Points).unwrap_or(Dimension::Auto),
                     height: max_height.map(Dimension::Points).unwrap_or(Dimension::Auto),
                 };
-                if node.rich_text.is_some() {
-                    // Text nodes should keep intrinsic width instead of stretching to the parent.
-                    style.align_self = Some(AlignSelf::FlexStart);
-                }
             }
             LayoutOp::Flex {
                 direction, wrap, padding, gap, align_items, justify_content, ..
@@ -558,10 +575,23 @@ impl LayoutEngine {
                 min_height,
                 max_height,
                 padding,
+                flex_grow,
+                flex_shrink,
             } => {
                 style.display = Display::Flex;
                 style.align_items = Some(AlignItems::Stretch);
                 style.justify_content = Some(JustifyContent::Start);
+                style.flex_grow = *flex_grow;
+                style.flex_shrink = *flex_shrink;
+                let main_axis_auto = match direction {
+                    IrFlexDirection::Row => width.is_none(),
+                    IrFlexDirection::Column => height.is_none(),
+                };
+                if *flex_grow > 0.0 && main_axis_auto {
+                    // Match flex: 1 behavior (flex-basis: 0) so scroll containers
+                    // can shrink to the available space instead of sizing to content.
+                    style.flex_basis = Dimension::Points(0.0);
+                }
                 style.flex_direction = match direction {
                     IrFlexDirection::Row => taffy::style::FlexDirection::Row,
                     IrFlexDirection::Column => taffy::style::FlexDirection::Column,
@@ -577,8 +607,8 @@ impl LayoutEngine {
                     height: height.map(Dimension::Points).unwrap_or(Dimension::Auto),
                 };
                 style.min_size = taffy::geometry::Size {
-                    width: min_width.map(Dimension::Points).unwrap_or(Dimension::Auto),
-                    height: min_height.map(Dimension::Points).unwrap_or(Dimension::Auto),
+                    width: min_width.map(Dimension::Points).unwrap_or(Dimension::Points(0.0)),
+                    height: min_height.map(Dimension::Points).unwrap_or(Dimension::Points(0.0)),
                 };
                 style.max_size = taffy::geometry::Size {
                     width: max_width.map(Dimension::Points).unwrap_or(Dimension::Auto),
@@ -604,8 +634,8 @@ impl LayoutEngine {
                         max: MaxTrackSizingFunction::Fixed(LengthPercentage::Points(*p)),
                     }),
                     GridTrack::Percent(p) => TrackSizingFunction::Single(MinMax {
-                        min: MinTrackSizingFunction::Fixed(LengthPercentage::Percent(*p)),
-                        max: MaxTrackSizingFunction::Fixed(LengthPercentage::Percent(*p)),
+                        min: MinTrackSizingFunction::Fixed(LengthPercentage::Percent(*p / 100.0)),
+                        max: MaxTrackSizingFunction::Fixed(LengthPercentage::Percent(*p / 100.0)),
                     }),
                     GridTrack::Fr(f) => TrackSizingFunction::Single(MinMax { 
                         min: MinTrackSizingFunction::Auto, 
@@ -631,8 +661,8 @@ impl LayoutEngine {
                         max: MaxTrackSizingFunction::Fixed(LengthPercentage::Points(*p)),
                     }),
                     GridTrack::Percent(p) => TrackSizingFunction::Single(MinMax {
-                        min: MinTrackSizingFunction::Fixed(LengthPercentage::Percent(*p)),
-                        max: MaxTrackSizingFunction::Fixed(LengthPercentage::Percent(*p)),
+                        min: MinTrackSizingFunction::Fixed(LengthPercentage::Percent(*p / 100.0)),
+                        max: MaxTrackSizingFunction::Fixed(LengthPercentage::Percent(*p / 100.0)),
                     }),
                     GridTrack::Fr(f) => TrackSizingFunction::Single(MinMax { 
                         min: MinTrackSizingFunction::Auto, 
@@ -675,7 +705,15 @@ impl LayoutEngine {
                 };
             }
             LayoutOp::ZStack => {
-                style.display = Display::Flex;
+                style.display = Display::Grid;
+                style.grid_template_columns = vec![TrackSizingFunction::Single(MinMax {
+                    min: MinTrackSizingFunction::Auto,
+                    max: MaxTrackSizingFunction::Fraction(1.0),
+                })];
+                style.grid_template_rows = vec![TrackSizingFunction::Single(MinMax {
+                    min: MinTrackSizingFunction::Auto,
+                    max: MaxTrackSizingFunction::Fraction(1.0),
+                })];
                 // Ensure absolutely-positioned overlay children (e.g., AbsoluteFill)
                 // are positioned relative to this stack, not some outer container.
                 style.position = Position::Relative;
@@ -732,6 +770,7 @@ impl LayoutEngine {
             }
             LayoutOp::Align => {
                 style.display = Display::Flex;
+                style.flex_direction = taffy::style::FlexDirection::Column;
                 style.align_items = Some(AlignItems::Center);
                 style.justify_content = Some(JustifyContent::Center);
                 // Align containers are generally used to center within available space;
@@ -770,6 +809,18 @@ impl LayoutEngine {
             input_nodes.iter().map(|n| (n.id, n)).collect();
 
         if let Some(root_taffy_id) = self.taffy_map.get(&root_node_id) {
+            // Ensure the root node is constrained to the viewport. Without this,
+            // auto-sized roots can expand to content height, defeating scroll overflow.
+            {
+                let mut root_style = self.taffy.style(*root_taffy_id)?.clone();
+                if matches!(root_style.size.width, Dimension::Auto) {
+                    root_style.size.width = Dimension::Points(viewport_size.width);
+                }
+                if matches!(root_style.size.height, Dimension::Auto) {
+                    root_style.size.height = Dimension::Points(viewport_size.height);
+                }
+                self.taffy.set_style(*root_taffy_id, root_style)?;
+            }
             // First layout pass
             self.taffy
                 .compute_layout(
@@ -911,6 +962,10 @@ impl LayoutEngine {
             // Emit scroll extent diagnostics for all scroll nodes (to analyze overflow issues)
             {
                 use fission_diagnostics::prelude as diag;
+                let trace_scroll = std::env::var("FISSION_SCROLL_TRACE")
+                    .ok()
+                    .as_deref()
+                    == Some("1");
                 for n in input_nodes {
                     if let LayoutOp::Scroll { .. } = n.op {
                         if let Some(g) = snapshot.nodes.get(&n.id) {
@@ -926,6 +981,16 @@ impl LayoutEngine {
                                     note: None,
                                 },
                             );
+                            if trace_scroll {
+                                eprintln!(
+                                    "[scroll-trace] node={} viewport=({:.1},{:.1}) content=({:.1},{:.1})",
+                                    n.id.as_u128(),
+                                    g.rect.width(),
+                                    g.rect.height(),
+                                    g.content_size.width,
+                                    g.content_size.height
+                                );
+                            }
                         }
                     }
                 }
@@ -1084,8 +1149,13 @@ impl LayoutEngine {
             if let Some(measurer) = &self.measurer {
                 let avail_w = if width > 0.0 { Some(width) } else { None };
                 let (mw, mh) = measurer.measure_rich_text(&runs, avail_w);
-                content_w = content_w.max(mw);
-                content_h = content_h.max(mh);
+                if node.children_ids.is_empty() {
+                    content_w = mw;
+                    content_h = mh;
+                } else {
+                    content_w = content_w.max(mw);
+                    content_h = content_h.max(mh);
+                }
             }
         }
 

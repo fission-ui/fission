@@ -1,7 +1,7 @@
 use std::env;
 use std::fs;
-use std::path::Path;
-use std::collections::{HashMap, BTreeMap};
+use std::path::{Path, PathBuf};
+use std::collections::BTreeMap;
 use walkdir::WalkDir;
 use heck::ToSnakeCase;
 
@@ -11,60 +11,51 @@ type IconMap = BTreeMap<String, BTreeMap<String, BTreeMap<String, String>>>;
 fn main() {
     let out_dir = env::var("OUT_DIR").unwrap();
     let dest_path = Path::new(&out_dir).join("material_icons.rs");
+    println!("cargo:rerun-if-env-changed=FISSION_MATERIAL_ICONS_DIR");
     
-    // Path to the submodule source
     // CARGO_MANIFEST_DIR points to crates/authoring/fission-icons
     let manifest_dir = env::var("CARGO_MANIFEST_DIR").unwrap();
-    let src_root = Path::new(&manifest_dir).join("material-design-icons/src");
-    
-    if !src_root.exists() {
-        println!("cargo:warning=Material Icons submodule not found at {:?}. Skipping generation.", src_root);
-        fs::write(&dest_path, "// Material Icons not found").unwrap();
-        return;
-    }
+    let manifest_dir = Path::new(&manifest_dir);
+    let submodule_root = manifest_dir.join("material-design-icons/src");
+    let vendor_root = manifest_dir.join("material-icons-vendor");
+    let vendor_index = vendor_root.join("index.json");
+    let vendor_src = vendor_root.join("src");
 
-    // Tell cargo to rerun if the directory changes (though it's huge, maybe just check if it exists?)
-    println!("cargo:rerun-if-changed=material-design-icons/src");
+    let override_root = env::var("FISSION_MATERIAL_ICONS_DIR")
+        .ok()
+        .map(PathBuf::from)
+        .filter(|p| p.exists());
 
-    let mut icons: IconMap = BTreeMap::new();
-
-    for entry in WalkDir::new(&src_root).min_depth(3).max_depth(3).into_iter().filter_map(|e| e.ok()) {
-        if !entry.file_type().is_dir() { continue; } 
-        
-        // entry is .../category/icon_name/variant
-        let variant_path = entry.path();
-        let icon_name_path = variant_path.parent().unwrap();
-        let category_path = icon_name_path.parent().unwrap();
-
-        let variant_str = variant_path.file_name().unwrap().to_string_lossy();
-        let icon_name = icon_name_path.file_name().unwrap().to_string_lossy().to_string();
-        let category = category_path.file_name().unwrap().to_string_lossy().to_string();
-
-        let svg_path_24 = variant_path.join("24px.svg");
-        
-        if svg_path_24.exists() {
-            // Map folder names to rust identifiers
-            let variant_key = match variant_str.as_ref() {
-                "materialicons" => "regular",
-                "materialiconsoutlined" => "outlined",
-                "materialiconsround" => "round",
-                "materialiconssharp" => "sharp",
-                "materialiconstwotone" => "two_tone",
-                _ => continue, // Skip unknown variants
-            };
-
-            // Calculate path relative to CARGO_MANIFEST_DIR for include_str!
-            // We want "material-design-icons/src/"
-            let rel_path = svg_path_24.strip_prefix(&manifest_dir).unwrap();
-            let rel_path_str = rel_path.to_string_lossy().to_string();
-
-            icons.entry(category)
-                .or_default()
-                .entry(icon_name)
-                .or_default()
-                .insert(variant_key.to_string(), rel_path_str);
+    let icons = if let Some(root) = override_root {
+        println!("cargo:rerun-if-changed={}", root.display());
+        scan_icons_root(&root, manifest_dir)
+    } else if vendor_index.exists() {
+        println!("cargo:rerun-if-changed=material-icons-vendor/index.json");
+        match load_icons_index(&vendor_index) {
+            Ok(map) => map,
+            Err(err) => {
+                println!("cargo:warning=Failed to parse {:?}: {}", vendor_index, err);
+                fs::write(&dest_path, "// Material Icons not found\n").unwrap();
+                return;
+            }
         }
-    }
+    } else {
+        let src_root = resolve_icons_root(&submodule_root, &vendor_src);
+        let Some(src_root) = src_root else {
+            println!("cargo:warning=Material Icons sources not found. Expected {:?} or {:?}.", submodule_root, vendor_src);
+            fs::write(&dest_path, "// Material Icons not found\n").unwrap();
+            return;
+        };
+
+        if src_root == submodule_root {
+            // Avoid reruns on the huge submodule unless explicitly using it.
+            println!("cargo:rerun-if-changed=material-design-icons/src");
+        } else {
+            println!("cargo:rerun-if-changed=material-icons-vendor/src");
+        }
+
+        scan_icons_root(&src_root, manifest_dir)
+    };
 
     let mut code = String::new();
     code.push_str("// Generated Material Icons\n\n");
@@ -113,6 +104,66 @@ fn main() {
     }
 
     fs::write(&dest_path, code).unwrap();
+}
+
+fn load_icons_index(path: &Path) -> Result<IconMap, serde_json::Error> {
+    let data = fs::read_to_string(path).unwrap_or_default();
+    serde_json::from_str(&data)
+}
+
+fn scan_icons_root(src_root: &Path, manifest_dir: &Path) -> IconMap {
+    let mut icons: IconMap = BTreeMap::new();
+
+    for entry in WalkDir::new(src_root).min_depth(3).max_depth(3).into_iter().filter_map(|e| e.ok()) {
+        if !entry.file_type().is_dir() { continue; }
+
+        // entry is .../category/icon_name/variant
+        let variant_path = entry.path();
+        let icon_name_path = variant_path.parent().unwrap();
+        let category_path = icon_name_path.parent().unwrap();
+
+        let variant_str = variant_path.file_name().unwrap().to_string_lossy();
+        let icon_name = icon_name_path.file_name().unwrap().to_string_lossy().to_string();
+        let category = category_path.file_name().unwrap().to_string_lossy().to_string();
+
+        let svg_path_24 = variant_path.join("24px.svg");
+
+        if svg_path_24.exists() {
+            // Map folder names to rust identifiers
+            let variant_key = match variant_str.as_ref() {
+                "materialicons" => "regular",
+                "materialiconsoutlined" => "outlined",
+                "materialiconsround" => "round",
+                "materialiconssharp" => "sharp",
+                "materialiconstwotone" => "two_tone",
+                _ => continue, // Skip unknown variants
+            };
+
+            // Calculate path relative to CARGO_MANIFEST_DIR for include_str!
+            let rel_path = svg_path_24.strip_prefix(manifest_dir).unwrap();
+            let rel_path_str = rel_path.to_string_lossy().to_string();
+
+            icons.entry(category)
+                .or_default()
+                .entry(icon_name)
+                .or_default()
+                .insert(variant_key.to_string(), rel_path_str);
+        }
+    }
+
+    icons
+}
+
+fn resolve_icons_root(submodule_root: &Path, vendor_root: &Path) -> Option<PathBuf> {
+    // Prefer the vendored tree to avoid traversing the large submodule.
+    if vendor_root.exists() {
+        return Some(vendor_root.to_path_buf());
+    }
+    if submodule_root.exists() {
+        return Some(submodule_root.to_path_buf());
+    }
+
+    None
 }
 
 fn sanitize_keyword(name: &str) -> String {

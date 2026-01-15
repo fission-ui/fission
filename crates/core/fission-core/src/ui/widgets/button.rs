@@ -187,7 +187,7 @@ impl Lower for Button {
                     0.0,
                 ]),
                 flex_grow: 0.0,
-                flex_shrink: 1.0, // Allow shrink
+                flex_shrink: 0.0,
                 aspect_ratio: None,
             }),
         );
@@ -220,7 +220,7 @@ impl Lower for Button {
                             direction: fission_ir::FlexDirection::Row,
                             wrap: fission_ir::FlexWrap::NoWrap,
                             flex_grow: 1.0,
-                            flex_shrink: 1.0,
+                            flex_shrink: 0.0,
                             padding: [0.0; 4],
                             gap: None,
                             align_items: fission_ir::op::AlignItems::Center,

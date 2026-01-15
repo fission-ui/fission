@@ -68,12 +68,24 @@ fn test_focus_scope_traversal() {
         }
     }
     let scope_id = scope_id.expect("FocusScope node not found");
-    let scope_node = cx.ir.nodes.get(&scope_id).unwrap();
-    
-    let zstack_id = scope_node.children[0];
-    let zstack_node = cx.ir.nodes.get(&zstack_id).unwrap();
-    let b2_id = zstack_node.children[0];
-    let b3_id = zstack_node.children[1];
+    fn collect_focusable(node_id: NodeId, ir: &CoreIR, out: &mut Vec<NodeId>) {
+        if let Some(node) = ir.nodes.get(&node_id) {
+            if let Op::Semantics(s) = &node.op {
+                if s.focusable {
+                    out.push(node_id);
+                }
+            }
+            for child in &node.children {
+                collect_focusable(*child, ir, out);
+            }
+        }
+    }
+
+    let mut scope_focusables = Vec::new();
+    collect_focusable(scope_id, &cx.ir, &mut scope_focusables);
+    assert_eq!(scope_focusables.len(), 2, "FocusScope should contain two focusable nodes");
+    let b2_id = scope_focusables[0];
+    let b3_id = scope_focusables[1];
     
     // Start with focus on B2
     let next = find_next_focus_node(&cx.ir, Some(b2_id), false);

@@ -7,7 +7,7 @@ use fission_render::{
 use skia_safe::wrapper::NativeTransmutableWrapper;
 use skia_safe::{
     BlurStyle, Canvas, Color as SkColor, Data, Font, FontArguments, FontMetrics, FontMgr,
-    MaskFilter, Paint, RRect, Rect, Typeface, Vector,
+    MaskFilter, Matrix, Paint, RRect, Rect, Typeface, Vector,
 };
 use skia_safe::textlayout::{ParagraphBuilder, ParagraphStyle, TextDecoration, TextStyle, FontCollection, TypefaceFontProvider};
 use once_cell::sync::OnceCell;
@@ -127,8 +127,30 @@ impl<'r> Renderer for SkiaRenderer<'r> {
                         true,
                     );
                 }
+                DisplayOp::ClipRoundedRect { rect, radius } => {
+                    let rrect = RRect::new_rect_xy(
+                        Rect::new(rect.x(), rect.y(), rect.right(), rect.bottom()),
+                        *radius,
+                        *radius,
+                    );
+                    self.canvas.clip_rrect(rrect, skia_safe::ClipOp::Intersect, true);
+                }
                 DisplayOp::Translate(point) => {
                     self.canvas.translate((point.x, point.y));
+                }
+                DisplayOp::Transform(matrix) => {
+                    let m00 = matrix[0];
+                    let m10 = matrix[1];
+                    let m01 = matrix[4];
+                    let m11 = matrix[5];
+                    let m03 = matrix[12];
+                    let m13 = matrix[13];
+                    let m = Matrix::new_all(
+                        m00, m01, m03,
+                        m10, m11, m13,
+                        0.0, 0.0, 1.0,
+                    );
+                    self.canvas.concat(&m);
                 }
                 DisplayOp::DrawRect {
                     rect,
@@ -301,8 +323,41 @@ impl<'r> Renderer for SkiaRenderer<'r> {
                         {
                             let src_rect =
                                 Rect::from_wh(image.width() as f32, image.height() as f32);
-                            let dst_rect =
-                                Rect::new(rect.x(), rect.y(), rect.right(), rect.bottom());
+                            let rect_w = rect.width();
+                            let rect_h = rect.height();
+                            let img_w = image.width() as f32;
+                            let img_h = image.height() as f32;
+                            if rect_w <= 0.0 || rect_h <= 0.0 || img_w <= 0.0 || img_h <= 0.0 {
+                                continue;
+                            }
+
+                            let (dst_x, dst_y, dst_w, dst_h) = match fit {
+                                ImageFit::Fill => (rect.x(), rect.y(), rect_w, rect_h),
+                                ImageFit::Contain => {
+                                    let scale = (rect_w / img_w).min(rect_h / img_h);
+                                    let w = img_w * scale;
+                                    let h = img_h * scale;
+                                    (
+                                        rect.x() + (rect_w - w) / 2.0,
+                                        rect.y() + (rect_h - h) / 2.0,
+                                        w,
+                                        h,
+                                    )
+                                }
+                                ImageFit::Cover => {
+                                    let scale = (rect_w / img_w).max(rect_h / img_h);
+                                    let w = img_w * scale;
+                                    let h = img_h * scale;
+                                    (
+                                        rect.x() + (rect_w - w) / 2.0,
+                                        rect.y() + (rect_h - h) / 2.0,
+                                        w,
+                                        h,
+                                    )
+                                }
+                                ImageFit::None => (rect.x(), rect.y(), img_w, img_h),
+                            };
+                            let dst_rect = Rect::new(dst_x, dst_y, dst_x + dst_w, dst_y + dst_h);
                             self.canvas.draw_image_rect(
                                 &image,
                                 Some((&src_rect, skia_safe::canvas::SrcRectConstraint::Strict)),

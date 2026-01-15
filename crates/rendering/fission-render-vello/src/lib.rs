@@ -10,6 +10,8 @@ use vello::peniko::{Color, Fill, Mix, Blob, ImageData, ImageFormat, ImageAlphaTy
 use vello::{Scene, Glyph};
 use std::sync::{Arc, Mutex};
 use std::collections::HashMap;
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
 use lazy_static::lazy_static;
 use parley::{FontContext, LayoutContext};
 use parley::layout::PositionedLayoutItem;
@@ -20,6 +22,136 @@ use std::fs;
 
 lazy_static! {
     static ref IMAGE_CACHE: Mutex<HashMap<String, Arc<ImageData>>> = Mutex::new(HashMap::new());
+    static ref SVG_CACHE: Mutex<HashMap<u64, Arc<SvgCacheEntry>>> = Mutex::new(HashMap::new());
+}
+
+#[derive(Debug)]
+struct SvgCacheEntry {
+    view_box: Option<(f64, f64, f64, f64)>,
+    shapes: Vec<SvgShape>,
+}
+
+#[derive(Debug)]
+enum SvgShape {
+    Path(BezPath),
+    Rect(RoundedRect),
+}
+
+fn svg_cache_key(content: &str) -> u64 {
+    let mut hasher = DefaultHasher::new();
+    content.hash(&mut hasher);
+    hasher.finish()
+}
+
+fn parse_svg_entry(content: &str) -> SvgCacheEntry {
+    let parse_view_box = |data: &str| -> Option<(f64, f64, f64, f64)> {
+        let key = "viewBox=\"";
+        let start = data.find(key)?;
+        let rest = &data[start + key.len()..];
+        let end = rest.find('\"')?;
+        let nums: Vec<f64> = rest[..end]
+            .split(|c: char| c.is_whitespace() || c == ',')
+            .filter(|s| !s.is_empty())
+            .filter_map(|s| s.parse().ok())
+            .collect();
+        if nums.len() == 4 {
+            Some((nums[0], nums[1], nums[2], nums[3]))
+        } else {
+            None
+        }
+    };
+
+    let mut shapes = Vec::new();
+    let mut cursor = 0;
+    while let Some(start_bracket) = content[cursor..].find('<') {
+        let abs_start = cursor + start_bracket;
+        let Some(end_bracket) = content[abs_start..].find('>') else {
+            break;
+        };
+        let tag_content = &content[abs_start + 1..abs_start + end_bracket];
+        cursor = abs_start + end_bracket + 1;
+
+        let tag_name = tag_content.split_whitespace().next().unwrap_or("");
+
+        if tag_name == "path" {
+            if let Some(d_start) = tag_content.find("d=\"") {
+                let after_d = &tag_content[d_start + 3..];
+                if let Some(d_end) = after_d.find('\"') {
+                    let mut d = after_d[..d_end].to_string();
+                    d = d.replace("M0 0h24v24H0z", "");
+                    d = d.replace("M0 0h24v24H0V0z", "");
+                    d = d.replace("M0,0h24v24H0V0z", "");
+                    if !d.trim().is_empty() {
+                        if let Ok(bez_path) = BezPath::from_svg(&d) {
+                            shapes.push(SvgShape::Path(bez_path));
+                        }
+                    }
+                }
+            }
+        } else if tag_name == "rect" {
+            if tag_content.contains("fill=\"none\"") {
+                continue;
+            }
+            let parse_attr = |name: &str| -> f64 {
+                if let Some(pos) = tag_content.find(&format!("{}=\"", name)) {
+                    let after = &tag_content[pos + name.len() + 2..];
+                    if let Some(end) = after.find('\"') {
+                        return after[..end].parse().unwrap_or(0.0);
+                    }
+                }
+                0.0
+            };
+
+            let x = parse_attr("x");
+            let y = parse_attr("y");
+            let w = parse_attr("width");
+            let h = parse_attr("height");
+            if w > 0.0 && h > 0.0 {
+                let rect = Rect::new(x, y, x + w, y + h);
+                shapes.push(SvgShape::Rect(RoundedRect::from_rect(rect, 0.0)));
+            }
+        } else if tag_name == "polygon" {
+            if let Some(p_start) = tag_content.find("points=\"") {
+                let after = &tag_content[p_start + 8..];
+                if let Some(end) = after.find('\"') {
+                    let points_str = &after[..end];
+                    let nums: Vec<f64> = points_str
+                        .split(|c: char| c.is_whitespace() || c == ',')
+                        .filter(|s| !s.is_empty())
+                        .filter_map(|s| s.parse().ok())
+                        .collect();
+                    if nums.len() >= 2 {
+                        let mut bez = BezPath::new();
+                        bez.move_to((nums[0], nums[1]));
+                        for i in (2..nums.len()).step_by(2) {
+                            if i + 1 < nums.len() {
+                                bez.line_to((nums[i], nums[i + 1]));
+                            }
+                        }
+                        bez.close_path();
+                        shapes.push(SvgShape::Path(bez));
+                    }
+                }
+            }
+        }
+    }
+
+    SvgCacheEntry {
+        view_box: parse_view_box(content),
+        shapes,
+    }
+}
+
+fn svg_cache_entry(content: &str) -> Arc<SvgCacheEntry> {
+    let key = svg_cache_key(content);
+    if let Some(entry) = SVG_CACHE.lock().unwrap().get(&key) {
+        return Arc::clone(entry);
+    }
+
+    let parsed = Arc::new(parse_svg_entry(content));
+    let mut cache = SVG_CACHE.lock().unwrap();
+    cache.entry(key).or_insert_with(|| Arc::clone(&parsed));
+    parsed
 }
 
 pub struct VelloRenderer<'a> {
@@ -67,14 +199,26 @@ impl<'a> VelloRenderer<'a> {
         }
     }
 
+    fn affine_from_mat4(matrix: &[f32; 16]) -> Affine {
+        let m00 = matrix[0] as f64;
+        let m10 = matrix[1] as f64;
+        let m01 = matrix[4] as f64;
+        let m11 = matrix[5] as f64;
+        let m03 = matrix[12] as f64;
+        let m13 = matrix[13] as f64;
+        Affine::new([m00, m10, m01, m11, m03, m13])
+    }
+
     fn render_text(
-        &mut self, 
-        text: &str, 
-        base_size: f32, 
-        base_color: RenderColor, 
-        bounds: fission_render::LayoutRect, 
+        &mut self,
+        text: &str,
+        base_size: f32,
+        base_color: RenderColor,
+        underline: bool,
+        position: fission_render::LayoutPoint,
+        bounds: fission_render::LayoutRect,
         caret_index: Option<usize>,
-        styles: &[(std::ops::Range<usize>, RenderTextStyle)]
+        styles: &[(std::ops::Range<usize>, RenderTextStyle)],
     ) {
         // Fast path for simple text using cache
         if styles.is_empty() {
@@ -107,14 +251,31 @@ impl<'a> VelloRenderer<'a> {
                         
                         self.scene.draw_glyphs(font)
                             .font_size(font_size)
-                            .transform(self.current_transform * Affine::translate((bounds.origin.x as f64, bounds.origin.y as f64)))
+                            .transform(self.current_transform * Affine::translate((position.x as f64, position.y as f64)))
                             .brush(color)
                             .draw(Fill::NonZero, glyphs);
+
+                        if underline {
+                            let metrics = run.metrics();
+                            let offset = metrics.underline_offset;
+                            let size = metrics.underline_size.max(1.0);
+                            let x0 = position.x as f64 + glyph_run.offset() as f64;
+                            let x1 = x0 + glyph_run.advance() as f64;
+                            let y0 = position.y as f64 + (glyph_run.baseline() + offset) as f64;
+                            let rect = Rect::new(x0, y0, x1, y0 + size as f64);
+                            self.scene.fill(
+                                Fill::NonZero,
+                                self.current_transform,
+                                color,
+                                None,
+                                &rect,
+                            );
+                        }
                     }
                 }
             }
             if let Some(idx) = caret_index {
-                self.draw_caret(&layout, idx, bounds, text, base_size);
+                self.draw_caret(&layout, idx, position, text, base_size);
             }
             return;
         }
@@ -155,19 +316,44 @@ impl<'a> VelloRenderer<'a> {
                     
                     self.scene.draw_glyphs(font)
                         .font_size(font_size)
-                        .transform(self.current_transform * Affine::translate((bounds.origin.x as f64, bounds.origin.y as f64)))
+                        .transform(self.current_transform * Affine::translate((position.x as f64, position.y as f64)))
                         .brush(color)
                         .draw(Fill::NonZero, glyphs);
+
+                    if let Some(decoration) = &style.underline {
+                        let metrics = run.metrics();
+                        let offset = decoration.offset.unwrap_or(metrics.underline_offset);
+                        let size = decoration.size.unwrap_or(metrics.underline_size).max(1.0);
+                        let deco_brush = decoration.brush.clone();
+                        let deco_color = Color::from_rgba8(
+                            deco_brush.0[0],
+                            deco_brush.0[1],
+                            deco_brush.0[2],
+                            deco_brush.0[3],
+                        );
+
+                        let x0 = position.x as f64 + glyph_run.offset() as f64;
+                        let x1 = x0 + glyph_run.advance() as f64;
+                        let y0 = position.y as f64 + (glyph_run.baseline() + offset) as f64;
+                        let rect = Rect::new(x0, y0, x1, y0 + size as f64);
+                        self.scene.fill(
+                            Fill::NonZero,
+                            self.current_transform,
+                            deco_color,
+                            None,
+                            &rect,
+                        );
+                    }
                 }
             }
         }
 
         if let Some(idx) = caret_index {
-            self.draw_caret(&layout, idx, bounds, text, base_size);
+            self.draw_caret(&layout, idx, position, text, base_size);
         }
     }
     
-    fn draw_caret(&mut self, layout: &parley::layout::Layout<ParleyBrush>, idx: usize, bounds: fission_render::LayoutRect, text: &str, base_size: f32) {
+    fn draw_caret(&mut self, layout: &parley::layout::Layout<ParleyBrush>, idx: usize, position: fission_render::LayoutPoint, text: &str, base_size: f32) {
             let mut caret_drawn = false;
             let lines_count = layout.lines().count();
             
@@ -219,10 +405,10 @@ impl<'a> VelloRenderer<'a> {
                     let top_y = baseline_y - metrics.ascent;
                     
                     let caret_rect = Rect::new(
-                        bounds.origin.x as f64 + x_pos as f64,
-                        bounds.origin.y as f64 + top_y as f64,
-                        bounds.origin.x as f64 + x_pos as f64 + 2.0,
-                        bounds.origin.y as f64 + top_y as f64 + line_height as f64
+                        position.x as f64 + x_pos as f64,
+                        position.y as f64 + top_y as f64,
+                        position.x as f64 + x_pos as f64 + 2.0,
+                        position.y as f64 + top_y as f64 + line_height as f64
                     );
                     
                     self.scene.fill(
@@ -238,10 +424,10 @@ impl<'a> VelloRenderer<'a> {
             }
             if !caret_drawn && idx == 0 && text.is_empty() {
                  let caret_rect = Rect::new(
-                    bounds.origin.x as f64,
-                    bounds.origin.y as f64,
-                    bounds.origin.x as f64 + 2.0,
-                    bounds.origin.y as f64 + base_size as f64 * 1.2
+                    position.x as f64,
+                    position.y as f64,
+                    position.x as f64 + 2.0,
+                    position.y as f64 + base_size as f64 * 1.2
                 );
                 self.scene.fill(Fill::NonZero, self.current_transform, Color::BLACK, None, &caret_rect);
             }
@@ -272,6 +458,10 @@ impl<'a> Renderer for VelloRenderer<'a> {
                     let translation = Affine::translate((pt.x as f64, pt.y as f64));
                     self.current_transform = self.current_transform * translation;
                 }
+                DisplayOp::Transform(matrix) => {
+                    let affine = Self::affine_from_mat4(matrix);
+                    self.current_transform = self.current_transform * affine;
+                }
                 DisplayOp::ClipRect(rect) => {
                     let r = Rect::new(
                         rect.origin.x as f64,
@@ -280,6 +470,17 @@ impl<'a> Renderer for VelloRenderer<'a> {
                         (rect.origin.y + rect.size.height) as f64,
                     );
                     self.scene.push_layer(Mix::Normal, 1.0, self.current_transform, &r);
+                    self.current_layer_count += 1;
+                }
+                DisplayOp::ClipRoundedRect { rect, radius } => {
+                    let r = Rect::new(
+                        rect.origin.x as f64,
+                        rect.origin.y as f64,
+                        (rect.origin.x + rect.size.width) as f64,
+                        (rect.origin.y + rect.size.height) as f64,
+                    );
+                    let shape = RoundedRect::from_rect(r, *radius as f64);
+                    self.scene.push_layer(Mix::Normal, 1.0, self.current_transform, &shape);
                     self.current_layer_count += 1;
                 }
                 DisplayOp::DrawRect {
@@ -326,10 +527,10 @@ impl<'a> Renderer for VelloRenderer<'a> {
                         self.scene.stroke(&Stroke::new(s.width as f64), self.current_transform, c, None, &shape);
                     }
                 }
-                DisplayOp::DrawText { text, size, color, bounds, caret_index, .. } => {
-                    self.render_text(text, *size, *color, *bounds, *caret_index, &[]);
+                DisplayOp::DrawText { text, size, color, underline, position, bounds, caret_index, .. } => {
+                    self.render_text(text, *size, *color, *underline, *position, *bounds, *caret_index, &[]);
                 }
-                DisplayOp::DrawRichText { runs, bounds, caret_index, .. } => {
+                DisplayOp::DrawRichText { runs, position, bounds, caret_index, .. } => {
                     let mut full_text = String::new();
                     let mut styles = Vec::new();
                     let mut start = 0;
@@ -345,14 +546,59 @@ impl<'a> Renderer for VelloRenderer<'a> {
                         (14.0, RenderColor { r: 0, g: 0, b: 0, a: 255 })
                     };
                     
-                    self.render_text(&full_text, base_size, base_color, *bounds, *caret_index, &styles);
+                    self.render_text(&full_text, base_size, base_color, false, *position, *bounds, *caret_index, &styles);
                 }
-                DisplayOp::DrawImage { source, rect, .. } => {
+                DisplayOp::DrawImage { source, rect, fit, .. } => {
                     if let Some(image_data) = self.get_image(source) {
-                        let transform = self.current_transform * Affine::translate((rect.origin.x as f64, rect.origin.y as f64)) * Affine::scale_non_uniform(
-                            rect.size.width as f64 / image_data.width as f64,
-                            rect.size.height as f64 / image_data.height as f64
-                        );
+                        let rect_w = rect.size.width as f64;
+                        let rect_h = rect.size.height as f64;
+                        let img_w = image_data.width as f64;
+                        let img_h = image_data.height as f64;
+
+                        if rect_w <= 0.0 || rect_h <= 0.0 || img_w <= 0.0 || img_h <= 0.0 {
+                            continue;
+                        }
+
+                        let (scale_x, scale_y, dx, dy) = match fit {
+                            fission_render::ImageFit::Fill => (
+                                rect_w / img_w,
+                                rect_h / img_h,
+                                rect.origin.x as f64,
+                                rect.origin.y as f64,
+                            ),
+                            fission_render::ImageFit::Contain => {
+                                let scale = (rect_w / img_w).min(rect_h / img_h);
+                                let w = img_w * scale;
+                                let h = img_h * scale;
+                                (
+                                    scale,
+                                    scale,
+                                    rect.origin.x as f64 + (rect_w - w) / 2.0,
+                                    rect.origin.y as f64 + (rect_h - h) / 2.0,
+                                )
+                            }
+                            fission_render::ImageFit::Cover => {
+                                let scale = (rect_w / img_w).max(rect_h / img_h);
+                                let w = img_w * scale;
+                                let h = img_h * scale;
+                                (
+                                    scale,
+                                    scale,
+                                    rect.origin.x as f64 + (rect_w - w) / 2.0,
+                                    rect.origin.y as f64 + (rect_h - h) / 2.0,
+                                )
+                            }
+                            fission_render::ImageFit::None => (
+                                1.0,
+                                1.0,
+                                rect.origin.x as f64,
+                                rect.origin.y as f64,
+                            ),
+                        };
+
+                        let transform = self.current_transform
+                            * Affine::translate((dx, dy))
+                            * Affine::scale_non_uniform(scale_x, scale_y);
                         let brush = ImageBrush {
                             image: &*image_data,
                             sampler: ImageSampler::default(),
@@ -377,117 +623,51 @@ impl<'a> Renderer for VelloRenderer<'a> {
                     }
                 }
                 DisplayOp::DrawSvg { content, fill, stroke, bounds, .. } => {
-                     let mut cursor = 0;
-                     while let Some(start_bracket) = content[cursor..].find('<') {
-                         let abs_start = cursor + start_bracket;
-                         if let Some(end_bracket) = content[abs_start..].find('>') {
-                             let tag_content = &content[abs_start + 1 .. abs_start + end_bracket];
-                             cursor = abs_start + end_bracket + 1;
-                             
-                             let tag_name = tag_content.split_whitespace().next().unwrap_or("");
-                             
-                             if tag_name == "path" {
-                                 if let Some(d_start) = tag_content.find("d=\"") {
-                                     let after_d = &tag_content[d_start + 3..];
-                                     if let Some(d_end) = after_d.find('\"') {
-                                         let mut d = after_d[..d_end].to_string();
-                                         // Filter out bounding boxes
-                                         d = d.replace("M0 0h24v24H0z", "");
-                                         d = d.replace("M0 0h24v24H0V0z", "");
-                                         d = d.replace("M0,0h24v24H0V0z", "");
-                                         
-                                         if !d.trim().is_empty() {
-                                             if let Ok(bez_path) = BezPath::from_svg(&d) {
-                                                 let transform = self.current_transform * Affine::translate((bounds.origin.x as f64, bounds.origin.y as f64));
-                                                 if let Some(f) = fill {
-                                                     let c = Color::from_rgba8(f.color.r, f.color.g, f.color.b, f.color.a);
-                                                     self.scene.fill(Fill::NonZero, transform, c, None, &bez_path);
-                                                 }
-                                                 if let Some(s) = stroke {
-                                                     let c = Color::from_rgba8(s.color.r, s.color.g, s.color.b, s.color.a);
-                                                     self.scene.stroke(&Stroke::new(s.width as f64), transform, c, None, &bez_path);
-                                                 }
-                                             }
-                                         }
-                                     }
-                                 }
-                             } else if tag_name == "rect" {
-                                 // Parse x, y, width, height
-                                 let parse_attr = |name: &str| -> f64 {
-                                     if let Some(pos) = tag_content.find(&format!("{}=\"", name)) {
-                                         let after = &tag_content[pos + name.len() + 2..];
-                                         if let Some(end) = after.find('\"') {
-                                             return after[..end].parse().unwrap_or(0.0);
-                                         }
-                                     }
-                                     0.0
-                                 };
-                                 
-                                 let x = parse_attr("x");
-                                 let y = parse_attr("y");
-                                 let w = parse_attr("width");
-                                 let h = parse_attr("height");
-                                 
-                                 // Skip bounding box rects (24x24 at 0,0 with fill="none" usually)
-                                 // But here we rely on fill color. 
-                                 // Material icons usually have <rect fill="none" width="24" height="24"/> as bounding box.
-                                 // We should skip if fill="none" is present in tag.
-                                 if tag_content.contains("fill=\"none\"") {
-                                     continue;
-                                 }
-                                 
-                                 if w > 0.0 && h > 0.0 {
-                                     let rect = Rect::new(x, y, x + w, y + h);
-                                     let shape = RoundedRect::from_rect(rect, 0.0);
-                                     let transform = self.current_transform * Affine::translate((bounds.origin.x as f64, bounds.origin.y as f64));
-                                     
-                                     if let Some(f) = fill {
-                                         let c = Color::from_rgba8(f.color.r, f.color.g, f.color.b, f.color.a);
-                                         self.scene.fill(Fill::NonZero, transform, c, None, &shape);
-                                     }
-                                     if let Some(s) = stroke {
-                                         let c = Color::from_rgba8(s.color.r, s.color.g, s.color.b, s.color.a);
-                                         self.scene.stroke(&Stroke::new(s.width as f64), transform, c, None, &shape);
-                                     }
-                                 }
-                             } else if tag_name == "polygon" {
-                                 if let Some(p_start) = tag_content.find("points=\"") {
-                                     let after = &tag_content[p_start + 8..];
-                                     if let Some(end) = after.find('\"') {
-                                         let points_str = &after[..end];
-                                         let nums: Vec<f64> = points_str.split(|c: char| c.is_whitespace() || c == ',')
-                                             .filter(|s| !s.is_empty())
-                                             .filter_map(|s| s.parse().ok())
-                                             .collect();
-                                         
-                                         if nums.len() >= 2 {
-                                             let mut bez = BezPath::new();
-                                             bez.move_to((nums[0], nums[1]));
-                                             for i in (2..nums.len()).step_by(2) {
-                                                 if i + 1 < nums.len() {
-                                                     bez.line_to((nums[i], nums[i+1]));
-                                                 }
-                                             }
-                                             bez.close_path();
-                                             
-                                             let transform = self.current_transform * Affine::translate((bounds.origin.x as f64, bounds.origin.y as f64));
-                                             
-                                             if let Some(f) = fill {
-                                                 let c = Color::from_rgba8(f.color.r, f.color.g, f.color.b, f.color.a);
-                                                 self.scene.fill(Fill::NonZero, transform, c, None, &bez);
-                                             }
-                                             if let Some(s) = stroke {
-                                                 let c = Color::from_rgba8(s.color.r, s.color.g, s.color.b, s.color.a);
-                                                 self.scene.stroke(&Stroke::new(s.width as f64), transform, c, None, &bez);
-                                             }
-                                         }
-                                     }
-                                 }
-                             }
-                         } else {
-                             break;
-                         }
-                     }
+                    let entry = svg_cache_entry(content);
+                    let (vb_x, vb_y, vb_w, vb_h) = entry
+                        .view_box
+                        .unwrap_or((0.0, 0.0, bounds.size.width as f64, bounds.size.height as f64));
+                    let rect_w = bounds.size.width as f64;
+                    let rect_h = bounds.size.height as f64;
+                    let (scale, dx, dy) = if vb_w > 0.0 && vb_h > 0.0 && rect_w > 0.0 && rect_h > 0.0 {
+                        let scale = (rect_w / vb_w).min(rect_h / vb_h);
+                        let scaled_w = vb_w * scale;
+                        let scaled_h = vb_h * scale;
+                        (
+                            scale,
+                            bounds.origin.x as f64 + (rect_w - scaled_w) / 2.0 - vb_x * scale,
+                            bounds.origin.y as f64 + (rect_h - scaled_h) / 2.0 - vb_y * scale,
+                        )
+                    } else {
+                        (1.0, bounds.origin.x as f64, bounds.origin.y as f64)
+                    };
+                    let svg_transform =
+                        self.current_transform * Affine::translate((dx, dy)) * Affine::scale(scale);
+
+                    for shape in &entry.shapes {
+                        match shape {
+                            SvgShape::Path(path) => {
+                                if let Some(f) = fill {
+                                    let c = Color::from_rgba8(f.color.r, f.color.g, f.color.b, f.color.a);
+                                    self.scene.fill(Fill::NonZero, svg_transform, c, None, path);
+                                }
+                                if let Some(s) = stroke {
+                                    let c = Color::from_rgba8(s.color.r, s.color.g, s.color.b, s.color.a);
+                                    self.scene.stroke(&Stroke::new(s.width as f64), svg_transform, c, None, path);
+                                }
+                            }
+                            SvgShape::Rect(rect) => {
+                                if let Some(f) = fill {
+                                    let c = Color::from_rgba8(f.color.r, f.color.g, f.color.b, f.color.a);
+                                    self.scene.fill(Fill::NonZero, svg_transform, c, None, rect);
+                                }
+                                if let Some(s) = stroke {
+                                    let c = Color::from_rgba8(s.color.r, s.color.g, s.color.b, s.color.a);
+                                    self.scene.stroke(&Stroke::new(s.width as f64), svg_transform, c, None, rect);
+                                }
+                            }
+                        }
+                    }
                 }
                 _ => {}
             }

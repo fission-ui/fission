@@ -370,7 +370,7 @@ fn generate_display_list_with_visited(
     }
     if let Some(geom) = snapshot.nodes.get(&node_id) {
         if let Some(node) = ir.nodes.get(&node_id) {
-            let mut pushed_clip = false;
+            let mut pushed_state = false;
 
             match &node.op {
                 fission_ir::Op::Layout(fission_ir::LayoutOp::Scroll { .. }) => {
@@ -379,7 +379,17 @@ fn generate_display_list_with_visited(
                     list.push(DisplayOp::Save);
                     list.push(DisplayOp::ClipRect(geom.rect));
                     list.push(DisplayOp::Translate(LayoutPoint::new(0.0, -offset)));
-                    pushed_clip = true;
+                    pushed_state = true;
+                }
+                fission_ir::Op::Layout(fission_ir::LayoutOp::Clip { .. }) => {
+                    list.push(DisplayOp::Save);
+                    list.push(DisplayOp::ClipRect(geom.rect));
+                    pushed_state = true;
+                }
+                fission_ir::Op::Layout(fission_ir::LayoutOp::Transform { transform }) => {
+                    list.push(DisplayOp::Save);
+                    list.push(DisplayOp::Transform(*transform));
+                    pushed_state = true;
                 }
                 fission_ir::Op::Paint(fission_ir::PaintOp::DrawRect {
                     fill,
@@ -478,7 +488,7 @@ fn generate_display_list_with_visited(
                 generate_display_list_with_visited(*child, ir, snapshot, scroll_map, list, visited);
             }
 
-            if pushed_clip {
+            if pushed_state {
                 list.push(DisplayOp::Restore);
             }
         }

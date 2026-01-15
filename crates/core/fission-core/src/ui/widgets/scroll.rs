@@ -14,6 +14,8 @@ pub struct Scroll {
     pub width: Option<f32>,
     pub height: Option<f32>,
     pub show_scrollbar: bool,
+    pub flex_grow: f32,
+    pub flex_shrink: f32,
 }
 
 impl Scroll {
@@ -31,6 +33,8 @@ impl Default for Scroll {
             width: None,
             height: None,
             show_scrollbar: false,
+            flex_grow: 0.0,
+            flex_shrink: 0.0,
         }
     }
 }
@@ -53,6 +57,8 @@ impl Lower for Scroll {
                 min_height: None,
                 max_height: None,
                 padding: [0.0; 4],
+                flex_grow: self.flex_grow,
+                flex_shrink: self.flex_shrink,
             }),
         );
         if let Some(child) = &self.child {

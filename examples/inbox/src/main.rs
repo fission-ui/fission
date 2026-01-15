@@ -1,9 +1,9 @@
 use fission_core::{BuildCtx, View, Widget, NodeId, WidgetNodeId, Env, Handler};
-use fission_core::ui::{Node, Text, Container};
+use fission_core::ui::{Container, Node, Row, Text};
 use fission_core::op::{Color, BoxShadow};
 use fission_widgets::{
     Grid, GridItem, SplitView, SplitDirection, Router, Route, Toast, ToastKind, Drawer, DrawerSide, SafeArea,
-    HStack, Overlay, Transition, Center
+    Overlay, Transition, Center
 };
 use fission_shell_desktop::DesktopApp;
 use fission_i18n::{I18nRegistry, Locale, TranslationBundle};
@@ -91,41 +91,50 @@ impl Widget<InboxState> for InboxApp {
                     on_resize: None,
                     first: Box::new(Sidebar.build(ctx, view)),
                     second: Box::new(
-                        HStack {
-                            spacing: None,
+                        Row {
+                            gap: None,
+                            align_items: fission_ir::op::AlignItems::Stretch,
                             children: vec![
-                                Router {
-                                    current_path: view.state.current_path.clone(),
-                                    routes: vec![
-                                        Route {
-                                            path: "/inbox".into(),
-                                            builder: Arc::new(|c, v, _p| {
-                                                EmailList { folder: "Inbox".into() }.build(c, v)
-                                            }),
-                                        },
-                                        Route {
-                                            path: "/:folder".into(),
-                                            builder: Arc::new(|c, v, p| {
-                                                let folder = p.get("folder").unwrap_or(&"Inbox".to_string()).clone();
-                                                EmailList { folder }.build(c, v)
-                                            }),
-                                        },
-                                        Route {
-                                            path: "/:folder/:id".into(),
-                                            builder: Arc::new(|c, v, p| {
-                                                let folder = p.get("folder").unwrap_or(&"Inbox".to_string()).clone();
-                                                let id = p.get("id").unwrap_or(&"0".to_string()).parse().unwrap_or(0);
-                                                EmailDetail { folder, id }.build(c, v)
-                                            }),
-                                        },
-                                    ],
-                                    not_found: Some(Arc::new(|_c, _v, _| {
-                                        fission_core::ui::Text::new("Folder not found").into_node()
-                                    })),
-                                }.build(ctx, view),
-                                RightSidebar.build(ctx, view),
+                                Container::new(
+                                    Router {
+                                        current_path: view.state.current_path.clone(),
+                                        routes: vec![
+                                            Route {
+                                                path: "/inbox".into(),
+                                                builder: Arc::new(|c, v, _p| {
+                                                    EmailList { folder: "Inbox".into() }.build(c, v)
+                                                }),
+                                            },
+                                            Route {
+                                                path: "/:folder".into(),
+                                                builder: Arc::new(|c, v, p| {
+                                                    let folder = p.get("folder").unwrap_or(&"Inbox".to_string()).clone();
+                                                    EmailList { folder }.build(c, v)
+                                                }),
+                                            },
+                                            Route {
+                                                path: "/:folder/:id".into(),
+                                                builder: Arc::new(|c, v, p| {
+                                                    let folder = p.get("folder").unwrap_or(&"Inbox".to_string()).clone();
+                                                    let id = p.get("id").unwrap_or(&"0".to_string()).parse().unwrap_or(0);
+                                                    EmailDetail { folder, id }.build(c, v)
+                                                }),
+                                            },
+                                        ],
+                                        not_found: Some(Arc::new(|_c, _v, _| {
+                                            fission_core::ui::Text::new("Folder not found").into_node()
+                                        })),
+                                    }.build(ctx, view)
+                                )
+                                .flex_grow(1.0)
+                                .into_node(),
+                                Container::new(RightSidebar.build(ctx, view))
+                                    .width(280.0)
+                                    .flex_shrink(0.0)
+                                    .into_node(),
                             ],
-                        }.build(ctx, view)
+                            ..Default::default()
+                        }.into_node()
                     ),
                 }.build(ctx, view)
             )

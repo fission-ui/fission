@@ -54,7 +54,9 @@ pub enum DisplayOp {
     Save,
     Restore,
     ClipRect(LayoutRect),
+    ClipRoundedRect { rect: LayoutRect, radius: LayoutUnit },
     Translate(LayoutPoint),
+    Transform([LayoutUnit; 16]),
     DrawRect {
         rect: LayoutRect,
         fill: Option<Fill>,

@@ -45,6 +45,7 @@ impl<S: fission_core::AppState> Widget<S> for Accordion {
                                     Text {
                                         content: TextContent::Literal(item.title.clone()),
                                         color: Some(tokens.colors.text_primary),
+                                        flex_grow: 1.0,
                                         ..Default::default()
                                     }.into(),
                                 ]

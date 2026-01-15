@@ -1,4 +1,5 @@
 use crate::{Lower, LoweringContext, Node, NodeBuilder};
+use crate::lowering::wrap_zstack_child;
 use crate::ActionEnvelope;
 use fission_ir::{
     op::{Color, Fill, GridTrack, LayoutOp, Op, PaintOp, Stroke},
@@ -235,9 +236,14 @@ impl Lower for Slider {
             grid.build(cx)
         };
         
+        cx.push_scope(layout_id);
+        let track_wrapped = wrap_zstack_child(cx, track_layer);
+        let thumb_wrapped = wrap_zstack_child(cx, thumb_layer);
+        cx.pop_scope();
+
         let mut zstack = NodeBuilder::new(layout_id, Op::Layout(LayoutOp::ZStack));
-        zstack.add_child(track_layer);
-        zstack.add_child(thumb_layer);
+        zstack.add_child(track_wrapped);
+        zstack.add_child(thumb_wrapped);
         zstack.build(cx);
 
         cx.pop_scope();
@@ -280,5 +286,4 @@ impl Lower for Slider {
         sem_node.build(cx)
     }
 }
-
 

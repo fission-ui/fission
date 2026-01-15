@@ -1,4 +1,4 @@
-use crate::lowering::{LoweringContext, NodeBuilder};
+use crate::lowering::{LoweringContext, NodeBuilder, wrap_zstack_child};
 use crate::ui::traits::Lower;
 use crate::ui::Node;
 use fission_ir::{NodeId, Op, Semantics, semantics::Role};
@@ -39,8 +39,16 @@ impl Lower for FocusScope {
         cx.pop_scope();
         
         // Wrap children in a ZStack layout node
-        let mut layout_builder = NodeBuilder::new(cx.next_node_id(), Op::Layout(fission_ir::LayoutOp::ZStack));
+        let layout_id = cx.next_node_id();
+        cx.push_scope(layout_id);
+        let mut wrapped_children = Vec::with_capacity(child_ids.len());
         for cid in child_ids {
+            wrapped_children.push(wrap_zstack_child(cx, cid));
+        }
+        cx.pop_scope();
+
+        let mut layout_builder = NodeBuilder::new(layout_id, Op::Layout(fission_ir::LayoutOp::ZStack));
+        for cid in wrapped_children {
             layout_builder.add_child(cid);
         }
         let layout_id = layout_builder.build(cx);
