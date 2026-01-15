@@ -54,6 +54,79 @@ impl LayoutSize {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct BoxConstraints {
+    pub min_w: LayoutUnit,
+    pub max_w: LayoutUnit,
+    pub min_h: LayoutUnit,
+    pub max_h: LayoutUnit,
+}
+
+impl BoxConstraints {
+    pub fn tight(size: LayoutSize) -> Self {
+        Self { min_w: size.width, max_w: size.width, min_h: size.height, max_h: size.height }
+    }
+
+    pub fn loose(max_w: LayoutUnit, max_h: LayoutUnit) -> Self {
+        Self { min_w: 0.0, max_w, min_h: 0.0, max_h }
+    }
+
+    pub fn is_width_bounded(&self) -> bool {
+        self.max_w.is_finite()
+    }
+
+    pub fn is_height_bounded(&self) -> bool {
+        self.max_h.is_finite()
+    }
+
+    pub fn constrain(&self, size: LayoutSize) -> LayoutSize {
+        LayoutSize {
+            width: size.width.max(self.min_w).min(self.max_w),
+            height: size.height.max(self.min_h).min(self.max_h),
+        }
+    }
+
+    pub fn smallest(&self) -> LayoutSize {
+        LayoutSize::new(self.min_w, self.min_h)
+    }
+
+    pub fn deflate(&self, padding: [LayoutUnit; 4]) -> Self {
+        let horiz = padding[0] + padding[1];
+        let vert = padding[2] + padding[3];
+        let max_w = (self.max_w - horiz).max(0.0);
+        let max_h = (self.max_h - vert).max(0.0);
+        let min_w = (self.min_w - horiz).max(0.0).min(max_w);
+        let min_h = (self.min_h - vert).max(0.0).min(max_h);
+        Self { min_w, max_w, min_h, max_h }
+    }
+
+    pub fn tighten(&self, width: Option<LayoutUnit>, height: Option<LayoutUnit>) -> Self {
+        let mut out = *self;
+        if let Some(w) = width {
+            out.min_w = out.min_w.max(w);
+            out.max_w = out.max_w.min(w);
+        }
+        if let Some(h) = height {
+            out.min_h = out.min_h.max(h);
+            out.max_h = out.max_h.min(h);
+        }
+        if out.max_w < out.min_w { out.max_w = out.min_w; }
+        if out.max_h < out.min_h { out.max_h = out.min_h; }
+        out
+    }
+
+    pub fn apply_min_max(&self, min_w: Option<LayoutUnit>, max_w: Option<LayoutUnit>, min_h: Option<LayoutUnit>, max_h: Option<LayoutUnit>) -> Self {
+        let mut out = *self;
+        if let Some(w) = min_w { out.min_w = out.min_w.max(w); }
+        if let Some(h) = min_h { out.min_h = out.min_h.max(h); }
+        if let Some(w) = max_w { out.max_w = out.max_w.min(w); }
+        if let Some(h) = max_h { out.max_h = out.max_h.min(h); }
+        if out.max_w < out.min_w { out.max_w = out.min_w; }
+        if out.max_h < out.min_h { out.max_h = out.min_h; }
+        out
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct LayoutRect {
     pub origin: LayoutPoint,
@@ -1001,6 +1074,660 @@ impl LayoutEngine {
                 "Root node layout not found. Did you call update()?"
             ))
         }
+    }
+
+    pub fn compute_layout_constraints(
+        &self,
+        input_nodes: &[LayoutInputNode],
+        root_node_id: NodeId,
+        viewport_size: LayoutSize,
+        scroll_source: &impl ScrollDataSource,
+    ) -> Result<LayoutSnapshot> {
+        let node_map: HashMap<NodeId, &LayoutInputNode> =
+            input_nodes.iter().map(|n| (n.id, n)).collect();
+        let _ = scroll_source;
+
+        let constraints = BoxConstraints::tight(viewport_size);
+        let mut snapshot = LayoutSnapshot::new(viewport_size);
+        self.layout_node_constraints(
+            root_node_id,
+            constraints,
+            LayoutPoint::ZERO,
+            &node_map,
+            &mut snapshot.nodes,
+            scroll_source,
+            true,
+        );
+        Ok(snapshot)
+    }
+
+    fn layout_node_constraints(
+        &self,
+        node_id: NodeId,
+        constraints: BoxConstraints,
+        origin: LayoutPoint,
+        node_map: &HashMap<NodeId, &LayoutInputNode>,
+        out: &mut HashMap<NodeId, LayoutNodeGeometry>,
+        scroll_source: &impl ScrollDataSource,
+        record: bool,
+    ) -> LayoutSize {
+        let _ = scroll_source;
+        let node = match node_map.get(&node_id) {
+            Some(n) => *n,
+            None => return LayoutSize::ZERO,
+        };
+
+        let mut content_size = LayoutSize::ZERO;
+        let size = match &node.op {
+            LayoutOp::Box {
+                width,
+                height,
+                min_width,
+                max_width,
+                min_height,
+                max_height,
+                padding,
+                ..
+            } => {
+                let mut local = constraints.apply_min_max(
+                    *min_width,
+                    *max_width,
+                    *min_height,
+                    *max_height,
+                );
+                local = local.tighten(*width, *height);
+                let child_constraints = local.deflate(*padding);
+                let mut child_size = LayoutSize::ZERO;
+                if let Some(child_id) = node.children_ids.first() {
+                    child_size = self.layout_node_constraints(
+                        *child_id,
+                        child_constraints,
+                        LayoutPoint::new(origin.x + padding[0], origin.y + padding[2]),
+                        node_map,
+                        out,
+                        scroll_source,
+                        record,
+                    );
+                }
+                let padded = LayoutSize::new(
+                    child_size.width + padding[0] + padding[1],
+                    child_size.height + padding[2] + padding[3],
+                );
+                content_size = padded;
+                local.constrain(padded)
+            }
+            LayoutOp::Flex {
+                direction,
+                wrap: _,
+                padding,
+                gap,
+                align_items,
+                justify_content,
+                ..
+            } => {
+                let gap = gap.unwrap_or(0.0);
+                let inner = constraints.deflate(*padding);
+                let is_row = matches!(direction, IrFlexDirection::Row);
+
+                let max_main = if is_row { inner.max_w } else { inner.max_h };
+                let max_cross = if is_row { inner.max_h } else { inner.max_w };
+                let min_main = if is_row { inner.min_w } else { inner.min_h };
+                let min_cross = if is_row { inner.min_h } else { inner.min_w };
+                let main_bounded = if is_row { inner.is_width_bounded() } else { inner.is_height_bounded() };
+                let cross_bounded = if is_row { inner.is_height_bounded() } else { inner.is_width_bounded() };
+
+                let mut measured: Vec<(NodeId, LayoutSize, BoxConstraints, f32)> = Vec::new();
+                let mut flex_children: Vec<NodeId> = Vec::new();
+                let mut total_flex = 0.0f32;
+                let mut nonflex_main = 0.0f32;
+                let mut max_child_cross = 0.0f32;
+
+                for child_id in &node.children_ids {
+                    let child = match node_map.get(child_id) {
+                        Some(c) => *c,
+                        None => continue,
+                    };
+                    let flex = child.flex_grow;
+                    if flex > 0.0 {
+                        total_flex += flex;
+                        flex_children.push(*child_id);
+                        continue;
+                    }
+                    let child_constraints = if is_row {
+                        let cross = if matches!(align_items, fission_ir::op::AlignItems::Stretch) && cross_bounded {
+                            BoxConstraints { min_w: 0.0, max_w: max_main, min_h: max_cross, max_h: max_cross }
+                        } else {
+                            BoxConstraints { min_w: 0.0, max_w: max_main, min_h: 0.0, max_h: max_cross }
+                        };
+                        cross
+                    } else {
+                        let cross = if matches!(align_items, fission_ir::op::AlignItems::Stretch) && cross_bounded {
+                            BoxConstraints { min_w: max_cross, max_w: max_cross, min_h: 0.0, max_h: max_main }
+                        } else {
+                            BoxConstraints { min_w: 0.0, max_w: max_cross, min_h: 0.0, max_h: max_main }
+                        };
+                        cross
+                    };
+                    let child_size = self.layout_node_constraints(
+                        *child_id,
+                        child_constraints,
+                        LayoutPoint::ZERO,
+                        node_map,
+                        out,
+                        scroll_source,
+                        false,
+                    );
+                    let child_main = if is_row { child_size.width } else { child_size.height };
+                    let child_cross = if is_row { child_size.height } else { child_size.width };
+                    nonflex_main += child_main;
+                    max_child_cross = max_child_cross.max(child_cross);
+                    measured.push((*child_id, child_size, child_constraints, flex));
+                }
+
+                let gap_total = gap * node.children_ids.len().saturating_sub(1) as f32;
+                let mut remaining = if main_bounded {
+                    (max_main - nonflex_main - gap_total).max(0.0)
+                } else {
+                    0.0
+                };
+
+                for child_id in flex_children {
+                    let flex = node_map.get(&child_id).map(|n| n.flex_grow).unwrap_or(0.0);
+                    let allocated = if main_bounded && total_flex > 0.0 {
+                        remaining * (flex / total_flex)
+                    } else {
+                        0.0
+                    };
+                    let child_constraints = if is_row {
+                        let cross = if matches!(align_items, fission_ir::op::AlignItems::Stretch) && cross_bounded {
+                            BoxConstraints { min_w: allocated, max_w: allocated, min_h: max_cross, max_h: max_cross }
+                        } else {
+                            BoxConstraints { min_w: allocated, max_w: allocated, min_h: 0.0, max_h: max_cross }
+                        };
+                        cross
+                    } else {
+                        let cross = if matches!(align_items, fission_ir::op::AlignItems::Stretch) && cross_bounded {
+                            BoxConstraints { min_w: max_cross, max_w: max_cross, min_h: allocated, max_h: allocated }
+                        } else {
+                            BoxConstraints { min_w: 0.0, max_w: max_cross, min_h: allocated, max_h: allocated }
+                        };
+                        cross
+                    };
+                    let child_size = self.layout_node_constraints(
+                        child_id,
+                        child_constraints,
+                        LayoutPoint::ZERO,
+                        node_map,
+                        out,
+                        scroll_source,
+                        false,
+                    );
+                    let child_cross = if is_row { child_size.height } else { child_size.width };
+                    max_child_cross = max_child_cross.max(child_cross);
+                    measured.push((child_id, child_size, child_constraints, flex));
+                }
+
+                let total_children_main: f32 = measured.iter().map(|(_, s, _, _)| if is_row { s.width } else { s.height }).sum();
+                let mut container_main = if main_bounded { max_main } else { total_children_main + gap_total };
+                container_main = container_main.max(min_main);
+                let mut container_cross = if cross_bounded && matches!(align_items, fission_ir::op::AlignItems::Stretch) {
+                    max_cross
+                } else {
+                    max_child_cross.max(min_cross)
+                };
+                let size = if is_row {
+                    constraints.constrain(LayoutSize::new(container_main + padding[0] + padding[1], container_cross + padding[2] + padding[3]))
+                } else {
+                    constraints.constrain(LayoutSize::new(container_cross + padding[0] + padding[1], container_main + padding[2] + padding[3]))
+                };
+
+                let inner_main = if is_row { size.width - padding[0] - padding[1] } else { size.height - padding[2] - padding[3] };
+                let inner_cross = if is_row { size.height - padding[2] - padding[3] } else { size.width - padding[0] - padding[1] };
+                let mut remaining_space = (inner_main - total_children_main - gap_total).max(0.0);
+                let mut extra_gap = 0.0;
+                let mut offset_main = 0.0;
+                match justify_content {
+                    fission_ir::op::JustifyContent::Start => {}
+                    fission_ir::op::JustifyContent::End => offset_main = remaining_space,
+                    fission_ir::op::JustifyContent::Center => offset_main = remaining_space / 2.0,
+                    fission_ir::op::JustifyContent::SpaceBetween => {
+                        if measured.len() > 1 {
+                            extra_gap = remaining_space / (measured.len() as f32 - 1.0);
+                        }
+                    }
+                    fission_ir::op::JustifyContent::SpaceAround => {
+                        if !measured.is_empty() {
+                            extra_gap = remaining_space / measured.len() as f32;
+                            offset_main = extra_gap / 2.0;
+                        }
+                    }
+                    fission_ir::op::JustifyContent::SpaceEvenly => {
+                        if !measured.is_empty() {
+                            extra_gap = remaining_space / (measured.len() as f32 + 1.0);
+                            offset_main = extra_gap;
+                        }
+                    }
+                }
+
+                let mut cursor = offset_main;
+                for (child_id, child_size, child_constraints, _) in measured {
+                    let child_main = if is_row { child_size.width } else { child_size.height };
+                    let child_cross = if is_row { child_size.height } else { child_size.width };
+                    let cross_offset = match align_items {
+                        fission_ir::op::AlignItems::Start | fission_ir::op::AlignItems::Stretch => 0.0,
+                        fission_ir::op::AlignItems::End => (inner_cross - child_cross).max(0.0),
+                        fission_ir::op::AlignItems::Center => ((inner_cross - child_cross) / 2.0).max(0.0),
+                        fission_ir::op::AlignItems::Baseline => 0.0,
+                    };
+                    let child_origin = if is_row {
+                        LayoutPoint::new(origin.x + padding[0] + cursor, origin.y + padding[2] + cross_offset)
+                    } else {
+                        LayoutPoint::new(origin.x + padding[0] + cross_offset, origin.y + padding[2] + cursor)
+                    };
+                    self.layout_node_constraints(
+                        child_id,
+                        child_constraints,
+                        child_origin,
+                        node_map,
+                        out,
+                        scroll_source,
+                        record,
+                    );
+                    cursor += child_main + gap + extra_gap;
+                }
+
+                content_size = size;
+                size
+            }
+            LayoutOp::Align => {
+                let child_constraints = BoxConstraints::loose(constraints.max_w, constraints.max_h);
+                let mut child_size = LayoutSize::ZERO;
+                if let Some(child_id) = node.children_ids.first() {
+                    child_size = self.layout_node_constraints(
+                        *child_id,
+                        child_constraints,
+                        LayoutPoint::ZERO,
+                        node_map,
+                        out,
+                        scroll_source,
+                        false,
+                    );
+                }
+                let size = if constraints.is_width_bounded() || constraints.is_height_bounded() {
+                    constraints.constrain(LayoutSize::new(
+                        if constraints.is_width_bounded() { constraints.max_w } else { child_size.width },
+                        if constraints.is_height_bounded() { constraints.max_h } else { child_size.height },
+                    ))
+                } else {
+                    child_size
+                };
+                if let Some(child_id) = node.children_ids.first() {
+                    let dx = ((size.width - child_size.width) / 2.0).max(0.0);
+                    let dy = ((size.height - child_size.height) / 2.0).max(0.0);
+                    self.layout_node_constraints(
+                        *child_id,
+                        child_constraints,
+                        LayoutPoint::new(origin.x + dx, origin.y + dy),
+                        node_map,
+                        out,
+                        scroll_source,
+                        record,
+                    );
+                }
+                content_size = size;
+                size
+            }
+            LayoutOp::ZStack => {
+                let mut max_child = LayoutSize::ZERO;
+                for child_id in &node.children_ids {
+                    let child_size = self.layout_node_constraints(
+                        *child_id,
+                        BoxConstraints::loose(constraints.max_w, constraints.max_h),
+                        LayoutPoint::ZERO,
+                        node_map,
+                        out,
+                        scroll_source,
+                        false,
+                    );
+                    max_child.width = max_child.width.max(child_size.width);
+                    max_child.height = max_child.height.max(child_size.height);
+                }
+                let size = if constraints.is_width_bounded() || constraints.is_height_bounded() {
+                    constraints.constrain(LayoutSize::new(
+                        if constraints.is_width_bounded() { constraints.max_w } else { max_child.width },
+                        if constraints.is_height_bounded() { constraints.max_h } else { max_child.height },
+                    ))
+                } else {
+                    max_child
+                };
+                for child_id in &node.children_ids {
+                    let child_constraints = BoxConstraints::loose(size.width, size.height);
+                    let child_origin = LayoutPoint::new(origin.x, origin.y);
+                    self.layout_node_constraints(
+                        *child_id,
+                        child_constraints,
+                        child_origin,
+                        node_map,
+                        out,
+                        scroll_source,
+                        record,
+                    );
+                }
+                content_size = size;
+                size
+            }
+            LayoutOp::Grid { columns, rows, column_gap, row_gap, padding } => {
+                let gap_x = column_gap.unwrap_or(0.0);
+                let gap_y = row_gap.unwrap_or(0.0);
+                let inner = constraints.deflate(*padding);
+                let bounded_w = inner.is_width_bounded();
+                let bounded_h = inner.is_height_bounded();
+                let available_w = if bounded_w { inner.max_w } else { 0.0 };
+                let available_h = if bounded_h { inner.max_h } else { 0.0 };
+
+                let col_count = columns.len().max(1);
+                let mut col_widths = vec![0.0f32; col_count];
+                let mut fr_total = 0.0f32;
+                let mut fixed_total = 0.0f32;
+                for (i, track) in columns.iter().enumerate() {
+                    match track {
+                        GridTrack::Points(p) => {
+                            col_widths[i] = *p;
+                            fixed_total += *p;
+                        }
+                        GridTrack::Percent(p) => {
+                            let w = if bounded_w { available_w * (*p / 100.0) } else { 0.0 };
+                            col_widths[i] = w;
+                            fixed_total += w;
+                        }
+                        GridTrack::Fr(f) => {
+                            fr_total += *f;
+                        }
+                        GridTrack::Auto | GridTrack::MinContent | GridTrack::MaxContent => {}
+                    }
+                }
+                if fr_total > 0.0 && bounded_w {
+                    let remaining = (available_w - fixed_total - gap_x * (col_count.saturating_sub(1) as f32)).max(0.0);
+                    for (i, track) in columns.iter().enumerate() {
+                        if let GridTrack::Fr(f) = track {
+                            col_widths[i] = remaining * (*f / fr_total);
+                        }
+                    }
+                }
+
+                let child_count = node.children_ids.len();
+                let row_count = if rows.is_empty() {
+                    (child_count + col_count - 1) / col_count
+                } else {
+                    rows.len()
+                };
+                let mut row_heights = vec![0.0f32; row_count.max(1)];
+
+                if !rows.is_empty() {
+                    let mut row_fr_total = 0.0f32;
+                    let mut row_fixed_total = 0.0f32;
+                    for (i, track) in rows.iter().enumerate() {
+                        if i >= row_heights.len() { break; }
+                        match track {
+                            GridTrack::Points(p) => {
+                                row_heights[i] = *p;
+                                row_fixed_total += *p;
+                            }
+                            GridTrack::Percent(p) => {
+                                let h = if bounded_h { available_h * (*p / 100.0) } else { 0.0 };
+                                row_heights[i] = h;
+                                row_fixed_total += h;
+                            }
+                            GridTrack::Fr(f) => row_fr_total += *f,
+                            GridTrack::Auto | GridTrack::MinContent | GridTrack::MaxContent => {}
+                        }
+                    }
+                    if row_fr_total > 0.0 && bounded_h {
+                        let remaining = (available_h - row_fixed_total - gap_y * (row_heights.len().saturating_sub(1) as f32)).max(0.0);
+                        for (i, track) in rows.iter().enumerate() {
+                            if let GridTrack::Fr(f) = track {
+                                row_heights[i] = remaining * (*f / row_fr_total);
+                            }
+                        }
+                    }
+                }
+
+                for (idx, child_id) in node.children_ids.iter().enumerate() {
+                    let row = idx / col_count;
+                    let col = idx % col_count;
+                    if row >= row_heights.len() { break; }
+                    let cell_w = col_widths[col];
+                    let cell_constraints = BoxConstraints {
+                        min_w: cell_w,
+                        max_w: cell_w,
+                        min_h: 0.0,
+                        max_h: if row_heights[row] > 0.0 { row_heights[row] } else { f32::INFINITY },
+                    };
+                    let child_size = self.layout_node_constraints(
+                        *child_id,
+                        cell_constraints,
+                        LayoutPoint::ZERO,
+                        node_map,
+                        out,
+                        scroll_source,
+                        false,
+                    );
+                    if row_heights[row] == 0.0 {
+                        row_heights[row] = child_size.height;
+                    } else {
+                        row_heights[row] = row_heights[row].max(child_size.height);
+                    }
+                }
+
+                let grid_w: f32 = col_widths.iter().sum::<f32>() + gap_x * (col_count.saturating_sub(1) as f32);
+                let grid_h: f32 = row_heights.iter().sum::<f32>() + gap_y * (row_heights.len().saturating_sub(1) as f32);
+                let size = constraints.constrain(LayoutSize::new(
+                    grid_w + padding[0] + padding[1],
+                    grid_h + padding[2] + padding[3],
+                ));
+
+                let mut y = origin.y + padding[2];
+                for row in 0..row_heights.len() {
+                    let mut x = origin.x + padding[0];
+                    for col in 0..col_count {
+                        let idx = row * col_count + col;
+                        if idx >= node.children_ids.len() { break; }
+                        let cell_w = col_widths[col];
+                        let cell_h = row_heights[row];
+                        let child_constraints = BoxConstraints {
+                            min_w: cell_w,
+                            max_w: cell_w,
+                            min_h: cell_h,
+                            max_h: cell_h,
+                        };
+                        self.layout_node_constraints(
+                            node.children_ids[idx],
+                            child_constraints,
+                            LayoutPoint::new(x, y),
+                            node_map,
+                            out,
+                            scroll_source,
+                            record,
+                        );
+                        x += cell_w + gap_x;
+                    }
+                    y += row_heights[row] + gap_y;
+                }
+
+                content_size = size;
+                size
+            }
+            LayoutOp::GridItem { .. } => {
+                let mut child_size = LayoutSize::ZERO;
+                if let Some(child_id) = node.children_ids.first() {
+                    child_size = self.layout_node_constraints(
+                        *child_id,
+                        constraints,
+                        origin,
+                        node_map,
+                        out,
+                        scroll_source,
+                        record,
+                    );
+                }
+                content_size = child_size;
+                constraints.constrain(child_size)
+            }
+            LayoutOp::Scroll {
+                direction,
+                width,
+                height,
+                min_width,
+                max_width,
+                min_height,
+                max_height,
+                padding,
+                ..
+            } => {
+                let mut local = constraints.apply_min_max(*min_width, *max_width, *min_height, *max_height);
+                local = local.tighten(*width, *height);
+                let inner = local.deflate(*padding);
+                let child_constraints = match direction {
+                    IrFlexDirection::Row => BoxConstraints {
+                        min_w: 0.0,
+                        max_w: f32::INFINITY,
+                        min_h: inner.min_h,
+                        max_h: inner.max_h,
+                    },
+                    IrFlexDirection::Column => BoxConstraints {
+                        min_w: inner.min_w,
+                        max_w: inner.max_w,
+                        min_h: 0.0,
+                        max_h: f32::INFINITY,
+                    },
+                };
+                let mut child_size = LayoutSize::ZERO;
+                if let Some(child_id) = node.children_ids.first() {
+                    child_size = self.layout_node_constraints(
+                        *child_id,
+                        child_constraints,
+                        LayoutPoint::new(origin.x + padding[0], origin.y + padding[2]),
+                        node_map,
+                        out,
+                        scroll_source,
+                        record,
+                    );
+                }
+                let content_w = child_size.width + padding[0] + padding[1];
+                let content_h = child_size.height + padding[2] + padding[3];
+                content_size = LayoutSize::new(content_w, content_h);
+                let viewport = LayoutSize::new(
+                    if local.is_width_bounded() { local.max_w } else { content_w },
+                    if local.is_height_bounded() { local.max_h } else { content_h },
+                );
+                local.constrain(viewport)
+            }
+            LayoutOp::AbsoluteFill => {
+                let size = constraints.constrain(LayoutSize::new(constraints.max_w, constraints.max_h));
+                for child_id in &node.children_ids {
+                    self.layout_node_constraints(
+                        *child_id,
+                        BoxConstraints::tight(size),
+                        origin,
+                        node_map,
+                        out,
+                        scroll_source,
+                        record,
+                    );
+                }
+                content_size = size;
+                size
+            }
+            LayoutOp::Positioned { left, top, right, bottom, width, height } => {
+                let size = constraints.constrain(LayoutSize::new(constraints.max_w, constraints.max_h));
+                let mut child_constraints = BoxConstraints::loose(size.width, size.height);
+                if let (Some(l), Some(r)) = (left, right) {
+                    let w = (size.width - l - r).max(0.0);
+                    child_constraints = child_constraints.tighten(Some(w), None);
+                }
+                if let (Some(t), Some(b)) = (top, bottom) {
+                    let h = (size.height - t - b).max(0.0);
+                    child_constraints = child_constraints.tighten(None, Some(h));
+                }
+                child_constraints = child_constraints.tighten(*width, *height);
+                if let Some(child_id) = node.children_ids.first() {
+                    let child_size = self.layout_node_constraints(
+                        *child_id,
+                        child_constraints,
+                        LayoutPoint::ZERO,
+                        node_map,
+                        out,
+                        scroll_source,
+                        false,
+                    );
+                    let x = left.unwrap_or_else(|| {
+                        right.map(|r| (size.width - r - child_size.width).max(0.0)).unwrap_or(0.0)
+                    });
+                    let y = top.unwrap_or_else(|| {
+                        bottom.map(|b| (size.height - b - child_size.height).max(0.0)).unwrap_or(0.0)
+                    });
+                    self.layout_node_constraints(
+                        *child_id,
+                        child_constraints,
+                        LayoutPoint::new(origin.x + x, origin.y + y),
+                        node_map,
+                        out,
+                        scroll_source,
+                        record,
+                    );
+                }
+                content_size = size;
+                size
+            }
+            _ => {
+                let mut child_size = LayoutSize::ZERO;
+                if let Some(child_id) = node.children_ids.first() {
+                    child_size = self.layout_node_constraints(
+                        *child_id,
+                        constraints,
+                        origin,
+                        node_map,
+                        out,
+                        scroll_source,
+                        record,
+                    );
+                }
+                content_size = child_size;
+                constraints.constrain(child_size)
+            }
+        };
+
+        if let Some(runs) = &node.rich_text {
+            if let Some(measurer) = &self.measurer {
+                let avail_w = if constraints.is_width_bounded() { Some(constraints.max_w) } else { None };
+                let (mw, mh) = measurer.measure_rich_text(runs, avail_w);
+                let measured = constraints.constrain(LayoutSize::new(mw, mh));
+                if node.children_ids.is_empty() {
+                    content_size = measured;
+                    return self.record_geometry(node_id, origin, measured, measured, out, record);
+                }
+                content_size.width = content_size.width.max(measured.width);
+                content_size.height = content_size.height.max(measured.height);
+            }
+        }
+
+        self.record_geometry(node_id, origin, size, content_size, out, record)
+    }
+
+    fn record_geometry(
+        &self,
+        node_id: NodeId,
+        origin: LayoutPoint,
+        size: LayoutSize,
+        content_size: LayoutSize,
+        out: &mut HashMap<NodeId, LayoutNodeGeometry>,
+        record: bool,
+    ) -> LayoutSize {
+        if record {
+            let rect = LayoutRect::new(origin.x, origin.y, size.width, size.height);
+            out.insert(node_id, LayoutNodeGeometry { rect, content_size });
+        }
+        size
     }
 
     fn extract_geometry_recursive_with_visited(
