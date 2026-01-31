@@ -21,6 +21,7 @@ impl<S: fission_core::AppState> Widget<S> for Link {
                     .into_node()
             )),
             on_press: self.on_click.clone(),
+            content_align: fission_core::ui::ButtonContentAlign::Start,
             padding: Some([0.0; 4]), // Minimal padding
             ..Default::default()
         }.into_node()

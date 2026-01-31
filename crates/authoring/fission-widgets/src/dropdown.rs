@@ -19,6 +19,7 @@ impl<S: AppState + 'static> Widget<S> for DropDown {
         let tokens = &view.env.theme.tokens;
 
         Button {
+            variant: fission_core::ui::ButtonVariant::Outline,
             child: Some(Box::new(
                 HStack {
                     spacing: Some(8.0),

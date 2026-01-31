@@ -4,7 +4,7 @@ use fission_core::op::Color;
 use crate::stack::{HStack, VStack};
 use std::sync::Arc;
 use serde::{Deserialize, Serialize};
-use chrono::{Datelike, NaiveDate, Weekday};
+use chrono::{Datelike, NaiveDate, Weekday, Local};
 
 pub struct Calendar {
     pub year: i32,
@@ -55,11 +55,11 @@ impl<S: fission_core::AppState> Widget<S> for Calendar {
                     width: Some(32.0), height: Some(32.0),
                     ..Default::default()
                 }.into_node(),
-                
+                fission_core::ui::widgets::Spacer { flex_grow: 1.0, ..Default::default() }.into_node(),
                 Text::new(first_day.format("%B %Y").to_string())
                     .size(tokens.typography.body_large_size)
                     .into_node(),
-                    
+                fission_core::ui::widgets::Spacer { flex_grow: 1.0, ..Default::default() }.into_node(),
                 Button {
                     variant: ButtonVariant::Ghost,
                     child: Some(Box::new(Text::new(">").into_node())),
@@ -92,20 +92,31 @@ impl<S: fission_core::AppState> Widget<S> for Calendar {
         for d in 1..=days_in_month {
             let date = NaiveDate::from_ymd_opt(self.year, self.month, d).unwrap();
             let is_selected = self.selected_date == Some(date);
+            let is_today = date == Local::now().date_naive();
             let cb = self.on_select.clone();
-            
-            days.push(
-                Button {
-                    variant: if is_selected { ButtonVariant::Filled } else { ButtonVariant::Ghost },
-                    child: Some(Box::new(Text::new(d.to_string())
-                        .color(if is_selected { theme.selected_text } else { tokens.colors.text_primary })
-                        .into_node()
-                    )),
-                    on_press: cb.map(|f| f(date)),
-                    width: Some(32.0), height: Some(32.0),
-                    ..Default::default()
-                }.into_node()
-            );
+
+            let day_button = Button {
+                variant: if is_selected { ButtonVariant::Filled } else { ButtonVariant::Ghost },
+                child: Some(Box::new(Text::new(d.to_string())
+                    .color(if is_selected { theme.selected_text } else { tokens.colors.text_primary })
+                    .into_node()
+                )),
+                on_press: cb.map(|f| f(date)),
+                width: Some(32.0), height: Some(32.0),
+                padding: Some([0.0; 4]),
+                ..Default::default()
+            }.into_node();
+
+            let day_node = if is_today && !is_selected {
+                Container::new(day_button)
+                    .border(theme.today_outline, 1.0)
+                    .border_radius(16.0)
+                    .into_node()
+            } else {
+                day_button
+            };
+
+            days.push(day_node);
         }
         
         // Grid with 7 columns

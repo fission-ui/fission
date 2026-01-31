@@ -1,7 +1,7 @@
 use fission_core::{BuildCtx, View, Widget, WidgetNodeId, NodeId, Handler};
 use fission_core::ui::{Button, ButtonContentAlign, ButtonVariant, Checkbox, Container, Node, Row, Scroll, Text, TextContent};
 use fission_core::op::Color;
-use fission_widgets::{VStack, HStack, LazyColumn, Tabs, TabItem, TextInput, MenuButton, MenuItem, Badge, Divider, Icon, Skeleton, SegmentedControl, Pagination, EmptyState, Hero, DropDown, Tooltip, Popover, DateRangePicker, RangeSlider, Wrap, Tag, Spinner};
+use fission_widgets::{VStack, HStack, LazyColumn, Tabs, TabItem, TextInput, MenuButton, MenuItem, Badge, Divider, Icon, Skeleton, SegmentedControl, Pagination, EmptyState, Hero, DropDown, Tooltip, Popover, DateRangePicker, RangeSlider, Wrap, Tag};
 use crate::model::{InboxState, Folder, SelectTab, UpdateSearch, ToggleFilterDropdown, ToggleEmailSelection, ToggleFlag, SetComposeOpen, Navigate, SetMobileMenuOpen, SetFilterMode, SetPage, SetAdvancedFiltersOpen, SetSortOption, SetHelpPopoverOpen};
 use fission_icons::material;
 use std::sync::Arc;
@@ -108,7 +108,6 @@ impl Widget<InboxState> for EmailList {
                     }.into_node(),
                     Text::new(folder_label).size(24.0).into_node(),
                     Badge { text: format!("{} {}", unread_count, t("badge.new")), ..Default::default() }.build(ctx, view),
-                    Spinner { id: WidgetNodeId::explicit("sync_spinner"), color: None }.build(ctx, view),
                     fission_core::ui::widgets::Spacer { flex_grow: 1.0, ..Default::default() }.into_node(),
                     Tooltip {
                         id: WidgetNodeId::explicit("compose_tooltip"),
@@ -355,7 +354,7 @@ impl Widget<InboxState> for EmailList {
 
                 let item_content = Row {
                     gap: Some(12.0),
-                    align_items: fission_ir::op::AlignItems::Start,
+                    align_items: fission_ir::op::AlignItems::Center,
                     children: vec![
                         Checkbox {
                             checked: is_selected,
@@ -385,6 +384,9 @@ impl Widget<InboxState> for EmailList {
                                                 id: flag_id,
                                                 payload: serde_json::to_vec(&ToggleFlag(email.id)).unwrap(),
                                             }),
+                                            width: Some(28.0),
+                                            height: Some(28.0),
+                                            padding: Some([4.0, 4.0, 0.0, 0.0]),
                                             ..Default::default()
                                         }.into_node(),
                                     ],
@@ -420,12 +422,17 @@ impl Widget<InboxState> for EmailList {
                     ..Default::default()
                 }.into_node();
 
-                let item = Container::new(item_content)
-                    .padding_all(12.0)
-                    .bg(if is_selected { tokens.colors.primary.with_alpha(20) } else { tokens.colors.surface })
-                    .border(tokens.colors.border, 1.0)
-                    .flex_grow(1.0)
-                    .into_node();
+                let item = VStack {
+                    spacing: Some(0.0),
+                    children: vec![
+                        Container::new(item_content)
+                            .padding_all(12.0)
+                            .bg(if is_selected { tokens.colors.primary.with_alpha(20) } else { tokens.colors.surface })
+                            .flex_grow(1.0)
+                            .into_node(),
+                        Divider { orientation: fission_widgets::divider::Orientation::Horizontal }.build(ctx, view),
+                    ],
+                }.build(ctx, view);
 
                 email_nodes.push(
                     Button {

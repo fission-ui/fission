@@ -6,9 +6,9 @@ use std::time::{Duration, Instant};
 use winit::{
     dpi::PhysicalPosition,
     event::{ElementState, Event, Ime, KeyEvent, MouseButton, MouseScrollDelta, WindowEvent},
-    event_loop::{ControlFlow, EventLoop},
+    event_loop::{ControlFlow, EventLoop, EventLoopWindowTarget},
     keyboard::PhysicalKey,
-    window::WindowBuilder,
+    window::{Window, WindowBuilder},
 };
 
 use fission_core::env::{VideoState, VideoStateMap, VideoStatus};
@@ -55,6 +55,22 @@ struct ActivePlayer {
     last_rate: Option<f32>,
     last_volume: Option<f32>,
     last_muted: Option<bool>,
+}
+
+fn request_redraw_throttled(
+    window: &Window,
+    elwt: &EventLoopWindowTarget<()>,
+    last_redraw_at: &mut Instant,
+    min_frame: Duration,
+) {
+    let now = Instant::now();
+    let next = *last_redraw_at + min_frame;
+    if now >= next {
+        *last_redraw_at = now;
+        window.request_redraw();
+    } else {
+        elwt.set_control_flow(ControlFlow::WaitUntil(next));
+    }
 }
 
 fn process_pending_effects(runtime: &mut Runtime) -> bool {
@@ -263,7 +279,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
             EventLoop::new().map_err(|e| anyhow::anyhow!("Event loop error: {}", e))?;
         let window = Arc::new(
             WindowBuilder::new()
-                .with_title("Fission Vello App")
+                .with_title("Fission Inbox")
                 .build(&event_loop)
                 .map_err(|e| anyhow::anyhow!("Window build error: {}", e))?,
         );
@@ -308,6 +324,13 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
         let mut players: HashMap<WidgetNodeId, ActivePlayer> = HashMap::new();
 
         let mut last_cursor_position: Option<PhysicalPosition<f64>> = None;
+        let max_fps = std::env::var("FISSION_MAX_FPS")
+            .ok()
+            .and_then(|v| v.parse::<u32>().ok())
+            .filter(|v| *v > 0)
+            .unwrap_or(30);
+        let min_frame = Duration::from_secs_f32(1.0 / max_fps as f32);
+        let mut last_redraw_at = Instant::now().checked_sub(min_frame).unwrap_or_else(Instant::now);
         let mut last_frame_time = Instant::now();
         let _blink_enabled = std::env::var("FISSION_TEXTINPUT_BLINK").ok().as_deref() == Some("1");
         let mut _last_blink_toggle = Instant::now();
@@ -393,13 +416,13 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                         VideoEvent::Ended => {
                                             video_state.status = VideoStatus::Ended;
                                             active_player.last_status = Some(VideoStatus::Ended);
-                                            window.request_redraw(); 
+                                            request_redraw_throttled(&window, elwt, &mut last_redraw_at, min_frame);
                                         },
                                         VideoEvent::Error(e) => {
                                             eprintln!("Video playback error for {:?}: {:?}", widget_id, e);
                                             video_state.status = VideoStatus::Error;
                                             active_player.last_status = Some(VideoStatus::Error);
-                                            window.request_redraw();
+                                            request_redraw_throttled(&window, elwt, &mut last_redraw_at, min_frame);
                                         },
                                     }
                                 }
@@ -429,20 +452,28 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                         let needs_redraw = !runtime.runtime_state.animation.active.is_empty() || !players.is_empty();
                         
                         if needs_redraw {
-                            window.request_redraw();
-                            elwt.set_control_flow(ControlFlow::WaitUntil(Instant::now() + Duration::from_millis(16)));
+                            request_redraw_throttled(&window, elwt, &mut last_redraw_at, min_frame);
+                            elwt.set_control_flow(ControlFlow::WaitUntil(last_redraw_at + min_frame));
                         } else {
                             elwt.set_control_flow(ControlFlow::Wait);
                         }
                     }
                     Event::WindowEvent { window_id, event } if window_id == window.id() => {
                         match event {
+                            WindowEvent::Resized(size) => {
+                                if size.width > 0 && size.height > 0 {
+                                    request_redraw_throttled(&window, elwt, &mut last_redraw_at, min_frame);
+                                }
+                            }
+                            WindowEvent::ScaleFactorChanged { .. } => {
+                                request_redraw_throttled(&window, elwt, &mut last_redraw_at, min_frame);
+                            }
                             WindowEvent::RedrawRequested => {
                                 diag::begin_frame(None);
                                 // Drain pending effects before building the next frame.
                                 // This prevents the effect queue from growing unbounded.
                                 if process_pending_effects(&mut runtime) {
-                                    window.request_redraw();
+                                    request_redraw_throttled(&window, elwt, &mut last_redraw_at, min_frame);
                                 }
                                 let size = window.inner_size();
                                 if size.width > 0 && size.height > 0 {
@@ -597,9 +628,9 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                         eprintln!("Input handling error: {:?}", e);
                                     }
                                     if process_pending_effects(&mut runtime) {
-                                        window.request_redraw();
+                                        request_redraw_throttled(&window, elwt, &mut last_redraw_at, min_frame);
                                     }
-                                    window.request_redraw();
+                                    request_redraw_throttled(&window, elwt, &mut last_redraw_at, min_frame);
                                 }
                             }
                             WindowEvent::MouseInput { state, button, .. } => {
@@ -619,9 +650,9 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                                     // println!("Input dispatched successfully");
                                                 }
                                                 if process_pending_effects(&mut runtime) {
-                                                    window.request_redraw();
+                                                    request_redraw_throttled(&window, elwt, &mut last_redraw_at, min_frame);
                                                 }
-                                                window.request_redraw();
+                                                request_redraw_throttled(&window, elwt, &mut last_redraw_at, min_frame);
                                             }
                                         }
                                     }
@@ -659,9 +690,9 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                             eprintln!("Scroll error: {:?}", e);
                                         }
                                         if process_pending_effects(&mut runtime) {
-                                            window.request_redraw();
+                                            request_redraw_throttled(&window, elwt, &mut last_redraw_at, min_frame);
                                         }
-                                        window.request_redraw();
+                                        request_redraw_throttled(&window, elwt, &mut last_redraw_at, min_frame);
                                     }
                                 }
                             }
@@ -702,9 +733,9 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                             eprintln!("Keyboard error: {:?}", e);
                                         }
                                         if process_pending_effects(&mut runtime) {
-                                            window.request_redraw();
+                                            request_redraw_throttled(&window, elwt, &mut last_redraw_at, min_frame);
                                         }
-                                        window.request_redraw();
+                                        request_redraw_throttled(&window, elwt, &mut last_redraw_at, min_frame);
                                     }
                                 }
                             }
@@ -719,9 +750,9 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                     if let Some(e) = input_event {
                                         runtime.handle_input(e, ir, layout).ok();
                                         if process_pending_effects(&mut runtime) {
-                                            window.request_redraw();
+                                            request_redraw_throttled(&window, elwt, &mut last_redraw_at, min_frame);
                                         }
-                                        window.request_redraw();
+                                        request_redraw_throttled(&window, elwt, &mut last_redraw_at, min_frame);
                                     }
                                 }
                             }

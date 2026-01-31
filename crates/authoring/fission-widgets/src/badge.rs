@@ -20,14 +20,14 @@ impl<S: fission_core::AppState> Widget<S> for Badge {
         Container::new(
             Align::new(
                 Text::new(self.text.clone())
-                    .size(theme.font_size)
+                    .size(11.0)
                     .color(text_color)
                     .into_node()
             ).into_node()
         )
         .bg(bg_color)
         .border_radius(theme.radius)
-        .padding_all(4.0)
+        .padding_all(3.0)
         .into_node()
     }
 }

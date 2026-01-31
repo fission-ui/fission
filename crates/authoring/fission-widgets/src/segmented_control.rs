@@ -36,6 +36,8 @@ impl<S: fission_core::AppState> Widget<S> for SegmentedControl {
                     .color(if is_selected { theme.active_text } else { tokens.colors.text_primary })
                     .into_node()
                 )),
+                height: Some(32.0),
+                padding: Some([12.0, 12.0, 0.0, 0.0]),
                 on_press: cb.map(|f| f(i)),
                 ..Default::default()
             }.into_node();
@@ -53,7 +55,7 @@ impl<S: fission_core::AppState> Widget<S> for SegmentedControl {
                 children,
             }.into_node()
         )
-        .padding_all(2.0)
+        .padding_all(1.0)
         .bg(theme.bg_color)
         .border(theme.border_color, 1.0)
         .border_radius(theme.radius)

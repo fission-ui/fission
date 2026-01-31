@@ -2,7 +2,7 @@ use fission_core::ui::{Button, ButtonVariant, ButtonContentAlign, Container, Nod
 use fission_core::{BuildCtx, View, Widget, ActionEnvelope, WidgetNodeId, NodeId};
 use fission_core::op::{Color, BoxShadow};
 use crate::stack::{VStack, HStack};
-use crate::{flyout, Icon};
+use crate::{flyout, Icon, Divider};
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -26,7 +26,7 @@ impl<S: fission_core::AppState> Widget<S> for Menu {
 
         let item_width = self.width.unwrap_or(200.0);
 
-        for item in &self.items {
+        for (idx, item) in self.items.iter().enumerate() {
             let mut row_children = Vec::new();
             if let Some(icon_path) = &item.icon {
                 row_children.push(Icon::svg(icon_path.clone()).size(18.0).into_node());
@@ -49,9 +49,15 @@ impl<S: fission_core::AppState> Widget<S> for Menu {
                     )),
                     on_press: item.on_select.clone(),
                     width: Some(item_width),
+                    height: Some(32.0),
+                    padding: Some([12.0, 12.0, 0.0, 0.0]),
                     ..Default::default()
                 }.into()
             );
+
+            if idx + 1 < self.items.len() {
+                menu_items.push(Divider { orientation: crate::divider::Orientation::Horizontal }.build(ctx, view));
+            }
         }
 
         let content = VStack {
@@ -98,7 +104,7 @@ impl<S: fission_core::AppState> Widget<S> for MenuButton {
         // Trigger Button
         let trigger = Button {
             id: Some(anchor_id),
-            variant: ButtonVariant::Outline,
+            variant: ButtonVariant::Ghost,
             content_align: ButtonContentAlign::Start,
             child: Some(Box::new(
                 Text { 

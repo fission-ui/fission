@@ -18,7 +18,7 @@ impl<S: fission_core::AppState> Widget<S> for Tag {
         let mut children = vec![
             Text {
                 content: TextContent::Literal(self.label.clone()),
-                font_size: Some(14.0),
+                font_size: Some(12.0),
                 color: Some(tokens.colors.text_primary),
                 ..Default::default()
             }.into()
@@ -53,7 +53,7 @@ impl<S: fission_core::AppState> Widget<S> for Tag {
         )
         .bg(tokens.colors.surface) // or slightly darker
         .border(tokens.colors.border, 1.0)
-        .border_radius(4.0)
+        .border_radius(14.0)
         .padding_all(4.0)
         .into_node()
     }

@@ -102,7 +102,8 @@ impl TreeView {
             }.into_node()
         )
         .bg(if is_selected { theme.selected_bg } else { fission_core::op::Color { r:0,g:0,b:0,a:0 } })
-        .padding_all(4.0)
+        .padding_all(8.0)
+        .height(36.0)
         .flex_grow(1.0)
         .into_node();
         

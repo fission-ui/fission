@@ -16,11 +16,11 @@ impl<S: fission_core::AppState> Widget<S> for Stat {
         
         let mut children = vec![
             Text::new(self.label.clone())
-                .size(14.0)
+                .size(12.0)
                 .color(tokens.colors.text_secondary)
                 .into_node(),
             Text::new(self.value.clone())
-                .size(24.0)
+                .size(20.0)
                 // .weight(Bold)
                 .color(tokens.colors.text_primary)
                 .into_node(),

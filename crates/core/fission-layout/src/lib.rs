@@ -102,12 +102,14 @@ impl BoxConstraints {
     pub fn tighten(&self, width: Option<LayoutUnit>, height: Option<LayoutUnit>) -> Self {
         let mut out = *self;
         if let Some(w) = width {
-            out.min_w = out.min_w.max(w);
-            out.max_w = out.max_w.min(w);
+            let clamped = w.min(out.max_w).max(out.min_w);
+            out.min_w = clamped;
+            out.max_w = clamped;
         }
         if let Some(h) = height {
-            out.min_h = out.min_h.max(h);
-            out.max_h = out.max_h.min(h);
+            let clamped = h.min(out.max_h).max(out.min_h);
+            out.min_h = clamped;
+            out.max_h = clamped;
         }
         if out.max_w < out.min_w { out.max_w = out.min_w; }
         if out.max_h < out.min_h { out.max_h = out.min_h; }
@@ -851,8 +853,14 @@ impl LayoutEngine {
                     content_size = size;
                     size
                 } else {
-                    let mut measured: Vec<(NodeId, LayoutSize, BoxConstraints, f32)> = Vec::new();
-                    let mut flex_children: Vec<NodeId> = Vec::new();
+                    struct FlexChildEntry {
+                        id: NodeId,
+                        flex: f32,
+                        size: LayoutSize,
+                        constraints: BoxConstraints,
+                        is_flex: bool,
+                    }
+                    let mut measured: Vec<FlexChildEntry> = Vec::new();
                     let mut total_flex = 0.0f32;
                     let mut nonflex_main = 0.0f32;
                     let mut max_child_cross = 0.0f32;
@@ -866,7 +874,13 @@ impl LayoutEngine {
                         let flex = child.flex_grow;
                         if flex > 0.0 && !treat_flex_as_nonflex {
                             total_flex += flex;
-                            flex_children.push(*child_id);
+                            measured.push(FlexChildEntry {
+                                id: *child_id,
+                                flex,
+                                size: LayoutSize::ZERO,
+                                constraints: BoxConstraints::loose(0.0, 0.0),
+                                is_flex: true,
+                            });
                             continue;
                         }
                         let child_constraints = if is_row {
@@ -898,7 +912,13 @@ impl LayoutEngine {
                         let child_cross = if is_row { child_size.height } else { child_size.width };
                         nonflex_main += child_main;
                         max_child_cross = max_child_cross.max(child_cross);
-                        measured.push((*child_id, child_size, child_constraints, flex));
+                        measured.push(FlexChildEntry {
+                            id: *child_id,
+                            flex,
+                            size: child_size,
+                            constraints: child_constraints,
+                            is_flex: false,
+                        });
                     }
 
                     let gap_total = gap * flow_children.len().saturating_sub(1) as f32;
@@ -908,8 +928,8 @@ impl LayoutEngine {
                         0.0
                     };
 
-                    for child_id in flex_children {
-                        let flex = node_map.get(&child_id).map(|n| n.flex_grow).unwrap_or(0.0);
+                    for entry in measured.iter_mut().filter(|e| e.is_flex) {
+                        let flex = entry.flex;
                         let allocated = if main_bounded && total_flex > 0.0 {
                             remaining * (flex / total_flex)
                         } else {
@@ -931,7 +951,7 @@ impl LayoutEngine {
                             cross
                         };
                         let child_size = self.layout_node_constraints(
-                            child_id,
+                            entry.id,
                             child_constraints,
                             LayoutPoint::ZERO,
                             node_map,
@@ -942,10 +962,14 @@ impl LayoutEngine {
                         );
                         let child_cross = if is_row { child_size.height } else { child_size.width };
                         max_child_cross = max_child_cross.max(child_cross);
-                        measured.push((child_id, child_size, child_constraints, flex));
+                        entry.size = child_size;
+                        entry.constraints = child_constraints;
                     }
 
-                    let total_children_main: f32 = measured.iter().map(|(_, s, _, _)| if is_row { s.width } else { s.height }).sum();
+                    let total_children_main: f32 = measured
+                        .iter()
+                        .map(|entry| if is_row { entry.size.width } else { entry.size.height })
+                        .sum();
                     let mut container_main = if main_bounded { max_main } else { total_children_main + gap_total };
                     container_main = container_main.max(min_main);
                     let mut container_cross = max_child_cross.max(min_cross);
@@ -984,9 +1008,9 @@ impl LayoutEngine {
                     }
 
                     let mut cursor = offset_main;
-                    for (child_id, child_size, child_constraints, _) in measured {
-                        let child_main = if is_row { child_size.width } else { child_size.height };
-                        let child_cross = if is_row { child_size.height } else { child_size.width };
+                    for entry in measured {
+                        let child_main = if is_row { entry.size.width } else { entry.size.height };
+                        let child_cross = if is_row { entry.size.height } else { entry.size.width };
                         let cross_offset = match align_items {
                             fission_ir::op::AlignItems::Start | fission_ir::op::AlignItems::Stretch => 0.0,
                             fission_ir::op::AlignItems::End => (inner_cross - child_cross).max(0.0),
@@ -999,8 +1023,8 @@ impl LayoutEngine {
                             LayoutPoint::new(origin.x + padding[0] + cross_offset, origin.y + padding[2] + cursor)
                         };
                         self.layout_node_constraints(
-                            child_id,
-                            child_constraints,
+                            entry.id,
+                            entry.constraints,
                             child_origin,
                             node_map,
                             out,
@@ -1496,7 +1520,12 @@ impl LayoutEngine {
         if let Some(runs) = &node.rich_text {
             if let Some(measurer) = &self.measurer {
                 let avail_w = if constraints.is_width_bounded() { Some(constraints.max_w) } else { None };
-                let (mw, mh) = measurer.measure_rich_text(runs, avail_w);
+                let (mw, mh) = if runs.len() == 1 {
+                    let run = &runs[0];
+                    measurer.measure(&run.text, run.style.font_size, avail_w)
+                } else {
+                    measurer.measure_rich_text(runs, avail_w)
+                };
                 let measured = constraints.constrain(LayoutSize::new(mw, mh));
                 if node.children_ids.is_empty() {
                     content_size = measured;

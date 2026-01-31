@@ -182,7 +182,7 @@ impl ButtonTheme {
     pub fn from_tokens(tokens: &Tokens) -> Self {
         Self {
             height: 40.0,
-            padding_horizontal: tokens.spacing.l,
+            padding_horizontal: tokens.spacing.m,
             radius: tokens.radii.full,
             text_size: tokens.typography.label_large_size,
             elevation_rest: tokens.elevations.level1,
@@ -212,7 +212,7 @@ pub struct TextInputTheme {
 impl TextInputTheme {
     pub fn from_tokens(tokens: &Tokens) -> Self {
         Self {
-            height: 40.0,
+            height: 36.0,
             padding_h: tokens.spacing.m,
             radius: tokens.radii.small,
             font_size: tokens.typography.body_large_size,

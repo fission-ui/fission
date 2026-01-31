@@ -23,6 +23,7 @@ pub struct Pipeline {
     pub last_snapshot: Option<LayoutSnapshot>,
     pub paint_cache: HashMap<NodeId, (u64, Vec<DisplayOp>)>,
     video_surfaces: Vec<VideoSurfaceFrame>,
+    last_viewport: Option<LayoutSize>,
     // instrumentation
     pub layout_full_rebuild_count: usize,
     pub layout_cycle_detected_count: usize,
@@ -71,6 +72,7 @@ impl Pipeline {
             last_snapshot: None,
             paint_cache: HashMap::new(),
             video_surfaces: Vec::new(),
+            last_viewport: None,
             layout_full_rebuild_count: 0,
             layout_cycle_detected_count: 0,
             layout_invariant_violation_count: 0,
@@ -212,15 +214,24 @@ impl Pipeline {
             }
         }
 
-        let layout_dirty_count = layout_dirty_closure.len();
+        let mut layout_dirty_count = layout_dirty_closure.len();
         let total_nodes = next_ir.nodes.len();
-        let use_full = layout_dirty_count * 2 > total_nodes;
+        let mut use_full = layout_dirty_count * 2 > total_nodes;
 
         let root_id = next_ir.root.unwrap();
-        let needs_layout = self.last_snapshot.is_none() || !layout_dirty_closure.is_empty();
+        let viewport_changed = self.last_viewport.map_or(true, |prev| prev != viewport);
+        self.last_viewport = Some(viewport);
+        let needs_layout = self.last_snapshot.is_none()
+            || !layout_dirty_closure.is_empty()
+            || viewport_changed;
 
         if needs_layout {
             let layout_input_nodes = build_layout_tree(&next_ir);
+            if viewport_changed {
+                layout_dirty_closure = layout_input_nodes.iter().map(|n| n.id).collect();
+                layout_dirty_count = layout_dirty_closure.len();
+                use_full = true;
+            }
             diag::emit(
                 diag::DiagCategory::Layout,
                 diag::DiagLevel::Debug,
@@ -934,7 +945,7 @@ impl Pipeline {
                         let thumb_rect = LayoutRect::new(
                             geom.rect.right() - 8.0,
                             geom.rect.y() + thumb_y,
-                            6.0,
+                            4.0,
                             thumb_h,
                         );
 
@@ -942,10 +953,10 @@ impl Pipeline {
                             rect: thumb_rect,
                             fill: Some(Fill {
                                 color: RenderColor {
-                                    r: 0,
-                                    g: 0,
-                                    b: 0,
-                                    a: 100,
+                                    r: 120,
+                                    g: 120,
+                                    b: 120,
+                                    a: 80,
                                 },
                             }),
                             stroke: None,

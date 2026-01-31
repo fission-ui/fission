@@ -1,8 +1,8 @@
-use fission_core::{BuildCtx, View, Widget, Handler, WidgetNodeId};
+use fission_core::{BuildCtx, View, Widget, Handler};
 use fission_core::ui::{Container, Node, Text, TextContent, Button, ButtonVariant, Row, Column, Switch};
 use fission_core::op::Color;
 use fission_widgets::{
-    VStack, HStack, Card, Divider, Icon, Calendar, Menu, MenuItem, Stat, CircularProgress, Stepper, Tooltip, Skeleton,
+    VStack, HStack, Card, Icon, Calendar, Menu, MenuItem, Stat, Stepper,
 };
 use crate::model::{InboxState, Folder, SetMeetCameraOn, SetMeetMicOn, SetCalendarSelected, ShowToast};
 use fission_icons::material;
@@ -78,18 +78,12 @@ impl Widget<InboxState> for RightSidebar {
                             Row {
                                 gap: Some(8.0),
                                 children: vec![
-                                    CircularProgress { value: Some(0.6), size: 28.0, thickness: 3.0, ..Default::default() }.build(ctx, view),
+                                    Icon::svg(material::action::check_circle::regular()).size(20.0).color(tokens.colors.text_secondary).into_node(),
                                     VStack {
                                         spacing: Some(2.0),
                                         children: vec![
                                             Text::new(TextContent::Key("quick.syncing".into())).size(12.0).into_node(),
                                             Text::new(TextContent::Key("quick.last_update".into())).size(10.0).color(tokens.colors.text_secondary).into_node(),
-                                            Skeleton {
-                                                id: WidgetNodeId::explicit("sync_skeleton"),
-                                                width: Some(120.0),
-                                                height: Some(6.0),
-                                                circle: false,
-                                            }.build(ctx, view),
                                         ],
                                     }.into_node(),
                                 ],
@@ -134,36 +128,31 @@ impl Widget<InboxState> for RightSidebar {
                                     HStack {
                                         spacing: Some(8.0),
                                         children: vec![
-                                            Tooltip {
-                                                id: fission_core::WidgetNodeId::explicit("meet_camera_tip"),
-                                                text: t("quick.camera"),
-                                                is_visible: false,
-                                                child: Box::new(
-                                                    Switch {
-                                                        checked: view.state.meet_camera_on,
-                                                        on_toggle: Some(fission_core::ActionEnvelope {
-                                                            id: meet_camera_id,
-                                                            payload: serde_json::to_vec(&SetMeetCameraOn(!view.state.meet_camera_on)).unwrap(),
-                                                        }),
-                                                        ..Default::default()
-                                                    }.into_node()
-                                                ),
-                                            }.build(ctx, view),
-                                            Tooltip {
-                                                id: fission_core::WidgetNodeId::explicit("meet_mic_tip"),
-                                                text: t("quick.microphone"),
-                                                is_visible: false,
-                                                child: Box::new(
-                                                    Switch {
-                                                        checked: view.state.meet_mic_on,
-                                                        on_toggle: Some(fission_core::ActionEnvelope {
-                                                            id: meet_mic_id,
-                                                            payload: serde_json::to_vec(&SetMeetMicOn(!view.state.meet_mic_on)).unwrap(),
-                                                        }),
-                                                        ..Default::default()
-                                                    }.into_node()
-                                                ),
-                                            }.build(ctx, view),
+                                            Text::new(TextContent::Key("quick.camera".into())).size(12.0).into_node(),
+                                            fission_core::ui::widgets::Spacer { flex_grow: 1.0, ..Default::default() }.into_node(),
+                                            Switch {
+                                                checked: view.state.meet_camera_on,
+                                                on_toggle: Some(fission_core::ActionEnvelope {
+                                                    id: meet_camera_id,
+                                                    payload: serde_json::to_vec(&SetMeetCameraOn(!view.state.meet_camera_on)).unwrap(),
+                                                }),
+                                                ..Default::default()
+                                            }.into_node(),
+                                        ],
+                                    }.into_node(),
+                                    HStack {
+                                        spacing: Some(8.0),
+                                        children: vec![
+                                            Text::new(TextContent::Key("quick.microphone".into())).size(12.0).into_node(),
+                                            fission_core::ui::widgets::Spacer { flex_grow: 1.0, ..Default::default() }.into_node(),
+                                            Switch {
+                                                checked: view.state.meet_mic_on,
+                                                on_toggle: Some(fission_core::ActionEnvelope {
+                                                    id: meet_mic_id,
+                                                    payload: serde_json::to_vec(&SetMeetMicOn(!view.state.meet_mic_on)).unwrap(),
+                                                }),
+                                                ..Default::default()
+                                            }.into_node(),
                                         ],
                                     }.into_node(),
                                     Button {
@@ -195,8 +184,12 @@ impl Widget<InboxState> for RightSidebar {
                                     HStack {
                                         spacing: Some(8.0),
                                         children: vec![
-                                            Stat { label: t("quick.unread"), value: unread_total.to_string(), help_text: Some(t("quick.in_inbox")) }.build(ctx, view),
-                                            Stat { label: t("quick.starred"), value: starred_total.to_string(), help_text: Some(t("quick.all_folders")) }.build(ctx, view),
+                                            Container::new(Stat { label: t("quick.unread"), value: unread_total.to_string(), help_text: Some(t("quick.in_inbox")) }.build(ctx, view))
+                                                .flex_grow(1.0)
+                                                .into_node(),
+                                            Container::new(Stat { label: t("quick.starred"), value: starred_total.to_string(), help_text: Some(t("quick.all_folders")) }.build(ctx, view))
+                                                .flex_grow(1.0)
+                                                .into_node(),
                                         ],
                                     }.into_node(),
                                 ],
@@ -225,7 +218,7 @@ impl Widget<InboxState> for RightSidebar {
             }.into_node()
         )
         .padding_all(16.0)
-        .width(320.0)
+        .width(280.0)
         .bg(tokens.colors.surface)
         .into_node()
     }

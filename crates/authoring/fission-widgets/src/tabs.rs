@@ -26,7 +26,7 @@ impl<S: fission_core::AppState> Widget<S> for Tabs {
             let color = if is_active { theme.active_color } else { theme.inactive_color };
             
             let tab_button = VStack {
-                spacing: Some(2.0),
+                spacing: Some(0.0),
                 children: vec![
                     Button {
                         variant: ButtonVariant::Ghost,
@@ -47,20 +47,20 @@ impl<S: fission_core::AppState> Widget<S> for Tabs {
 
             tab_buttons.push(
                 Container::new(tab_button)
-                    .flex_grow(1.0)
+                    .padding_all(2.0)
                     .into_node()
             );
         }
 
         let tab_bar = Container::new(
             HStack {
-                spacing: Some(16.0),
+                spacing: Some(12.0),
                 children: tab_buttons,
             }.into_node()
         )
         .bg(theme.background)
         .border(theme.divider_color, 1.0)
-        .padding_all(4.0)
+        .padding_all(2.0)
         .into_node();
 
         VStack {
