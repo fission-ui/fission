@@ -136,8 +136,8 @@ fn text_wrap_respects_available_width() {
     let snapshot = run_layout(&nodes, root_id);
     let text_geom = snapshot.get_node_geometry(text_id).unwrap();
 
-    assert_eq!(text_geom.rect.width(), 50.0);
-    assert_eq!(text_geom.rect.height(), 40.0);
+    assert_eq!(text_geom.content_size.width, 50.0);
+    assert_eq!(text_geom.content_size.height, 40.0);
 }
 
 #[test]
@@ -152,8 +152,8 @@ fn text_max_width_limits_measure() {
     let snapshot = run_layout(&nodes, root_id);
     let text_geom = snapshot.get_node_geometry(text_id).unwrap();
 
-    assert_eq!(text_geom.rect.width(), 40.0);
-    assert_eq!(text_geom.rect.height(), 60.0);
+    assert_eq!(text_geom.content_size.width, 40.0);
+    assert_eq!(text_geom.content_size.height, 60.0);
 }
 
 struct ZeroWidthGuardMeasurer;
