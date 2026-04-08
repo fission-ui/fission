@@ -127,7 +127,19 @@ fn pump(
         }
         let vids = ctx.take_video_registrations();
         runtime.sync_video_nodes(&vids);
-        let portals = ctx.take_portals();
+        let portals_with_ids = ctx.take_portals();
+        let portals = portals_with_ids
+            .into_iter()
+            .map(|(id, node)| {
+                if let Some(id) = id {
+                    fission_core::ui::Container::new(node)
+                        .id(id.into())
+                        .into_node()
+                } else {
+                    node
+                }
+            })
+            .collect::<Vec<_>>();
         if !portals.is_empty() {
             use fission_core::ui::{Overlay, Row, ZStack};
             let mut children = Vec::with_capacity(1 + portals.len());
@@ -154,6 +166,7 @@ fn pump(
         height: 600.0,
     };
     let mut renderer = MockRenderer::default();
+    let env = Env::default();
     let _ = pipe
         .render(
             ir.clone(),
@@ -163,6 +176,7 @@ fn pump(
             &mut renderer,
             &runtime.runtime_state.video,
             &runtime.runtime_state.web,
+            &env,
         )
         .expect("render ok");
     let snap = pipe.last_snapshot.clone().expect("snapshot");
