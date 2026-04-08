@@ -119,8 +119,11 @@ fn build_font_context() -> FontContext {
 pub mod linter;
 pub use linter::*;
 
+pub mod driver;
+pub use driver::{TestDriver, TextMatch, SemanticMatch};
+
 pub mod prelude {
-    pub use crate::{detect_ir_cycle, MockRenderer, TestHarness};
+    pub use crate::{detect_ir_cycle, MockRenderer, TestHarness, TestDriver, TextMatch, SemanticMatch};
     pub use crate::linter::{LayoutLinter, LayoutViolation};
     pub use fission_ir::{EmbedKind, LayoutOp, Op, PaintOp};
     pub use fission_ir::semantics::{ActionTrigger, Role};
@@ -261,7 +264,22 @@ impl<S: AppState> TestHarness<S> {
                 self.runtime.clear_reducers();
                 let animation_requests = ctx.take_animation_requests();
                 let video_nodes = ctx.take_video_registrations();
-                let portals = ctx.take_portals();
+                let portals_with_ids = ctx.take_portals();
+                
+                let portals = portals_with_ids.into_iter().map(|(id, node)| {
+                    if let Some(id) = id {
+                        // Use a derived ID for the wrapper to avoid conflict with the widget's own node
+                        let wrapper_id = NodeId::derived(id.as_u128(), &[0x0000_F001]);
+                        fission_core::ui::Container::new(node)
+                            .id(wrapper_id)
+                            .width(viewport.width)
+                            .height(viewport.height)
+                            .into_node()
+                    } else {
+                        node
+                    }
+                }).collect::<Vec<_>>();
+
                 self.runtime.absorb_registry(ctx.registry);
                 for (target, request) in animation_requests {
                     self.runtime.enqueue_animation(target, request);
@@ -302,7 +320,7 @@ impl<S: AppState> TestHarness<S> {
             let root_id = node_tree.lower(&mut cx);
             cx.ir.root = Some(root_id);
 
-            layout_input_nodes = build_layout_tree(&cx.ir);
+            layout_input_nodes = build_layout_tree(&cx.ir, &self.env);
             self.last_ir = Some(cx.ir);
             if trace {
                 eprintln!("[test-trace] lower done nodes={}", layout_input_nodes.len());
@@ -482,13 +500,43 @@ fn generate_display_list_with_visited(
                 fission_ir::Op::Paint(fission_ir::PaintOp::DrawText { text, size, color, underline, caret_index }) => {
                     list.push(DisplayOp::DrawText {
                         text: text.clone(),
-                        position: LayoutPoint::new(0.0, 0.0),
+                        position: LayoutPoint::new(geom.rect.x(), geom.rect.y()),
                         size: *size,
                         color: fission_render::Color { r: color.r, g: color.g, b: color.b, a: color.a },
-                        bounds: LayoutRect::new(0.0, 0.0, 0.0, 0.0),
-                        node_id: None,
+                        bounds: geom.rect,
+                        node_id: Some(node_id),
                         underline: *underline,
                         caret_index: *caret_index,
+                    });
+                }
+                fission_ir::Op::Paint(fission_ir::PaintOp::DrawRichText { runs, caret_index }) => {
+                    list.push(DisplayOp::DrawRichText {
+                        runs: runs.iter().map(|r| fission_render::TextRun {
+                            text: r.text.clone(),
+                            style: fission_render::TextStyle {
+                                font_size: r.style.font_size,
+                                color: fission_render::Color { r: r.style.color.r, g: r.style.color.g, b: r.style.color.b, a: r.style.color.a },
+                                underline: r.style.underline,
+                            },
+                        }).collect(),
+                        position: LayoutPoint::new(geom.rect.x(), geom.rect.y()),
+                        bounds: geom.rect,
+                        node_id: Some(node_id),
+                        caret_index: *caret_index,
+                    });
+                }
+                fission_ir::Op::Paint(fission_ir::PaintOp::DrawSvg { content, fill, stroke }) => {
+                    list.push(DisplayOp::DrawSvg {
+                        content: content.clone(),
+                        fill: fill.map(|f| Fill {
+                            color: Color { r: f.color.r, g: f.color.g, b: f.color.b, a: f.color.a },
+                        }),
+                        stroke: stroke.map(|s| Stroke {
+                            color: Color { r: s.color.r, g: s.color.g, b: s.color.b, a: s.color.a },
+                            width: s.width,
+                        }),
+                        bounds: geom.rect,
+                        node_id: Some(node_id),
                     });
                 }
                 fission_ir::Op::Paint(fission_ir::PaintOp::DrawImage { source, fit }) => {
