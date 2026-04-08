@@ -1,6 +1,6 @@
 use anyhow::Result;
 use fission_core::diff::diff_ir;
-use fission_core::env::{VideoStateMap, WebStateMap};
+use fission_core::env::{VideoStateMap, WebStateMap, Env};
 use fission_core::lowering::{build_layout_tree, LoweringContext};
 use fission_core::{LayoutPoint, ScrollStateMap};
 use fission_diagnostics::prelude as diag;
@@ -91,6 +91,7 @@ impl Pipeline {
         renderer: &mut (impl Renderer + 'r + ?Sized),
         video_map: &VideoStateMap,
         web_map: &WebStateMap,
+        env: &Env,
     ) -> Result<PipelineStats> {
         if let Some(cycle) = detect_ir_cycle(&next_ir) {
             diag::emit(
@@ -236,7 +237,7 @@ impl Pipeline {
             self.last_snapshot.is_none() || !layout_dirty_closure.is_empty() || viewport_changed;
 
         if needs_layout {
-            let layout_input_nodes = build_layout_tree(&next_ir);
+            let layout_input_nodes = build_layout_tree(&next_ir, env);
             if viewport_changed {
                 layout_dirty_closure = layout_input_nodes.iter().map(|n| n.id).collect();
                 layout_dirty_count = layout_dirty_closure.len();
@@ -560,6 +561,7 @@ impl Pipeline {
             }
         }
         let mut visited = HashSet::new();
+
         self.generate_display_list_recursive_with_visited(
             node_id,
             ir,
@@ -592,7 +594,7 @@ impl Pipeline {
         flyout_contents: &std::collections::HashSet<NodeId>,
     ) {
         if !visited.insert(node_id) {
-            return;
+            return; // Already visited - skip to avoid infinite loops
         }
         if let (Some(node), Some(geom)) = (ir.nodes.get(&node_id), snapshot.nodes.get(&node_id)) {
             let mut hasher = DefaultHasher::new();
