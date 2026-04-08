@@ -1,5 +1,5 @@
 use anyhow::Result;
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::num::NonZeroU32;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -49,6 +49,7 @@ mod clipboard;
 use clipboard::DesktopClipboard;
 mod ime;
 use ime::DesktopImeHandler;
+pub mod test_control;
 
 struct ActivePlayer {
     player: Box<dyn VideoPlayer>,
@@ -222,6 +223,130 @@ fn reset_text_input_caret(
     }
 }
 
+#[derive(Debug, Clone)]
+struct PendingTextTrace {
+    seq: u64,
+    source: String,
+    target: Option<NodeId>,
+    started_at: Instant,
+    handled_at: Option<Instant>,
+    effects_at: Option<Instant>,
+    present_after_frame: u64,
+}
+
+fn start_text_trace(
+    enabled: bool,
+    traces: &mut VecDeque<PendingTextTrace>,
+    next_seq: &mut u64,
+    source: String,
+    target: Option<NodeId>,
+    presented_frames: u64,
+) -> Option<u64> {
+    if !enabled {
+        return None;
+    }
+    *next_seq += 1;
+    let seq = *next_seq;
+    traces.push_back(PendingTextTrace {
+        seq,
+        source,
+        target,
+        started_at: Instant::now(),
+        handled_at: None,
+        effects_at: None,
+        present_after_frame: presented_frames + 1,
+    });
+    Some(seq)
+}
+
+fn mark_text_trace_handled(traces: &mut VecDeque<PendingTextTrace>, seq: Option<u64>) {
+    if let Some(seq) = seq {
+        if let Some(trace) = traces.iter_mut().rev().find(|trace| trace.seq == seq) {
+            trace.handled_at = Some(Instant::now());
+        }
+    }
+}
+
+fn mark_text_trace_effects(traces: &mut VecDeque<PendingTextTrace>, seq: Option<u64>) {
+    if let Some(seq) = seq {
+        if let Some(trace) = traces.iter_mut().rev().find(|trace| trace.seq == seq) {
+            trace.effects_at = Some(Instant::now());
+        }
+    }
+}
+
+fn set_text_trace_target(
+    traces: &mut VecDeque<PendingTextTrace>,
+    seq: Option<u64>,
+    target: Option<NodeId>,
+) {
+    if let Some(seq) = seq {
+        if let Some(trace) = traces.iter_mut().rev().find(|trace| trace.seq == seq) {
+            trace.target = target;
+        }
+    }
+}
+
+fn cancel_text_trace(traces: &mut VecDeque<PendingTextTrace>, seq: Option<u64>) {
+    if let Some(seq) = seq {
+        traces.retain(|trace| trace.seq != seq);
+    }
+}
+
+fn flush_text_traces(
+    enabled: bool,
+    traces: &mut VecDeque<PendingTextTrace>,
+    presented_frames: u64,
+) {
+    if !enabled {
+        traces.clear();
+        return;
+    }
+
+    loop {
+        let should_flush = traces
+            .front()
+            .map(|trace| trace.present_after_frame <= presented_frames)
+            .unwrap_or(false);
+        if !should_flush {
+            break;
+        }
+
+        let Some(trace) = traces.pop_front() else {
+            break;
+        };
+        let now = Instant::now();
+        let handled_at = trace.handled_at.unwrap_or(now);
+        let effects_at = trace.effects_at.unwrap_or(handled_at);
+        let total_ms = now.duration_since(trace.started_at).as_secs_f64() * 1000.0;
+        let handle_ms = handled_at
+            .duration_since(trace.started_at)
+            .as_secs_f64()
+            * 1000.0;
+        let effects_ms = effects_at
+            .duration_since(handled_at)
+            .as_secs_f64()
+            * 1000.0;
+        let queue_ms = now.duration_since(effects_at).as_secs_f64() * 1000.0;
+
+        let target_u128 = trace.target.map(|id| id.as_u128());
+        let msg = format!(
+            "text_input_latency seq={} src={} handle_ms={:.2} effects_ms={:.2} queue_ms={:.2} total_ms={:.2} frame={}",
+            trace.seq, trace.source, handle_ms, effects_ms, queue_ms, total_ms, presented_frames
+        );
+        eprintln!("[text-trace] {}", msg);
+        diag::emit(
+            diag::DiagCategory::Input,
+            diag::DiagLevel::Info,
+            diag::DiagEventKind::InputEvent {
+                kind: msg,
+                target: target_u128,
+                position: None,
+            },
+        );
+    }
+}
+
 pub struct DesktopApp<S: AppState, W: Widget<S>> {
     runtime: Runtime,
     layout_engine: LayoutEngine,
@@ -230,6 +355,7 @@ pub struct DesktopApp<S: AppState, W: Widget<S>> {
     pipeline: Pipeline,
     measurer: Arc<VelloTextMeasurer>,
     sync_env: Option<Arc<dyn Fn(&S, &mut Env) + Send + Sync>>,
+    title: String,
     _phantom: std::marker::PhantomData<S>,
 }
 
@@ -272,8 +398,14 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
             pipeline: Pipeline::new(),
             measurer,
             sync_env: None,
+            title: "Fission".into(),
             _phantom: std::marker::PhantomData,
         }
+    }
+
+    pub fn with_title(mut self, title: impl Into<String>) -> Self {
+        self.title = title.into();
+        self
     }
 
     pub fn with_env(mut self, env: Env) -> Self {
@@ -312,7 +444,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
             EventLoop::new().map_err(|e| anyhow::anyhow!("Event loop error: {}", e))?;
         let window = Arc::new(
             WindowBuilder::new()
-                .with_title("Fission Inbox")
+                .with_title(&self.title)
                 .build(&event_loop)
                 .map_err(|e| anyhow::anyhow!("Window build error: {}", e))?,
         );
@@ -389,8 +521,25 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
         );
         let mut last_blink_toggle = Instant::now();
         let mut blink_focus_id: Option<NodeId> = None;
+        let text_trace_enabled = std::env::var("FISSION_TEXT_TRACE")
+            .map(|v| matches!(v.to_ascii_lowercase().as_str(), "1" | "true" | "yes"))
+            .unwrap_or(false);
+        let mut presented_frames: u64 = 0;
+        let mut next_text_trace_seq: u64 = 0;
+        let mut pending_text_traces: VecDeque<PendingTextTrace> = VecDeque::new();
 
         let mut current_mods: u8 = 0;
+
+        // Test control channel (enabled via FISSION_TEST_CONTROL_PORT env var)
+        let test_control_rx: Option<test_control::CommandReceiver> = std::env::var("FISSION_TEST_CONTROL_PORT")
+            .ok()
+            .and_then(|v| v.parse::<u16>().ok())
+            .map(|port| {
+                let (tx, rx) = test_control::create_channel();
+                test_control::spawn_server(port, tx);
+                rx
+            });
+        let mut pending_screenshot: Option<(String, test_control::ResponseSender)> = None;
 
         event_loop
             .run(move |event, elwt| {
@@ -535,6 +684,158 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                             None
                         };
 
+                        // Poll test control channel
+                        if let Some(ref rx) = test_control_rx {
+                            while let Ok((cmd, responder)) = rx.try_recv() {
+                                use fission_test_driver::{TestCommand, TestResponse, TextItem, SemanticNode};
+                                let resp = match cmd {
+                                    TestCommand::Tap { x, y } => {
+                                        let point = LayoutPoint::new(x, y);
+                                        if let (Some(ir), Some(snap)) = (pipeline.prev_ir.as_ref(), pipeline.last_snapshot.as_ref()) {
+                                            let _ = runtime.handle_input(InputEvent::Pointer(PointerEvent::Down { point, button: PointerButton::Primary }), ir, snap);
+                                            let _ = runtime.handle_input(InputEvent::Pointer(PointerEvent::Up { point, button: PointerButton::Primary }), ir, snap);
+                                        }
+                                        TestResponse::Ok {}
+                                    }
+                                    TestCommand::TapText { text } => {
+                                        if let (Some(ir), Some(snap)) = (pipeline.prev_ir.as_ref(), pipeline.last_snapshot.as_ref()) {
+                                            let mut found = None;
+                                            for (id, node) in &ir.nodes {
+                                                let txt = match &node.op {
+                                                    fission_ir::Op::Paint(fission_ir::PaintOp::DrawText { text: t, .. }) => Some(t.as_str()),
+                                                    fission_ir::Op::Paint(fission_ir::PaintOp::DrawRichText { runs, .. }) => {
+                                                        // Check concatenated text
+                                                        let combined: String = runs.iter().map(|r| r.text.clone()).collect();
+                                                        if combined.contains(&text) { Some("") } else { None }
+                                                    }
+                                                    _ => None,
+                                                };
+                                                if let Some(t) = txt {
+                                                    if t.contains(&text) || t.is_empty() {
+                                                        // Find parent layout node for position
+                                                        let check_id = node.parent.unwrap_or(*id);
+                                                        if let Some(rect) = snap.get_node_rect(check_id).or_else(|| snap.get_node_rect(*id)) {
+                                                            found = Some((rect.x() + rect.width() / 2.0, rect.y() + rect.height() / 2.0));
+                                                            break;
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                            if let Some((cx, cy)) = found {
+                                                let point = LayoutPoint::new(cx, cy);
+                                                let _ = runtime.handle_input(InputEvent::Pointer(PointerEvent::Down { point, button: PointerButton::Primary }), ir, snap);
+                                                let _ = runtime.handle_input(InputEvent::Pointer(PointerEvent::Up { point, button: PointerButton::Primary }), ir, snap);
+                                                TestResponse::Ok {}
+                                            } else {
+                                                TestResponse::Error { message: format!("text '{}' not found", text) }
+                                            }
+                                        } else {
+                                            TestResponse::Error { message: "no frame rendered yet".into() }
+                                        }
+                                    }
+                                    TestCommand::Scroll { x, y, dx, dy } => {
+                                        let point = LayoutPoint::new(x, y);
+                                        let delta = LayoutPoint::new(dx, dy);
+                                        if let (Some(ir), Some(snap)) = (pipeline.prev_ir.as_ref(), pipeline.last_snapshot.as_ref()) {
+                                            let _ = runtime.handle_input(InputEvent::Pointer(PointerEvent::Scroll { point, delta }), ir, snap);
+                                        }
+                                        TestResponse::Ok {}
+                                    }
+                                    TestCommand::TypeText { text } => {
+                                        if let (Some(ir), Some(snap)) = (pipeline.prev_ir.as_ref(), pipeline.last_snapshot.as_ref()) {
+                                            for ch in text.chars() {
+                                                let key = if ch == ' ' { KeyCode::Space } else if ch == '\n' { KeyCode::Enter } else { KeyCode::Char(ch) };
+                                                let _ = runtime.handle_input(InputEvent::Keyboard(FissionKeyEvent::Down { key_code: key, modifiers: 0 }), ir, snap);
+                                            }
+                                        }
+                                        TestResponse::Ok {}
+                                    }
+                                    TestCommand::PressKey { key, modifiers } => {
+                                        if let (Some(ir), Some(snap)) = (pipeline.prev_ir.as_ref(), pipeline.last_snapshot.as_ref()) {
+                                            let kc = match key.as_str() {
+                                                "Enter" => KeyCode::Enter,
+                                                "Escape" => KeyCode::Escape,
+                                                "Tab" => KeyCode::Tab,
+                                                "Backspace" => KeyCode::Backspace,
+                                                "Left" => KeyCode::Left,
+                                                "Right" => KeyCode::Right,
+                                                "Up" => KeyCode::Up,
+                                                "Down" => KeyCode::Down,
+                                                "Home" => KeyCode::Home,
+                                                "End" => KeyCode::End,
+                                                "Space" => KeyCode::Space,
+                                                s if s.len() == 1 => KeyCode::Char(s.chars().next().unwrap()),
+                                                _ => KeyCode::Space,
+                                            };
+                                            let _ = runtime.handle_input(InputEvent::Keyboard(FissionKeyEvent::Down { key_code: kc, modifiers }), ir, snap);
+                                        }
+                                        TestResponse::Ok {}
+                                    }
+                                    TestCommand::Screenshot { path } => {
+                                        pending_screenshot = Some((path, responder));
+                                        window.request_redraw();
+                                        continue; // Don't respond yet, respond after render
+                                    }
+                                    TestCommand::GetText {} => {
+                                        let mut items = Vec::new();
+                                        if let (Some(ir), Some(snap)) = (pipeline.prev_ir.as_ref(), pipeline.last_snapshot.as_ref()) {
+                                            for (id, node) in &ir.nodes {
+                                                let text_content = match &node.op {
+                                                    fission_ir::Op::Paint(fission_ir::PaintOp::DrawText { text, .. }) => Some(text.clone()),
+                                                    fission_ir::Op::Paint(fission_ir::PaintOp::DrawRichText { runs, .. }) => {
+                                                        Some(runs.iter().map(|r| r.text.clone()).collect::<String>())
+                                                    }
+                                                    _ => None,
+                                                };
+                                                if let Some(text) = text_content {
+                                                    if text.is_empty() { continue; }
+                                                    let check_id = node.parent.unwrap_or(*id);
+                                                    let rect = snap.get_node_rect(check_id).or_else(|| snap.get_node_rect(*id));
+                                                    let (x, y, w, h) = rect.map(|r| (r.x(), r.y(), r.width(), r.height())).unwrap_or((0.0, 0.0, 0.0, 0.0));
+                                                    items.push(TextItem { text, x, y, width: w, height: h });
+                                                }
+                                            }
+                                        }
+                                        TestResponse::Text { items }
+                                    }
+                                    TestCommand::GetTree {} => {
+                                        let mut nodes = Vec::new();
+                                        if let Some(ir) = &pipeline.prev_ir {
+                                            for (id, node) in &ir.nodes {
+                                                if let fission_ir::Op::Semantics(sem) = &node.op {
+                                                    let rect = pipeline.last_snapshot.as_ref()
+                                                        .and_then(|s| s.get_node_rect(*id));
+                                                    let (x, y, w, h) = rect.map(|r| (r.x(), r.y(), r.width(), r.height())).unwrap_or((0.0, 0.0, 0.0, 0.0));
+                                                    nodes.push(SemanticNode {
+                                                        role: format!("{:?}", sem.role),
+                                                        label: sem.label.clone(),
+                                                        value: sem.value.clone(),
+                                                        focusable: sem.focusable,
+                                                        x, y, width: w, height: h,
+                                                    });
+                                                }
+                                            }
+                                        }
+                                        TestResponse::Tree { nodes }
+                                    }
+                                    TestCommand::Wait { ms } => {
+                                        std::thread::sleep(std::time::Duration::from_millis(ms));
+                                        TestResponse::Ok {}
+                                    }
+                                    TestCommand::Pump {} => {
+                                        window.request_redraw();
+                                        TestResponse::Ok {}
+                                    }
+                                    TestCommand::Quit {} => {
+                                        elwt.exit();
+                                        TestResponse::Ok {}
+                                    }
+                                };
+                                let _ = responder.send(resp);
+                                window.request_redraw();
+                            }
+                        }
+
                         if needs_redraw || redraw_pending {
                             request_redraw_throttled(&window, elwt, &mut last_redraw_at, min_frame, &mut redraw_pending);
                             let mut wake_at = last_redraw_at + min_frame;
@@ -599,7 +900,22 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                         let anims = ctx.take_animation_requests();
                                         let videos = ctx.take_video_registrations();
                                         let web_views = ctx.take_web_registrations();
-                                        let portals = ctx.take_portals();
+                                        let portals_with_ids = ctx.take_portals();
+                                        
+                                        let portals = portals_with_ids.into_iter().map(|(id, node)| {
+                                            if let Some(id) = id {
+                                                // Use a derived ID for the wrapper to avoid conflict with the widget's own node
+                                                let wrapper_id = fission_core::NodeId::derived(id.as_u128(), &[0x0000_F001]);
+                                                fission_core::ui::Container::new(node)
+                                                    .id(wrapper_id)
+                                                    .width(env.viewport_size.width)
+                                                    .height(env.viewport_size.height)
+                                                    .into_node()
+                                            } else {
+                                                node
+                                            }
+                                        }).collect::<Vec<_>>();
+
                                         // Emit portal summary to diagnostics
                                         {
                                             use fission_diagnostics::prelude as diag;
@@ -659,6 +975,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                         &mut renderer_wrapper,
                                         &runtime.runtime_state.video,
                                         &runtime.runtime_state.web,
+                                        &env,
                                     ) {
                                         Ok(_stats) => {
                                             let surface_texture = surface.surface.get_current_texture().expect("failed to get texture");
@@ -695,6 +1012,28 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                             device_handle.queue.submit(Some(encoder.finish()));
 
                                             surface_texture.present();
+
+                                            // Fulfill pending screenshot after present
+                                            if let Some((path, responder)) = pending_screenshot.take() {
+                                                std::thread::sleep(std::time::Duration::from_millis(150));
+                                                let resp = match std::process::Command::new("screencapture")
+                                                    .args(["-x", &path])
+                                                    .status()
+                                                {
+                                                    Ok(s) if s.success() => fission_test_driver::TestResponse::Ok {},
+                                                    _ => fission_test_driver::TestResponse::Error {
+                                                        message: "screencapture failed".into(),
+                                                    },
+                                                };
+                                                let _ = responder.send(resp);
+                                            }
+
+                                            presented_frames = presented_frames.saturating_add(1);
+                                            flush_text_traces(
+                                                text_trace_enabled,
+                                                &mut pending_text_traces,
+                                                presented_frames,
+                                            );
 
                                             diag::end_frame(diag::FrameStats::default());
                                         }
@@ -736,16 +1075,36 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                         };
                                         if let Some(btn) = map_mouse_button(button) {
                                             if let Some(event) = build_pointer_event(state, btn, point) {
+                                                let trace_seq = if text_trace_enabled && state.is_pressed() {
+                                                    start_text_trace(
+                                                        text_trace_enabled,
+                                                        &mut pending_text_traces,
+                                                        &mut next_text_trace_seq,
+                                                        "pointer_down".to_string(),
+                                                        None,
+                                                        presented_frames,
+                                                    )
+                                                } else {
+                                                    None
+                                                };
                                                 // println!("Dispatching input: {:?} at {:?}", event, point);
                                                 if let Err(e) = runtime.handle_input(event, ir, layout) {
                                                     eprintln!("Input handling error: {:?}", e);
                                                 } else {
                                                     // println!("Input dispatched successfully");
                                                 }
+                                                mark_text_trace_handled(&mut pending_text_traces, trace_seq);
                                                 if process_pending_effects(&mut runtime) {
+                                                    mark_text_trace_effects(&mut pending_text_traces, trace_seq);
                                                     request_redraw_throttled(&window, elwt, &mut last_redraw_at, min_frame, &mut redraw_pending);
                                                 }
                                                 if state.is_pressed() {
+                                                    let target = focused_text_input_id(&runtime, pipeline.prev_ir.as_ref());
+                                                    if target.is_some() {
+                                                        set_text_trace_target(&mut pending_text_traces, trace_seq, target);
+                                                    } else {
+                                                        cancel_text_trace(&mut pending_text_traces, trace_seq);
+                                                    }
                                                     reset_text_input_caret(&mut runtime, pipeline.prev_ir.as_ref(), &mut last_blink_toggle);
                                                 }
                                                 request_redraw_throttled(&window, elwt, &mut last_redraw_at, min_frame, &mut redraw_pending);
@@ -821,6 +1180,15 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                     };
 
                                     if let (Some(code), Some(ir), Some(layout)) = (key_code, &pipeline.prev_ir, &pipeline.last_snapshot) {
+                                        let target = focused_text_input_id(&runtime, pipeline.prev_ir.as_ref());
+                                        let trace_seq = start_text_trace(
+                                            text_trace_enabled && target.is_some(),
+                                            &mut pending_text_traces,
+                                            &mut next_text_trace_seq,
+                                            format!("keyboard:{:?}", code),
+                                            target,
+                                            presented_frames,
+                                        );
                                         let input_event = InputEvent::Keyboard(FissionKeyEvent::Down {
                                             key_code: code,
                                             modifiers: current_mods,
@@ -828,7 +1196,9 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                         if let Err(e) = runtime.handle_input(input_event, ir, layout) {
                                             eprintln!("Keyboard error: {:?}", e);
                                         }
+                                        mark_text_trace_handled(&mut pending_text_traces, trace_seq);
                                         if process_pending_effects(&mut runtime) {
+                                            mark_text_trace_effects(&mut pending_text_traces, trace_seq);
                                             request_redraw_throttled(&window, elwt, &mut last_redraw_at, min_frame, &mut redraw_pending);
                                         }
                                         reset_text_input_caret(&mut runtime, pipeline.prev_ir.as_ref(), &mut last_blink_toggle);
@@ -838,15 +1208,32 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                             }
                             WindowEvent::Ime(ime) => {
                                 if let (Some(ir), Some(layout)) = (&pipeline.prev_ir, &pipeline.last_snapshot) {
-                                    let input_event = match ime {
-                                        Ime::Commit(text) => Some(InputEvent::Ime(fission_core::event::ImeEvent::Commit { text })),
-                                        Ime::Preedit(text, _) => Some(InputEvent::Ime(fission_core::event::ImeEvent::Preedit { text })),
-                                        _ => None,
+                                    let (input_event, source) = match ime {
+                                        Ime::Commit(text) => (
+                                            Some(InputEvent::Ime(fission_core::event::ImeEvent::Commit { text: text.clone() })),
+                                            Some(format!("ime_commit:{}", text.chars().count())),
+                                        ),
+                                        Ime::Preedit(text, _) => (
+                                            Some(InputEvent::Ime(fission_core::event::ImeEvent::Preedit { text: text.clone() })),
+                                            Some(format!("ime_preedit:{}", text.chars().count())),
+                                        ),
+                                        _ => (None, None),
                                     };
 
                                     if let Some(e) = input_event {
+                                        let target = focused_text_input_id(&runtime, pipeline.prev_ir.as_ref());
+                                        let trace_seq = start_text_trace(
+                                            text_trace_enabled && target.is_some(),
+                                            &mut pending_text_traces,
+                                            &mut next_text_trace_seq,
+                                            source.unwrap_or_else(|| "ime".to_string()),
+                                            target,
+                                            presented_frames,
+                                        );
                                         runtime.handle_input(e, ir, layout).ok();
+                                        mark_text_trace_handled(&mut pending_text_traces, trace_seq);
                                         if process_pending_effects(&mut runtime) {
+                                            mark_text_trace_effects(&mut pending_text_traces, trace_seq);
                                             request_redraw_throttled(&window, elwt, &mut last_redraw_at, min_frame, &mut redraw_pending);
                                         }
                                         reset_text_input_caret(&mut runtime, pipeline.prev_ir.as_ref(), &mut last_blink_toggle);
@@ -900,4 +1287,107 @@ fn build_pointer_event(
     };
 
     Some(InputEvent::Pointer(pointer_event))
+}
+
+fn gpu_screenshot(
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    texture: &wgpu::Texture,
+    width: u32,
+    height: u32,
+    path: &str,
+) -> fission_test_driver::TestResponse {
+    if width == 0 || height == 0 {
+        return fission_test_driver::TestResponse::Error {
+            message: "zero-size viewport".into(),
+        };
+    }
+
+    let bytes_per_pixel = 4u32;
+    let unpadded_bytes_per_row = width * bytes_per_pixel;
+    let align = wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;
+    let padded_bytes_per_row = (unpadded_bytes_per_row + align - 1) / align * align;
+    let buffer_size = (padded_bytes_per_row * height) as u64;
+
+    let staging = device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("screenshot staging"),
+        size: buffer_size,
+        usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+        mapped_at_creation: false,
+    });
+
+    let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+        label: Some("screenshot copy"),
+    });
+
+    encoder.copy_texture_to_buffer(
+        wgpu::TexelCopyTextureInfo {
+            texture,
+            mip_level: 0,
+            origin: wgpu::Origin3d::ZERO,
+            aspect: wgpu::TextureAspect::All,
+        },
+        wgpu::TexelCopyBufferInfo {
+            buffer: &staging,
+            layout: wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(padded_bytes_per_row),
+                rows_per_image: Some(height),
+            },
+        },
+        wgpu::Extent3d {
+            width,
+            height,
+            depth_or_array_layers: 1,
+        },
+    );
+
+    queue.submit(Some(encoder.finish()));
+
+    let (tx, rx) = std::sync::mpsc::channel();
+    staging.slice(..).map_async(wgpu::MapMode::Read, move |result| {
+        let _ = tx.send(result);
+    });
+    let _ = device.poll(wgpu::PollType::Wait);
+
+    match rx.recv() {
+        Ok(Ok(())) => {}
+        Ok(Err(e)) => {
+            return fission_test_driver::TestResponse::Error {
+                message: format!("buffer map failed: {:?}", e),
+            };
+        }
+        Err(e) => {
+            return fission_test_driver::TestResponse::Error {
+                message: format!("buffer map channel error: {}", e),
+            };
+        }
+    }
+
+    let data = staging.slice(..).get_mapped_range();
+
+    // Remove row padding and convert BGRA -> RGBA
+    let mut rgba = Vec::with_capacity((width * height * 4) as usize);
+    for row in 0..height {
+        let start = (row * padded_bytes_per_row) as usize;
+        let end = start + (width * bytes_per_pixel) as usize;
+        let row_data = &data[start..end];
+        for pixel in row_data.chunks_exact(4) {
+            // Vello renders Bgra8UnormSrgb: B, G, R, A
+            rgba.push(pixel[2]); // R
+            rgba.push(pixel[1]); // G
+            rgba.push(pixel[0]); // B
+            rgba.push(pixel[3]); // A
+        }
+    }
+
+    drop(data);
+    staging.unmap();
+
+    match image::save_buffer(path, &rgba, width, height, image::ColorType::Rgba8) {
+        Ok(()) => fission_test_driver::TestResponse::Ok {},
+        Err(e) => fission_test_driver::TestResponse::Error {
+            message: format!("PNG save failed: {}", e),
+        },
+    }
 }

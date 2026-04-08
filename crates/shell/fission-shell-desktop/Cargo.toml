@@ -15,6 +15,8 @@ fission-theme = { path = "../../core/fission-theme" }
 winit = "0.29.15"
 arboard = "3.4"
 fission-diagnostics = { path = "../../tools/fission-diagnostics" }
+fission-test-driver = { path = "../../tools/fission-test-driver" }
+image = "0.25"
 anyhow = "1.0"
 raw-window-handle = "0.6"
 bytemuck = "1.16"

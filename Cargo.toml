@@ -18,6 +18,7 @@ members = [
     "crates/shell/fission-shell-web",
     "crates/tools/fission-diagnostics",
     "crates/tools/fission-test",
+    "crates/tools/fission-test-driver",
     "examples/*"
 ]
 resolver = "2"
