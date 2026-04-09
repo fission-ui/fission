@@ -652,7 +652,12 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                         }
 
                         // Check if we need a redraw (Animation or Video playing)
-                        let needs_redraw = !runtime.runtime_state.animation.active.is_empty() || !players.is_empty();
+                        // Only force continuous redraws for non-repeating animations
+                        // or active video players. Repeating animations (spinners, skeleton
+                        // shimmer) should not burn CPU when idle.
+                        let has_finite_animation = runtime.runtime_state.animation.active.values()
+                            .any(|a| !a.repeat);
+                        let needs_redraw = has_finite_animation || !players.is_empty();
 
                         let focused_text_input = focused_text_input_id(&runtime, pipeline.prev_ir.as_ref());
                         if focused_text_input != blink_focus_id {

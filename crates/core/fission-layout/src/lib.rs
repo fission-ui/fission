@@ -1698,7 +1698,7 @@ impl LayoutEngine {
                 content_size = size;
                 size
             }
-            LayoutOp::Transform { .. } | LayoutOp::Clip { .. } | LayoutOp::Flyout { .. } => {
+            LayoutOp::Transform { .. } | LayoutOp::Clip { .. } => {
                 let mut child_size = LayoutSize::ZERO;
                 if let Some(child_id) = node.children_ids.first() {
                     if *child_id != node_id {
@@ -1707,6 +1707,33 @@ impl LayoutEngine {
                 }
                 content_size = child_size;
                 constraints.constrain(child_size)
+            }
+            LayoutOp::Flyout { anchor, content } => {
+                // Flyout content should wrap tightly to its intrinsic size,
+                // not expand to fill the parent viewport.
+                let loose = BoxConstraints::loose(
+                    if constraints.is_width_bounded() { constraints.max_w } else { f32::INFINITY },
+                    if constraints.is_height_bounded() { constraints.max_h } else { f32::INFINITY },
+                );
+                let mut child_size = LayoutSize::ZERO;
+                for child_id in &node.children_ids {
+                    if *child_id != node_id {
+                        child_size = self.layout_node_constraints(*child_id, loose, origin, node_map, out, constraints_out, scroll_source, false, depth + 1);
+                    }
+                }
+                // Position relative to anchor if we have its geometry
+                if record {
+                    let anchor_rect = out.get(anchor).map(|g| g.rect);
+                    let place_x = anchor_rect.map(|r| r.x()).unwrap_or(origin.x);
+                    let place_y = anchor_rect.map(|r| r.y() + r.height()).unwrap_or(origin.y);
+                    for child_id in &node.children_ids {
+                        if *child_id != node_id {
+                            self.layout_node_constraints(*child_id, loose, LayoutPoint::new(place_x, place_y), node_map, out, constraints_out, scroll_source, record, depth + 1);
+                        }
+                    }
+                }
+                content_size = child_size;
+                child_size
             }
             _ => {
                 let mut child_size = LayoutSize::ZERO;
