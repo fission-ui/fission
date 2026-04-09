@@ -76,17 +76,23 @@ impl Widget<InboxState> for EmailDetail {
 
         Container::new(
             VStack {
-                spacing: Some(16.0),
+                spacing: Some(8.0),
                 children: vec![
-                    Breadcrumb {
-                        items: vec![
-                            BreadcrumbItem {
-                                label: folder_label,
-                                on_click: Some(ctx.bind(Navigate(folder_path.clone()), (|s: &mut InboxState, a: Navigate, _| s.navigate_to(a.0)) as Handler<InboxState, Navigate>)),
-                            },
-                            BreadcrumbItem { label: email.subject.clone(), on_click: None },
-                        ]
-                    }.build(ctx, view),
+                    Button {
+                        variant: ButtonVariant::Ghost,
+                        child: Some(Box::new(
+                            HStack {
+                                spacing: Some(4.0),
+                                children: vec![
+                                    Icon::svg(material::navigation::arrow_back::regular()).size(16.0).into_node(),
+                                    Text::new(folder_label).size(14.0).into_node(),
+                                ],
+                            }.into_node()
+                        )),
+                        on_press: Some(ctx.bind(Navigate(folder_path.clone()), (|s: &mut InboxState, a: Navigate, _| s.navigate_to(a.0)) as Handler<InboxState, Navigate>)),
+                        content_align: fission_core::ui::ButtonContentAlign::Start,
+                        ..Default::default()
+                    }.into_node(),
 
                     Alert {
                         kind: AlertKind::Warning,
@@ -101,7 +107,7 @@ impl Widget<InboxState> for EmailDetail {
                                 tag: format!("email_subject_{}", email.id),
                                 child: Box::new(Text {
                                     content: TextContent::Literal(email.subject.clone()),
-                                    font_size: Some(24.0),
+                                    font_size: Some(18.0),
                                     ..Default::default()
                                 }.into()),
                             }.build(ctx, view),
@@ -325,7 +331,7 @@ impl Widget<InboxState> for EmailDetail {
             }
             .build(ctx, view)
         )
-        .padding_all(32.0)
+        .padding_all(8.0)
         .bg(tokens.colors.background)
         .flex_grow(1.0)
         .into_node()
