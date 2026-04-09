@@ -331,7 +331,7 @@ impl Widget<InboxState> for EmailDetail {
             }
             .build(ctx, view)
         )
-        .padding_all(8.0)
+        .padding_all(16.0)
         .bg(tokens.colors.background)
         .flex_grow(1.0)
         .into_node()

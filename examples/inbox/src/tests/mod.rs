@@ -924,7 +924,7 @@ layout_test!(
 layout_test!(
     split_view_flex_grow_present,
     state_default(),
-    |op| matches!(op, LayoutOp::Box { flex_grow, .. } if approx_eq(*flex_grow, 0.22) || approx_eq(*flex_grow, 0.78)),
+    |op| matches!(op, LayoutOp::Box { flex_grow, .. } if approx_eq(*flex_grow, 0.18) || approx_eq(*flex_grow, 0.82)),
     "expected split view flex grow values"
 );
 

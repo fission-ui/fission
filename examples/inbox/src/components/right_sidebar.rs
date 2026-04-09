@@ -256,8 +256,8 @@ impl Widget<InboxState> for RightSidebar {
             ..Default::default()
             }.into_node()
         )
-        .padding_all(16.0)
-        .width(300.0)
+        .padding_all(8.0)
+        .width(240.0)
         .bg(tokens.colors.surface)
         .into_node()
     }

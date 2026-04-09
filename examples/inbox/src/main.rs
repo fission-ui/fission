@@ -87,7 +87,7 @@ impl Widget<InboxState> for InboxApp {
                 SplitView {
                     id: WidgetNodeId::explicit("main_split"),
                     direction: SplitDirection::Horizontal,
-                    split_ratio: 0.22,
+                    split_ratio: 0.18,
                     on_resize: None,
                     first: Box::new(Sidebar.build(ctx, view)),
                     second: Box::new(
