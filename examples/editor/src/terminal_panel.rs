@@ -15,12 +15,12 @@ impl Widget<EditorState> for TerminalPanel {
         let terminal_tab_color = if view.state.bottom_panel_tab == BottomPanelTab::Terminal {
             Color { r: 255, g: 255, b: 255, a: 255 }
         } else {
-            Color { r: 140, g: 140, b: 140, a: 255 }
+            Color { r: 180, g: 180, b: 180, a: 255 }
         };
         let problems_tab_color = if view.state.bottom_panel_tab == BottomPanelTab::Problems {
             Color { r: 255, g: 255, b: 255, a: 255 }
         } else {
-            Color { r: 140, g: 140, b: 140, a: 255 }
+            Color { r: 180, g: 180, b: 180, a: 255 }
         };
 
         let set_terminal = ctx.bind(
@@ -40,14 +40,14 @@ impl Widget<EditorState> for TerminalPanel {
                 children: vec![
                     Button {
                         variant: ButtonVariant::Ghost,
-                        child: Some(Box::new(Text::new("TERMINAL").size(11.0).color(terminal_tab_color).into_node())),
+                        child: Some(Box::new(Text::new("TERMINAL").size(12.0).color(terminal_tab_color).into_node())),
                         on_press: Some(set_terminal),
                         padding: Some([4.0, 4.0, 0.0, 0.0]),
                         ..Default::default()
                     }.into_node(),
                     Button {
                         variant: ButtonVariant::Ghost,
-                        child: Some(Box::new(Text::new("PROBLEMS").size(11.0).color(problems_tab_color).into_node())),
+                        child: Some(Box::new(Text::new("PROBLEMS").size(12.0).color(problems_tab_color).into_node())),
                         on_press: Some(set_problems),
                         padding: Some([4.0, 4.0, 0.0, 0.0]),
                         ..Default::default()

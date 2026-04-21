@@ -31,10 +31,6 @@ impl Widget<EditorState> for GitPanel {
             HStack {
                 spacing: Some(4.0),
                 children: vec![
-                    Text::new("SOURCE CONTROL")
-                        .size(11.0)
-                        .color(dim_color)
-                        .into_node(),
                     Spacer { flex_grow: 1.0, ..Default::default() }.into_node(),
                     Button {
                         variant: ButtonVariant::Ghost,

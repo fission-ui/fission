@@ -47,11 +47,11 @@ impl Widget<EditorState> for ActivityBar {
                 as Handler<EditorState, ToggleSidebar>,
         );
 
-        let sections = vec![
-            ("☰", SidebarSection::Explorer, "Explorer"),
-            ("🔍", SidebarSection::Search, "Search"),
-            ("⎇", SidebarSection::Git, "Source Control"),
-            ("⧉", SidebarSection::Extensions, "Extensions"),
+        let section_icons = vec![
+            (fission_icons::material::file::folder::regular(), SidebarSection::Explorer, "Explorer"),
+            (fission_icons::material::action::search::regular(), SidebarSection::Search, "Search"),
+            (fission_icons::material::action::compare_arrows::regular(), SidebarSection::Git, "Source Control"),
+            (fission_icons::material::action::extension::regular(), SidebarSection::Extensions, "Extensions"),
         ];
 
         let set_section_id = ctx.bind(
@@ -67,7 +67,7 @@ impl Widget<EditorState> for ActivityBar {
         ).id;
 
         let mut icons = Vec::new();
-        for (icon, section, _label) in &sections {
+        for (icon_svg, section, _label) in &section_icons {
             let is_active = view.state.sidebar_visible && view.state.sidebar_section == *section;
             let color = if is_active { active_color } else { inactive_color };
 
@@ -75,8 +75,8 @@ impl Widget<EditorState> for ActivityBar {
                 fission_core::ui::Button {
                     variant: fission_core::ui::ButtonVariant::Ghost,
                     child: Some(Box::new(
-                        Text::new(*icon)
-                            .size(18.0)
+                        fission_widgets::Icon::svg(*icon_svg)
+                            .size(22.0)
                             .color(color)
                             .into_node(),
                     )),
