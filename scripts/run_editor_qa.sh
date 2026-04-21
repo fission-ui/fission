@@ -93,28 +93,38 @@ cmd '{"cmd":"Pump"}'
 sleep 0.5
 shot "02_file_open"
 
-# --- 3. Type some text ---
-echo "3. Type text into editor"
-cmd '{"cmd":"TypeText","text":"// Added by QA test\n"}'
+# --- 3. Focus the editor by tapping in the text area ---
+echo "3. Focus editor and type text"
+cmd '{"cmd":"Tap","x":450,"y":200}'
+cmd '{"cmd":"Pump"}'
+sleep 0.3
+# Now type — should go to the focused TextInput
+cmd '{"cmd":"TypeText","text":"// QA"}'
 cmd '{"cmd":"Pump"}'
 shot "03_after_typing"
 
-# --- 4. Test Tab key (should insert spaces) ---
-echo "4. Press Tab (should insert 4 spaces)"
+# --- 4. Press Enter and Tab (auto-indent + tab capture) ---
+echo "4. Enter + Tab indent + type"
+cmd '{"cmd":"PressKey","key":"Enter","modifiers":0}'
+cmd '{"cmd":"Pump"}'
 cmd '{"cmd":"PressKey","key":"Tab","modifiers":0}'
 cmd '{"cmd":"Pump"}'
 cmd '{"cmd":"TypeText","text":"let x = 42;"}'
 cmd '{"cmd":"Pump"}'
 shot "04_after_tab_indent"
 
-# --- 5. Test undo (Ctrl+Z) ---
-echo "5. Undo (Ctrl+Z)"
+# --- 5. Test undo (Ctrl+Z) x3 ---
+echo "5. Undo x3 (Ctrl+Z)"
+cmd '{"cmd":"PressKey","key":"z","modifiers":4}'
+cmd '{"cmd":"PressKey","key":"z","modifiers":4}'
 cmd '{"cmd":"PressKey","key":"z","modifiers":4}'
 cmd '{"cmd":"Pump"}'
 shot "05_after_undo"
 
-# --- 6. Test redo (Ctrl+Shift+Z) ---
-echo "6. Redo (Ctrl+Shift+Z)"
+# --- 6. Test redo (Ctrl+Shift+Z) x3 ---
+echo "6. Redo x3 (Ctrl+Shift+Z)"
+cmd '{"cmd":"PressKey","key":"z","modifiers":5}'
+cmd '{"cmd":"PressKey","key":"z","modifiers":5}'
 cmd '{"cmd":"PressKey","key":"z","modifiers":5}'
 cmd '{"cmd":"Pump"}'
 shot "06_after_redo"
@@ -140,15 +150,19 @@ shot "09_tab_switch_back"
 
 # --- 10. Open Find/Replace (Ctrl+F) ---
 echo "10. Find/Replace (Ctrl+F)"
+# First switch back to main.rs tab
+cmd '{"cmd":"TapText","text":"main.rs"}'
+cmd '{"cmd":"Pump"}'
 cmd '{"cmd":"PressKey","key":"f","modifiers":4}'
 cmd '{"cmd":"Pump"}'
 sleep 0.3
 shot "10_find_bar_open"
 
-# --- 11. Type a search query ---
-echo "11. Type search query 'println'"
-cmd '{"cmd":"TypeText","text":"println"}'
+# --- 11. Type search query — focus goes to Find input ---
+echo "11. Search for 'name' in main.rs"
+cmd '{"cmd":"TypeText","text":"name"}'
 cmd '{"cmd":"Pump"}'
+sleep 0.3
 shot "11_find_results"
 
 # --- 12. Close find bar (Escape) ---

@@ -477,8 +477,10 @@ impl Widget<EditorState> for FindReplaceBar {
 
         let update_find = ctx.bind(
             UpdateFindQuery(String::new()),
-            (|s: &mut EditorState, a: UpdateFindQuery, _| s.find_query = a.0)
-                as Handler<EditorState, UpdateFindQuery>,
+            (|s: &mut EditorState, a: UpdateFindQuery, _| {
+                s.find_query = a.0;
+                s.find_next(); // Auto-search as you type
+            }) as Handler<EditorState, UpdateFindQuery>,
         );
 
         let update_replace = ctx.bind(
