@@ -254,6 +254,10 @@ pub struct EditorState {
     // File watcher
     pub file_mtimes: HashMap<String, std::time::SystemTime>,
     pub key_event_count: u64,
+
+    // Cached file tree (avoids re-scanning on every build)
+    pub cached_tree_entries: Vec<FileEntry>,
+    pub tree_cache_dirty: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -309,6 +313,8 @@ impl Default for EditorState {
             clipboard: String::new(),
             file_mtimes: HashMap::new(),
             key_event_count: 0,
+            cached_tree_entries: Vec::new(),
+            tree_cache_dirty: true,
         }
     }
 }
@@ -702,6 +708,7 @@ impl EditorState {
         });
         self.active_tab = self.open_tabs.len() - 1;
         self.scroll_offset_y = 0.0;
+        self.tree_cache_dirty = true;
         self.update_breadcrumb();
     }
 
@@ -794,10 +801,11 @@ impl EditorState {
             return;
         }
         let mut results = Vec::new();
-        // Search in open buffers first
+        // Only search open buffers (instant, no I/O)
+        // TODO: Add background search via effects system for full-project search
         for (path, buf) in &self.file_contents {
             for (line_idx, line) in buf.content.lines().enumerate() {
-                if let Some(col) = line.find(&query) {
+                if let Some(col) = line.to_lowercase().find(&query.to_lowercase()) {
                     results.push(SearchResult {
                         path: path.clone(),
                         line: line_idx + 1,
@@ -807,18 +815,21 @@ impl EditorState {
                 }
             }
         }
-        // Search files on disk
-        search_files_recursive(&self.root_path, &query, &mut results, 0);
         self.search_results = results;
     }
 
     pub fn refresh_git_status(&mut self) {
-        match std::process::Command::new("git")
-            .args(["status", "--porcelain"])
-            .current_dir(&self.root_path)
-            .output()
-        {
-            Ok(output) => {
+        let root = self.root_path.clone();
+        // Spawn in background thread to avoid blocking the render loop
+        // TODO: Use effects system for truly async git status polling
+        let git_status = std::thread::spawn(move || {
+            std::process::Command::new("git")
+                .args(["status", "--porcelain"])
+                .current_dir(&root)
+                .output()
+        });
+        match git_status.join() {
+            Ok(Ok(output)) => {
                 let stdout = String::from_utf8_lossy(&output.stdout);
                 self.git_status_lines = stdout.lines().filter_map(|line| {
                     if line.len() >= 3 {
@@ -831,7 +842,7 @@ impl EditorState {
                     }
                 }).collect();
             }
-            Err(_) => {
+            _ => {
                 self.git_status_lines.clear();
             }
         }
@@ -970,6 +981,7 @@ impl EditorState {
         match std::fs::write(&path, "") {
             Ok(_) => {
                 self.status_message = Some(format!("Created {}", path));
+                self.tree_cache_dirty = true;
                 self.open_file(path);
             }
             Err(e) => {
@@ -983,6 +995,7 @@ impl EditorState {
         match std::fs::create_dir_all(&path) {
             Ok(_) => {
                 self.status_message = Some(format!("Created folder {}", path));
+                self.tree_cache_dirty = true;
             }
             Err(e) => {
                 self.status_message = Some(format!("Failed to create folder: {}", e));
@@ -1005,6 +1018,7 @@ impl EditorState {
                     self.close_tab(idx);
                 }
                 self.file_contents.remove(&path);
+                self.tree_cache_dirty = true;
                 self.status_message = Some(format!("Deleted {}", path));
             }
             Err(e) => {
@@ -1036,6 +1050,7 @@ impl EditorState {
                 if let Some(buf) = self.file_contents.remove(&old) {
                     self.file_contents.insert(new_path_str.clone(), buf);
                 }
+                self.tree_cache_dirty = true;
                 self.status_message = Some(format!("Renamed to {}", new_name));
                 self.update_breadcrumb();
             }

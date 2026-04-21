@@ -15,7 +15,7 @@ pub struct FileTree;
 impl Widget<EditorState> for FileTree {
     fn build(&self, ctx: &mut BuildCtx<EditorState>, view: &View<EditorState>) -> Node {
         let tokens = &view.env.theme.tokens;
-        let entries = crate::model::scan_directory(&view.state.root_path, 0);
+        let entries = &view.state.cached_tree_entries;
 
         // --- Bind actions ---
 
@@ -75,6 +75,7 @@ impl Widget<EditorState> for FileTree {
                 (|s: &mut EditorState, a: CreateFile, _| {
                     // Create an empty file at the given path
                     let _ = std::fs::write(&a.0, "");
+                    s.tree_cache_dirty = true;
                     s.open_file(a.0);
                 }) as Handler<EditorState, CreateFile>,
             )
@@ -85,6 +86,7 @@ impl Widget<EditorState> for FileTree {
                 CreateFolder(String::new()),
                 (|s: &mut EditorState, a: CreateFolder, _| {
                     let _ = std::fs::create_dir_all(&a.0);
+                    s.tree_cache_dirty = true;
                     // Expand the parent so the new folder is visible
                     s.tree_expanded.insert(a.0);
                 }) as Handler<EditorState, CreateFolder>,
@@ -97,6 +99,7 @@ impl Widget<EditorState> for FileTree {
                 (|s: &mut EditorState, _a: RefreshTree, _| {
                     // Collapse all expanded nodes to force a fresh view
                     s.tree_expanded.clear();
+                    s.tree_cache_dirty = true;
                 }) as Handler<EditorState, RefreshTree>,
             )
             .id;
@@ -202,7 +205,7 @@ impl Widget<EditorState> for FileTree {
         // --- Tree rows ---
 
         let mut rows = Vec::new();
-        for entry in &entries {
+        for entry in entries {
             build_tree_rows(
                 entry,
                 0,

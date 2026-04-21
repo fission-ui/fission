@@ -1035,7 +1035,9 @@ fn main() -> anyhow::Result<()> {
     let app = DesktopApp::new(EditorApp)
         .with_title("Fission Editor")
         .with_state_init(move |state: &mut EditorState| {
-            state.root_path = root_for_init;
+            state.root_path = root_for_init.clone();
+            state.cached_tree_entries = crate::model::scan_directory(&root_for_init, 0);
+            state.tree_cache_dirty = false;
         })
         .with_sync_env(move |_state: &EditorState, env: &mut fission_core::Env| {
             env.theme = fission_theme::Theme::dark();
@@ -1053,9 +1055,15 @@ fn main() -> anyhow::Result<()> {
                 state.lsp_handle = Some(LspHandle::new(&state.root_path));
             }
 
-            // Periodically check for external file changes (every ~60 key events)
+            // Refresh file tree cache when dirty (e.g. after file create/delete/rename)
+            if state.tree_cache_dirty {
+                state.cached_tree_entries = crate::model::scan_directory(&state.root_path, 0);
+                state.tree_cache_dirty = false;
+            }
+
+            // Periodically check for external file changes (every ~300 key events)
             state.key_event_count = state.key_event_count.wrapping_add(1);
-            if state.key_event_count % 60 == 0 {
+            if state.key_event_count % 300 == 0 {
                 state.check_external_changes();
             }
 

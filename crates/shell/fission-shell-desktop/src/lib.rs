@@ -1,6 +1,7 @@
 use anyhow::Result;
 use std::collections::{HashMap, VecDeque};
 use std::num::NonZeroU32;
+use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use winit::{
@@ -51,6 +52,28 @@ mod ime;
 use ime::DesktopImeHandler;
 pub mod test_control;
 
+use fission_core::action::ActionEnvelope;
+
+/// A single completed background effect result, ready to be dispatched on the main thread.
+///
+/// Fields: `(req_id, result_payload_or_error, on_ok_continuation, on_err_continuation)`
+type EffectResult = (
+    u64,
+    std::result::Result<EffectPayload, String>,
+    Option<ActionEnvelope>,
+    Option<ActionEnvelope>,
+);
+
+/// Callback signature for application-specific effect handlers.
+///
+/// The handler receives the opaque `Vec<u8>` payload from `Effect::App(...)`,
+/// plus the envelope metadata needed to send a result back on the channel.
+pub type AppEffectHandler = Box<
+    dyn Fn(Vec<u8>, u64, Option<ActionEnvelope>, Option<ActionEnvelope>, mpsc::Sender<EffectResult>)
+        + Send
+        + Sync,
+>;
+
 struct ActivePlayer {
     player: Box<dyn VideoPlayer>,
     last_status: Option<VideoStatus>,
@@ -78,13 +101,17 @@ fn request_redraw_throttled(
     }
 }
 
-fn process_pending_effects(runtime: &mut Runtime) -> bool {
+/// Drain pending effects from the runtime and either execute them synchronously
+/// (fire-and-forget effects like `OpenUrl`) or spawn background threads for I/O
+/// effects (`FileRead`, `HttpGet`) and send results back through `effect_tx`.
+///
+/// Returns `true` if any synchronous callback was dispatched (caller should redraw).
+fn process_pending_effects(
+    runtime: &mut Runtime,
+    effect_tx: &mpsc::Sender<EffectResult>,
+    app_effect_handler: Option<&AppEffectHandler>,
+) -> bool {
     use std::process::Command;
-
-    let execute = std::env::var("FISSION_DESKTOP_EXECUTE_SYSTEM_EFFECTS")
-        .ok()
-        .as_deref()
-        == Some("1");
 
     let pending = std::mem::take(&mut runtime.pending_effects);
     if pending.is_empty() {
@@ -95,8 +122,9 @@ fn process_pending_effects(runtime: &mut Runtime) -> bool {
 
     for env in pending {
         match env.effect {
-            Effect::System(system) => {
-                match &system {
+            Effect::System(ref system) => {
+                match system {
+                    // ── Fire-and-forget: OpenUrl ─────────────────────────────
                     SystemEffect::OpenUrl { url, in_app } => {
                         diag::emit(
                             diag::DiagCategory::Input,
@@ -108,31 +136,44 @@ fn process_pending_effects(runtime: &mut Runtime) -> bool {
                             },
                         );
 
-                        if execute {
-                            let result = if cfg!(target_os = "macos") {
-                                Command::new("open").arg(url).spawn().map(|_| ())
-                            } else if cfg!(target_os = "windows") {
-                                Command::new("cmd")
-                                    .args(["/C", "start", url])
-                                    .spawn()
-                                    .map(|_| ())
-                            } else {
-                                Command::new("xdg-open").arg(url).spawn().map(|_| ())
-                            };
+                        let result = if cfg!(target_os = "macos") {
+                            Command::new("open").arg(url).spawn().map(|_| ())
+                        } else if cfg!(target_os = "windows") {
+                            Command::new("cmd")
+                                .args(["/C", "start", url])
+                                .spawn()
+                                .map(|_| ())
+                        } else {
+                            Command::new("xdg-open").arg(url).spawn().map(|_| ())
+                        };
 
-                            if let Err(e) = result {
-                                diag::emit(
-                                    diag::DiagCategory::Input,
-                                    diag::DiagLevel::Error,
-                                    diag::DiagEventKind::InputEvent {
-                                        kind: format!("system_effect:OpenUrl failed: {}", e),
-                                        target: None,
-                                        position: None,
-                                    },
-                                );
-                            }
+                        if let Err(e) = result {
+                            diag::emit(
+                                diag::DiagCategory::Input,
+                                diag::DiagLevel::Error,
+                                diag::DiagEventKind::InputEvent {
+                                    kind: format!("system_effect:OpenUrl failed: {}", e),
+                                    target: None,
+                                    position: None,
+                                },
+                            );
+                        }
+
+                        // Dispatch immediate callback (fire-and-forget success).
+                        if let Some(on_ok) = env.on_ok {
+                            let _ = runtime.dispatch_with_input(
+                                on_ok,
+                                NodeId::derived(0, &[0]),
+                                &ActionInput::EffectOk {
+                                    req_id: env.req_id,
+                                    payload: EffectPayload::Empty,
+                                },
+                            );
+                            dispatched_callback = true;
                         }
                     }
+
+                    // ── Fire-and-forget: Authenticate ────────────────────────
                     SystemEffect::Authenticate { url, .. } => {
                         diag::emit(
                             diag::DiagCategory::Input,
@@ -143,57 +184,245 @@ fn process_pending_effects(runtime: &mut Runtime) -> bool {
                                 position: None,
                             },
                         );
-                        if execute {
-                            let _ = if cfg!(target_os = "macos") {
-                                Command::new("open").arg(url).spawn()
-                            } else if cfg!(target_os = "windows") {
-                                Command::new("cmd").args(["/C", "start", url]).spawn()
-                            } else {
-                                Command::new("xdg-open").arg(url).spawn()
-                            };
+                        let _ = if cfg!(target_os = "macos") {
+                            Command::new("open").arg(url).spawn()
+                        } else if cfg!(target_os = "windows") {
+                            Command::new("cmd").args(["/C", "start", url]).spawn()
+                        } else {
+                            Command::new("xdg-open").arg(url).spawn()
+                        };
+
+                        if let Some(on_ok) = env.on_ok {
+                            let _ = runtime.dispatch_with_input(
+                                on_ok,
+                                NodeId::derived(0, &[0]),
+                                &ActionInput::EffectOk {
+                                    req_id: env.req_id,
+                                    payload: EffectPayload::Empty,
+                                },
+                            );
+                            dispatched_callback = true;
                         }
                     }
-                    other => {
+
+                    // ── Fire-and-forget: Alert (log only) ────────────────────
+                    SystemEffect::Alert { title, message } => {
                         diag::emit(
                             diag::DiagCategory::Input,
-                            diag::DiagLevel::Warn,
+                            diag::DiagLevel::Info,
                             diag::DiagEventKind::InputEvent {
-                                kind: format!("system_effect:unhandled:{:?}", other),
+                                kind: format!("system_effect:Alert title={}", title),
+                                target: None,
+                                position: None,
+                            },
+                        );
+                        eprintln!("[alert] {}: {}", title, message);
+
+                        if let Some(on_ok) = env.on_ok {
+                            let _ = runtime.dispatch_with_input(
+                                on_ok,
+                                NodeId::derived(0, &[0]),
+                                &ActionInput::EffectOk {
+                                    req_id: env.req_id,
+                                    payload: EffectPayload::Empty,
+                                },
+                            );
+                            dispatched_callback = true;
+                        }
+                    }
+
+                    // ── Background: FileRead ─────────────────────────────────
+                    SystemEffect::FileRead { path } => {
+                        let tx = effect_tx.clone();
+                        let on_ok = env.on_ok.clone();
+                        let on_err = env.on_err.clone();
+                        let req_id = env.req_id;
+                        let path = path.clone();
+                        std::thread::spawn(move || {
+                            match std::fs::read_to_string(&path) {
+                                Ok(content) => {
+                                    let payload = EffectPayload::InlineBytes(content.into_bytes());
+                                    let _ = tx.send((req_id, Ok(payload), on_ok, on_err));
+                                }
+                                Err(e) => {
+                                    let _ = tx.send((req_id, Err(e.to_string()), on_ok, on_err));
+                                }
+                            }
+                        });
+                    }
+
+                    // ── Background: HttpGet ───────────────────────────────────
+                    SystemEffect::HttpGet { url, headers } => {
+                        let tx = effect_tx.clone();
+                        let on_ok = env.on_ok.clone();
+                        let on_err = env.on_err.clone();
+                        let req_id = env.req_id;
+                        let url = url.clone();
+                        let headers = headers.clone();
+                        std::thread::spawn(move || {
+                            // Minimal blocking HTTP GET using std only (no external crate).
+                            // This parses the URL, opens a TCP stream, and reads the response.
+                            let result = (|| -> std::result::Result<Vec<u8>, String> {
+                                use std::io::{Read, Write};
+                                use std::net::TcpStream;
+
+                                // Parse URL (very basic: http://host[:port]/path)
+                                let url_trimmed = url.trim();
+                                let (scheme, rest) = if let Some(r) = url_trimmed.strip_prefix("https://") {
+                                    ("https", r)
+                                } else if let Some(r) = url_trimmed.strip_prefix("http://") {
+                                    ("http", r)
+                                } else {
+                                    return Err(format!("unsupported URL scheme: {}", url_trimmed));
+                                };
+
+                                let (host_port, path) = match rest.find('/') {
+                                    Some(i) => (&rest[..i], &rest[i..]),
+                                    None => (rest, "/"),
+                                };
+
+                                let default_port: u16 = if scheme == "https" { 443 } else { 80 };
+                                let (host, port) = match host_port.rfind(':') {
+                                    Some(i) => {
+                                        let p = host_port[i + 1..].parse::<u16>().unwrap_or(default_port);
+                                        (&host_port[..i], p)
+                                    }
+                                    None => (host_port, default_port),
+                                };
+
+                                if scheme == "https" {
+                                    return Err("HTTPS not supported in minimal HttpGet executor; use a custom app effect handler for TLS".into());
+                                }
+
+                                let addr = format!("{}:{}", host, port);
+                                let mut stream = TcpStream::connect(&addr)
+                                    .map_err(|e| format!("connect {}: {}", addr, e))?;
+                                stream
+                                    .set_read_timeout(Some(std::time::Duration::from_secs(30)))
+                                    .ok();
+
+                                let mut request = format!(
+                                    "GET {} HTTP/1.1\r\nHost: {}\r\nConnection: close\r\n",
+                                    path, host
+                                );
+                                for (k, v) in &headers {
+                                    request.push_str(&format!("{}: {}\r\n", k, v));
+                                }
+                                request.push_str("\r\n");
+
+                                stream
+                                    .write_all(request.as_bytes())
+                                    .map_err(|e| format!("write: {}", e))?;
+
+                                let mut buf = Vec::new();
+                                stream
+                                    .read_to_end(&mut buf)
+                                    .map_err(|e| format!("read: {}", e))?;
+
+                                // Strip HTTP headers (find \r\n\r\n)
+                                let body_start = buf
+                                    .windows(4)
+                                    .position(|w| w == b"\r\n\r\n")
+                                    .map(|i| i + 4)
+                                    .unwrap_or(0);
+
+                                Ok(buf[body_start..].to_vec())
+                            })();
+
+                            match result {
+                                Ok(bytes) => {
+                                    let payload = EffectPayload::InlineBytes(bytes);
+                                    let _ = tx.send((req_id, Ok(payload), on_ok, on_err));
+                                }
+                                Err(msg) => {
+                                    let _ = tx.send((req_id, Err(msg), on_ok, on_err));
+                                }
+                            }
+                        });
+                    }
+
+                    // ── Cancel / ReleaseResource: no-op at shell level ───────
+                    SystemEffect::Cancel { .. } | SystemEffect::ReleaseResource { .. } => {
+                        diag::emit(
+                            diag::DiagCategory::Input,
+                            diag::DiagLevel::Debug,
+                            diag::DiagEventKind::InputEvent {
+                                kind: format!("system_effect:{:?} (no-op)", system),
                                 target: None,
                                 position: None,
                             },
                         );
                     }
                 }
+            }
 
-                // Optionally dispatch immediate callbacks (if provided).
-                if let Some(on_ok) = env.on_ok {
-                    let _ = runtime.dispatch_with_input(
-                        on_ok,
-                        NodeId::derived(0, &[0]),
-                        &ActionInput::EffectOk {
-                            req_id: env.req_id,
-                            payload: EffectPayload::Empty,
+            // ── App-specific effects ─────────────────────────────────────
+            Effect::App(payload) => {
+                if let Some(handler) = app_effect_handler {
+                    handler(
+                        payload,
+                        env.req_id,
+                        env.on_ok.clone(),
+                        env.on_err.clone(),
+                        effect_tx.clone(),
+                    );
+                } else {
+                    diag::emit(
+                        diag::DiagCategory::Input,
+                        diag::DiagLevel::Warn,
+                        diag::DiagEventKind::InputEvent {
+                            kind: "app_effect:unhandled (no handler registered)".into(),
+                            target: None,
+                            position: None,
                         },
                     );
-                    dispatched_callback = true;
                 }
-            }
-            Effect::App(_) => {
-                diag::emit(
-                    diag::DiagCategory::Input,
-                    diag::DiagLevel::Warn,
-                    diag::DiagEventKind::InputEvent {
-                        kind: "app_effect:unhandled".into(),
-                        target: None,
-                        position: None,
-                    },
-                );
             }
         }
     }
 
     dispatched_callback
+}
+
+/// Drain completed background effect results from the channel and dispatch
+/// their continuations on the main thread.
+///
+/// Returns `true` if any continuation was dispatched (caller should redraw).
+fn drain_effect_results(
+    runtime: &mut Runtime,
+    effect_rx: &mpsc::Receiver<EffectResult>,
+) -> bool {
+    let mut dispatched = false;
+
+    while let Ok((req_id, result, on_ok, on_err)) = effect_rx.try_recv() {
+        match result {
+            Ok(payload) => {
+                if let Some(action) = on_ok {
+                    let _ = runtime.dispatch_with_input(
+                        action,
+                        NodeId::derived(0, &[0]),
+                        &ActionInput::EffectOk { req_id, payload },
+                    );
+                    dispatched = true;
+                }
+            }
+            Err(msg) => {
+                if let Some(action) = on_err {
+                    let _ = runtime.dispatch_with_input(
+                        action,
+                        NodeId::derived(0, &[0]),
+                        &ActionInput::EffectErr {
+                            req_id,
+                            message: msg,
+                        },
+                    );
+                    dispatched = true;
+                }
+            }
+        }
+    }
+
+    dispatched
 }
 
 fn focused_text_input_id(runtime: &Runtime, ir: Option<&CoreIR>) -> Option<NodeId> {
@@ -359,6 +588,11 @@ pub struct DesktopApp<S: AppState, W: Widget<S>> {
     sync_env: Option<Arc<dyn Fn(&S, &mut Env) + Send + Sync>>,
     key_handler: Option<KeyHandler<S>>,
     title: String,
+    /// Channel pair for receiving completed background effect results.
+    effect_result_tx: mpsc::Sender<EffectResult>,
+    effect_result_rx: mpsc::Receiver<EffectResult>,
+    /// Optional handler for `Effect::App(...)` payloads.
+    app_effect_handler: Option<AppEffectHandler>,
     _phantom: std::marker::PhantomData<S>,
 }
 
@@ -393,6 +627,8 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
             .with_measurer(measurer.clone())
             .with_clipboard(clipboard);
 
+        let (effect_result_tx, effect_result_rx) = mpsc::channel();
+
         Self {
             runtime,
             layout_engine,
@@ -403,6 +639,9 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
             sync_env: None,
             key_handler: None,
             title: "Fission".into(),
+            effect_result_tx,
+            effect_result_rx,
+            app_effect_handler: None,
             _phantom: std::marker::PhantomData,
         }
     }
@@ -441,6 +680,22 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
         F: Fn(&S, &mut Env) + Send + Sync + 'static,
     {
         self.sync_env = Some(Arc::new(f));
+        self
+    }
+
+    /// Register a handler for `Effect::App(payload)` effects.
+    ///
+    /// The handler runs on the calling thread and should spawn its own
+    /// background work if needed, sending results through the provided
+    /// `mpsc::Sender<EffectResult>`.
+    pub fn with_app_effect_handler<F>(mut self, handler: F) -> Self
+    where
+        F: Fn(Vec<u8>, u64, Option<ActionEnvelope>, Option<ActionEnvelope>, mpsc::Sender<EffectResult>)
+            + Send
+            + Sync
+            + 'static,
+    {
+        self.app_effect_handler = Some(Box::new(handler));
         self
     }
 
@@ -516,6 +771,9 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
         let mut env = self.env;
         let mut pipeline = self.pipeline;
         let measurer = self.measurer;
+        let effect_result_tx = self.effect_result_tx;
+        let effect_result_rx = self.effect_result_rx;
+        let app_effect_handler = self.app_effect_handler;
 
         #[cfg(target_os = "macos")]
         let video_backend: Arc<dyn VideoBackend> = Arc::new(MacVideoBackend::new(&window));
@@ -879,7 +1137,19 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                             }
                         }
 
-                        if needs_redraw || redraw_pending {
+                        // Drain completed background effect results and dispatch
+                        // their continuations back into the runtime on the main thread.
+                        let effect_results_dispatched = drain_effect_results(&mut runtime, &effect_result_rx);
+                        if effect_results_dispatched {
+                            // Background work completed — process any new effects
+                            // the continuation reducers may have emitted.
+                            if process_pending_effects(&mut runtime, &effect_result_tx, app_effect_handler.as_ref()) {
+                                request_redraw_throttled(&window, elwt, &mut last_redraw_at, min_frame, &mut redraw_pending);
+                            }
+                            window.request_redraw();
+                        }
+
+                        if needs_redraw || redraw_pending || effect_results_dispatched {
                             request_redraw_throttled(&window, elwt, &mut last_redraw_at, min_frame, &mut redraw_pending);
                             let mut wake_at = last_redraw_at + min_frame;
                             if let Some(blink_at) = blink_wake_at {
@@ -909,7 +1179,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                 diag::begin_frame(None);
                                 // Drain pending effects before building the next frame.
                                 // This prevents the effect queue from growing unbounded.
-                                if process_pending_effects(&mut runtime) {
+                                if process_pending_effects(&mut runtime, &effect_result_tx, app_effect_handler.as_ref()) {
                                     request_redraw_throttled(&window, elwt, &mut last_redraw_at, min_frame, &mut redraw_pending);
                                 }
                                 let size = window.inner_size();
@@ -1106,7 +1376,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                     if let Err(e) = runtime.handle_input(event, ir, layout) {
                                         eprintln!("Input handling error: {:?}", e);
                                     }
-                                    if process_pending_effects(&mut runtime) {
+                                    if process_pending_effects(&mut runtime, &effect_result_tx, app_effect_handler.as_ref()) {
                                         request_redraw_throttled(&window, elwt, &mut last_redraw_at, min_frame, &mut redraw_pending);
                                     }
                                     request_redraw_throttled(&window, elwt, &mut last_redraw_at, min_frame, &mut redraw_pending);
@@ -1141,7 +1411,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                                     // println!("Input dispatched successfully");
                                                 }
                                                 mark_text_trace_handled(&mut pending_text_traces, trace_seq);
-                                                if process_pending_effects(&mut runtime) {
+                                                if process_pending_effects(&mut runtime, &effect_result_tx, app_effect_handler.as_ref()) {
                                                     mark_text_trace_effects(&mut pending_text_traces, trace_seq);
                                                     request_redraw_throttled(&window, elwt, &mut last_redraw_at, min_frame, &mut redraw_pending);
                                                 }
@@ -1191,7 +1461,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                         if let Err(e) = runtime.handle_input(event, ir, layout) {
                                             eprintln!("Scroll error: {:?}", e);
                                         }
-                                        if process_pending_effects(&mut runtime) {
+                                        if process_pending_effects(&mut runtime, &effect_result_tx, app_effect_handler.as_ref()) {
                                             request_redraw_throttled(&window, elwt, &mut last_redraw_at, min_frame, &mut redraw_pending);
                                         }
                                         request_redraw_throttled(&window, elwt, &mut last_redraw_at, min_frame, &mut redraw_pending);
@@ -1236,7 +1506,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                             let handler = handler.clone();
                                             if let Some(state) = runtime.get_app_state_mut::<S>() {
                                                 if handler(state, &code, current_mods) {
-                                                    if process_pending_effects(&mut runtime) {
+                                                    if process_pending_effects(&mut runtime, &effect_result_tx, app_effect_handler.as_ref()) {
                                                         request_redraw_throttled(&window, elwt, &mut last_redraw_at, min_frame, &mut redraw_pending);
                                                     }
                                                     request_redraw_throttled(&window, elwt, &mut last_redraw_at, min_frame, &mut redraw_pending);
@@ -1266,7 +1536,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                             eprintln!("Keyboard error: {:?}", e);
                                         }
                                         mark_text_trace_handled(&mut pending_text_traces, trace_seq);
-                                        if process_pending_effects(&mut runtime) {
+                                        if process_pending_effects(&mut runtime, &effect_result_tx, app_effect_handler.as_ref()) {
                                             mark_text_trace_effects(&mut pending_text_traces, trace_seq);
                                             request_redraw_throttled(&window, elwt, &mut last_redraw_at, min_frame, &mut redraw_pending);
                                         }
@@ -1302,7 +1572,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                         );
                                         runtime.handle_input(e, ir, layout).ok();
                                         mark_text_trace_handled(&mut pending_text_traces, trace_seq);
-                                        if process_pending_effects(&mut runtime) {
+                                        if process_pending_effects(&mut runtime, &effect_result_tx, app_effect_handler.as_ref()) {
                                             mark_text_trace_effects(&mut pending_text_traces, trace_seq);
                                             request_redraw_throttled(&window, elwt, &mut last_redraw_at, min_frame, &mut redraw_pending);
                                         }

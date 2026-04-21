@@ -231,11 +231,13 @@ impl Widget<EditorState> for EditorSurface {
                 },
             }]
         } else {
-            edit_content
-                .lines()
+            // Use document-level highlighting (tree-sitter for Rust, cached
+            // by content hash so unchanged files are essentially free).
+            let doc_spans = syntax::highlight_document(&edit_content, lang);
+            doc_spans
+                .into_iter()
                 .enumerate()
-                .flat_map(|(i, line)| {
-                    let spans = syntax::highlight_line(line, lang);
+                .flat_map(|(i, spans)| {
                     let mut runs: Vec<fission_ir::op::TextRun> = spans
                         .into_iter()
                         .map(|span| fission_ir::op::TextRun {
