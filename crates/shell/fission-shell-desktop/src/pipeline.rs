@@ -808,6 +808,9 @@ impl Pipeline {
                                     a: r.style.color.a,
                                 },
                                 underline: r.style.underline,
+                                background_color: r.style.background_color.map(|c| fission_render::Color {
+                                    r: c.r, g: c.g, b: c.b, a: c.a,
+                                }),
                             },
                         })
                         .collect();

@@ -359,7 +359,7 @@ pub fn build_layout_tree(ir: &CoreIR, env: &Env) -> Vec<LayoutInputNode> {
                 
                 rich_text_content = Some(vec![fission_ir::op::TextRun {
                     text: text.clone(),
-                    style: fission_ir::op::TextStyle { font_size: *size, color: *color, underline: *underline },
+                    style: fission_ir::op::TextStyle { font_size: *size, color: *color, underline: *underline, background_color: None },
                 }]);
                 children_to_visit.clear(); // Leaf node for layout
                 (

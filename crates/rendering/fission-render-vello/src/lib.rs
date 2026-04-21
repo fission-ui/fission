@@ -282,13 +282,13 @@ impl<'a> VelloRenderer<'a> {
 
         // Slow path for rich text
         let layout = self.measurer.layout_rich(
-            text, 
-            base_size, 
-            base_color, 
-            styles, 
+            text,
+            base_size,
+            base_color,
+            styles,
             if bounds.width() > 0.0 { Some(bounds.width() as f32) } else { None }
         );
-        
+
         // Draw Glyphs for rich text (uses brushes from layout)
         for line in layout.lines() {
             for item in line.items() {
@@ -299,7 +299,35 @@ impl<'a> VelloRenderer<'a> {
                     let font_size = run.font_size();
                     let brush_data = style.brush.clone();
                     let color = Color::from_rgba8(brush_data.0[0], brush_data.0[1], brush_data.0[2], brush_data.0[3]);
-                    
+
+                    // Draw background highlight rect if any style in range has background_color
+                    let run_text_range = run.text_range();
+                    for (range, s) in styles.iter() {
+                        if let Some(bg) = &s.background_color {
+                            // Check overlap between glyph run range and style range
+                            let overlap_start = range.start.max(run_text_range.start);
+                            let overlap_end = range.end.min(run_text_range.end);
+                            if overlap_start < overlap_end {
+                                let metrics = line.metrics();
+                                let line_height = metrics.line_height.max(metrics.ascent + metrics.descent).max(1.0);
+                                let top_y = metrics.baseline - metrics.ascent;
+                                let bg_color = Color::from_rgba8(bg.r, bg.g, bg.b, bg.a);
+                                let x0 = position.x as f64 + glyph_run.offset() as f64;
+                                let x1 = x0 + glyph_run.advance() as f64;
+                                let y0 = position.y as f64 + top_y as f64;
+                                let bg_rect = Rect::new(x0, y0, x1, y0 + line_height as f64);
+                                self.scene.fill(
+                                    Fill::NonZero,
+                                    self.current_transform,
+                                    bg_color,
+                                    None,
+                                    &bg_rect,
+                                );
+                                break; // Only draw one background per glyph run
+                            }
+                        }
+                    }
+
                     let mut x = glyph_run.offset();
                     let y = glyph_run.baseline();
 
@@ -313,7 +341,7 @@ impl<'a> VelloRenderer<'a> {
                             y: gy,
                         }
                     });
-                    
+
                     self.scene.draw_glyphs(font)
                         .font_size(font_size)
                         .transform(self.current_transform * Affine::translate((position.x as f64, position.y as f64)))

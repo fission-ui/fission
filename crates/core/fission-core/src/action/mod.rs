@@ -80,6 +80,22 @@ impl Action for UpdateTextInput {
     }
 }
 
+/// Payload dispatched when the caret/anchor position changes in a TextInput.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CursorChanged {
+    pub caret: usize,
+    pub anchor: usize,
+}
+
+impl Action for CursorChanged {
+    fn static_id() -> ActionId {
+        lazy_static! {
+            pub static ref CURSOR_CHANGED_ACTION_ID: ActionId = ActionId::from_name("fission_core::CursorChanged");
+        }
+        *CURSOR_CHANGED_ACTION_ID
+    }
+}
+
 // The Action trait for typed authoring.
 // Must be Serializable/Deserializable to support the Envelope model.
 pub trait Action: Serialize + DeserializeOwned + Any + Send + Sync + std::fmt::Debug {

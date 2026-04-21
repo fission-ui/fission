@@ -517,6 +517,9 @@ fn generate_display_list_with_visited(
                                 font_size: r.style.font_size,
                                 color: fission_render::Color { r: r.style.color.r, g: r.style.color.g, b: r.style.color.b, a: r.style.color.a },
                                 underline: r.style.underline,
+                                background_color: r.style.background_color.map(|c| fission_render::Color {
+                                    r: c.r, g: c.g, b: c.b, a: c.a,
+                                }),
                             },
                         }).collect(),
                         position: LayoutPoint::new(geom.rect.x(), geom.rect.y()),
