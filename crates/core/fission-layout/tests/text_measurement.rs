@@ -85,6 +85,7 @@ fn make_text_node(id: u128, parent_id: NodeId, text: &str, max_width: Option<f32
                 font_size: 16.0,
                 color: Color::BLACK,
                 underline: false,
+                background_color: None,
             },
         }]),
     }

@@ -29,7 +29,7 @@ fn test_explicit_focus_order() {
             let s = Semantics {
                 role: Role::Button,
                 focusable: true,
-                focus_index: Some(self.index),
+                focus_index: Some(self.index), capture_tab: false, auto_indent: false,
                 ..Default::default()
             };
             fission_core::NodeBuilder::new(id, Op::Semantics(s)).build(cx)

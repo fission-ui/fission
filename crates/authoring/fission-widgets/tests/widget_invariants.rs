@@ -103,7 +103,7 @@ fn test_button_widget_lower_with_child_and_semantics() {
                                                                                     is_focus_barrier: false,
                                                                                                             drag_payload: None,
                                                                                                             hero_tag: None,
-                                                                                                            focus_index: None,
+                                                                                                            focus_index: None, capture_tab: false, auto_indent: false,
                                                                                                         }),        ..Default::default()
     };
 

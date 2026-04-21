@@ -90,7 +90,7 @@ impl Lower for GestureDetector {
             is_focus_barrier: false,
             drag_payload: self.drag_payload.clone(),
             hero_tag: None,
-            focus_index: None,
+            focus_index: None, capture_tab: false, auto_indent: false,
         };
 
         if let Some(a) = &self.on_tap {
