@@ -4,7 +4,7 @@
 //! async IO and proper request/response tracking. This synchronous version
 //! is enough to get diagnostics and completions flowing.
 
-pub mod protocol;
 pub mod client;
+pub mod protocol;
 
 pub use client::LspClient;

@@ -16,6 +16,23 @@ pub struct LspClient {
 }
 
 impl LspClient {
+    /// Try to create an LSP client by locating rust-analyzer in PATH.
+    /// Returns `None` if the binary is not found or cannot be spawned.
+    pub fn try_new(root_path: &str) -> Option<Self> {
+        // Check that rust-analyzer is available on PATH before spawning.
+        let which_result = Command::new("which")
+            .arg("rust-analyzer")
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status();
+        match which_result {
+            Ok(status) if status.success() => {}
+            _ => return None,
+        }
+
+        Self::start(root_path)
+    }
+
     /// Spawn rust-analyzer and connect to it.
     /// Returns None if rust-analyzer is not available.
     pub fn start(root_path: &str) -> Option<Self> {
@@ -211,10 +228,20 @@ impl LspClient {
         result
     }
 
+    /// Send shutdown request and exit notification, then kill the child process.
     pub fn shutdown(&mut self) {
         self.send_request("shutdown", None);
+        // Give the server a moment to process the shutdown request.
+        let _ = self.response_rx.recv_timeout(std::time::Duration::from_secs(2));
         self.send_notification("exit", None);
-        let _ = self.child.wait();
+        // Wait briefly for a clean exit, then force-kill if still running.
+        match self.child.try_wait() {
+            Ok(Some(_)) => {} // already exited
+            _ => {
+                let _ = self.child.kill();
+                let _ = self.child.wait();
+            }
+        }
     }
 }
 
