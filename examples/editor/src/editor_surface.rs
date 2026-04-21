@@ -5,6 +5,10 @@ use fission_core::{ActionEnvelope, BuildCtx, FlexDirection, Handler, View, Widge
 use fission_widgets::{HStack, VStack, Spacer};
 use serde_json;
 
+/// Maximum lines to render in the gutter to avoid GPU buffer overflow.
+/// The TextInput handles scrolling internally for the content.
+const MAX_GUTTER_LINES: usize = 200;
+
 pub struct EditorSurface;
 
 impl Widget<EditorState> for EditorSurface {
@@ -12,7 +16,6 @@ impl Widget<EditorState> for EditorSurface {
         let tokens = &view.env.theme.tokens;
 
         let Some((tab, buffer)) = view.state.active_buffer() else {
-            // Welcome screen when no file is open
             return Container::new(
                 fission_widgets::center::Center {
                     child: Box::new(
@@ -44,10 +47,8 @@ impl Widget<EditorState> for EditorSurface {
         };
 
         let content = &buffer.content;
-        let language = buffer.language;
         let path = tab.path.clone();
 
-        // Action for content updates
         let update_id = ctx.bind(
             UpdateFileContent(String::new()),
             (|s: &mut EditorState, a: UpdateFileContent, _| {
@@ -63,11 +64,13 @@ impl Widget<EditorState> for EditorSurface {
             }) as Handler<EditorState, UpdateFileContent>,
         );
 
-        // Line numbers gutter
         let line_count = content.lines().count().max(1);
+        let visible_lines = line_count.min(MAX_GUTTER_LINES);
         let gutter_width = format!("{}", line_count).len() as f32 * 9.0 + 16.0;
+
+        // Line numbers gutter (capped to MAX_GUTTER_LINES)
         let mut line_num_children = Vec::new();
-        for i in 1..=line_count {
+        for i in 1..=visible_lines {
             line_num_children.push(
                 Container::new(
                     Text::new(format!("{:>width$}", i, width = format!("{}", line_count).len()))
@@ -77,6 +80,14 @@ impl Widget<EditorState> for EditorSurface {
                 )
                 .height(20.0)
                 .into_node(),
+            );
+        }
+        if line_count > MAX_GUTTER_LINES {
+            line_num_children.push(
+                Text::new(format!("... +{} lines", line_count - MAX_GUTTER_LINES))
+                    .size(11.0)
+                    .color(Color { r: 80, g: 80, b: 80, a: 255 })
+                    .into_node(),
             );
         }
 
@@ -89,16 +100,23 @@ impl Widget<EditorState> for EditorSurface {
         .flex_shrink(0.0)
         .into_node();
 
-        // Actual editable text area using multiline TextInput
+        // Editable text area - for very large files, only put first N lines
+        // in the TextInput to avoid GPU overflow
+        let edit_content = if line_count > MAX_GUTTER_LINES {
+            content.lines().take(MAX_GUTTER_LINES).collect::<Vec<_>>().join("\n")
+        } else {
+            content.clone()
+        };
+
         let editor_input = TextInput {
             id: Some(fission_ir::NodeId::explicit(&format!("editor_{}", path))),
-            value: content.clone(),
+            value: edit_content,
             placeholder: None,
             on_change: Some(update_id),
             width: None,
             height: None,
             multiline: true,
-            min_lines: Some(line_count),
+            min_lines: None,
             max_lines: None,
             obscure_text: false,
             obscuring_character: '•',
@@ -111,7 +129,6 @@ impl Widget<EditorState> for EditorSurface {
             .bg(Color { r: 30, g: 30, b: 30, a: 255 })
             .into_node();
 
-        // Wrap gutter + editor in a row, both inside a vertical scroll
         let editor_row = Row {
             children: vec![gutter, editor_area],
             align_items: fission_ir::op::AlignItems::Start,
