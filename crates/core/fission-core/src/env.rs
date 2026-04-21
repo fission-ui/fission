@@ -110,6 +110,10 @@ pub struct TextEditState {
     pub history: TextEditHistory, // NEW
     pub last_value: String,       // Store last committed value here for history snapshots
     pub pending_model_sync: bool, // True when edits are newer than the currently lowered semantics value
+    /// Last cursor position that was dispatched as a CursorChanged action.
+    /// Used to deduplicate dispatches and prevent unnecessary model updates
+    /// that could cause extra rebuild cycles.
+    pub last_dispatched_cursor: Option<(usize, usize)>,
 }
 
 impl Default for TextEditState {
@@ -120,6 +124,7 @@ impl Default for TextEditState {
             history: TextEditHistory::default(),
             last_value: String::new(),
             pending_model_sync: false,
+            last_dispatched_cursor: None,
         }
     }
 }

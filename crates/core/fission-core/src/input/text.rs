@@ -582,9 +582,23 @@ impl TextInputController {
         new_caret: usize,
         new_anchor: usize,
     ) {
+        // Deduplicate: skip dispatch if cursor position hasn't actually changed
+        // since our last dispatch. This prevents unnecessary model updates that
+        // would trigger extra rebuild cycles.
+        if let Some(st) = ctx.text_edit.states.get(&node_id) {
+            if st.last_dispatched_cursor == Some((new_caret, new_anchor)) {
+                return;
+            }
+        }
+
         if let Some(action_entry) = semantics.actions.entries.iter().find(|e| {
             e.trigger == fission_ir::semantics::ActionTrigger::CursorChange
         }) {
+            // Record the dispatched position before dispatching
+            if let Some(st) = ctx.text_edit.states.get_mut(&node_id) {
+                st.last_dispatched_cursor = Some((new_caret, new_anchor));
+            }
+
             let cursor_changed = crate::action::CursorChanged {
                 caret: new_caret,
                 anchor: new_anchor,
