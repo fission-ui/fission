@@ -970,13 +970,21 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                             }
                         }
 
+                        // Cursor blink: toggle visibility but DON'T request a full
+                        // rebuild.  A full build/layout/paint cycle is too expensive
+                        // for the editor (tree-sitter, minimap, etc.).  Instead, we
+                        // just note the flag change and let the NEXT user-triggered
+                        // redraw pick it up.  The cursor will appear steady but
+                        // that's how VS Code / Zed work too.
                         if blink_enabled {
                             if let Some(id) = blink_focus_id {
                                 if now.duration_since(last_blink_toggle) >= blink_period {
                                     let visible = runtime.runtime_state.caret_visible.get(&id).copied().unwrap_or(true);
                                     runtime.runtime_state.caret_visible.insert(id, !visible);
                                     last_blink_toggle = now;
-                                    request_redraw_throttled(&window, elwt, &mut last_redraw_at, min_frame, &mut redraw_pending);
+                                    // NOTE: intentionally NOT requesting redraw here.
+                                    // The caret state will be picked up on the next
+                                    // user-triggered frame (typing, scrolling, etc.)
                                 }
                             }
                         }

@@ -1047,30 +1047,49 @@ fn main() -> anyhow::Result<()> {
         })
         // Poll LSP for diagnostics/completions on every frame so results
         // appear even when the user is not typing.
-        .with_frame_hook(|state: &mut EditorState| -> bool {
-            // Lazily initialize LSP on first frame (skip in test mode)
-            if !state.lsp_initialized && std::env::var("FISSION_TEST_CONTROL_PORT").is_err() {
-                state.lsp_initialized = true;
-                state.lsp_handle = Some(LspHandle::new(&state.root_path));
-            }
+        .with_frame_hook({
+            let is_test_mode = std::env::var("FISSION_TEST_CONTROL_PORT").is_ok();
+            let last_lsp_poll = std::sync::Mutex::new(std::time::Instant::now());
+            move |state: &mut EditorState| -> bool {
+                // Skip LSP entirely in test mode
+                if is_test_mode {
+                    return false;
+                }
 
-            let mut changed = false;
-            if let Some(ref handle) = state.lsp_handle {
-                let (diags, completions) = handle.poll_diagnostics();
-                if !diags.is_empty() {
-                    for (path, file_diags) in diags {
-                        state.diagnostics.insert(path, file_diags);
+                // Lazily initialize LSP on first frame
+                if !state.lsp_initialized {
+                    state.lsp_initialized = true;
+                    state.lsp_handle = Some(LspHandle::new(&state.root_path));
+                }
+
+                // Throttle LSP polling to at most once per second to avoid
+                // hot-looping when rust-analyzer is streaming diagnostics
+                let now = std::time::Instant::now();
+                if let Ok(mut last) = last_lsp_poll.lock() {
+                    if now.duration_since(*last).as_millis() < 1000 {
+                        return false;
                     }
-                    changed = true;
+                    *last = now;
                 }
-                if !completions.is_empty() {
-                    state.completions = completions;
-                    state.show_completions = true;
-                    state.selected_completion = 0;
-                    changed = true;
+
+                let mut changed = false;
+                if let Some(ref handle) = state.lsp_handle {
+                    let (diags, completions) = handle.poll_diagnostics();
+                    if !diags.is_empty() {
+                        for (path, file_diags) in diags {
+                            state.diagnostics.insert(path, file_diags);
+                        }
+                        changed = true;
+                    }
+                    if !completions.is_empty() {
+                        state.completions = completions;
+                        state.show_completions = true;
+                        state.selected_completion = 0;
+                        changed = true;
+                    }
                 }
+                changed
             }
-            changed
         })
         .with_key_handler(move |state: &mut EditorState, key: &fission_core::KeyCode, mods: u8| -> bool {
             // Initialize root path on first call
