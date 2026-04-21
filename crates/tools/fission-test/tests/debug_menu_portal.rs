@@ -71,7 +71,18 @@ fn menu_portal_position_near_anchor() -> Result<()> {
         let view = View::new(state, &runtime.runtime_state, &env, pipe.last_snapshot.as_ref());
         let mut ctx = BuildCtx::new();
         let node = Root.build(&mut ctx, &view);
-        let portals = ctx.take_portals();
+        let portals_with_ids = ctx.take_portals();
+        let portals: Vec<Node> = portals_with_ids
+            .into_iter()
+            .map(|(id, node)| {
+                if let Some(id) = id {
+                    fission_core::ui::Container::new(node).id(id.into()).into_node()
+                } else {
+                    node
+                }
+
+            })
+            .collect();
         (node, portals)
     };
 
@@ -83,7 +94,10 @@ fn menu_portal_position_near_anchor() -> Result<()> {
         Node::Overlay(Overlay {
             id: None,
             content: Box::new(node_tree),
-            overlay: Box::new(Node::ZStack(ZStack { children: portals, ..Default::default() })),
+            overlay: Box::new(Node::ZStack(ZStack {
+                children: portals,
+                ..Default::default()
+            })),
         })
     };
 
@@ -95,6 +109,7 @@ fn menu_portal_position_near_anchor() -> Result<()> {
 
     // Layout
     let viewport = fission_layout::LayoutSize { width: 1024.0, height: 768.0 };
+    let env = fission_core::env::Env::default();
     let _ = pipe.render(
         ir.clone(),
         viewport,
@@ -103,7 +118,10 @@ fn menu_portal_position_near_anchor() -> Result<()> {
         &mut MockRenderer,
         &runtime.runtime_state.video,
         &runtime.runtime_state.web,
+        &env,
     )?;
+
+
     let snap = pipe.last_snapshot.clone().expect("snapshot");
 
     // Frame 2: open (should register a portal positioned by the previous snapshot rect)
@@ -118,7 +136,19 @@ fn menu_portal_position_near_anchor() -> Result<()> {
             let view = View::new(state, &runtime.runtime_state, &env, pipe.last_snapshot.as_ref());
             let mut ctx = BuildCtx::new();
             let node = Root.build(&mut ctx, &view);
-            (node, ctx.take_portals())
+            let portals_with_ids = ctx.take_portals();
+            let portals: Vec<Node> = portals_with_ids
+                .into_iter()
+                .map(|(id, node)| {
+                    if let Some(id) = id {
+                        fission_core::ui::Container::new(node).id(id.into()).into_node()
+                    } else {
+                        node
+                    }
+
+                })
+                .collect();
+            (node, portals)
         };
 
         let final_root = if portals.is_empty() {
@@ -128,7 +158,10 @@ fn menu_portal_position_near_anchor() -> Result<()> {
             Node::Overlay(Overlay {
                 id: None,
                 content: Box::new(node_tree),
-                overlay: Box::new(Node::ZStack(ZStack { children: portals, ..Default::default() })),
+                overlay: Box::new(Node::ZStack(ZStack {
+                    children: portals,
+                    ..Default::default()
+                })),
             })
         };
 
@@ -137,18 +170,23 @@ fn menu_portal_position_near_anchor() -> Result<()> {
         cx.ir.root = Some(root_id);
         let ir2 = cx.ir;
 
+        let env = fission_core::env::Env::default();
         let _ = pipe.render(
-            ir2.clone(),
+            ir.clone(),
             viewport,
             &mut layout,
             &runtime.runtime_state.scroll,
             &mut MockRenderer,
             &runtime.runtime_state.video,
             &runtime.runtime_state.web,
+            &env,
         )?;
+
+
         let snap2 = pipe.last_snapshot.clone().expect("snapshot2");
 
-        let anchor_node = NodeId::derived(WidgetNodeId::explicit("test_menu").as_u128(), &[]);
+        let widget_id = WidgetNodeId::explicit("test_menu");
+        let anchor_node = NodeId::derived(widget_id.as_u128(), &[]);
         let anchor_rect = snap2.get_node_rect(anchor_node).expect("anchor rect");
 
         // Find Flyout op and check its content's geometry

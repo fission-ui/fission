@@ -4,16 +4,15 @@ use fission_core::op::Color;
 use fission_core::ui::{
     Button, ButtonContentAlign, ButtonVariant, Container, Node, Text, TextContent,
 };
-use fission_core::{ActionEnvelope, BuildCtx, View, Widget};
-use fission_icons::material;
+use fission_core::{ActionEnvelope, BuildCtx, NodeId, View, Widget, WidgetNodeId};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct TreeItem {
     pub id: String,
-    pub label: String,
     pub icon: Option<String>,
+    pub label: String,
     pub children: Vec<TreeItem>,
     pub on_toggle: Option<ActionEnvelope>,
     pub on_select: Option<ActionEnvelope>,
@@ -33,7 +32,7 @@ impl<S: fission_core::AppState> Widget<S> for TreeView {
             self.build_recursive(item, 0, &mut nodes, ctx, view);
         }
 
-        crate::stack::VStack {
+        VStack {
             spacing: Some(0.0),
             children: nodes,
         }
@@ -50,11 +49,11 @@ impl TreeView {
         ctx: &mut BuildCtx<S>,
         view: &View<S>,
     ) {
+        let is_selected = self.selected_id.as_ref() == Some(&item.id);
+        let is_expanded = self.expanded_ids.contains(&item.id);
+        
         let theme = &view.env.theme.components.tree_view;
         let tokens = &view.env.theme.tokens;
-        let is_expanded = self.expanded_ids.contains(&item.id);
-        let is_selected = self.selected_id.as_ref() == Some(&item.id);
-        let has_children = !item.children.is_empty();
 
         let mut row_children = Vec::new();
 
@@ -66,40 +65,6 @@ impl TreeView {
             }
             .into_node(),
         );
-
-        // Chevron
-        let chevron_icon = if is_expanded {
-            material::navigation::expand_more::regular()
-        } else {
-            material::navigation::chevron_right::regular()
-        };
-
-        if has_children {
-            row_children.push(
-                Button {
-                    variant: ButtonVariant::Ghost,
-                    child: Some(Box::new(
-                        Icon::svg(chevron_icon)
-                            .size(16.0)
-                            .color(tokens.colors.text_secondary)
-                            .into_node(),
-                    )),
-                    on_press: item.on_toggle.clone(),
-                    width: Some(20.0),
-                    height: Some(20.0),
-                    ..Default::default()
-                }
-                .into_node(),
-            );
-        } else {
-            row_children.push(
-                fission_core::ui::widgets::Spacer {
-                    width: Some(20.0),
-                    ..Default::default()
-                }
-                .into_node(),
-            );
-        }
 
         // Icon
         if let Some(icon) = &item.icon {
@@ -138,6 +103,8 @@ impl TreeView {
             }
             .into_node(),
         )
+        .padding_all(8.0)
+        .height(40.0)
         .bg(if is_selected {
             theme.selected_bg
         } else {
@@ -149,8 +116,6 @@ impl TreeView {
             }
         })
         .border_radius(tokens.radii.medium)
-        .padding_all(8.0)
-        .height(40.0)
         .flex_grow(1.0)
         .into_node();
 
@@ -161,6 +126,7 @@ impl TreeView {
                 child: Some(Box::new(row_content)),
                 on_press: item.on_select.clone(),
                 padding: Some([0.0; 4]),
+                height: Some(40.0), // Force button height
                 ..Default::default()
             }
             .into_node(),

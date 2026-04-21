@@ -93,6 +93,7 @@ impl<S: fission_core::AppState> Widget<S> for Combobox {
                 .into_node(),
             )
             // Keep the popover hit region aligned to visible content only.
+            .width(popup_width + 8.0)
             .height(popup_height + 8.0)
             .padding_all(4.0)
             .bg(tokens.colors.surface);

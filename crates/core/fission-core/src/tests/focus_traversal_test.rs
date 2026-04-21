@@ -66,6 +66,10 @@ fn test_explicit_focus_order() {
     let b_index2_id = b_index2_id.expect("B(2) not found");
     let b_index3_id = b_index3_id.expect("B(3) not found");
     
+    let all_nodes = crate::hit_test::get_all_focusable_nodes(&cx.ir);
+    println!("DEBUG: all_focusable_nodes: {:?}", all_nodes);
+    println!("DEBUG: B(1): {:?}, B(2): {:?}, B(3): {:?}", b_index1_id, b_index2_id, b_index3_id);
+
     // Tab from B(index 1) should go to B(index 2)
     let next = find_next_focus_node(&cx.ir, Some(b_index1_id), false);
     assert_eq!(next, Some(b_index2_id), "Tab from B(1) should go to B(2)");

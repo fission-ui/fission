@@ -3,46 +3,48 @@ use blake3;
 use fission_diagnostics::prelude as diag;
 use fission_ir::{CoreIR, FlexDirection, GridPlacement, LayoutOp, NodeId, Op, PaintOp, WidgetNodeId};
 use fission_ir::op::{TextRun, TextStyle};
-use fission_layout::{LayoutInputNode, LayoutPoint, LayoutSize, LayoutUnit, TextMeasurer};
+use fission_layout::{LayoutInputNode, TextMeasurer, LayoutSnapshot};
 use serde_json;
 use std::collections::HashMap;
-use std::fmt::Debug;
 use std::sync::Arc;
 
-// Context passed down during the lowering phase.
 pub struct LoweringContext<'a> {
-    // Stack of (Parent NodeId, Next Child Index)
-    pub id_stack: Vec<(NodeId, u32)>,
-    pub ir: CoreIR,
     pub env: &'a Env,
     pub runtime_state: &'a RuntimeState,
+    pub ir: CoreIR,
     pub measurer: Option<&'a Arc<dyn TextMeasurer>>,
-    pub layout: Option<&'a fission_layout::LayoutSnapshot>,
+    pub layout: Option<&'a LayoutSnapshot>,
+    id_stack: Vec<(NodeId, u32)>,
+    global_seq: u32,
 }
 
 impl<'a> LoweringContext<'a> {
-    pub fn new(env: &'a Env, runtime_state: &'a RuntimeState, measurer: Option<&'a Arc<dyn TextMeasurer>>, layout: Option<&'a fission_layout::LayoutSnapshot>) -> Self {
-        // Root is parent 0
-        LoweringContext {
-            id_stack: vec![(NodeId::from_u128(0), 0)],
-            ir: CoreIR::new(),
+    pub fn new(
+        env: &'a Env,
+        runtime_state: &'a RuntimeState,
+        measurer: Option<&'a Arc<dyn TextMeasurer>>,
+        layout: Option<&'a LayoutSnapshot>,
+    ) -> Self {
+        Self {
             env,
             runtime_state,
+            ir: CoreIR::new(),
             measurer,
             layout,
+            id_stack: Vec::new(),
+            global_seq: 0,
         }
     }
 
     pub fn next_node_id(&mut self) -> NodeId {
-        let (parent_id, child_idx) = self.id_stack.last_mut().expect("Lowering stack underflow");
-        let id = NodeId::derived(parent_id.as_u128(), &[*child_idx]);
-        *child_idx += 1;
-        id
-    }
-
-    pub fn set_child_index(&mut self, index: u32) {
-        if let Some((_, child_idx)) = self.id_stack.last_mut() {
-            *child_idx = index;
+        if let Some((base_id, seq)) = self.id_stack.last_mut() {
+            let next_id = NodeId::derived(base_id.as_u128(), &[*seq]);
+            *seq += 1;
+            next_id
+        } else {
+            let next_id = NodeId::derived(0x1337_C0DE_0000_0000, &[self.global_seq]); 
+            self.global_seq += 1;
+            next_id
         }
     }
 
@@ -60,16 +62,12 @@ impl<'a> LoweringContext<'a> {
 
     fn insert_node(&mut self, node_id: NodeId, op: Op, children: Vec<NodeId>) {
         let mut hasher = blake3::Hasher::new();
-        // Hash Op
         if let Ok(op_bytes) = serde_json::to_vec(&op) {
             hasher.update(&op_bytes);
         } else {
             panic!("Failed to serialize op for hashing: {:?}", op);
         }
 
-        // Hash Children Hashes (Merkle) AND their identities (NodeId)
-        // Including child ids ensures structural diffs pick up identity changes
-        // even when two subtrees are content-identical.
         for child_id in &children {
             if let Some(child) = self.ir.nodes.get(child_id) {
                 hasher.update(&child.hash.to_le_bytes());
@@ -134,7 +132,7 @@ pub fn wrap_zstack_child(cx: &mut LoweringContext, child_id: NodeId) -> NodeId {
     item.build(cx)
 }
 
-pub fn build_layout_tree(ir: &CoreIR) -> Vec<LayoutInputNode> {
+pub fn build_layout_tree(ir: &CoreIR, env: &Env) -> Vec<LayoutInputNode> {
     let mut input_nodes = Vec::new();
 
     let mut parent_map = HashMap::new();
@@ -166,137 +164,204 @@ pub fn build_layout_tree(ir: &CoreIR) -> Vec<LayoutInputNode> {
             }
         }
 
-        let (layout_op_variant, width, height, flex_grow, flex_shrink) = match &node.op {
-            Op::Layout(LayoutOp::Box {
-                width,
-                height,
-                min_width,
-                max_width,
-                min_height,
-                max_height,
-                padding,
-                flex_grow,
-                flex_shrink,
-                aspect_ratio,
-            }) => (
-                LayoutOp::Box {
-                    width: *width,
-                    height: *height,
-                    min_width: *min_width,
-                    max_width: *max_width,
-                    min_height: *min_height,
-                    max_height: *max_height,
-                    padding: *padding,
-                    flex_grow: *flex_grow,
-                    flex_shrink: *flex_shrink,
-                    aspect_ratio: *aspect_ratio,
-                },
-                *width,
-                *height,
-                *flex_grow,
-                *flex_shrink,
-            ),
-            Op::Layout(LayoutOp::Flex {
-                direction,
-                wrap,
-                flex_grow,
-                flex_shrink,
-                padding,
-                gap,
-                align_items,
-                justify_content,
-            }) => (
-                LayoutOp::Flex {
-                    direction: *direction,
-                    wrap: *wrap,
-                    flex_grow: *flex_grow,
-                    flex_shrink: *flex_shrink,
-                    padding: *padding,
-                    gap: *gap,
-                    align_items: *align_items,
-                    justify_content: *justify_content,
-                },
-                None,
-                None,
-                *flex_grow,
-                *flex_shrink,
-            ),
-            Op::Layout(LayoutOp::Grid { columns, rows, column_gap, row_gap, padding }) => (
-                LayoutOp::Grid {
-                    columns: columns.clone(),
-                    rows: rows.clone(),
-                    column_gap: *column_gap,
-                    row_gap: *row_gap,
-                    padding: *padding,
-                },
-                None,
-                None,
-                0.0,
-                0.0,
-            ),
-            Op::Layout(LayoutOp::GridItem { row_start, row_end, col_start, col_end }) => (
-                LayoutOp::GridItem {
-                    row_start: *row_start,
-                    row_end: *row_end,
-                    col_start: *col_start,
-                    col_end: *col_end,
-                },
-                None,
-                None,
-                0.0,
-                0.0,
-            ),
-            Op::Layout(LayoutOp::Scroll {
-                direction,
-                show_scrollbar,
-                width,
-                height,
-                min_width,
-                max_width,
-                min_height,
-                max_height,
-                padding,
-                flex_grow,
-                flex_shrink,
-            }) => (
-                LayoutOp::Scroll {
-                    direction: *direction,
-                    show_scrollbar: *show_scrollbar,
-                    width: *width,
-                    height: *height,
-                    min_width: *min_width,
-                    max_width: *max_width,
-                    min_height: *min_height,
-                    max_height: *max_height,
-                    padding: *padding,
-                    flex_grow: *flex_grow,
-                    flex_shrink: *flex_shrink,
-                },
-                *width,
-                *height,
-                *flex_grow,
-                *flex_shrink,
-            ),
-            Op::Layout(LayoutOp::Embed { kind, widget_id, width, height }) => (
-                LayoutOp::Embed {
-                    kind: *kind,
-                    widget_id: *widget_id,
-                    width: *width,
-                    height: *height,
-                },
-                *width,
-                *height,
-                1.0,
-                0.0,
-            ),
+        let mut children_to_visit = node.children.clone();
 
+        let (layout_op_variant, width, height, flex_grow, flex_shrink) = match &node.op {
+            Op::Layout(layout_op) => match layout_op {
+                LayoutOp::Box {
+                    width,
+                    height,
+                    min_width,
+                    max_width,
+                    min_height,
+                    max_height,
+                    padding,
+                    flex_grow,
+                    flex_shrink: _,
+                    aspect_ratio,
+                } => (
+                    LayoutOp::Box {
+                        width: *width,
+                        height: *height,
+                        min_width: *min_width,
+                        max_width: *max_width,
+                        min_height: *min_height,
+                        max_height: *max_height,
+                        padding: *padding,
+                        flex_grow: *flex_grow,
+                        flex_shrink: 1.0,
+                        aspect_ratio: *aspect_ratio,
+                    },
+                    *width,
+                    *height,
+                    *flex_grow,
+                    1.0,
+                ),
+                LayoutOp::Flex {
+                    direction,
+                    wrap,
+                    flex_grow,
+                    flex_shrink: _,
+                    padding,
+                    gap,
+                    align_items,
+                    justify_content,
+                } => (
+                    LayoutOp::Flex {
+                        direction: *direction,
+                        wrap: *wrap,
+                        flex_grow: *flex_grow,
+                        flex_shrink: 1.0,
+                        padding: *padding,
+                        gap: *gap,
+                        align_items: *align_items,
+                        justify_content: *justify_content,
+                    },
+                    None,
+                    None,
+                    *flex_grow,
+                    1.0,
+                ),
+                LayoutOp::Grid {
+                    columns,
+                    rows,
+                    column_gap,
+                    row_gap,
+                    padding,
+                } => (
+                    LayoutOp::Grid {
+                        columns: columns.clone(),
+                        rows: rows.clone(),
+                        column_gap: *column_gap,
+                        row_gap: *row_gap,
+                        padding: *padding,
+                    },
+                    None,
+                    None,
+                    0.0,
+                    1.0,
+                ),
+                LayoutOp::GridItem {
+                    row_start,
+                    row_end,
+                    col_start,
+                    col_end,
+                } => (
+                    LayoutOp::GridItem {
+                        row_start: *row_start,
+                        row_end: *row_end,
+                        col_start: *col_start,
+                        col_end: *col_end,
+                    },
+                    None,
+                    None,
+                    0.0,
+                    1.0,
+                ),
+                LayoutOp::Scroll {
+                    direction,
+                    width,
+                    height,
+                    min_width,
+                    max_width,
+                    min_height,
+                    max_height,
+                    padding,
+                    flex_grow,
+                    flex_shrink: _,
+                    show_scrollbar,
+                } => (
+                    LayoutOp::Scroll {
+                        direction: *direction,
+                        width: *width,
+                        height: *height,
+                        min_width: *min_width,
+                        max_width: *max_width,
+                        min_height: *min_height,
+                        max_height: *max_height,
+                        padding: *padding,
+                        flex_grow: *flex_grow,
+                        flex_shrink: 1.0,
+                        show_scrollbar: *show_scrollbar,
+                    },
+                    *width,
+                    *height,
+                    *flex_grow,
+                    1.0,
+                ),
+                LayoutOp::AbsoluteFill => (LayoutOp::AbsoluteFill, None, None, 0.0, 0.0),
+                LayoutOp::Positioned { top, left, bottom, right, width, height } => (
+                    LayoutOp::Positioned {
+                        top: *top,
+                        left: *left,
+                        bottom: *bottom,
+                        right: *right,
+                        width: *width,
+                        height: *height,
+                    },
+                    *width,
+                    *height,
+                    0.0,
+                    0.0,
+                ),
+                LayoutOp::ZStack => (LayoutOp::ZStack, None, None, 0.0, 0.0),
+                LayoutOp::Embed { kind, widget_id, width, height } => (
+                    LayoutOp::Embed {
+                        kind: *kind,
+                        widget_id: *widget_id,
+                        width: *width,
+                        height: *height,
+                    },
+                    *width,
+                    *height,
+                    1.0,
+                    1.0,
+                ),
+                LayoutOp::Align => (
+                    LayoutOp::Align,
+                    None,
+                    None,
+                    0.0,
+                    0.0,
+                ),
+                LayoutOp::Transform { transform } => (
+                    LayoutOp::Transform {
+                        transform: *transform,
+                    },
+                    None,
+                    None,
+                    0.0,
+                    0.0,
+                ),
+                LayoutOp::Flyout { anchor, content } => (
+                    LayoutOp::Flyout {
+                        anchor: *anchor,
+                        content: *content,
+                    },
+                    None,
+                    None,
+                    0.0,
+                    0.0,
+                ),
+                LayoutOp::Clip { path } => (
+                    LayoutOp::Clip {
+                        path: path.clone(),
+                    },
+                    None,
+                    None,
+                    0.0,
+                    0.0,
+                ),
+            },
             Op::Paint(PaintOp::DrawText { text, size, color, underline, caret_index: _ }) => {
                 let (inherit_width, inherit_height, inherit_min_width, inherit_max_width, inherit_min_height, inherit_max_height) =
                     inherited_box.unwrap_or((None, None, None, None, None, None));
+                
                 rich_text_content = Some(vec![fission_ir::op::TextRun {
                     text: text.clone(),
                     style: fission_ir::op::TextStyle { font_size: *size, color: *color, underline: *underline },
                 }]);
+                children_to_visit.clear(); // Leaf node for layout
                 (
                     LayoutOp::Box {
                         width: inherit_width,
@@ -313,13 +378,15 @@ pub fn build_layout_tree(ir: &CoreIR) -> Vec<LayoutInputNode> {
                     inherit_width,
                     inherit_height,
                     0.0,
-                    0.0,
+                    1.0,
                 )
             }
             Op::Paint(PaintOp::DrawRichText { runs, caret_index: _ }) => {
                 let (inherit_width, inherit_height, inherit_min_width, inherit_max_width, inherit_min_height, inherit_max_height) =
                     inherited_box.unwrap_or((None, None, None, None, None, None));
+                
                 rich_text_content = Some(runs.clone());
+                children_to_visit.clear(); // Leaf node for layout
                 (
                     LayoutOp::Box {
                         width: inherit_width,
@@ -336,78 +403,28 @@ pub fn build_layout_tree(ir: &CoreIR) -> Vec<LayoutInputNode> {
                     inherit_width,
                     inherit_height,
                     0.0,
-                    0.0,
+                    1.0,
                 )
             }
 
-            Op::Paint(PaintOp::DrawImage { .. }) => (LayoutOp::AbsoluteFill, None, None, 0.0, 0.0),
+            Op::Paint(PaintOp::DrawImage { .. }) => {
+                children_to_visit.clear();
+                (LayoutOp::AbsoluteFill, None, None, 0.0, 0.0)
+            }
 
-            Op::Paint(_) => (LayoutOp::AbsoluteFill, None, None, 0.0, 0.0),
-            Op::Layout(LayoutOp::Positioned { left, top, right, bottom, width, height }) => (
-                LayoutOp::Positioned {
-                    left: *left,
-                    top: *top,
-                    right: *right,
-                    bottom: *bottom,
-                    width: *width,
-                    height: *height,
-                },
-                *width,
-                *height,
-                0.0,
-                0.0,
-            ),
-            Op::Layout(LayoutOp::ZStack) => (
-                LayoutOp::ZStack,
-                None,
-                None,
-                0.0,
-                0.0,
-            ),
-            Op::Layout(LayoutOp::AbsoluteFill) => (
-                LayoutOp::AbsoluteFill,
-                None,
-                None,
-                0.0,
-                0.0,
-            ),
-            Op::Layout(LayoutOp::Transform { transform }) => (
-                LayoutOp::Transform {
-                    transform: *transform,
-                },
-                None,
-                None,
-                0.0,
-                0.0,
-            ),
-            Op::Layout(LayoutOp::Flyout { anchor, content }) => (
-                LayoutOp::Flyout { anchor: *anchor, content: *content },
-                None,
-                None,
-                0.0,
-                0.0,
-            ),
-            Op::Layout(LayoutOp::Clip { path }) => (
-                LayoutOp::Clip {
-                    path: path.clone(),
-                },
-                None,
-                None,
-                0.0,
-                0.0,
-            ),
-            Op::Layout(LayoutOp::Align) => (
-                LayoutOp::Align,
-                None,
-                None,
-                1.0,
-                1.0,
-            ),
+            Op::Paint(_) => {
+                children_to_visit.clear();
+                (LayoutOp::AbsoluteFill, None, None, 0.0, 0.0)
+            }
+
             _ => (
                 LayoutOp::Box {
                     width: None,
                     height: None,
-                    min_width: None, max_width: None, min_height: None, max_height: None,
+                    min_width: None,
+                    max_width: None,
+                    min_height: None,
+                    max_height: None,
                     padding: [0.0; 4],
                     flex_grow: 0.0,
                     flex_shrink: 1.0,
@@ -416,7 +433,7 @@ pub fn build_layout_tree(ir: &CoreIR) -> Vec<LayoutInputNode> {
                 None,
                 None,
                 0.0,
-                0.0,
+                1.0,
             ),
         };
 
@@ -424,8 +441,8 @@ pub fn build_layout_tree(ir: &CoreIR) -> Vec<LayoutInputNode> {
             id: *id,
             parent_id: parent_map.get(id).copied(),
             op: layout_op_variant,
-            children_ids: node.children.clone(),
-            debug_name: format!("{:?}", node.id),
+            children_ids: children_to_visit,
+            debug_name: format!("{:?} ({:?})", node.id, node.op),
             width,
             height,
             flex_grow,

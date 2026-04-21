@@ -61,7 +61,8 @@ fn test_internal_drag_drop_flow() {
     let mut ir = cx.ir;
     ir.root = Some(root_id);
     
-    let input_nodes = fission_core::lowering::build_layout_tree(&ir);
+    let env = fission_core::Env::default();
+    let input_nodes = fission_core::lowering::build_layout_tree(&ir, &env);
     let mut layout_engine = LayoutEngine::new();
     layout_engine.rebuild(&input_nodes).unwrap();
     let snapshot = layout_engine.compute_layout(&input_nodes, root_id, fission_core::LayoutSize::new(1000.0, 1000.0), &|_| 0.0).unwrap();

@@ -2,7 +2,7 @@ use crate::env::{Env, RuntimeState};
 use crate::lowering::{LoweringContext, build_layout_tree};
 use crate::ui::traits::Lower;
 use crate::ui::Node;
-use fission_ir::{LayoutOp, Op, FlexDirection};
+use fission_ir::{LayoutOp, Op, FlexDirection, NodeId};
 use fission_layout::{LayoutEngine, LayoutSize};
 
 #[test]
@@ -11,6 +11,8 @@ fn test_absolute_fill_inside_grown_container() {
     let runtime_state = RuntimeState::default();
     let mut cx = LoweringContext::new(&env, &runtime_state, None, None);
 
+    let root_base = NodeId::derived(0xDEF, &[0]);
+    cx.push_scope(root_base);
     let root_id = cx.next_node_id();
     let row_id = cx.next_node_id();
     let container_id = cx.next_node_id();
@@ -56,7 +58,7 @@ fn test_absolute_fill_inside_grown_container() {
 
     cx.ir.root = Some(root_final);
 
-    let input_nodes = build_layout_tree(&cx.ir);
+    let input_nodes = build_layout_tree(&cx.ir, &env);
     let mut engine = LayoutEngine::new();
     engine.rebuild(&input_nodes).unwrap();
     let snapshot = engine.compute_layout(

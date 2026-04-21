@@ -154,11 +154,18 @@ impl Button {
 
 impl Lower for Button {
     fn lower(&self, cx: &mut LoweringContext) -> NodeId {
-        let button_id = self.id.unwrap_or_else(|| cx.next_node_id());
-
-        let resolved_style = self.resolve_style(cx.env, &cx.runtime_state.interaction, button_id);
+        let semantics_op = self.build_semantics();
+        let outermost_id = self.id.unwrap_or_else(|| cx.next_node_id());
         
-        cx.push_scope(button_id);
+        let (layout_node_id, final_id) = if let Some(_) = semantics_op {
+            (cx.next_node_id(), outermost_id)
+        } else {
+            (outermost_id, outermost_id)
+        };
+
+        let resolved_style = self.resolve_style(cx.env, &cx.runtime_state.interaction, final_id);
+        
+        cx.push_scope(layout_node_id);
 
         let background_id = NodeBuilder::new(
             cx.next_node_id(),
@@ -172,7 +179,7 @@ impl Lower for Button {
         .build(cx);
 
         let mut button_builder = NodeBuilder::new(
-            button_id,
+            layout_node_id,
             Op::Layout(LayoutOp::Box {
                 width: self.width,
                 height: self.height,
@@ -234,18 +241,19 @@ impl Lower for Button {
             button_builder.add_child(aligned_id);
         }
         
-        cx.pop_scope();
+        let button_node_id = button_builder.build(cx);
 
-        let button_id = button_builder.build(cx);
-
-        if let Some(semantics_op) = self.build_semantics() {
+        if let Some(op) = semantics_op {
             let mut semantics_builder =
-                NodeBuilder::new(cx.next_node_id(), Op::Semantics(semantics_op));
-            semantics_builder.add_child(button_id);
-            return semantics_builder.build(cx);
+                NodeBuilder::new(final_id, Op::Semantics(op));
+            semantics_builder.add_child(button_node_id);
+            let res_id = semantics_builder.build(cx);
+            cx.pop_scope();
+            return res_id;
         }
 
-        button_id
+        cx.pop_scope();
+        button_node_id
     }
 }
 

@@ -68,7 +68,7 @@ fn build_widget_ir(widget: impl Widget<TestState>, env: &Env) -> (CoreIR, NodeId
 
 fn layout_widget(widget: impl Widget<TestState>, env: &Env) -> (CoreIR, NodeId, fission_layout::LayoutSnapshot) {
     let (ir, root_id) = build_widget_ir(widget, env);
-    let input_nodes = build_layout_tree(&ir);
+    let input_nodes = build_layout_tree(&ir, &env);
     let mut engine = LayoutEngine::new().with_measurer(Arc::new(SimpleMeasurer));
     engine.rebuild(&input_nodes).unwrap();
     let snapshot = engine

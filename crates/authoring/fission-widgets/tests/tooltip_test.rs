@@ -31,6 +31,16 @@ fn test_tooltip_registers_portal_when_hovered() {
     
     let _ = tooltip.build(&mut ctx, &view);
     
-    let portals = ctx.take_portals();
+    let portals_with_ids = ctx.take_portals();
+    let portals: Vec<Node> = portals_with_ids
+        .into_iter()
+        .map(|(id, node)| {
+            if let Some(id) = id {
+                fission_core::ui::Container::new(node).id(id.into()).into_node()
+            } else {
+                node
+            }
+        })
+        .collect();
     assert_eq!(portals.len(), 1, "Tooltip should register a portal when hovered");
 }

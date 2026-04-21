@@ -85,7 +85,7 @@ fn test_hero_text_layout_height() {
         }
     }
 
-    let input_nodes = build_layout_tree(&cx.ir);
+    let input_nodes = build_layout_tree(&cx.ir, &env);
     let mut engine = LayoutEngine::new().with_measurer(std::sync::Arc::new(MockMeasurer));
     engine.rebuild(&input_nodes).unwrap();
     let snapshot = engine.compute_layout(

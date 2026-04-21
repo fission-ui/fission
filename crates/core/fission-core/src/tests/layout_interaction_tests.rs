@@ -83,7 +83,7 @@ fn test_overlay_backdrop_hit_geometry() {
     let root_id = root.lower(&mut cx);
     cx.ir.root = Some(root_id);
     
-    let input_nodes = build_layout_tree(&cx.ir);
+    let input_nodes = build_layout_tree(&cx.ir, &env);
     let mut layout_engine = LayoutEngine::new();
     layout_engine.rebuild(&input_nodes).unwrap();
     let snapshot = layout_engine.compute_layout(&input_nodes, root_id, LayoutSize::new(800.0, 600.0), &|_| 0.0).unwrap();
