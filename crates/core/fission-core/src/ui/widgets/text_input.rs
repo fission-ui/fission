@@ -23,6 +23,12 @@ pub struct TextInput {
     pub obscure_text: bool,
     pub obscuring_character: char,
     pub mask: Option<fission_ir::semantics::InputMask>,
+    /// Pre-styled text runs for syntax highlighting. When provided and no selection
+    /// is active, these runs are used instead of the default single-color rendering.
+    /// The concatenated text of all runs MUST match `value` exactly.
+    pub styled_runs: Option<Vec<fission_ir::op::TextRun>>,
+    /// When true, skip drawing the background rect and border (for embedding in editors).
+    pub borderless: bool,
 }
 
 impl TextInput {
@@ -51,6 +57,8 @@ impl Default for TextInput {
             obscure_text: false,
             obscuring_character: '•',
             mask: None,
+            styled_runs: None,
+            borderless: false,
         }
     }
 }
@@ -84,19 +92,23 @@ impl Lower for TextInput {
             None
         };
 
-        // 1. Background
-        let background_id = NodeBuilder::new(
-            cx.next_node_id(),
-            Op::Paint(PaintOp::DrawRect {
-                fill: Some(Fill { color: tokens.colors.background }), 
-                stroke: Some(Stroke {
-                    color: border_color, 
-                    width: border_width 
-                }),
-                corner_radius: theme.radius,
-                shadow: None,
-            })
-        ).build(cx);
+        // 1. Background (skipped in borderless mode)
+        let background_id = if self.borderless {
+            None
+        } else {
+            Some(NodeBuilder::new(
+                cx.next_node_id(),
+                Op::Paint(PaintOp::DrawRect {
+                    fill: Some(Fill { color: tokens.colors.background }),
+                    stroke: Some(Stroke {
+                        color: border_color,
+                        width: border_width
+                    }),
+                    corner_radius: theme.radius,
+                    shadow: None,
+                })
+            ).build(cx))
+        };
 
         // 2. Text Preparation
         let preedit_text = if is_focused {
@@ -130,7 +142,7 @@ impl Lower for TextInput {
             let (s, e) = if caret < anchor { (caret, anchor) } else { (anchor, caret) };
             let s = s.min(display_text.len());
             let e = e.min(display_text.len());
-            
+
             if s > 0 {
                 runs.push(fission_ir::op::TextRun {
                     text: display_text[..s].to_string(),
@@ -149,6 +161,9 @@ impl Lower for TextInput {
                     style: fission_ir::op::TextStyle { font_size, color: text_color, underline: false },
                 });
             }
+        } else if let Some(styled) = &self.styled_runs {
+            // Use pre-styled syntax-highlighted runs
+            runs = styled.clone();
         } else {
             runs.push(fission_ir::op::TextRun {
                 text: display_text.clone(),
@@ -224,7 +239,9 @@ impl Lower for TextInput {
                 aspect_ratio: None,
             })
         );
-        wrapper.add_child(background_id); // Fill
+        if let Some(bg_id) = background_id {
+            wrapper.add_child(bg_id); // Fill
+        }
         wrapper.add_child(scroll_id);     // Content
         
         let final_id = wrapper.build(cx);
