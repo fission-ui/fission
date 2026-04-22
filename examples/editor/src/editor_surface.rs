@@ -9,7 +9,7 @@ use serde_json;
 
 /// Maximum lines to render in the gutter to avoid GPU buffer overflow.
 /// An outer Scroll wraps both gutter and TextInput so they scroll in unison.
-const MAX_GUTTER_LINES: usize = 200;
+const MAX_GUTTER_LINES: usize = 10000;
 
 /// Line count threshold above which syntax highlighting is skipped to avoid
 /// generating too many IR nodes (TextRuns) that would stall the paint cycle.
@@ -171,9 +171,10 @@ impl Widget<EditorState> for EditorSurface {
                 .into_node(),
         )
         .width(gutter_width)
-        .height(content_height + 8.0) // content + padding (4 top + 4 bottom)
+        .min_height(content_height + 8.0) // content + padding (4 top + 4 bottom)
         .padding_all(4.0)
         .bg(Color { r: 37, g: 37, b: 38, a: 255 })
+        .flex_grow(1.0)
         .flex_shrink(0.0)
         .into_node();
 
@@ -304,6 +305,7 @@ impl Widget<EditorState> for EditorSurface {
 
         let editor_area = Container::new(editor_input)
             .flex_grow(1.0)
+            .min_height(content_height + 8.0)
             .bg(Color { r: 30, g: 30, b: 30, a: 255 })
             .into_node();
 

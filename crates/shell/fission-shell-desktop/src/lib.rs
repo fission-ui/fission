@@ -1356,7 +1356,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                             let device_handle = &render_cx.devices[surface.dev_id];
 
                                             let render_params = vello::RenderParams {
-                                                base_color: vello::peniko::Color::WHITE,
+                                                base_color: vello::peniko::Color::from_rgb8(30, 30, 30),
                                                 width: size.width,
                                                 height: size.height,
                                                 antialiasing_method: vello::AaConfig::Area,

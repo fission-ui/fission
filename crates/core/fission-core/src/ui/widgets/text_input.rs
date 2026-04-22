@@ -186,52 +186,41 @@ impl Lower for TextInput {
         }
 
         // Apply highlight_ranges by splitting existing runs at highlight boundaries
-        // and setting background_color on the overlapping portions.
         if !self.highlight_ranges.is_empty() && !runs.is_empty() {
-            let mut highlighted_runs = Vec::new();
-            for run in &runs {
-                // Compute the absolute byte offset of this run within the full display_text.
-                // We track cumulative offset across runs.
-                highlighted_runs.push(run.clone());
-            }
-            // Re-split: walk all runs, track cumulative byte offset, and split at
-            // highlight range boundaries.
             let mut final_runs = Vec::new();
-            let mut byte_offset: usize = 0;
-            for run in &highlighted_runs {
-                let run_start = byte_offset;
-                let run_end = byte_offset + run.text.len();
-                // Collect highlight ranges that overlap this run
-                let mut cuts: Vec<(usize, usize, IrColor)> = Vec::new();
+            let mut run_start_byte: usize = 0;
+
+            for run in runs {
+                let run_end_byte = run_start_byte + run.text.len();
+                let mut cuts = Vec::new();
+
                 for &(hs, he, color) in &self.highlight_ranges {
-                    let overlap_start = hs.max(run_start);
-                    let overlap_end = he.min(run_end);
+                    let overlap_start = hs.max(run_start_byte);
+                    let overlap_end = he.min(run_end_byte);
                     if overlap_start < overlap_end {
-                        cuts.push((overlap_start - run_start, overlap_end - run_start, color));
+                        cuts.push((overlap_start - run_start_byte, overlap_end - run_start_byte, color));
                     }
                 }
+
                 if cuts.is_empty() {
-                    final_runs.push(run.clone());
+                    final_runs.push(run);
                 } else {
-                    // Sort by start offset
                     cuts.sort_by_key(|c| c.0);
                     let mut pos = 0usize;
-                    for (cs, ce, bg_color) in &cuts {
-                        if *cs > pos {
-                            // Non-highlighted segment before this cut
+                    for (cs, ce, bg_color) in cuts {
+                        if cs > pos {
                             final_runs.push(fission_ir::op::TextRun {
-                                text: run.text[pos..*cs].to_string(),
+                                text: run.text[pos..cs].to_string(),
                                 style: run.style.clone(),
                             });
                         }
-                        // Highlighted segment
                         let mut hl_style = run.style.clone();
-                        hl_style.background_color = Some(*bg_color);
+                        hl_style.background_color = Some(bg_color);
                         final_runs.push(fission_ir::op::TextRun {
-                            text: run.text[*cs..*ce].to_string(),
+                            text: run.text[cs..ce].to_string(),
                             style: hl_style,
                         });
-                        pos = *ce;
+                        pos = ce;
                     }
                     if pos < run.text.len() {
                         final_runs.push(fission_ir::op::TextRun {
@@ -240,7 +229,7 @@ impl Lower for TextInput {
                         });
                     }
                 }
-                byte_offset = run_end;
+                run_start_byte = run_end_byte;
             }
             runs = final_runs;
         }

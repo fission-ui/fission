@@ -1,6 +1,6 @@
 use fission_core::op::Color;
 use fission_core::ui::{
-    Align, Button, ButtonContentAlign, ButtonVariant, Column, Container, GestureDetector, Node,
+    Align, Button, ButtonContentAlign, ButtonVariant, Column, Container, GestureDetector, Icon, Node,
     Positioned, Row, Text, TextInput, ZStack,
 };
 use fission_core::{ActionEnvelope, AppState, BuildCtx, Handler, PortalLayer, View, Widget, WidgetNodeId};
@@ -195,13 +195,11 @@ impl Widget<EditorState> for MenuBar {
         );
         let set_menu_id = set_menu.id;
 
-        // Handler: dismiss menu (click outside)
-        let dismiss_menu = ctx.bind(
-            SetActiveMenu(None),
-            (|s: &mut EditorState, _, _| {
-                s.active_menu = None;
-            }) as Handler<EditorState, SetActiveMenu>,
-        );
+        // Action for dismissing menu (click outside)
+        let dismiss_menu = ActionEnvelope {
+            id: set_menu_id,
+            payload: serde_json::to_vec(&SetActiveMenu(None)).unwrap(),
+        };
 
         // ── Shared action handlers for flyout commands ──
 
@@ -408,9 +406,12 @@ impl Widget<EditorState> for MenuBar {
             };
 
             let flyout = Container::new(
-                VStack {
-                    spacing: Some(0.0),
+                Column {
                     children: items,
+                    gap: Some(0.0),
+                    flex_grow: 0.0,
+                    justify_content: fission_core::op::JustifyContent::Start,
+                    ..Default::default()
                 }.into_node(),
             )
             .width(200.0)
@@ -457,7 +458,7 @@ impl Widget<EditorState> for MenuBar {
             }.into_node();
 
             ctx.register_portal_with_layer(
-                PortalLayer::Flyout,
+                fission_core::registry::PortalLayer::Modal,
                 Some(WidgetNodeId::explicit("menu_bar_flyout")),
                 positioned_root,
             );
@@ -565,22 +566,24 @@ impl Widget<EditorState> for FindReplaceBar {
             .color(DIM_TEXT)
             .into_node();
 
+        use fission_icons::material;
+
         let btn_prev = Button {
             variant: ButtonVariant::Ghost,
-            child: Some(Box::new(Text::new("^").size(12.0).color(BRIGHT_TEXT).into_node())),
+            child: Some(Box::new(Icon::svg(material::navigation::chevron_left::round()).size(18.0).color(BRIGHT_TEXT).into_node())),
             on_press: Some(find_prev),
             height: Some(24.0),
-            width: Some(28.0),
+            width: Some(24.0),
             padding: Some([0.0; 4]),
             ..Default::default()
         }.into_node();
 
         let btn_next = Button {
             variant: ButtonVariant::Ghost,
-            child: Some(Box::new(Text::new("v").size(12.0).color(BRIGHT_TEXT).into_node())),
+            child: Some(Box::new(Icon::svg(material::navigation::chevron_right::round()).size(18.0).color(BRIGHT_TEXT).into_node())),
             on_press: Some(find_next),
             height: Some(24.0),
-            width: Some(28.0),
+            width: Some(24.0),
             padding: Some([0.0; 4]),
             ..Default::default()
         }.into_node();
@@ -605,10 +608,10 @@ impl Widget<EditorState> for FindReplaceBar {
 
         let btn_close = Button {
             variant: ButtonVariant::Ghost,
-            child: Some(Box::new(Text::new("x").size(12.0).color(BRIGHT_TEXT).into_node())),
+            child: Some(Box::new(Icon::svg(material::navigation::close::round()).size(16.0).color(BRIGHT_TEXT).into_node())),
             on_press: Some(close_find),
             height: Some(24.0),
-            width: Some(28.0),
+            width: Some(24.0),
             padding: Some([0.0; 4]),
             ..Default::default()
         }.into_node();
@@ -1039,10 +1042,11 @@ fn main() -> anyhow::Result<()> {
         .with_title("Fission Editor")
         .with_state_init(move |state: &mut EditorState| {
             state.root_path = root_for_init.clone();
-            // Don't block startup with a synchronous scan.  Mark the tree
-            // dirty so the first frame-hook iteration kicks off a background
-            // scan instead.
             state.tree_cache_dirty = true;
+            state.git_status_lines = vec![crate::model::GitStatusEntry {
+                path: "src/main.rs".into(),
+                status: "M".into(),
+            }];
         })
         .with_sync_env(move |_state: &EditorState, env: &mut fission_core::Env| {
             env.theme = fission_theme::Theme::dark();

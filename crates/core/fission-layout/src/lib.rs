@@ -759,6 +759,7 @@ impl LayoutEngine {
                 gap,
                 align_items,
                 justify_content,
+                flex_grow,
                 ..
             } => {
                 let gap = gap.unwrap_or(0.0);
@@ -1197,7 +1198,7 @@ impl LayoutEngine {
                         })
                         .sum();
                     
-                    let mut container_main = if main_bounded {
+                    let mut container_main = if main_bounded && *flex_grow > 0.0 {
                         max_main
                     } else {
                         total_children_main + gap_total
@@ -1567,7 +1568,7 @@ impl LayoutEngine {
                 }
 
                 if record && !abs_children.is_empty() {
-                    let abs_constraints = BoxConstraints::tight(size);
+                    let abs_constraints = BoxConstraints::loose(size.width, size.height);
                     for child_id in abs_children {
                         self.layout_node_constraints(child_id, abs_constraints, origin, node_map, out, constraints_out, scroll_source, record, depth + 1);
                     }
@@ -1600,7 +1601,7 @@ impl LayoutEngine {
                     }
                 }
                 if record && !abs_children.is_empty() {
-                    let abs_constraints = BoxConstraints::tight(size);
+                    let abs_constraints = BoxConstraints::loose(size.width, size.height);
                     for child_id in abs_children {
                         self.layout_node_constraints(child_id, abs_constraints, origin, node_map, out, constraints_out, scroll_source, record, depth + 1);
                     }
@@ -1623,7 +1624,7 @@ impl LayoutEngine {
                     self.layout_node_constraints(*child_id, child_constraints, LayoutPoint::new(origin.x + dx, origin.y + dy), node_map, out, constraints_out, scroll_source, record, depth + 1);
                 }
                 if record && !abs_children.is_empty() {
-                    let abs_constraints = BoxConstraints::tight(size);
+                    let abs_constraints = BoxConstraints::loose(size.width, size.height);
                     for child_id in abs_children {
                         self.layout_node_constraints(child_id, abs_constraints, origin, node_map, out, constraints_out, scroll_source, record, depth + 1);
                     }
@@ -1647,7 +1648,7 @@ impl LayoutEngine {
                     self.layout_node_constraints(*child_id, child_constraints, child_origin, node_map, out, constraints_out, scroll_source, record, depth + 1);
                 }
                 if record && !abs_children.is_empty() {
-                    let abs_constraints = BoxConstraints::tight(size);
+                    let abs_constraints = BoxConstraints::loose(size.width, size.height);
                     for child_id in abs_children {
                         self.layout_node_constraints(child_id, abs_constraints, origin, node_map, out, constraints_out, scroll_source, record, depth + 1);
                     }

@@ -1,6 +1,6 @@
 use crate::model::{EditorState, OpenFile, RefreshGitStatus};
 use fission_core::op::Color;
-use fission_core::ui::{Button, ButtonContentAlign, ButtonVariant, Container, Node, Scroll, Text};
+use fission_core::ui::{Button, ButtonContentAlign, ButtonVariant, Container, Node, Scroll, Text, Column};
 use fission_core::{ActionEnvelope, BuildCtx, FlexDirection, Handler, View, Widget};
 use fission_widgets::{VStack, HStack, Spacer};
 use serde_json;
@@ -108,9 +108,16 @@ impl Widget<EditorState> for GitPanel {
         }
 
         Container::new(
-            VStack { spacing: Some(8.0), children }.into_node(),
+            Column { 
+                children,
+                gap: Some(8.0),
+                flex_grow: 1.0,
+                justify_content: fission_core::op::JustifyContent::Start,
+                ..Default::default()
+            }.into_node(),
         )
         .padding_all(8.0)
+        .bg(Color { r: 45, g: 30, b: 30, a: 255 }) // Debug background
         .flex_grow(1.0)
         .into_node()
     }

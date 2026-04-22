@@ -1,6 +1,6 @@
 use crate::model::{EditorState, ExecuteSearch, OpenFile, UpdateSearchQuery};
 use fission_core::op::Color;
-use fission_core::ui::{Button, ButtonContentAlign, ButtonVariant, Container, Node, Scroll, Text, TextInput};
+use fission_core::ui::{Button, ButtonContentAlign, ButtonVariant, Container, Node, Scroll, Text, TextInput, Column};
 use fission_core::{ActionEnvelope, BuildCtx, FlexDirection, Handler, View, Widget};
 use fission_widgets::{VStack, HStack, Spacer};
 use serde_json;
@@ -124,7 +124,13 @@ impl Widget<EditorState> for SearchPanel {
         }
 
         Container::new(
-            VStack { spacing: Some(8.0), children }.into_node(),
+            Column {
+                gap: Some(8.0),
+                children,
+                flex_grow: 1.0,
+                justify_content: fission_core::op::JustifyContent::Start,
+                ..Default::default()
+            }.into_node(),
         )
         .padding_all(8.0)
         .flex_grow(1.0)

@@ -1,8 +1,9 @@
 use crate::model::EditorState;
 use fission_core::op::Color;
-use fission_core::ui::{Container, Node, Text};
+use fission_core::ui::{Container, Node, Text, Icon, Column};
 use fission_core::{BuildCtx, View, Widget};
 use fission_widgets::{HStack, Spacer};
+use fission_icons::material;
 
 pub struct StatusBar;
 
@@ -18,17 +19,20 @@ impl Widget<EditorState> for StatusBar {
 
         // Branch indicator with icon
         items.push(
-            Text::new("\u{2387} main")
-                .size(12.0)
-                .color(text_color)
-                .into_node(),
+            HStack {
+                spacing: Some(4.0),
+                children: vec![
+                    Icon::svg(material::notification::account_tree::round()).size(14.0).color(text_color).into_node(),
+                    Text::new("main").size(12.0).color(text_color).into_node(),
+                ],
+            }.into_node()
         );
 
         items.push(
             Spacer { width: Some(16.0), ..Default::default() }.into_node()
         );
 
-        // Diagnostics summary (errors + warnings with colored indicators)
+        // Diagnostics summary
         let error_count: usize = view.state.diagnostics.values()
             .flat_map(|d| d.iter())
             .filter(|d| d.severity == crate::model::DiagSeverity::Error)
@@ -39,19 +43,25 @@ impl Widget<EditorState> for StatusBar {
             .count();
 
         items.push(
-            Text::new(format!("\u{2716} {}", error_count))
-                .size(12.0)
-                .color(if error_count > 0 { error_color } else { text_color })
-                .into_node(),
+            HStack {
+                spacing: Some(4.0),
+                children: vec![
+                    Icon::svg(material::alert::error::round()).size(14.0).color(if error_count > 0 { error_color } else { text_color }).into_node(),
+                    Text::new(error_count.to_string()).size(12.0).color(text_color).into_node(),
+                ],
+            }.into_node()
         );
         items.push(
             Spacer { width: Some(8.0), ..Default::default() }.into_node()
         );
         items.push(
-            Text::new(format!("\u{26A0} {}", warn_count))
-                .size(12.0)
-                .color(if warn_count > 0 { warn_color } else { text_color })
-                .into_node(),
+            HStack {
+                spacing: Some(4.0),
+                children: vec![
+                    Icon::svg(material::alert::warning::round()).size(14.0).color(if warn_count > 0 { warn_color } else { text_color }).into_node(),
+                    Text::new(warn_count.to_string()).size(12.0).color(text_color).into_node(),
+                ],
+            }.into_node()
         );
 
         items.push(

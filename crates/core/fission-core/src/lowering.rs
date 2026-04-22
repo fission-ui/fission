@@ -283,7 +283,7 @@ pub fn build_layout_tree(ir: &CoreIR, env: &Env) -> Vec<LayoutInputNode> {
                     *flex_grow,
                     1.0,
                 ),
-                LayoutOp::AbsoluteFill => (LayoutOp::AbsoluteFill, None, None, 0.0, 0.0),
+                LayoutOp::AbsoluteFill => (LayoutOp::AbsoluteFill, None, None, 1.0, 1.0),
                 LayoutOp::Positioned { top, left, bottom, right, width, height } => (
                     LayoutOp::Positioned {
                         top: *top,
@@ -298,7 +298,7 @@ pub fn build_layout_tree(ir: &CoreIR, env: &Env) -> Vec<LayoutInputNode> {
                     0.0,
                     0.0,
                 ),
-                LayoutOp::ZStack => (LayoutOp::ZStack, None, None, 0.0, 0.0),
+                LayoutOp::ZStack => (LayoutOp::ZStack, None, None, 1.0, 1.0),
                 LayoutOp::Embed { kind, widget_id, width, height } => (
                     LayoutOp::Embed {
                         kind: *kind,

@@ -1,6 +1,6 @@
 use crate::model::{EditorState, ToggleCommandPalette, ToggleSidebar, ToggleTerminal, UpdateCommandQuery, SaveFile, SaveAllFiles, RefreshGitStatus, SidebarSection, SetSidebarSection};
 use fission_core::op::Color;
-use fission_core::ui::{Button, ButtonContentAlign, ButtonVariant, Container, GestureDetector, Node, Positioned, Text, TextInput, ZStack};
+use fission_core::ui::{Button, ButtonContentAlign, ButtonVariant, Container, GestureDetector, Node, Positioned, Text, TextInput, ZStack, Scroll};
 use fission_core::{BuildCtx, Handler, WidgetNodeId, View, Widget};
 use fission_widgets::{VStack, HStack, Spacer};
 
@@ -100,6 +100,12 @@ impl Widget<EditorState> for CommandPalette {
         let card_bg = Color { r: 37, g: 37, b: 38, a: 255 };
         let border = Color { r: 60, g: 60, b: 60, a: 255 };
 
+        let shadow = fission_core::op::BoxShadow {
+            color: Color { r: 0, g: 0, b: 0, a: 120 },
+            blur_radius: 12.0,
+            offset: (0.0, 4.0),
+        };
+
         // VS Code-style dropdown from top center
         let dropdown = Container::new(
             VStack {
@@ -114,7 +120,13 @@ impl Widget<EditorState> for CommandPalette {
                         }.into_node(),
                     ).padding_all(6.0).into_node(),
                     Container::new(
-                        VStack { spacing: Some(0.0), children: result_items }.into_node(),
+                        fission_core::ui::widgets::scroll::Scroll {
+                            direction: fission_core::op::FlexDirection::Column,
+                            child: Some(Box::new(VStack { spacing: Some(0.0), children: result_items }.into_node())),
+                            height: Some(300.0), // Max height for results
+                            show_scrollbar: true,
+                            ..Default::default()
+                        }.into_node(),
                     ).padding_all(4.0).into_node(),
                 ],
             }.into_node(),
@@ -123,6 +135,8 @@ impl Widget<EditorState> for CommandPalette {
         .bg(card_bg)
         .border(border, 1.0)
         .border_radius(4.0)
+        .shadow(shadow)
+        .flex_shrink(1.0)
         .into_node();
 
         // Backdrop + dropdown positioned at top center
