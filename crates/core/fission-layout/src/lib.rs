@@ -1577,8 +1577,14 @@ impl LayoutEngine {
                 let mut local = constraints.apply_min_max(*min_width, *max_width, *min_height, *max_height);
                 local = local.tighten(*width, *height);
                 let is_horizontal = matches!(direction, FlexDirection::Row);
-                let mut child_constraints = local.deflate(*padding).loosen();
-                if is_horizontal { child_constraints.max_w = f32::INFINITY; } else { child_constraints.max_h = f32::INFINITY; }
+                let mut child_constraints = local.deflate(*padding);
+                if is_horizontal { 
+                    child_constraints.min_w = 0.0;
+                    child_constraints.max_w = f32::INFINITY; 
+                } else { 
+                    child_constraints.min_h = 0.0;
+                    child_constraints.max_h = f32::INFINITY; 
+                }
                 let mut child_size = LayoutSize::ZERO;
                 if let Some(child_id) = flow_children.first() {
                     child_size = self.layout_node_constraints(*child_id, child_constraints, LayoutPoint::ZERO, node_map, out, constraints_out, scroll_source, false, depth + 1);

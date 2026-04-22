@@ -79,7 +79,7 @@ impl Lower for Slider {
             let track_paint = NodeBuilder::new(
                 cx.next_node_id(),
                 Op::Paint(PaintOp::DrawRect {
-                    fill: Some(Fill { color: tokens.colors.border }), // Inactive track
+                    fill: Some(Fill::Solid(tokens.colors.border)), // Inactive track
                     stroke: None,
                     corner_radius: track_height / 2.0,
                     shadow: None,
@@ -152,7 +152,7 @@ impl Lower for Slider {
             let inner_paint = NodeBuilder::new(
                 cx.next_node_id(),
                 Op::Paint(PaintOp::DrawRect {
-                    fill: Some(Fill { color: tokens.colors.border }),
+                    fill: Some(Fill::Solid(tokens.colors.border)),
                     stroke: None,
                     corner_radius: track_height / 2.0,
                     shadow: None,
@@ -184,7 +184,7 @@ impl Lower for Slider {
             let thumb_paint = NodeBuilder::new(
                 cx.next_node_id(),
                 Op::Paint(PaintOp::DrawRect {
-                    fill: Some(Fill { color: tokens.colors.primary }),
+                    fill: Some(Fill::Solid(tokens.colors.primary)),
                     stroke: None,
                     corner_radius: thumb_size / 2.0,
                     shadow: Some(fission_ir::op::BoxShadow {

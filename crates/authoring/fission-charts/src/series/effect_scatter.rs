@@ -2,18 +2,18 @@ use serde::{Deserialize, Serialize};
 use fission_core::op::Color;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ScatterSeries {
+pub struct EffectScatterSeries {
     pub name: String,
-    pub data: Vec<(f32, f32)>, // x, y
+    pub data: Vec<(f32, f32)>,
     pub color: Color,
 }
 
-impl ScatterSeries {
+impl EffectScatterSeries {
     pub fn new(name: &str) -> Self {
         Self {
             name: name.into(),
             data: Vec::new(),
-            color: Color::BLUE,
+            color: Color::RED,
         }
     }
     
@@ -21,15 +21,10 @@ impl ScatterSeries {
         self.data = data;
         self
     }
-
-    pub fn color(mut self, color: Color) -> Self {
-        self.color = color;
-        self
-    }
 }
 
-impl Into<super::Series> for ScatterSeries {
+impl Into<super::Series> for EffectScatterSeries {
     fn into(self) -> super::Series {
-        super::Series::Scatter(self)
+        super::Series::EffectScatter(self)
     }
 }

@@ -2,13 +2,13 @@ use serde::{Deserialize, Serialize};
 use fission_core::op::Color;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ScatterSeries {
+pub struct BoxplotSeries {
     pub name: String,
-    pub data: Vec<(f32, f32)>, // x, y
+    pub data: Vec<Vec<f32>>, // [min, Q1, median, Q3, max]
     pub color: Color,
 }
 
-impl ScatterSeries {
+impl BoxplotSeries {
     pub fn new(name: &str) -> Self {
         Self {
             name: name.into(),
@@ -17,7 +17,7 @@ impl ScatterSeries {
         }
     }
     
-    pub fn data(mut self, data: Vec<(f32, f32)>) -> Self {
+    pub fn data(mut self, data: Vec<Vec<f32>>) -> Self {
         self.data = data;
         self
     }
@@ -28,8 +28,8 @@ impl ScatterSeries {
     }
 }
 
-impl Into<super::Series> for ScatterSeries {
+impl Into<super::Series> for BoxplotSeries {
     fn into(self) -> super::Series {
-        super::Series::Scatter(self)
+        super::Series::Boxplot(self)
     }
 }

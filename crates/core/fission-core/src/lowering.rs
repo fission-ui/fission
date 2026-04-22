@@ -58,7 +58,7 @@ impl<'a> LoweringContext<'a> {
         widget_id.into()
     }
 
-    fn insert_node(&mut self, node_id: NodeId, op: Op, children: Vec<NodeId>) {
+    pub fn insert_node(&mut self, node_id: NodeId, op: Op, children: Vec<NodeId>) -> NodeId {
         use std::hash::{Hash, Hasher};
         let mut hasher = std::collections::hash_map::DefaultHasher::new();
         op.hash(&mut hasher);
@@ -77,6 +77,7 @@ impl<'a> LoweringContext<'a> {
         if let Some(node) = self.ir.nodes.get_mut(&node_id) {
             node.hash = hash;
         }
+        node_id
     }
 }
 

@@ -4,6 +4,7 @@ members = [
     "crates/core/fission-semantics",
     "crates/core/fission-layout",
     "crates/core/fission-core",
+    "crates/core/fission-3d",
     "crates/authoring/fission-macros",
     "crates/authoring/fission-widgets",
     "crates/authoring/fission-icons",

@@ -442,6 +442,26 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "613afe47fcd5fac7ccf1db93babcb082c5994d996f20b8b159f2ad1658eb5724"
 
 [[package]]
+name = "chart-gallery"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "fission-3d",
+ "fission-charts",
+ "fission-core",
+ "fission-ir",
+ "fission-layout",
+ "fission-macros",
+ "fission-shell-desktop",
+ "fission-test-driver",
+ "fission-theme",
+ "fission-widgets",
+ "lazy_static",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "chrono"
 version = "0.4.42"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -844,6 +864,26 @@ version = "0.1.0"
 dependencies = [
  "fission-core",
  "fission-widgets",
+]
+
+[[package]]
+name = "fission-3d"
+version = "0.1.0"
+dependencies = [
+ "fission-core",
+ "fission-ir",
+ "serde",
+]
+
+[[package]]
+name = "fission-charts"
+version = "0.1.0"
+dependencies = [
+ "fission-core",
+ "fission-ir",
+ "fission-layout",
+ "fission-widgets",
+ "serde",
 ]
 
 [[package]]
