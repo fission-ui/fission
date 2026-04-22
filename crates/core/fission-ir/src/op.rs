@@ -13,14 +13,25 @@ pub enum Op {
     Semantics(Semantics),
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+impl std::hash::Hash for Op {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        match self {
+            Self::Structural(s) => { 0.hash(state); s.hash(state); }
+            Self::Layout(l) => { 1.hash(state); l.hash(state); }
+            Self::Paint(p) => { 2.hash(state); p.hash(state); }
+            Self::Semantics(s) => { 3.hash(state); s.hash(state); }
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Hash)]
 pub enum StructuralOp {
     Group { stable_hash: u64 },
 }
 
 pub type LayoutUnit = f32;
 
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, Hash)]
 pub enum FlexDirection {
     Row,
     Column,
@@ -32,7 +43,7 @@ impl Default for FlexDirection {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, Hash)]
 pub enum EmbedKind {
     Video,
     Web,
@@ -49,7 +60,20 @@ pub enum GridTrack {
     MaxContent,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+impl std::hash::Hash for GridTrack {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        match self {
+            Self::Points(u) => { 0.hash(state); u.to_bits().hash(state); }
+            Self::Percent(f) => { 1.hash(state); f.to_bits().hash(state); }
+            Self::Fr(f) => { 2.hash(state); f.to_bits().hash(state); }
+            Self::Auto => { 3.hash(state); }
+            Self::MinContent => { 4.hash(state); }
+            Self::MaxContent => { 5.hash(state); }
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, Hash)]
 pub enum GridPlacement {
     Auto,
     Line(i16),
@@ -60,7 +84,7 @@ impl Default for GridPlacement {
     fn default() -> Self { Self::Auto }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, Hash)]
 pub enum FlexWrap {
     NoWrap,
     Wrap,
@@ -73,7 +97,7 @@ impl Default for FlexWrap {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, Hash)]
 pub enum AlignItems {
     Start,
     End,
@@ -88,7 +112,7 @@ impl Default for AlignItems {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, Hash)]
 pub enum JustifyContent {
     Start,
     End,
@@ -183,7 +207,61 @@ pub enum LayoutOp {
     },
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+impl std::hash::Hash for LayoutOp {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        let hash_unit = |u: LayoutUnit, h: &mut H| u.to_bits().hash(h);
+        let hash_opt_unit = |u: Option<LayoutUnit>, h: &mut H| u.map(|v| v.to_bits()).hash(h);
+        let hash_units = |us: [LayoutUnit; 4], h: &mut H| { for u in us { u.to_bits().hash(h); } };
+
+        match self {
+            Self::Box { width, height, min_width, max_width, min_height, max_height, padding, flex_grow, flex_shrink, aspect_ratio } => {
+                0.hash(state); hash_opt_unit(*width, state); hash_opt_unit(*height, state);
+                hash_opt_unit(*min_width, state); hash_opt_unit(*max_width, state);
+                hash_opt_unit(*min_height, state); hash_opt_unit(*max_height, state);
+                hash_units(*padding, state); hash_unit(*flex_grow, state); hash_unit(*flex_shrink, state);
+                aspect_ratio.map(|f| f.to_bits()).hash(state);
+            }
+            Self::Flex { direction, wrap, flex_grow, flex_shrink, padding, gap, align_items, justify_content } => {
+                1.hash(state); direction.hash(state); wrap.hash(state);
+                hash_unit(*flex_grow, state); hash_unit(*flex_shrink, state);
+                hash_units(*padding, state); hash_opt_unit(*gap, state);
+                align_items.hash(state); justify_content.hash(state);
+            }
+            Self::Grid { columns, rows, column_gap, row_gap, padding } => {
+                2.hash(state); columns.hash(state); rows.hash(state);
+                hash_opt_unit(*column_gap, state); hash_opt_unit(*row_gap, state);
+                hash_units(*padding, state);
+            }
+            Self::GridItem { row_start, row_end, col_start, col_end } => {
+                3.hash(state); row_start.hash(state); row_end.hash(state); col_start.hash(state); col_end.hash(state);
+            }
+            Self::Scroll { direction, show_scrollbar, width, height, min_width, max_width, min_height, max_height, padding, flex_grow, flex_shrink } => {
+                4.hash(state); direction.hash(state); show_scrollbar.hash(state);
+                hash_opt_unit(*width, state); hash_opt_unit(*height, state);
+                hash_opt_unit(*min_width, state); hash_opt_unit(*max_width, state);
+                hash_opt_unit(*min_height, state); hash_opt_unit(*max_height, state);
+                hash_units(*padding, state); hash_unit(*flex_grow, state); hash_unit(*flex_shrink, state);
+            }
+            Self::Embed { kind, widget_id, width, height } => {
+                5.hash(state); kind.hash(state); widget_id.hash(state);
+                hash_opt_unit(*width, state); hash_opt_unit(*height, state);
+            }
+            Self::AbsoluteFill => { 6.hash(state); }
+            Self::Positioned { left, top, right, bottom, width, height } => {
+                7.hash(state); hash_opt_unit(*left, state); hash_opt_unit(*top, state);
+                hash_opt_unit(*right, state); hash_opt_unit(*bottom, state);
+                hash_opt_unit(*width, state); hash_opt_unit(*height, state);
+            }
+            Self::ZStack => { 8.hash(state); }
+            Self::Align => { 9.hash(state); }
+            Self::Flyout { anchor, content } => { 10.hash(state); anchor.hash(state); content.hash(state); }
+            Self::Transform { transform } => { 11.hash(state); for v in transform { v.to_bits().hash(state); } }
+            Self::Clip { path } => { 12.hash(state); path.hash(state); }
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, Hash)]
 pub struct Color {
     pub r: u8,
     pub g: u8,
@@ -229,7 +307,7 @@ impl Color {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, Hash)]
 pub struct Fill {
     pub color: Color,
 }
@@ -240,6 +318,13 @@ pub struct Stroke {
     pub width: LayoutUnit,
 }
 
+impl std::hash::Hash for Stroke {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.color.hash(state);
+        self.width.to_bits().hash(state);
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct BoxShadow {
     pub color: Color,
@@ -247,7 +332,16 @@ pub struct BoxShadow {
     pub offset: (LayoutUnit, LayoutUnit),
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+impl std::hash::Hash for BoxShadow {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.color.hash(state);
+        self.blur_radius.to_bits().hash(state);
+        self.offset.0.to_bits().hash(state);
+        self.offset.1.to_bits().hash(state);
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, Hash)]
 pub enum ImageFit {
     Contain,
     Cover,
@@ -264,7 +358,16 @@ pub struct TextStyle {
     pub background_color: Option<Color>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+impl std::hash::Hash for TextStyle {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.font_size.to_bits().hash(state);
+        self.color.hash(state);
+        self.underline.hash(state);
+        self.background_color.hash(state);
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Hash)]
 pub struct TextRun {
     pub text: String,
     pub style: TextStyle,
@@ -303,4 +406,31 @@ pub enum PaintOp {
         fill: Option<Fill>,
         stroke: Option<Stroke>,
     },
+}
+
+impl std::hash::Hash for PaintOp {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        match self {
+            Self::DrawRect { fill, stroke, corner_radius, shadow } => {
+                0.hash(state); fill.hash(state); stroke.hash(state);
+                corner_radius.to_bits().hash(state); shadow.hash(state);
+            }
+            Self::DrawText { text, size, color, underline, caret_index } => {
+                1.hash(state); text.hash(state); size.to_bits().hash(state);
+                color.hash(state); underline.hash(state); caret_index.hash(state);
+            }
+            Self::DrawRichText { runs, caret_index } => {
+                2.hash(state); runs.hash(state); caret_index.hash(state);
+            }
+            Self::DrawImage { source, fit } => {
+                3.hash(state); source.hash(state); fit.hash(state);
+            }
+            Self::DrawPath { path, fill, stroke } => {
+                4.hash(state); path.hash(state); fill.hash(state); stroke.hash(state);
+            }
+            Self::DrawSvg { content, fill, stroke } => {
+                5.hash(state); content.hash(state); fill.hash(state); stroke.hash(state);
+            }
+        }
+    }
 }

@@ -86,6 +86,7 @@ pub enum DiagEventKind {
         nodes: u32,
         dirty_count: u32,
         full_rebuild: bool,
+        duration_ns: u64,
     },
 
     PaintSummary {
@@ -212,6 +213,11 @@ pub enum DiagEventKind {
         offset: f32,
         translate_x: f32,
         translate_y: f32,
+    },
+    TextLayoutPerformance {
+        text_len: u32,
+        is_rich: bool,
+        duration_ns: u64,
     },
 }
 

@@ -237,12 +237,14 @@ impl Pipeline {
             self.last_snapshot.is_none() || !layout_dirty_closure.is_empty() || viewport_changed;
 
         if needs_layout {
+            let start_layout = std::time::Instant::now();
             let layout_input_nodes = build_layout_tree(&next_ir, env);
             if viewport_changed {
                 layout_dirty_closure = layout_input_nodes.iter().map(|n| n.id).collect();
                 layout_dirty_count = layout_dirty_closure.len();
                 use_full = true;
             }
+            let duration = start_layout.elapsed().as_nanos() as u64;
             diag::emit(
                 diag::DiagCategory::Layout,
                 diag::DiagLevel::Debug,
@@ -250,6 +252,7 @@ impl Pipeline {
                     nodes: layout_input_nodes.len() as u32,
                     dirty_count: layout_dirty_count as u32,
                     full_rebuild: use_full,
+                    duration_ns: duration,
                 },
             );
             // Invariant validation (fatal in debug/strict)
@@ -300,6 +303,7 @@ impl Pipeline {
                                     nodes: layout_input_nodes.len() as u32,
                                     dirty_count: layout_dirty_count as u32,
                                     full_rebuild: true,
+                                    duration_ns: 0,
                                 },
                             );
                             layout_engine.rebuild(&layout_input_nodes)?;
@@ -373,6 +377,7 @@ impl Pipeline {
                                     nodes: layout_input_nodes.len() as u32,
                                     dirty_count: layout_dirty_count as u32,
                                     full_rebuild: true,
+                                    duration_ns: 0,
                                 },
                             );
                             layout_engine.rebuild(&layout_input_nodes)?;

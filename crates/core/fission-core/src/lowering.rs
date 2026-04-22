@@ -1,10 +1,8 @@
 use crate::env::{Env, RuntimeState};
-use blake3;
 use fission_diagnostics::prelude as diag;
 use fission_ir::{CoreIR, FlexDirection, GridPlacement, LayoutOp, NodeId, Op, PaintOp, WidgetNodeId};
 use fission_ir::op::{TextRun, TextStyle};
 use fission_layout::{LayoutInputNode, TextMeasurer, LayoutSnapshot};
-use serde_json;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -61,22 +59,18 @@ impl<'a> LoweringContext<'a> {
     }
 
     fn insert_node(&mut self, node_id: NodeId, op: Op, children: Vec<NodeId>) {
-        let mut hasher = blake3::Hasher::new();
-        if let Ok(op_bytes) = serde_json::to_vec(&op) {
-            hasher.update(&op_bytes);
-        } else {
-            panic!("Failed to serialize op for hashing: {:?}", op);
-        }
+        use std::hash::{Hash, Hasher};
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        op.hash(&mut hasher);
 
         for child_id in &children {
             if let Some(child) = self.ir.nodes.get(child_id) {
-                hasher.update(&child.hash.to_le_bytes());
+                child.hash.hash(&mut hasher);
             }
-            hasher.update(&child_id.as_u128().to_le_bytes());
+            child_id.hash(&mut hasher);
         }
 
-        let hash_bytes = hasher.finalize();
-        let hash = u64::from_le_bytes(hash_bytes.as_bytes()[0..8].try_into().unwrap());
+        let hash = hasher.finish();
 
         self.ir.add_node(node_id, op, children);
 
@@ -357,6 +351,12 @@ pub fn build_layout_tree(ir: &CoreIR, env: &Env) -> Vec<LayoutInputNode> {
                 let (inherit_width, inherit_height, inherit_min_width, inherit_max_width, inherit_min_height, inherit_max_height) =
                     inherited_box.unwrap_or((None, None, None, None, None, None));
                 
+                let (measured_w, measured_h): (f32, f32) = if let Some(m) = &env.measurer {
+                    m.measure(text, *size, None)
+                } else {
+                    (0.0, 0.0)
+                };
+
                 rich_text_content = Some(vec![fission_ir::op::TextRun {
                     text: text.clone(),
                     style: fission_ir::op::TextStyle { font_size: *size, color: *color, underline: *underline, background_color: None },
@@ -364,8 +364,8 @@ pub fn build_layout_tree(ir: &CoreIR, env: &Env) -> Vec<LayoutInputNode> {
                 children_to_visit.clear(); // Leaf node for layout
                 (
                     LayoutOp::Box {
-                        width: inherit_width,
-                        height: inherit_height,
+                        width: inherit_width.or(Some(measured_w)),
+                        height: inherit_height.or(Some(measured_h)),
                         min_width: inherit_min_width,
                         max_width: inherit_max_width,
                         min_height: inherit_min_height,
@@ -375,8 +375,8 @@ pub fn build_layout_tree(ir: &CoreIR, env: &Env) -> Vec<LayoutInputNode> {
                         flex_shrink: 1.0,
                         aspect_ratio: None,
                     },
-                    inherit_width,
-                    inherit_height,
+                    inherit_width.or(Some(measured_w)),
+                    inherit_height.or(Some(measured_h)),
                     0.0,
                     1.0,
                 )
@@ -385,12 +385,18 @@ pub fn build_layout_tree(ir: &CoreIR, env: &Env) -> Vec<LayoutInputNode> {
                 let (inherit_width, inherit_height, inherit_min_width, inherit_max_width, inherit_min_height, inherit_max_height) =
                     inherited_box.unwrap_or((None, None, None, None, None, None));
                 
+                let (measured_w, measured_h): (f32, f32) = if let Some(m) = &env.measurer {
+                    m.measure_rich_text(runs, None)
+                } else {
+                    (0.0, 0.0)
+                };
+
                 rich_text_content = Some(runs.clone());
                 children_to_visit.clear(); // Leaf node for layout
                 (
                     LayoutOp::Box {
-                        width: inherit_width,
-                        height: inherit_height,
+                        width: inherit_width.or(Some(measured_w)),
+                        height: inherit_height.or(Some(measured_h)),
                         min_width: inherit_min_width,
                         max_width: inherit_max_width,
                         min_height: inherit_min_height,
@@ -400,8 +406,8 @@ pub fn build_layout_tree(ir: &CoreIR, env: &Env) -> Vec<LayoutInputNode> {
                         flex_shrink: 1.0,
                         aspect_ratio: None,
                     },
-                    inherit_width,
-                    inherit_height,
+                    inherit_width.or(Some(measured_w)),
+                    inherit_height.or(Some(measured_h)),
                     0.0,
                     1.0,
                 )
