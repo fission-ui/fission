@@ -1,66 +1,63 @@
-use crate::{Axis, Chart, Series};
-use fission_ir::NodeId;
-use std::collections::HashMap;
+pub mod scale;
+pub mod math;
+pub mod treemap;
+pub mod force_graph;
+pub mod sankey;
+pub mod wordcloud;
+pub mod map;
 
-#[derive(Debug, Clone)]
-pub struct ChartGeometry {
-    pub grid_rect: fission_layout::LayoutRect,
-    pub x_scale: Scale,
-    pub y_scale: Scale,
-}
-
-#[derive(Debug, Clone)]
-pub enum Scale {
-    Linear { min: f32, max: f32 },
-    Category { labels: Vec<String> },
-}
-
-impl Scale {
-    pub fn map(&self, value: f32, range_min: f32, range_max: f32) -> f32 {
-        match self {
-            Scale::Linear { min, max } => {
-                let p = (value - *min) / (*max - *min).max(0.0001);
-                range_min + p * (range_max - range_min)
-            }
-            Scale::Category { labels } => {
-                let idx = value.floor() as usize;
-                let step = (range_max - range_min) / labels.len().max(1) as f32;
-                range_min + (idx as f32 + 0.5) * step
-            }
-        }
-    }
-}
+use crate::Chart;
+use scale::{CategoryScale, LinearScale, Scale};
 
 pub fn calculate_scales(chart: &Chart) -> (Scale, Scale) {
-    // Basic auto-scaling logic
-    let mut y_min = 0.0f32;
-    let mut y_max = 1.0f32;
-    
+    let mut y_min = f32::MAX;
+    let mut y_max = f32::MIN;
+    let mut has_data = false;
+
     for series in &chart.series {
         match series {
             crate::Series::Line(s) => {
                 for &v in &s.data {
                     y_max = y_max.max(v);
                     y_min = y_min.min(v);
+                    has_data = true;
                 }
             }
             crate::Series::Bar(s) => {
                 for &v in &s.data {
                     y_max = y_max.max(v);
+                    y_min = y_min.min(v.min(0.0)); // bars usually start at 0
+                    has_data = true;
+                }
+            }
+            crate::Series::Scatter(s) => {
+                for &(_, dy) in &s.data {
+                    y_max = y_max.max(dy);
+                    y_min = y_min.min(dy);
+                    has_data = true;
                 }
             }
             _ => {}
         }
     }
-    
+
+    if !has_data {
+        y_min = 0.0;
+        y_max = 1.0;
+    }
+
     let x_scale = if let Some(ax) = &chart.x_axis {
         match ax.axis_type {
-            crate::axis::AxisType::Category => Scale::Category { labels: ax.data.clone() },
-            _ => Scale::Linear { min: 0.0, max: 1.0 },
+            crate::axis::AxisType::Category => {
+                Scale::Category(CategoryScale::new(ax.data.clone()))
+            }
+            _ => Scale::Linear(LinearScale::nice(0.0, 1.0, 5)),
         }
     } else {
-        Scale::Linear { min: 0.0, max: 1.0 }
+        Scale::Linear(LinearScale::nice(0.0, 1.0, 5))
     };
 
-    (x_scale, Scale::Linear { min: y_min, max: y_max * 1.1 })
+    let y_scale = Scale::Linear(LinearScale::nice(y_min, y_max, 5));
+
+    (x_scale, y_scale)
 }

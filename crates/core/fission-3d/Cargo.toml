@@ -7,3 +7,5 @@ edition = "2021"
 fission-core = { path = "../fission-core" }
 fission-ir = { path = "../fission-ir" }
 serde = { version = "1.0", features = ["derive"] }
+wgpu = "22.1"
+bytemuck = { version = "1.18", features = ["derive"] }

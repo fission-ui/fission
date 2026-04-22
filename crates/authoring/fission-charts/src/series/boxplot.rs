@@ -21,6 +21,22 @@ impl BoxplotSeries {
         self.data = data;
         self
     }
+    
+    pub fn calculate_from_raw(mut self, raw_data: Vec<Vec<f32>>) -> Self {
+        let mut calculated = Vec::new();
+        for mut group in raw_data {
+            if group.is_empty() { continue; }
+            group.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+            let min = group[0];
+            let max = group[group.len() - 1];
+            let q1 = group[(group.len() as f32 * 0.25).floor() as usize];
+            let median = group[(group.len() as f32 * 0.5).floor() as usize];
+            let q3 = group[(group.len() as f32 * 0.75).floor() as usize];
+            calculated.push(vec![min, q1, median, q3, max]);
+        }
+        self.data = calculated;
+        self
+    }
 
     pub fn color(mut self, color: Color) -> Self {
         self.color = color;

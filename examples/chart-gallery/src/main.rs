@@ -196,7 +196,13 @@ impl Widget<GalleryState> for GalleryApp {
         let content = Container::new(
             Column {
                 children: vec![
-                    Text::new("Interactive Demo").size(24.0).color(Color::WHITE).into_node(),
+                    Row {
+                        children: vec![
+                            Text::new("Interactive Demo").size(24.0).color(Color::WHITE).into_node(),
+                            fission_widgets::Spacer { flex_grow: 1.0, ..Default::default() }.into_node(),
+                        ],
+                        ..Default::default()
+                    }.into_node(),
                     fission_widgets::Spacer { height: Some(24.0), ..Default::default() }.into_node(),
                     chart_node,
                 ],
