@@ -116,8 +116,8 @@ impl Lower for LazyColumn {
         let item_h = self.item_height.max(1.0);
         let total_count = self.children.len();
         
-        let start_index = (scroll_offset / item_h).floor() as usize;
-        let visible_count = (viewport_height / item_h).ceil() as usize + 1; // +1 buffer
+        let start_index = (scroll_offset / item_h as f32).floor() as usize;
+        let visible_count = (viewport_height as f32 / item_h as f32).ceil() as usize + 1; // +1 buffer
         let end_index = (start_index + visible_count).min(total_count);
         let start_index = start_index.min(total_count); // Clamp
         

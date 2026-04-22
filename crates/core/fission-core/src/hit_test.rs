@@ -109,10 +109,7 @@ fn hit_test_recursive(
     let mut current_is_hit = false;
     if geom.rect.contains(point) {
         match &node.op {
-            Op::Paint(PaintOp::DrawRect { corner_radius, .. }) => {
-                current_is_hit = is_point_in_rounded_rect(point, geom.rect, *corner_radius);
-            }
-            Op::Paint(_) | Op::Layout(LayoutOp::Scroll { .. }) | Op::Layout(LayoutOp::Embed { .. }) => {
+            Op::Layout(LayoutOp::Scroll { .. }) | Op::Layout(LayoutOp::Embed { .. }) => {
                 current_is_hit = true;
             }
             Op::Semantics(semantics) => {

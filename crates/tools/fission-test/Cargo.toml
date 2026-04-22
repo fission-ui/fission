@@ -19,7 +19,7 @@ fission-diagnostics = { version = "0.1.0", path = "../fission-diagnostics" }
 fission-render-vello = { path = "../../rendering/fission-render-vello" }
 fission-theme = { path = "../../core/fission-theme" }
 fontique = "0.7"
+serde_json = "1.0"
 
 [dev-dependencies]
-serde_json = "1.0"
 fission-shell-desktop = { path = "../../shell/fission-shell-desktop" }

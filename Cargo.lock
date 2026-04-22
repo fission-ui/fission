@@ -964,6 +964,7 @@ name = "fission-render-vello"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "fission-diagnostics",
  "fission-ir",
  "fission-layout",
  "fission-render",

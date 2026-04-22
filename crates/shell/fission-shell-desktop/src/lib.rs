@@ -603,8 +603,6 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
         let mut runtime = Runtime::default();
         runtime.add_app_state(Box::new(S::default())).unwrap();
 
-        let env = Env::default();
-
         const DEFAULT_FONT_FAMILY: &str = "Fission Default";
         let font_cx = Arc::new(Mutex::new(build_font_context()));
         {
@@ -622,6 +620,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
             font_cx.clone(),
             DEFAULT_FONT_FAMILY,
         ));
+        let env = Env::new(measurer.clone() as Arc<dyn fission_layout::TextMeasurer>);
         let clipboard: Arc<dyn fission_core::env::Clipboard> = Arc::new(DesktopClipboard::new());
 
         let layout_engine = LayoutEngine::new().with_measurer(measurer.clone());
