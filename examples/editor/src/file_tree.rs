@@ -139,18 +139,13 @@ impl Widget<EditorState> for FileTree {
                         variant: ButtonVariant::Ghost,
                         on_press: Some(new_file_action),
                         child: Some(Box::new(
-                            Container::new(
-                                Text::new("+")
-                                    .size(14.0)
-                                    .color(icon_color)
-                                    .into_node(),
-                            )
-                            .width(20.0)
-                            .height(20.0)
-                            .into_node(),
+                            Icon::svg(fission_icons::material::content::add::round())
+                                .size(18.0)
+                                .color(icon_color)
+                                .into_node(),
                         )),
-                        width: Some(20.0),
-                        height: Some(20.0),
+                        width: Some(24.0),
+                        height: Some(24.0),
                         padding: Some([0.0; 4]),
                         ..Default::default()
                     }
@@ -159,18 +154,13 @@ impl Widget<EditorState> for FileTree {
                         variant: ButtonVariant::Ghost,
                         on_press: Some(new_folder_action),
                         child: Some(Box::new(
-                            Container::new(
-                                Text::new("D+")
-                                    .size(14.0)
-                                    .color(icon_color)
-                                    .into_node(),
-                            )
-                            .width(20.0)
-                            .height(20.0)
-                            .into_node(),
+                            Icon::svg(fission_icons::material::file::create_new_folder::round())
+                                .size(18.0)
+                                .color(icon_color)
+                                .into_node(),
                         )),
-                        width: Some(20.0),
-                        height: Some(20.0),
+                        width: Some(24.0),
+                        height: Some(24.0),
                         padding: Some([0.0; 4]),
                         ..Default::default()
                     }
@@ -179,18 +169,13 @@ impl Widget<EditorState> for FileTree {
                         variant: ButtonVariant::Ghost,
                         on_press: Some(refresh_action),
                         child: Some(Box::new(
-                            Container::new(
-                                Text::new("\u{21BB}")
-                                    .size(14.0)
-                                    .color(icon_color)
-                                    .into_node(),
-                            )
-                            .width(20.0)
-                            .height(20.0)
-                            .into_node(),
+                            Icon::svg(fission_icons::material::navigation::refresh::round())
+                                .size(18.0)
+                                .color(icon_color)
+                                .into_node(),
                         )),
-                        width: Some(20.0),
-                        height: Some(20.0),
+                        width: Some(24.0),
+                        height: Some(24.0),
                         padding: Some([0.0; 4]),
                         ..Default::default()
                     }

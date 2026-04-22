@@ -170,6 +170,15 @@ impl BoxConstraints {
         }
         out
     }
+
+    pub fn loosen(&self) -> Self {
+        Self {
+            min_w: 0.0,
+            max_w: self.max_w,
+            min_h: 0.0,
+            max_h: self.max_h,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
@@ -397,17 +406,15 @@ impl LayoutEngine {
         let node_map: HashMap<NodeId, &LayoutInputNode> =
             input_nodes.iter().map(|n| (n.id, n)).collect();
 
-        let mut constraints = BoxConstraints::loose(viewport_size.width, viewport_size.height);
+        // Root constraints should be tight to the viewport size if no explicit size is given
+        let mut constraints = BoxConstraints::tight(viewport_size);
         if let Some(root) = node_map.get(&root_node_id) {
-            if root.width.is_none() {
-                constraints.min_w = viewport_size.width;
-                constraints.max_w = viewport_size.width;
-            }
-            if root.height.is_none() {
-                constraints.min_h = viewport_size.height;
-                constraints.max_h = viewport_size.height;
+            // Only loosen if explicit dimensions are provided for the root node
+            if root.width.is_some() || root.height.is_some() {
+                constraints = BoxConstraints::loose(viewport_size.width, viewport_size.height).tighten(root.width, root.height);
             }
         }
+
         let mut snapshot = LayoutSnapshot::new(viewport_size);
         self.layout_node_constraints(
             root_node_id,
@@ -452,24 +459,6 @@ impl LayoutEngine {
                         let anchor_h = anchor_geom.rect.height();
                         let left_rel = anchor_abs.x;
                         let top_rel = anchor_abs.y + anchor_h;
-                        {
-                            use fission_diagnostics::prelude as diag;
-                            diag::emit(
-                                diag::DiagCategory::Layout,
-                                diag::DiagLevel::Debug,
-                                diag::DiagEventKind::AnchorPlacement {
-                                    widget: 0,
-                                    node: anchor.as_u128(),
-                                    rect_x: anchor_abs.x,
-                                    rect_y: anchor_abs.y,
-                                    rect_w: anchor_w,
-                                    rect_h: anchor_h,
-                                    place_left: left_rel,
-                                    place_top: top_rel,
-                                    note: Some("Flyout".into()),
-                                },
-                            );
-                        }
                         flyout_abs_overrides.insert(content, (left_rel, top_rel));
                     }
                 }
@@ -733,7 +722,7 @@ impl LayoutEngine {
                         );
                     }
                     if !abs_children.is_empty() {
-                        let abs_constraints = BoxConstraints::tight(size);
+                        let abs_constraints = BoxConstraints::loose(size.width, size.height);
                         for child_id in abs_children {
                             self.layout_node_constraints(
                                 child_id,
@@ -854,7 +843,7 @@ impl LayoutEngine {
                         lines.push((line_children, line_main, line_cross));
                     }
 
-                    let mut container_main = if main_bounded {
+                    let mut container_main = if main_bounded && *flex_grow > 0.0 {
                         max_main
                     } else {
                         max_line_main
@@ -990,7 +979,7 @@ impl LayoutEngine {
                     }
 
                     if record && !abs_children.is_empty() {
-                        let abs_constraints = BoxConstraints::tight(size);
+                        let abs_constraints = BoxConstraints::loose(size.width, size.height);
                         for child_id in abs_children {
                             self.layout_node_constraints(
                                 child_id,
@@ -1187,7 +1176,7 @@ impl LayoutEngine {
                         entry.constraints = child_constraints;
                     }
 
-                    let total_children_main: f32 = measured
+                    let final_children_main: f32 = measured
                         .iter()
                         .map(|entry| {
                             if is_row {
@@ -1201,11 +1190,11 @@ impl LayoutEngine {
                     let mut container_main = if main_bounded && *flex_grow > 0.0 {
                         max_main
                     } else {
-                        total_children_main + gap_total
+                        final_children_main + gap_total
                     };
                     container_main = container_main.max(min_main);
                     
-                    if main_bounded && total_children_main + gap_total > max_main {
+                    if main_bounded && final_children_main + gap_total > max_main {
                         // SHRINK logic
                         let mut total_shrink_scaled = 0.0f32;
                         for entry in &measured {
@@ -1215,7 +1204,7 @@ impl LayoutEngine {
                         }
 
                         if total_shrink_scaled > 0.0 {
-                            let overflow = (total_children_main + gap_total) - max_main;
+                            let overflow = (final_children_main + gap_total) - max_main;
                             for entry in &mut measured {
                                 let child = node_map.get(&entry.id).unwrap();
                                 let main_size = if is_row { entry.size.width } else { entry.size.height };
@@ -1399,7 +1388,7 @@ impl LayoutEngine {
                     }
 
                     if record && !abs_children.is_empty() {
-                        let abs_constraints = BoxConstraints::tight(size);
+                        let abs_constraints = BoxConstraints::loose(size.width, size.height);
                         for child_id in abs_children {
                             self.layout_node_constraints(
                                 child_id,
@@ -1588,7 +1577,7 @@ impl LayoutEngine {
                 let mut local = constraints.apply_min_max(*min_width, *max_width, *min_height, *max_height);
                 local = local.tighten(*width, *height);
                 let is_horizontal = matches!(direction, FlexDirection::Row);
-                let mut child_constraints = local.deflate(*padding);
+                let mut child_constraints = local.deflate(*padding).loosen();
                 if is_horizontal { child_constraints.max_w = f32::INFINITY; } else { child_constraints.max_h = f32::INFINITY; }
                 let mut child_size = LayoutSize::ZERO;
                 if let Some(child_id) = flow_children.first() {
@@ -1599,11 +1588,11 @@ impl LayoutEngine {
                     if let Some(child_id) = flow_children.first() {
                         self.layout_node_constraints(*child_id, child_constraints, LayoutPoint::new(origin.x + padding[0], origin.y + padding[2]), node_map, out, constraints_out, scroll_source, record, depth + 1);
                     }
-                }
-                if record && !abs_children.is_empty() {
-                    let abs_constraints = BoxConstraints::loose(size.width, size.height);
-                    for child_id in abs_children {
-                        self.layout_node_constraints(child_id, abs_constraints, origin, node_map, out, constraints_out, scroll_source, record, depth + 1);
+                    if !abs_children.is_empty() {
+                        let abs_constraints = BoxConstraints::loose(size.width, size.height);
+                        for child_id in abs_children {
+                            self.layout_node_constraints(child_id, abs_constraints, origin, node_map, out, constraints_out, scroll_source, record, depth + 1);
+                        }
                     }
                 }
                 content_size = child_size;
@@ -1692,9 +1681,7 @@ impl LayoutEngine {
                 let target_h = finite_or(constraints.max_h, finite_or(constraints.min_h, 0.0));
                 let size = constraints.constrain(LayoutSize::new(target_w, target_h));
                 for child_id in &node.children_ids {
-                    if *child_id != node_id {
-                        self.layout_node_constraints(*child_id, BoxConstraints::tight(size), origin, node_map, out, constraints_out, scroll_source, record, depth + 1);
-                    }
+                    self.layout_node_constraints(*child_id, BoxConstraints::tight(size), origin, node_map, out, constraints_out, scroll_source, record, depth + 1);
                 }
                 content_size = size;
                 size
@@ -1702,35 +1689,26 @@ impl LayoutEngine {
             LayoutOp::Transform { .. } | LayoutOp::Clip { .. } => {
                 let mut child_size = LayoutSize::ZERO;
                 if let Some(child_id) = node.children_ids.first() {
-                    if *child_id != node_id {
-                        child_size = self.layout_node_constraints(*child_id, constraints, origin, node_map, out, constraints_out, scroll_source, record, depth + 1);
-                    }
+                    child_size = self.layout_node_constraints(*child_id, constraints, origin, node_map, out, constraints_out, scroll_source, record, depth + 1);
                 }
                 content_size = child_size;
                 constraints.constrain(child_size)
             }
             LayoutOp::Flyout { anchor, content } => {
-                // Flyout content should wrap tightly to its intrinsic size,
-                // not expand to fill the parent viewport.
                 let loose = BoxConstraints::loose(
                     if constraints.is_width_bounded() { constraints.max_w } else { f32::INFINITY },
                     if constraints.is_height_bounded() { constraints.max_h } else { f32::INFINITY },
                 );
                 let mut child_size = LayoutSize::ZERO;
                 for child_id in &node.children_ids {
-                    if *child_id != node_id {
-                        child_size = self.layout_node_constraints(*child_id, loose, origin, node_map, out, constraints_out, scroll_source, false, depth + 1);
-                    }
+                    child_size = self.layout_node_constraints(*child_id, loose, origin, node_map, out, constraints_out, scroll_source, false, depth + 1);
                 }
-                // Position relative to anchor if we have its geometry
                 if record {
                     let anchor_rect = out.get(anchor).map(|g| g.rect);
                     let place_x = anchor_rect.map(|r| r.x()).unwrap_or(origin.x);
                     let place_y = anchor_rect.map(|r| r.y() + r.height()).unwrap_or(origin.y);
                     for child_id in &node.children_ids {
-                        if *child_id != node_id {
-                            self.layout_node_constraints(*child_id, loose, LayoutPoint::new(place_x, place_y), node_map, out, constraints_out, scroll_source, record, depth + 1);
-                        }
+                        self.layout_node_constraints(*child_id, loose, LayoutPoint::new(place_x, place_y), node_map, out, constraints_out, scroll_source, record, depth + 1);
                     }
                 }
                 content_size = child_size;
@@ -1740,9 +1718,7 @@ impl LayoutEngine {
                 let mut child_size = LayoutSize::ZERO;
                 if !node.children_ids.is_empty() {
                     for child_id in &node.children_ids {
-                        if *child_id != node_id {
-                            child_size = self.layout_node_constraints(*child_id, constraints, origin, node_map, out, constraints_out, scroll_source, record, depth + 1);
-                        }
+                        child_size = self.layout_node_constraints(*child_id, constraints, origin, node_map, out, constraints_out, scroll_source, record, depth + 1);
                     }
                 }
                 content_size = child_size;
@@ -1752,9 +1728,6 @@ impl LayoutEngine {
 
         if let Some(runs) = &node.rich_text {
             if let Some(measurer) = &self.measurer {
-                // Determine available width for text measurement, accounting for the
-                // node's own max_width constraint (which the parent constraints may not
-                // reflect).
                 let node_max_w = match &node.op {
                     LayoutOp::Box { max_width, .. } => *max_width,
                     _ => None,

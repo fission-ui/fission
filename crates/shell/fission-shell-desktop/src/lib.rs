@@ -1227,6 +1227,8 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                         match event {
                             WindowEvent::Resized(size) => {
                                 if size.width > 0 && size.height > 0 {
+                                    // Invalidate viewport to force full layout rebuild
+                                    pipeline.last_viewport = None;
                                     request_redraw_throttled(&window, elwt, &mut last_redraw_at, min_frame, &mut redraw_pending);
                                 }
                             }

@@ -9,7 +9,7 @@ pub struct StatusBar;
 
 impl Widget<EditorState> for StatusBar {
     fn build(&self, ctx: &mut BuildCtx<EditorState>, view: &View<EditorState>) -> Node {
-        let bg = Color { r: 0, g: 122, b: 204, a: 255 }; // VS Code blue
+        let bg = Color { r: 37, g: 37, b: 38, a: 255 }; // Workspace dark gray
         let text_color = Color { r: 255, g: 255, b: 255, a: 255 };
 
         let error_color = Color { r: 255, g: 80, b: 80, a: 255 };

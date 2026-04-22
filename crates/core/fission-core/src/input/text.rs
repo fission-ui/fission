@@ -984,19 +984,18 @@ impl TextInputController {
                     };
 
                     if let Some(target_line) = line_metrics.get(target_line_idx) {
-                        // Calculate target y (relative to text box) by placing caret at same X as before.
-                        // We need the Y coordinate of the target line (e.g. baseline or mid-height).
-                        // The Y passed to hit_test should be relative to the *start of the text block*,
-                        // which is the current origin of the scroll_geom.rect.
                         let target_y = target_line.baseline;
 
-                        let new_caret_pos = measurer.hit_test(
+                        let mut new_caret_pos = measurer.hit_test(
                             value,
                             font_size,
                             Some(viewport_w),
                             current_caret_x,
                             target_y,
                         );
+
+                        // Ensure we stay within the target line's bounds
+                        new_caret_pos = new_caret_pos.max(target_line.start_index).min(target_line.end_index);
 
                         let st = ctx.text_edit.get_mut_or_default(focused_id);
                         st.caret = new_caret_pos;

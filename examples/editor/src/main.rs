@@ -59,17 +59,17 @@ impl Widget<EditorState> for ActivityBar {
         let inactive_color = Color { r: 140, g: 140, b: 140, a: 255 };
 
         let section_icons = vec![
-            (fission_icons::material::file::folder::regular(), SidebarSection::Explorer, "Explorer"),
-            (fission_icons::material::action::search::regular(), SidebarSection::Search, "Search"),
-            (fission_icons::material::action::compare_arrows::regular(), SidebarSection::Git, "Source Control"),
-            (fission_icons::material::action::extension::regular(), SidebarSection::Extensions, "Extensions"),
+            (fission_icons::material::action::description::round(), SidebarSection::Explorer, "Explorer"),
+            (fission_icons::material::action::search::round(), SidebarSection::Search, "Search"),
+            (fission_icons::material::notification::account_tree::round(), SidebarSection::Git, "Source Control"),
+            (fission_icons::material::action::extension::round(), SidebarSection::Extensions, "Extensions"),
         ];
 
         let set_section_id = ctx.bind(
             SetSidebarSection(SidebarSection::Explorer),
             (|s: &mut EditorState, a: SetSidebarSection, _| {
-                if s.sidebar_section == a.0 {
-                    s.sidebar_visible = !s.sidebar_visible;
+                if s.sidebar_visible && s.sidebar_section == a.0 {
+                    s.sidebar_visible = false;
                 } else {
                     s.sidebar_section = a.0;
                     s.sidebar_visible = true;
