@@ -11,10 +11,11 @@ impl InputController for GestureController {
         match event {
             InputEvent::Pointer(pe) => {
                 match pe {
-                    PointerEvent::Down { point, .. } => {
+                    PointerEvent::Down { point, button } => {
                         ctx.gesture.start_point = Some(*point);
                         ctx.gesture.last_point = Some(*point);
                         ctx.gesture.is_panning = false;
+                        ctx.gesture.pressed_button = Some(button.clone());
                         
                         if let Some(hit) = crate::hit_test::hit_test_with_scroll(ctx.ir, ctx.layout, ctx.scroll, *point) {
                             ctx.gesture.target_node = Some(hit);
@@ -62,6 +63,10 @@ impl InputController for GestureController {
                     }
                     PointerEvent::Up { point, .. } => {
                         let mut handled = false;
+                        let was_secondary = matches!(
+                            ctx.gesture.pressed_button,
+                            Some(crate::event::PointerButton::Secondary)
+                        );
                         if ctx.gesture.is_panning {
                             // Internal Drop
                             if let Some(payload) = ctx.gesture.dragging_payload.take() {
@@ -71,13 +76,24 @@ impl InputController for GestureController {
                                     }
                                 }
                             }
-                            
+
                             if let Some(target) = ctx.gesture.target_node {
                                 self.dispatch_trigger(ctx, target, ActionTrigger::DragEnd, *point, None);
                             }
                             handled = true;
+                        } else if was_secondary {
+                            // Secondary click (right-click)
+                            if let Some(target) = ctx.gesture.target_node {
+                                if let Some(up_hit) = crate::hit_test::hit_test_with_scroll(ctx.ir, ctx.layout, ctx.scroll, *point) {
+                                    if up_hit == target || self.is_descendant(ctx, up_hit, target) || self.is_descendant(ctx, target, up_hit) {
+                                        if self.dispatch_trigger(ctx, target, ActionTrigger::SecondaryClick, *point, None) {
+                                            handled = true;
+                                        }
+                                    }
+                                }
+                            }
                         } else {
-                            // Tap
+                            // Tap (primary click)
                             if let Some(target) = ctx.gesture.target_node {
                                 if let Some(up_hit) = crate::hit_test::hit_test_with_scroll(ctx.ir, ctx.layout, ctx.scroll, *point) {
                                     if up_hit == target || self.is_descendant(ctx, up_hit, target) || self.is_descendant(ctx, target, up_hit) {
@@ -88,11 +104,12 @@ impl InputController for GestureController {
                                 }
                             }
                         }
-                        
+
                         ctx.gesture.start_point = None;
                         ctx.gesture.is_panning = false;
                         ctx.gesture.dragging_payload = None;
-                        return handled; 
+                        ctx.gesture.pressed_button = None;
+                        return handled;
                     }
                     _ => {}
                 }

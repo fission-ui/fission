@@ -87,7 +87,7 @@ impl Widget<InboxState> for InboxApp {
                 SplitView {
                     id: WidgetNodeId::explicit("main_split"),
                     direction: SplitDirection::Horizontal,
-                    split_ratio: 0.22,
+                    split_ratio: 0.18,
                     on_resize: None,
                     first: Box::new(Sidebar.build(ctx, view)),
                     second: Box::new(
@@ -428,6 +428,7 @@ fn create_env() -> Env {
 
 fn main() -> anyhow::Result<()> {
     let mut app = DesktopApp::new(InboxApp)
+        .with_title("Fission Inbox")
         .with_env(create_env())
         .with_sync_env(|state: &InboxState, env: &mut Env| {
             env.locale = state.locale.clone();

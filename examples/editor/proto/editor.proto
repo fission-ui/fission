@@ -1,0 +1,99 @@
+// Fission Editor Plugin Protocol
+//
+// This defines the message contract between the editor host and WASM plugins.
+// The ABI is stable (send/recv byte buffers), only this schema evolves.
+//
+// Messages are length-prefixed: [type:u16 LE][len:u32 LE][payload:bytes]
+// Payload is JSON-encoded for now, will migrate to protobuf binary encoding.
+
+syntax = "proto3";
+
+package fission.editor.v1;
+
+// --- File lifecycle ---
+
+message FileOpened {
+  string path = 1;
+  string language = 2;
+  string content = 3;
+}
+
+message FileSaved {
+  string path = 1;
+}
+
+message FileClosed {
+  string path = 1;
+}
+
+// --- Diagnostics ---
+
+message DiagnosticUpdate {
+  string path = 1;
+  repeated DiagnosticEntry diagnostics = 2;
+}
+
+message DiagnosticEntry {
+  uint32 line = 1;
+  uint32 col = 2;
+  Severity severity = 3;
+  string message = 4;
+
+  enum Severity {
+    ERROR = 0;
+    WARNING = 1;
+    INFO = 2;
+    HINT = 3;
+  }
+}
+
+// --- Completions ---
+
+message CompletionRequest {
+  string path = 1;
+  uint32 line = 2;
+  uint32 character = 3;
+}
+
+message CompletionResponse {
+  repeated CompletionEntry items = 1;
+}
+
+message CompletionEntry {
+  string label = 1;
+  string kind = 2;
+  string detail = 3;
+  string insert_text = 4;
+}
+
+// --- Editor actions ---
+
+message EditorAction {
+  string action = 1;  // "format", "rename", "go_to_definition", etc.
+  string path = 2;
+  uint32 line = 3;
+  uint32 character = 4;
+  string payload = 5;
+}
+
+// --- Status ---
+
+message StatusUpdate {
+  string text = 1;
+}
+
+// --- File tree ---
+
+message TreeRefresh {}
+
+// --- Commands ---
+
+message CommandRegister {
+  string id = 1;
+  string label = 2;
+  string description = 3;
+}
+
+message CommandExecute {
+  string id = 1;
+}

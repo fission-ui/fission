@@ -38,7 +38,7 @@ impl<S: fission_core::AppState> Widget<S> for Avatar {
                 })
                 .unwrap_or("?".into());
 
-            Container::new(
+            fission_core::ui::Align::new(
                 Text {
                     content: TextContent::Literal(initials),
                     font_size: Some(size * 0.4),
@@ -47,12 +47,6 @@ impl<S: fission_core::AppState> Widget<S> for Avatar {
                 }
                 .into(),
             )
-            // Center text? Container doesn't center automatically without flex props.
-            // Text inside Container is flow.
-            // We need align items center.
-            // Container doesn't expose alignment.
-            // We can wrap Text in a Center widget (if we had one) or use padding to approximate.
-            .padding_all(size * 0.3) // Hacky centering
             .into_node()
         };
 

@@ -188,7 +188,16 @@ impl std::fmt::Debug for CanvasLowerer {
 
 impl LowerDyn for CanvasLowerer {
     fn lower_dyn(&self, cx: &mut LoweringContext) -> NodeId {
-        let root = NodeBuilder::new(
+        let child_ids = (self.painter)(cx);
+        let group_id = cx.next_node_id();
+        let mut group =
+            NodeBuilder::new(group_id, Op::Structural(StructuralOp::Group { stable_hash: 0 }));
+        for cid in child_ids {
+            group.add_child(cid);
+        }
+        let group_node = group.build(cx);
+
+        let mut root = NodeBuilder::new(
             cx.next_node_id(),
             Op::Layout(fission_core::LayoutOp::Box {
                 width: self.width,
@@ -202,16 +211,9 @@ impl LowerDyn for CanvasLowerer {
                 flex_shrink: 0.0,
                 aspect_ratio: None,
             }),
-        )
-        .build(cx);
-
-        let child_ids = (self.painter)(cx);
-        let mut wrapper =
-            NodeBuilder::new(root, Op::Structural(StructuralOp::Group { stable_hash: 0 }));
-        for cid in child_ids {
-            wrapper.add_child(cid);
-        }
-        wrapper.build(cx)
+        );
+        root.add_child(group_node);
+        root.build(cx)
     }
 }
 

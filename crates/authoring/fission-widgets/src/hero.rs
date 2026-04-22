@@ -55,7 +55,7 @@ impl LowerDyn for HeroLowerer {
             is_focus_barrier: false,
             drag_payload: None,
             hero_tag: Some(self.tag.clone()),
-            focus_index: None,
+            focus_index: None, capture_tab: false, auto_indent: false,
         };
 
         let mut builder = NodeBuilder::new(id, Op::Semantics(semantics));

@@ -29,7 +29,16 @@ impl<S: fission_core::AppState> Widget<S> for Skeleton {
             delay_ms: 0,
         });
 
-        let opacity = view.animation_value(self.id, &AnimationPropertyId::Opacity);
+        // Use animation value if available, otherwise start at the animation's
+        // explicit start (0.4) to avoid a full-opacity flash on the first frame.
+        let opacity = {
+            let v = view.animation_value(self.id, &AnimationPropertyId::Opacity);
+            if (v - AnimationPropertyId::Opacity.default_value()).abs() < 0.001 {
+                0.4 // match AnimationStartValue::Explicit(0.4) above
+            } else {
+                v
+            }
+        };
         let color = Color {
             r: 200,
             g: 200,

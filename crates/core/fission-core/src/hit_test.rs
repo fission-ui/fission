@@ -1,10 +1,24 @@
 use crate::env::ScrollStateMap;
+use fission_diagnostics::prelude as diag;
 use fission_ir::{CoreIR, LayoutOp, NodeId, Op, PaintOp};
 use fission_layout::{LayoutPoint, LayoutRect, LayoutSnapshot, LayoutUnit};
-use fission_diagnostics::prelude as diag;
+use glam::{Mat4, Vec4};
 
-pub fn hit_test(ir: &CoreIR, layout: &LayoutSnapshot, point: LayoutPoint) -> Option<NodeId> {
-    hit_test_internal(ir, layout, None, point)
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FocusDirection {
+    Up,
+    Down,
+    Left,
+    Right,
+}
+
+pub fn hit_test(
+    ir: &CoreIR,
+    layout: &LayoutSnapshot,
+    scroll_map: &ScrollStateMap,
+    point: LayoutPoint,
+) -> Option<NodeId> {
+    hit_test_internal(ir, layout, Some(scroll_map), point)
 }
 
 pub fn hit_test_with_scroll(
@@ -31,13 +45,12 @@ fn hit_test_internal(
             diag::DiagCategory::Input,
             diag::DiagLevel::Debug,
             diag::DiagEventKind::InputEvent {
-                kind: "HitTestResult".into(),
+                kind: "hit_test_result".into(),
                 target: Some(id.as_u128()),
                 position: Some((point.x, point.y)),
             },
         );
     }
-
     result
 }
 
@@ -51,9 +64,6 @@ fn hit_test_recursive(
     let node = ir.nodes.get(&node_id)?;
     let geom = layout.get_node_geometry(node_id)?;
 
-    // For Clip and Scroll, we must restrict hit testing to within the node's rect
-    // (viewport/clip region). For other nodes, we still allow children to be hit
-    // even if parent doesn't contain the point.
     let is_clip_container = matches!(
         node.op,
         Op::Layout(LayoutOp::Clip { .. }) | Op::Layout(LayoutOp::Scroll { .. })
@@ -63,7 +73,6 @@ fn hit_test_recursive(
         return None;
     }
 
-    // Compute child_point applying scroll offset and transforms
     let mut child_point = point;
 
     if let (Some(map), Op::Layout(LayoutOp::Scroll { direction, .. })) = (scroll_map, &node.op) {
@@ -79,12 +88,11 @@ fn hit_test_recursive(
     }
 
     if let Op::Layout(LayoutOp::Transform { transform }) = &node.op {
-        // Transform child point into the pre-transform space of children
-        let mat = glam::Mat4::from_cols_array(transform);
+        let mat = Mat4::from_cols_array(transform);
         let inv = mat.inverse();
         let local_x = point.x - geom.rect.origin.x;
         let local_y = point.y - geom.rect.origin.y;
-        let p = glam::Vec4::new(local_x, local_y, 0.0, 1.0);
+        let p = Vec4::new(local_x, local_y, 0.0, 1.0);
         let transformed = inv * p;
         child_point = LayoutPoint::new(
             transformed.x + geom.rect.origin.x,
@@ -92,21 +100,16 @@ fn hit_test_recursive(
         );
     }
 
-    // Visit children in reverse order (front to back) and return on first hit.
     for child_id in node.children.iter().rev() {
         if let Some(hit) = hit_test_recursive(*child_id, ir, layout, scroll_map, child_point) {
             return Some(hit);
         }
     }
 
-    // If no child was hit, check if this node itself is hit-worthy.
     let mut current_is_hit = false;
     if geom.rect.contains(point) {
         match &node.op {
-            Op::Paint(PaintOp::DrawRect { corner_radius, .. }) => {
-                current_is_hit = is_point_in_rounded_rect(point, geom.rect, *corner_radius);
-            }
-            Op::Paint(_) | Op::Layout(LayoutOp::Scroll { .. }) | Op::Layout(LayoutOp::Embed { .. }) => {
+            Op::Layout(LayoutOp::Scroll { .. }) | Op::Layout(LayoutOp::Embed { .. }) => {
                 current_is_hit = true;
             }
             Op::Semantics(semantics) => {
@@ -129,7 +132,6 @@ fn hit_test_recursive(
 fn is_point_in_rounded_rect(p: LayoutPoint, r: LayoutRect, radius: LayoutUnit) -> bool {
     let local_p_x = p.x - r.x();
     let local_p_y = p.y - r.y();
-
     let (width, height) = (r.width(), r.height());
 
     if radius <= 0.0 {
@@ -143,8 +145,7 @@ fn is_point_in_rounded_rect(p: LayoutPoint, r: LayoutRect, radius: LayoutUnit) -
             <= clamped_radius.powi(2);
     }
     if local_p_x > width - clamped_radius && local_p_y < clamped_radius {
-        return (local_p_x - (width - clamped_radius)).powi(2)
-            + (local_p_y - clamped_radius).powi(2)
+        return (local_p_x - (width - clamped_radius)).powi(2) + (local_p_y - clamped_radius).powi(2)
             <= clamped_radius.powi(2);
     }
     if local_p_x < clamped_radius && local_p_y > height - clamped_radius {
@@ -161,160 +162,188 @@ fn is_point_in_rounded_rect(p: LayoutPoint, r: LayoutRect, radius: LayoutUnit) -
     true
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum FocusDirection {
-    Up,
-    Down,
-    Left,
-    Right,
-}
-
-pub fn find_focus_search_root(ir: &CoreIR, current_focus: Option<NodeId>) -> Option<NodeId> {
-    if let Some(curr) = current_focus {
-        let mut cur = Some(curr);
-        while let Some(id) = cur {
-            if let Some(node) = ir.nodes.get(&id) {
+pub fn find_next_focus_node(ir: &CoreIR, current: Option<NodeId>, reverse: bool) -> Option<NodeId> {
+    // Identify current scope if focused node is provided
+    let (current_scope_id, current_is_barrier) = if let Some(id) = current {
+        let scope = find_parent_scope(id, ir);
+        let mut is_barrier = false;
+        if let Some(sid) = scope {
+            if let Some(node) = ir.nodes.get(&sid) {
                 if let Op::Semantics(s) = &node.op {
-                    if s.is_focus_scope && s.is_focus_barrier {
-                        return Some(id);
-                    }
+                    is_barrier = s.is_focus_barrier;
                 }
-                cur = node.parent;
-            } else {
-                break;
             }
         }
-    }
-    ir.root
-}
+        (scope, is_barrier)
+    } else {
+        (None, false)
+    };
 
-pub fn find_next_focus_node(
-    ir: &CoreIR,
-    current_focus: Option<NodeId>,
-    reverse: bool,
-) -> Option<NodeId> {
-    let mut focusable_nodes = Vec::new();
-    let search_root = find_focus_search_root(ir, current_focus);
+    let nodes_in_scope = if current_is_barrier {
+        let scope_id = current_scope_id.unwrap();
+        let mut list = Vec::new();
+        // Start recursion on CHILDREN of the barrier root to avoid skipping it
+        if let Some(node) = ir.nodes.get(&scope_id) {
+            for child in &node.children {
+                collect_focusable_nodes(*child, ir, &mut list, true, 0);
+            }
+        }
+        sort_focusable_nodes(ir, list)
+    } else {
+        get_all_focusable_nodes(ir)
+    };
 
-    if let Some(root) = search_root {
-        collect_focusable_nodes(root, ir, &mut focusable_nodes);
-    }
-
-    if focusable_nodes.is_empty() {
+    if nodes_in_scope.is_empty() {
         return None;
     }
 
-    // Sort focusable nodes by explicit focus_index, then stable tree order
-    focusable_nodes.sort_by(|a, b| {
-        let sem_a = if let Op::Semantics(s) = &ir.nodes.get(a).unwrap().op {
-            s
-        } else {
-            unreachable!()
-        };
-        let sem_b = if let Op::Semantics(s) = &ir.nodes.get(b).unwrap().op {
-            s
-        } else {
-            unreachable!()
-        };
+    let idx = if let Some(curr_id) = current {
+        nodes_in_scope.iter().position(|id| *id == curr_id)
+    } else {
+        None
+    };
 
-        match (sem_a.focus_index, sem_b.focus_index) {
-            (Some(ia), Some(ib)) => ia.cmp(&ib),
-            (Some(_), None) => std::cmp::Ordering::Less,
-            (None, Some(_)) => std::cmp::Ordering::Greater,
-            (None, None) => std::cmp::Ordering::Equal,
-        }
-    });
-
-    if let Some(curr) = current_focus {
-        if let Some(idx) = focusable_nodes.iter().position(|&id| id == curr) {
+    match idx {
+        Some(i) => {
             if reverse {
-                if idx == 0 {
-                    return Some(*focusable_nodes.last().unwrap());
+                if i == 0 {
+                    Some(nodes_in_scope[nodes_in_scope.len() - 1])
                 } else {
-                    return Some(focusable_nodes[idx - 1]);
+                    Some(nodes_in_scope[i - 1])
                 }
+            } else if i == nodes_in_scope.len() - 1 {
+                Some(nodes_in_scope[0])
             } else {
-                if idx == focusable_nodes.len() - 1 {
-                    return Some(focusable_nodes[0]);
-                } else {
-                    return Some(focusable_nodes[idx + 1]);
-                }
+                Some(nodes_in_scope[i + 1])
+            }
+        }
+        None => {
+            if reverse {
+                Some(nodes_in_scope[nodes_in_scope.len() - 1])
+            } else {
+                Some(nodes_in_scope[0])
             }
         }
     }
+}
 
-    // Default to first (or last if reverse)
-    if reverse {
-        Some(*focusable_nodes.last().unwrap())
-    } else {
-        Some(focusable_nodes[0])
+pub fn get_all_focusable_nodes(ir: &CoreIR) -> Vec<NodeId> {
+    let mut list = Vec::new();
+    if let Some(root) = ir.root {
+        collect_focusable_nodes(root, ir, &mut list, false, 0);
     }
+    sort_focusable_nodes(ir, list)
+}
+
+fn sort_focusable_nodes(ir: &CoreIR, mut list: Vec<(NodeId, usize)>) -> Vec<NodeId> {
+    list.sort_by(|(id_a, order_a), (id_b, order_b)| {
+        let idx_a = ir.nodes.get(id_a).and_then(|n| if let Op::Semantics(s) = &n.op { s.focus_index } else { None });
+        let idx_b = ir.nodes.get(id_b).and_then(|n| if let Op::Semantics(s) = &n.op { s.focus_index } else { None });
+
+        match (idx_a, idx_b) {
+            (Some(a), Some(b)) => a.cmp(&b).then(order_a.cmp(order_b)),
+            (Some(_), None) => std::cmp::Ordering::Less,
+            (None, Some(_)) => std::cmp::Ordering::Greater,
+            (None, None) => order_a.cmp(order_b),
+        }
+    });
+    list.into_iter().map(|(id, _)| id).collect()
+}
+
+fn collect_focusable_nodes(node_id: NodeId, ir: &CoreIR, list: &mut Vec<(NodeId, usize)>, stop_at_barriers: bool, mut order: usize) {
+    if let Some(node) = ir.nodes.get(&node_id) {
+        let mut is_barrier = false;
+        if let Op::Semantics(s) = &node.op {
+            if s.focusable && !s.disabled {
+                list.push((node_id, order));
+                order += 1;
+            }
+            is_barrier = s.is_focus_barrier;
+        }
+
+        if stop_at_barriers && is_barrier {
+             return; 
+        }
+
+        let mut children = node.children.clone();
+        // Internal sort within branches still useful for tree-order
+        children.sort_by_key(|cid| {
+            ir.nodes.get(cid).and_then(|n| {
+                if let Op::Semantics(s) = &n.op {
+                    s.focus_index
+                } else {
+                    None
+                }
+            }).unwrap_or(i32::MAX)
+        });
+
+        for child in children {
+            collect_focusable_nodes(child, ir, list, stop_at_barriers, order);
+            order = list.last().map(|(_, o)| *o + 1).unwrap_or(order);
+        }
+    }
+}
+
+fn find_parent_scope(node_id: NodeId, ir: &CoreIR) -> Option<NodeId> {
+    let mut curr = ir.nodes.get(&node_id)?.parent;
+    while let Some(pid) = curr {
+        if let Some(node) = ir.nodes.get(&pid) {
+            if let Op::Semantics(s) = &node.op {
+                if s.is_focus_scope {
+                    return Some(pid);
+                }
+            }
+            curr = node.parent;
+        } else {
+            break;
+        }
+    }
+    None
 }
 
 pub fn find_neighbor_focus_node(
     ir: &CoreIR,
     layout: &LayoutSnapshot,
-    current_focus: NodeId,
+    current: NodeId,
     direction: FocusDirection,
 ) -> Option<NodeId> {
-    let current_rect = layout.get_node_rect(current_focus)?;
-    let center = LayoutPoint::new(
+    let current_rect = layout.get_node_rect(current)?;
+    let focusable_nodes = get_all_focusable_nodes(ir);
+
+    let mut best_candidate = None;
+    let mut best_dist = f32::INFINITY;
+
+    let (cx, cy) = (
         current_rect.x() + current_rect.width() / 2.0,
         current_rect.y() + current_rect.height() / 2.0,
     );
 
-    let mut focusable_nodes = Vec::new();
-    let search_root = find_focus_search_root(ir, Some(current_focus));
-    if let Some(root) = search_root {
-        collect_focusable_nodes(root, ir, &mut focusable_nodes);
-    }
-
-    let mut best_node = None;
-    let mut best_dist = f32::MAX;
-
-    for id in focusable_nodes {
-        if id == current_focus {
+    for node_id in focusable_nodes {
+        if node_id == current {
             continue;
         }
-        if let Some(rect) = layout.get_node_rect(id) {
-            let other_center = LayoutPoint::new(
-                rect.x() + rect.width() / 2.0,
-                rect.y() + rect.height() / 2.0,
-            );
+        let rect = match layout.get_node_rect(node_id) {
+            Some(r) => r,
+            None => continue,
+        };
 
-            let dx = other_center.x - center.x;
-            let dy = other_center.y - center.y;
+        let (nx, ny) = (rect.x() + rect.width() / 2.0, rect.y() + rect.height() / 2.0);
 
-            let is_in_direction = match direction {
-                FocusDirection::Up => dy < 0.0 && dx.abs() <= rect.width(),
-                FocusDirection::Down => dy > 0.0 && dx.abs() <= rect.width(),
-                FocusDirection::Left => dx < 0.0 && dy.abs() <= rect.height(),
-                FocusDirection::Right => dx > 0.0 && dy.abs() <= rect.height(),
-            };
+        let is_in_dir = match direction {
+            FocusDirection::Up => ny < cy && (nx - cx).abs() < (ny - cy).abs(),
+            FocusDirection::Down => ny > cy && (nx - cx).abs() < (ny - cy).abs(),
+            FocusDirection::Left => nx < cx && (ny - cy).abs() < (nx - cx).abs(),
+            FocusDirection::Right => nx > cx && (ny - cy).abs() < (nx - cx).abs(),
+        };
 
-            if is_in_direction {
-                let dist = dx * dx + dy * dy;
-                if dist < best_dist {
-                    best_dist = dist;
-                    best_node = Some(id);
-                }
+        if is_in_dir {
+            let dist = (nx - cx).powi(2) + (ny - cy).powi(2);
+            if dist < best_dist {
+                best_dist = dist;
+                best_candidate = Some(node_id);
             }
         }
     }
 
-    best_node
-}
-
-fn collect_focusable_nodes(node_id: NodeId, ir: &CoreIR, list: &mut Vec<NodeId>) {
-    if let Some(node) = ir.nodes.get(&node_id) {
-        if let Op::Semantics(s) = &node.op {
-            if s.focusable {
-                list.push(node_id);
-            }
-        }
-
-        for child in &node.children {
-            collect_focusable_nodes(*child, ir, list);
-        }
-    }
+    best_candidate
 }

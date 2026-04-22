@@ -43,6 +43,8 @@ impl<S: fission_core::AppState> Widget<S> for Divider {
             c = c.height(h);
         }
 
+        c = c.flex_grow(1.0);
+
         c.into_node()
     }
 }

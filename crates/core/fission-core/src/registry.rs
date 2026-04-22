@@ -195,6 +195,7 @@ pub enum PortalLayer {
 pub struct PortalEntry {
     pub layer: PortalLayer,
     pub seq: u64,
+    pub id: Option<WidgetNodeId>,
     pub node: Node,
 }
 
@@ -246,19 +247,23 @@ impl<S: AppState> BuildCtx<S> {
     }
 
     pub fn register_portal(&mut self, node: Node) {
-        self.register_portal_with_layer(PortalLayer::Default, node);
+        self.register_portal_with_layer(PortalLayer::Default, None, node);
     }
 
-    pub fn register_portal_with_layer(&mut self, layer: PortalLayer, node: Node) {
+    pub fn register_portal_with_id(&mut self, id: WidgetNodeId, node: Node) {
+        self.register_portal_with_layer(PortalLayer::Default, Some(id), node);
+    }
+
+    pub fn register_portal_with_layer(&mut self, layer: PortalLayer, id: Option<WidgetNodeId>, node: Node) {
         let seq = self.portal_seq;
         self.portal_seq = self.portal_seq.wrapping_add(1);
-        self.portals.push(PortalEntry { layer, seq, node });
+        self.portals.push(PortalEntry { layer, seq, id, node });
     }
 
-    pub fn take_portals(&mut self) -> Vec<Node> {
+    pub fn take_portals(&mut self) -> Vec<(Option<WidgetNodeId>, Node)> {
         let mut entries = std::mem::take(&mut self.portals);
         entries.sort_by(|a, b| (a.layer, a.seq).cmp(&(b.layer, b.seq)));
-        entries.into_iter().map(|e| e.node).collect()
+        entries.into_iter().map(|e| (e.id, e.node)).collect()
     }
 
     pub fn anim_for(&mut self, target: WidgetNodeId) -> AnimCtx<'_, S> {

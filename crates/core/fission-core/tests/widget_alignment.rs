@@ -63,7 +63,7 @@ fn layout_from_node(node: Node) -> (CoreIR, fission_layout::LayoutSnapshot) {
     let mut cx = LoweringContext::new(&env, &runtime_state, Some(&measurer_ref), None);
     let root_id = node.lower(&mut cx);
     cx.ir.root = Some(root_id);
-    let input_nodes = build_layout_tree(&cx.ir);
+    let input_nodes = build_layout_tree(&cx.ir, &env);
 
     let mut engine = LayoutEngine::new().with_measurer(measurer);
     engine.rebuild(&input_nodes).unwrap();

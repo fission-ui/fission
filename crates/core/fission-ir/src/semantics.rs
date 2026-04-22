@@ -16,7 +16,7 @@ pub enum Role {
     Generic,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum ActionTrigger {
     Default, // Tap/Click
     DragStart,
@@ -27,9 +27,11 @@ pub enum ActionTrigger {
     Focus,
     Blur,
     Change, // Value change (Slider, Input)
+    CursorChange, // Caret/anchor position changed
     Drop,
     DragEnter,
     DragLeave,
+    SecondaryClick, // Right-click / secondary mouse button
 }
 
 impl Default for ActionTrigger {
@@ -38,7 +40,7 @@ impl Default for ActionTrigger {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct ActionEntry {
     pub trigger: ActionTrigger,
     pub action_id: u128,               // Raw ActionId (u128)
@@ -69,6 +71,39 @@ pub struct Semantics {
     pub drag_payload: Option<Vec<u8>>,
     pub hero_tag: Option<String>,
     pub focus_index: Option<i32>,
+    /// When true, Tab key inserts spaces instead of moving focus.
+    pub capture_tab: bool,
+    /// When true, Enter copies leading whitespace from the current line.
+    pub auto_indent: bool,
+}
+
+impl std::hash::Hash for Semantics {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.role.hash(state);
+        self.label.hash(state);
+        self.value.hash(state);
+        self.actions.hash(state);
+        self.focusable.hash(state);
+        self.multiline.hash(state);
+        self.masked.hash(state);
+        self.input_mask.hash(state);
+        self.ime_preedit_range.hash(state);
+        self.checked.hash(state);
+        self.disabled.hash(state);
+        self.draggable.hash(state);
+        self.scrollable_x.hash(state);
+        self.scrollable_y.hash(state);
+        self.min_value.map(|f| f.to_bits()).hash(state);
+        self.max_value.map(|f| f.to_bits()).hash(state);
+        self.current_value.map(|f| f.to_bits()).hash(state);
+        self.is_focus_scope.hash(state);
+        self.is_focus_barrier.hash(state);
+        self.drag_payload.hash(state);
+        self.hero_tag.hash(state);
+        self.focus_index.hash(state);
+        self.capture_tab.hash(state);
+        self.auto_indent.hash(state);
+    }
 }
 
 impl Default for Semantics {
@@ -96,16 +131,18 @@ impl Default for Semantics {
             drag_payload: None,
             hero_tag: None,
             focus_index: None,
+            capture_tab: false,
+            auto_indent: false,
         }
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
 pub struct ActionSet {
     pub entries: Vec<ActionEntry>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum InputMask {
     Numeric,
     Alphanumeric,

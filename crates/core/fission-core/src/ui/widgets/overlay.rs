@@ -39,8 +39,12 @@ impl Lower for Overlay {
         
         cx.push_scope(id);
 
-        // Build overlay child wrapped in AbsoluteFill so it layers over content.
+        // Build overlay child in its own scope to avoid ID collisions
+        // with the content tree.
+        let overlay_scope = cx.next_node_id();
+        cx.push_scope(overlay_scope);
         let overlay_child_id = self.overlay.lower(cx);
+        cx.pop_scope();
         let mut overlay_fill =
             NodeBuilder::new(cx.next_node_id(), Op::Layout(LayoutOp::AbsoluteFill));
         overlay_fill.add_child(overlay_child_id);

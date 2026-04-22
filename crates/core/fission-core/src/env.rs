@@ -5,6 +5,7 @@ use fission_layout::{LayoutPoint, LayoutSize};
 use fission_theme::Theme;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::sync::Arc;
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
 pub struct WindowInsets {
@@ -15,13 +16,51 @@ pub struct WindowInsets {
 }
 
 // Static environment data (Theme, I18n)
-#[derive(Clone, Debug, Default)]
+#[derive(Clone)]
 pub struct Env {
     pub theme: Theme,
     pub i18n: I18nRegistry,
     pub locale: Locale,
     pub window_insets: WindowInsets,
     pub viewport_size: LayoutSize,
+    pub measurer: Option<Arc<dyn fission_layout::TextMeasurer>>,
+}
+
+impl Default for Env {
+    fn default() -> Self {
+        Self {
+            theme: Theme::default(),
+            i18n: I18nRegistry::new(),
+            locale: Locale::default(),
+            window_insets: WindowInsets::default(),
+            viewport_size: LayoutSize::default(),
+            measurer: None,
+        }
+    }
+}
+
+impl std::fmt::Debug for Env {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Env")
+            .field("theme", &self.theme)
+            .field("locale", &self.locale)
+            .field("window_insets", &self.window_insets)
+            .field("viewport_size", &self.viewport_size)
+            .finish()
+    }
+}
+
+impl Env {
+    pub fn new(measurer: Arc<dyn fission_layout::TextMeasurer>) -> Self {
+        Self {
+            theme: Theme::default(),
+            i18n: I18nRegistry::new(),
+            locale: Locale::default(),
+            window_insets: WindowInsets::default(),
+            viewport_size: LayoutSize::default(),
+            measurer: Some(measurer),
+        }
+    }
 }
 
 pub trait Clipboard: Send + Sync {
@@ -63,6 +102,7 @@ pub struct GestureState {
     pub is_panning: bool,
     pub target_node: Option<NodeId>,
     pub dragging_payload: Option<Vec<u8>>,
+    pub pressed_button: Option<crate::event::PointerButton>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -109,6 +149,10 @@ pub struct TextEditState {
     pub history: TextEditHistory, // NEW
     pub last_value: String,       // Store last committed value here for history snapshots
     pub pending_model_sync: bool, // True when edits are newer than the currently lowered semantics value
+    /// Last cursor position that was dispatched as a CursorChanged action.
+    /// Used to deduplicate dispatches and prevent unnecessary model updates
+    /// that could cause extra rebuild cycles.
+    pub last_dispatched_cursor: Option<(usize, usize)>,
 }
 
 impl Default for TextEditState {
@@ -119,6 +163,7 @@ impl Default for TextEditState {
             history: TextEditHistory::default(),
             last_value: String::new(),
             pending_model_sync: false,
+            last_dispatched_cursor: None,
         }
     }
 }

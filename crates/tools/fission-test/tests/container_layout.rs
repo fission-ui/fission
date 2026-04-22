@@ -21,15 +21,18 @@ fn test_container_background_fills_border_box() {
     struct Root { p: f32, w: f32, h: f32 }
     impl Widget<State> for Root {
         fn build(&self, _ctx: &mut BuildCtx<State>, _view: &View<State>) -> Node {
-            Container::new(
-                // Content: Large box
-                Container::new(fission_core::ui::widgets::spacer::Spacer::default().into_node())
-                    .width(200.0).height(200.0).bg(Color::BLUE).into_node()
-            )
-            // Auto size
-            .padding_all(self.p)
-            .bg(Color::RED) // The background
-            .into_node()
+            // Use Align to prevent stretching the test container
+            fission_core::ui::widgets::align::Align::new(
+                Container::new(
+                    // Content: Large box
+                    Container::new(fission_core::ui::widgets::spacer::Spacer::default().into_node())
+                        .width(200.0).height(200.0).bg(Color::BLUE).into_node()
+                )
+                // Auto size
+                .padding_all(self.p)
+                .bg(Color::RED) // The background
+                .into_node()
+            ).into_node()
         }
     }
 
@@ -40,16 +43,19 @@ fn test_container_background_fills_border_box() {
     let ir = h.last_ir.as_ref().unwrap();
     let snap = h.last_snapshot.as_ref().unwrap();
     
-    let root_id = ir.root.unwrap();
-    let root_geom = snap.get_node_geometry(root_id).unwrap();
+    let real_root_id = ir.root.unwrap();
+    let root_node = ir.nodes.get(&real_root_id).unwrap();
+    let container_id = root_node.children[0]; // Child of Align
+    
+    let container_geom = snap.get_node_geometry(container_id).unwrap();
     
     // Expected: 200 + 10 + 10 = 220
-    println!("Container Rect: {:?}", root_geom.rect);
-    assert_eq!(root_geom.rect.width(), 220.0);
-    assert_eq!(root_geom.rect.height(), 220.0);
+    println!("Container Rect: {:?}", container_geom.rect);
+    assert_eq!(container_geom.rect.width(), 220.0);
+    assert_eq!(container_geom.rect.height(), 220.0);
 
-    let root_node = ir.nodes.get(&root_id).unwrap();
-    let bg_id = root_node.children[0];
+    let container_node = ir.nodes.get(&container_id).unwrap();
+    let bg_id = container_node.children[0];
     let bg_geom = snap.get_node_geometry(bg_id).unwrap();
     
     println!("Background Rect: {:?}", bg_geom.rect);

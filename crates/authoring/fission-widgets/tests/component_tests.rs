@@ -104,7 +104,7 @@ fn test_popover_without_on_close_does_not_add_backdrop_layer() {
         "popover should register one flyout portal"
     );
     assert!(
-        matches!(portals[0], Node::Custom(_)),
+        matches!(portals[0].1, Node::Custom(_)),
         "popover without on_close should register only flyout content, not a full-screen backdrop"
     );
 }
@@ -137,7 +137,7 @@ fn test_popover_with_on_close_adds_backdrop_layer() {
     let portals = ctx.take_portals();
     assert_eq!(portals.len(), 1, "popover should register one portal");
     assert!(
-        matches!(portals[0], Node::ZStack(_)),
+        matches!(portals[0].1, Node::ZStack(_)),
         "popover with on_close should include the backdrop + flyout stack"
     );
 }

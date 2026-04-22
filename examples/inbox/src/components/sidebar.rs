@@ -18,7 +18,6 @@ impl Widget<InboxState> for Sidebar {
                 .map(|s| s.to_string())
                 .unwrap_or_else(|| key.to_string())
         };
-        // ... (routes logic if any) ...
         
         let select_folder_id = ctx.bind(SelectFolder(Folder::Inbox), (|s: &mut InboxState, a: SelectFolder, _| {
             let path = match a.0 {
@@ -34,11 +33,15 @@ impl Widget<InboxState> for Sidebar {
         }) as Handler<InboxState, SelectFolder>).id;
 
         Container::new(
-            VStack {
-                spacing: Some(10.0),
+            fission_core::ui::Scroll {
+                direction: fission_ir::op::FlexDirection::Column,
+                show_scrollbar: false,
+                flex_grow: 1.0,
+                flex_shrink: 1.0,
+                child: Some(Box::new(VStack {
+                spacing: Some(6.0),
                 children: vec![
-                    Text { content: TextContent::Key("app.title".into()), font_size: Some(32.0), ..Default::default() }.into_node(),
-                    fission_core::ui::widgets::Spacer { height: Some(16.0), ..Default::default() }.into_node(),
+                    Text { content: TextContent::Key("app.title".into()), font_size: Some(22.0), ..Default::default() }.into_node(),
 
                     Button {
                         variant: ButtonVariant::Filled,
@@ -121,37 +124,9 @@ impl Widget<InboxState> for Sidebar {
                         ],
                     }.build(ctx, view),
                     
-                    Button {
-                        variant: ButtonVariant::Ghost,
-                        child: Some(Box::new(
-                            HStack {
-                                spacing: Some(12.0),
-                                children: vec![
-                                    Icon::svg(fission_icons::material::action::language::regular()).size(18.0).into_node(),
-                                    Text::new(t("nav.browser_demo")).size(14.0).flex_grow(1.0).into_node(),
-                                ]
-                            }.into_node()
-                        )),
-                        content_align: ButtonContentAlign::Start,
-                        on_press: Some(ctx.bind(ToggleBrowserDemo(true), (|s: &mut InboxState, a, _| s.show_browser_demo = a.0) as Handler<InboxState, ToggleBrowserDemo>)),
-                        ..Default::default()
-                    }.into_node(),
 
-                    fission_core::ui::widgets::Spacer { flex_grow: 1.0, ..Default::default() }.into_node(),
-                    
                     Divider { orientation: fission_widgets::divider::Orientation::Horizontal }.build(ctx, view),
 
-                    Text::new(t("storage.title")).size(12.0).color(tokens.colors.text_secondary).into_node(),
-                    ProgressBar {
-                        value: view.state.storage_usage,
-                        ..Default::default()
-                    }.build(ctx, view),
-                    fission_core::ui::widgets::Spacer { height: Some(4.0), ..Default::default() }.into_node(),
-                    Link {
-                        text: t("storage.manage"),
-                        on_click: None,
-                    }.build(ctx, view),
-                    
                     Button {
                         variant: ButtonVariant::Ghost,
                         child: Some(Box::new(Text::new(t("nav.contacts")).size(14.0).into_node())),
@@ -169,9 +144,12 @@ impl Widget<InboxState> for Sidebar {
                     }.into_node(),
                 ],
             }.build(ctx, view)
+            )),
+            ..Default::default()
+            }.into_node()
         )
         .bg(tokens.colors.surface)
-        .padding_all(16.0)
+        .padding_all(8.0)
         .into_node()
     }
 }

@@ -73,7 +73,8 @@ impl<S: fission_core::AppState> Widget<S> for SplitView {
 
         let mut line_container =
             Container::new(fission_core::ui::widgets::Spacer::default().into_node())
-                .bg(tokens.colors.border);
+                .bg(tokens.colors.border)
+                .flex_grow(1.0);
 
         if let Some(w) = line_w {
             line_container = line_container.width(w);
@@ -87,7 +88,8 @@ impl<S: fission_core::AppState> Widget<S> for SplitView {
             g: 0,
             b: 0,
             a: 0,
-        }); // Transparent hit area
+        }) // Transparent hit area
+        .flex_shrink(0.0);
 
         if let Some(w) = width {
             handle = handle.width(w);

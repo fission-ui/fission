@@ -71,7 +71,19 @@ fn flyout_does_not_shift_content() -> Result<()> {
         let view = View::new(state, &runtime.runtime_state, &env, pipe.last_snapshot.as_ref());
         let mut ctx = BuildCtx::new();
         let node = Root.build(&mut ctx, &view);
-        (node, ctx.take_portals())
+        let portals_with_ids = ctx.take_portals();
+        let portals: Vec<Node> = portals_with_ids
+            .into_iter()
+            .map(|(id, node)| {
+                if let Some(id) = id {
+                    fission_core::ui::Container::new(node).id(id.into()).into_node()
+                } else {
+                    node
+                }
+
+            })
+            .collect();
+        (node, portals)
     };
 
     let mut cx = LoweringContext::new(&env, &runtime.runtime_state, None, None);
@@ -88,6 +100,7 @@ fn flyout_does_not_shift_content() -> Result<()> {
         &mut MockRenderer,
         &runtime.runtime_state.video,
         &runtime.runtime_state.web,
+        &env,
     )?;
     let snap1 = pipe.last_snapshot.clone().expect("snapshot1");
 
@@ -105,7 +118,19 @@ fn flyout_does_not_shift_content() -> Result<()> {
             let view = View::new(state, &runtime.runtime_state, &env, pipe.last_snapshot.as_ref());
             let mut ctx = BuildCtx::new();
             let node = Root.build(&mut ctx, &view);
-            (node, ctx.take_portals())
+            let portals_with_ids = ctx.take_portals();
+            let portals: Vec<Node> = portals_with_ids
+                .into_iter()
+                .map(|(id, node)| {
+                    if let Some(id) = id {
+                        fission_core::ui::Container::new(node).id(id.into()).into_node()
+                    } else {
+                        node
+                    }
+
+                })
+                .collect();
+            (node, portals)
         };
 
         let final_root = if portals.is_empty() {
@@ -115,7 +140,10 @@ fn flyout_does_not_shift_content() -> Result<()> {
             Node::Overlay(Overlay {
                 id: None,
                 content: Box::new(node_tree),
-                overlay: Box::new(Node::ZStack(ZStack { children: portals, ..Default::default() })),
+                overlay: Box::new(Node::ZStack(ZStack {
+                    children: portals,
+                    ..Default::default()
+                })),
             })
         };
 
@@ -132,6 +160,7 @@ fn flyout_does_not_shift_content() -> Result<()> {
             &mut MockRenderer,
             &runtime.runtime_state.video,
             &runtime.runtime_state.web,
+            &env,
         )?;
         let snap2 = pipe.last_snapshot.clone().expect("snapshot2");
 

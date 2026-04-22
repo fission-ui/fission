@@ -75,7 +75,7 @@ impl Lower for FocusScope {
             is_focus_barrier: self.is_barrier,
             drag_payload: None,
             hero_tag: None,
-            focus_index: None,
+            focus_index: None, capture_tab: false, auto_indent: false,
         };
 
         let mut node = NodeBuilder::new(id, Op::Semantics(semantics));

@@ -21,6 +21,7 @@ pub struct GestureDetector {
     pub on_hover_enter: Option<ActionEnvelope>,
     pub on_hover_exit: Option<ActionEnvelope>,
     pub on_drop: Option<ActionEnvelope>,
+    pub on_secondary_click: Option<ActionEnvelope>,
     pub on_drag_enter: Option<ActionEnvelope>, // Drag over
     pub on_drag_leave: Option<ActionEnvelope>,
     pub drag_payload: Option<Vec<u8>>,
@@ -34,6 +35,7 @@ impl Default for GestureDetector {
             on_tap: None,
             on_double_tap: None,
             on_long_press: None,
+            on_secondary_click: None,
             on_drag_start: None,
             on_drag_update: None,
             on_drag_end: None,
@@ -90,7 +92,7 @@ impl Lower for GestureDetector {
             is_focus_barrier: false,
             drag_payload: self.drag_payload.clone(),
             hero_tag: None,
-            focus_index: None,
+            focus_index: None, capture_tab: false, auto_indent: false,
         };
 
         if let Some(a) = &self.on_tap {
@@ -100,7 +102,15 @@ impl Lower for GestureDetector {
                 payload_data: Some(a.payload.clone()),
             });
         }
-        
+
+        if let Some(a) = &self.on_secondary_click {
+            semantics.actions.entries.push(ActionEntry {
+                trigger: ActionTrigger::SecondaryClick,
+                action_id: a.id.as_u128(),
+                payload_data: Some(a.payload.clone()),
+            });
+        }
+
         if let Some(a) = &self.on_drag_start {
             semantics.actions.entries.push(ActionEntry {
                 trigger: ActionTrigger::DragStart,

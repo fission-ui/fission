@@ -42,10 +42,15 @@ impl<S: fission_core::AppState> Widget<S> for ProgressBar {
         }
         .into_node();
 
-        fission_core::ui::ZStack {
-            children: vec![track, bar_grid],
-            ..Default::default()
-        }
+        Container::new(
+            fission_core::ui::ZStack {
+                children: vec![track, bar_grid],
+                ..Default::default()
+            }
+            .into_node(),
+        )
+        .height(theme.height)
+        .flex_grow(1.0)
         .into_node()
     }
 }

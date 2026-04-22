@@ -270,7 +270,7 @@ impl Lower for Slider {
             is_focus_barrier: false,
             drag_payload: None,
             hero_tag: None,
-            focus_index: None,
+            focus_index: None, capture_tab: false, auto_indent: false,
         };
         
         if let Some(action) = &self.on_change {

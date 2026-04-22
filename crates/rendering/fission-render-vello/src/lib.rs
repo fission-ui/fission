@@ -62,22 +62,23 @@ fn parse_svg_entry(content: &str) -> SvgCacheEntry {
     };
 
     let mut shapes = Vec::new();
-    let mut cursor = 0;
-    while let Some(start_bracket) = content[cursor..].find('<') {
-        let abs_start = cursor + start_bracket;
-        let Some(end_bracket) = content[abs_start..].find('>') else {
-            break;
-        };
-        let tag_content = &content[abs_start + 1..abs_start + end_bracket];
-        cursor = abs_start + end_bracket + 1;
+    
+    // Use regex-like manual parsing for robustness
+    let path_regex = "d=\"";
+    let rect_regex = "<rect";
+    let poly_regex = "<polygon";
 
-        let tag_name = tag_content.split_whitespace().next().unwrap_or("");
+    // Re-implemented parsing using tag-based split for more reliability
+    for tag in content.split('<').skip(1) {
+        let tag = tag.split('>').next().unwrap_or("");
+        let tag_name = tag.split_whitespace().next().unwrap_or("");
 
         if tag_name == "path" {
-            if let Some(d_start) = tag_content.find("d=\"") {
-                let after_d = &tag_content[d_start + 3..];
+            if let Some(d_start) = tag.find(path_regex) {
+                let after_d = &tag[d_start + 3..];
                 if let Some(d_end) = after_d.find('\"') {
                     let mut d = after_d[..d_end].to_string();
+                    // Clean known bounding boxes
                     d = d.replace("M0 0h24v24H0z", "");
                     d = d.replace("M0 0h24v24H0V0z", "");
                     d = d.replace("M0,0h24v24H0V0z", "");
@@ -89,30 +90,25 @@ fn parse_svg_entry(content: &str) -> SvgCacheEntry {
                 }
             }
         } else if tag_name == "rect" {
-            if tag_content.contains("fill=\"none\"") {
-                continue;
-            }
             let parse_attr = |name: &str| -> f64 {
-                if let Some(pos) = tag_content.find(&format!("{}=\"", name)) {
-                    let after = &tag_content[pos + name.len() + 2..];
+                if let Some(pos) = tag.find(&format!("{}=\"", name)) {
+                    let after = &tag[pos + name.len() + 2..];
                     if let Some(end) = after.find('\"') {
                         return after[..end].parse().unwrap_or(0.0);
                     }
                 }
                 0.0
             };
-
             let x = parse_attr("x");
             let y = parse_attr("y");
             let w = parse_attr("width");
             let h = parse_attr("height");
             if w > 0.0 && h > 0.0 {
-                let rect = Rect::new(x, y, x + w, y + h);
-                shapes.push(SvgShape::Rect(RoundedRect::from_rect(rect, 0.0)));
+                shapes.push(SvgShape::Rect(RoundedRect::from_rect(Rect::new(x, y, x + w, y + h), 0.0)));
             }
         } else if tag_name == "polygon" {
-            if let Some(p_start) = tag_content.find("points=\"") {
-                let after = &tag_content[p_start + 8..];
+            if let Some(p_start) = tag.find("points=\"") {
+                let after = &tag[p_start + 8..];
                 if let Some(end) = after.find('\"') {
                     let points_str = &after[..end];
                     let nums: Vec<f64> = points_str
@@ -120,7 +116,7 @@ fn parse_svg_entry(content: &str) -> SvgCacheEntry {
                         .filter(|s| !s.is_empty())
                         .filter_map(|s| s.parse().ok())
                         .collect();
-                    if nums.len() >= 2 {
+                    if nums.len() >= 4 {
                         let mut bez = BezPath::new();
                         bez.move_to((nums[0], nums[1]));
                         for i in (2..nums.len()).step_by(2) {
@@ -282,13 +278,13 @@ impl<'a> VelloRenderer<'a> {
 
         // Slow path for rich text
         let layout = self.measurer.layout_rich(
-            text, 
-            base_size, 
-            base_color, 
-            styles, 
+            text,
+            base_size,
+            base_color,
+            styles,
             if bounds.width() > 0.0 { Some(bounds.width() as f32) } else { None }
         );
-        
+
         // Draw Glyphs for rich text (uses brushes from layout)
         for line in layout.lines() {
             for item in line.items() {
@@ -299,7 +295,35 @@ impl<'a> VelloRenderer<'a> {
                     let font_size = run.font_size();
                     let brush_data = style.brush.clone();
                     let color = Color::from_rgba8(brush_data.0[0], brush_data.0[1], brush_data.0[2], brush_data.0[3]);
-                    
+
+                    // Draw background highlight rect if any style in range has background_color
+                    let run_text_range = run.text_range();
+                    for (range, s) in styles.iter() {
+                        if let Some(bg) = &s.background_color {
+                            // Check overlap between glyph run range and style range
+                            let overlap_start = range.start.max(run_text_range.start);
+                            let overlap_end = range.end.min(run_text_range.end);
+                            if overlap_start < overlap_end {
+                                let metrics = line.metrics();
+                                let line_height = metrics.line_height.max(metrics.ascent + metrics.descent).max(1.0);
+                                let top_y = metrics.baseline - metrics.ascent;
+                                let bg_color = Color::from_rgba8(bg.r, bg.g, bg.b, bg.a);
+                                let x0 = position.x as f64 + glyph_run.offset() as f64;
+                                let x1 = x0 + glyph_run.advance() as f64;
+                                let y0 = position.y as f64 + top_y as f64;
+                                let bg_rect = Rect::new(x0, y0, x1, y0 + line_height as f64);
+                                self.scene.fill(
+                                    Fill::NonZero,
+                                    self.current_transform,
+                                    bg_color,
+                                    None,
+                                    &bg_rect,
+                                );
+                                break; // Only draw one background per glyph run
+                            }
+                        }
+                    }
+
                     let mut x = glyph_run.offset();
                     let y = glyph_run.baseline();
 
@@ -313,7 +337,7 @@ impl<'a> VelloRenderer<'a> {
                             y: gy,
                         }
                     });
-                    
+
                     self.scene.draw_glyphs(font)
                         .font_size(font_size)
                         .transform(self.current_transform * Affine::translate((position.x as f64, position.y as f64)))

@@ -1,10 +1,7 @@
-use crate::stack::VStack;
-use crate::{Icon, Portal};
 use fission_core::op::{BoxShadow, Color};
 use fission_core::ui::{Container, GestureDetector, Node, ZStack};
 use fission_core::{
-    ActionEnvelope, AnimationPropertyId, AnimationRequest, AnimationStartValue, BuildCtx, NodeId,
-    View, Widget, WidgetNodeId,
+    ActionEnvelope, BuildCtx, View, Widget, WidgetNodeId,
 };
 use serde::{Deserialize, Serialize};
 
@@ -101,22 +98,7 @@ impl<S: fission_core::AppState> Widget<S> for Drawer {
         }
         .into_node();
 
-        // Animation Hook
-        let anim_prop = AnimationPropertyId::TranslateX;
-        let target_x = 0.0;
-        let start_x = match self.side {
-            DrawerSide::Left => -width,
-            DrawerSide::Right => width,
-        };
-
-        // Trigger animation if newly opened?
-        // We don't track "prev_is_open" easily here without extra state.
-        // But we can request animation to 0.0. If already 0.0, it does nothing?
-        // Actually `ctx.anim_for(...).request(...)` queues it.
-        // If we queue it every frame, it might restart or continue.
-        // Fission Animation system handles "current value" start.
-
-        // For now, static placement (no slide animation) to ensure correctness first.
+        // TODO: slide animation for drawer open/close
 
         let root = ZStack {
             children: vec![
@@ -144,7 +126,7 @@ impl<S: fission_core::AppState> Widget<S> for Drawer {
             ..Default::default()
         }
         .into_node();
-        ctx.register_portal_with_layer(fission_core::PortalLayer::Modal, overlay_root);
+        ctx.register_portal_with_layer(fission_core::PortalLayer::Modal, Some(self.id), overlay_root);
 
         fission_core::ui::widgets::Spacer::default().into_node()
     }

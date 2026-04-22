@@ -22,6 +22,7 @@ fission-i18n = { version = "0.1.0", path = "../../crates/core/fission-i18n" }
 
 [dev-dependencies]
 fission-test = { path = "../../crates/tools/fission-test" }
+fission-test-driver = { path = "../../crates/tools/fission-test-driver" }
 
 [profile.release]
 strip = true

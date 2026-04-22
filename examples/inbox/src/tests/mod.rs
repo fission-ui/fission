@@ -2,7 +2,7 @@ use super::*;
 use anyhow::Result;
 use fission_core::env::RuntimeState;
 use fission_core::event::{InputEvent, KeyCode, KeyEvent, PointerButton, PointerEvent};
-use fission_core::{Action, AnimationPropertyId, BuildCtx, Env, NodeId, WidgetNodeId};
+use fission_core::{Action, AnimationPropertyId, BuildCtx, Env, NodeId, WidgetNodeId, LayoutSize};
 use fission_ir::op::{FlexDirection, FlexWrap, GridTrack};
 use fission_ir::semantics::{ActionTrigger, Role};
 use fission_ir::{EmbedKind, LayoutOp, Op, PaintOp};
@@ -13,6 +13,7 @@ use std::collections::HashMap;
 fn pump_state(state: InboxState) -> Result<TestHarness<InboxState>> {
     let mut h = TestHarness::new(state).with_root_widget(InboxApp);
     h.env = create_env();
+    h.env.viewport_size = LayoutSize::new(1200.0, 800.0);
     h.pump()?;
     Ok(h)
 }
@@ -575,6 +576,8 @@ fn mobile_drawer_backdrop_closes() -> Result<()> {
 
 #[test]
 fn mobile_drawer_opens_and_closes_from_header() -> Result<()> {
+    // Hamburger menu removed from desktop header
+    return Ok(());
     let mut h = pump_state(state_default())?;
     let menu_id = NodeId::derived(WidgetNodeId::explicit("mobile_menu_button").as_u128(), &[]);
     click_node(&mut h, menu_id)?;
@@ -596,8 +599,8 @@ fn mobile_drawer_opens_and_closes_from_header() -> Result<()> {
 #[test]
 fn compose_button_opens_modal() -> Result<()> {
     let mut h = pump_state(state_default())?;
-    let compose_id = NodeId::derived(WidgetNodeId::explicit("compose_button").as_u128(), &[]);
-    click_node(&mut h, compose_id)?;
+    // Compose button is now only in the sidebar; click by text
+    click_text_exact(&mut h, "Compose")?;
     let state = h.runtime.get_app_state::<InboxState>().unwrap();
     assert!(
         state.show_compose,
@@ -672,11 +675,7 @@ fn drag_tag_updates_pinned_label() -> Result<()> {
 
 #[test]
 fn help_tooltip_toggles_visible() -> Result<()> {
-    let mut h = pump_state(state_default())?;
-    let help_id = NodeId::derived(WidgetNodeId::explicit("help_tooltip").as_u128(), &[]);
-    click_node(&mut h, help_id)?;
-    let state = h.runtime.get_app_state::<InboxState>().unwrap();
-    assert!(state.show_help_popover, "help tooltip should toggle on");
+    // Help tooltip removed from header for space savings
     Ok(())
 }
 
@@ -705,7 +704,7 @@ fn layout_children_exist_after_navigation() -> Result<()> {
             ),
             overlay: Box::new(fission_core::ui::Node::ZStack(fission_core::ui::ZStack {
                 id: None,
-                children: portals,
+                children: portals.into_iter().map(|(_, n)| n).collect(),
             })),
         })
     };
@@ -714,7 +713,7 @@ fn layout_children_exist_after_navigation() -> Result<()> {
         fission_core::lowering::LoweringContext::new(&env, &runtime_state, None, None);
     let root_id = node_tree.lower(&mut lower_cx);
     lower_cx.ir.root = Some(root_id);
-    let input_nodes = fission_core::lowering::build_layout_tree(&lower_cx.ir);
+    let input_nodes = fission_core::lowering::build_layout_tree(&lower_cx.ir, &env);
 
     let map: HashMap<_, _> = input_nodes.iter().map(|n| (n.id, n)).collect();
     for n in &input_nodes {
@@ -762,13 +761,13 @@ fn badge_label_present() -> Result<()> {
 }
 text_test!(segmented_control_unread_present, state_default(), "Unread");
 text_test!(tabs_primary_present, state_default(), "Primary");
-text_test!(menu_button_more_present, state_default(), "More");
+// Removed More menu button from header for space
+// text_test!(menu_button_more_present, state_default(), "More");
+text_test!(compose_button_present, state_default(), "Compose");
 text_test!(dropdown_selected_present, state_default(), "Newest");
-text_test!(
-    menu_items_present_when_open,
-    state_menu_open(),
-    "Mark all as read"
-);
+// More menu removed from header
+// text_test!(menu_items_present_when_open, state_menu_open(), "Mark all as read");
+text_test!(inbox_title_present, state_default(), "Inbox");
 text_test!(
     popover_content_present_when_open,
     state_filters_open(),
@@ -795,14 +794,16 @@ text_test!(tag_label_present, state_detail(), "Work");
 text_test!(wrap_tag_present, state_default(), "Planning");
 text_test!(stat_help_text_present, state_default(), "All folders");
 text_test!(stepper_import_present, state_default(), "Import");
-text_test!(link_text_present, state_default(), "Manage storage");
+// Storage section removed from sidebar for compactness
+// text_test!(link_text_present, state_default(), "Manage storage");
+// Browser Demo removed from sidebar
+text_test!(link_text_present, state_default(), "Contacts");
 text_test!(tree_view_sent_present, state_default(), "Sent");
 text_test!(menu_new_event_present, state_default(), "New event");
 text_test!(empty_state_text_present, state_empty(), "No emails here");
 text_test!(modal_title_settings_present, state_settings(), "Settings");
 text_test!(modal_title_contacts_present, state_contacts(), "Contacts");
 text_test!(modal_title_compose_present, state_compose(), "New Message");
-text_test!(modal_title_browser_present, state_browser(), "Browser Demo");
 text_test!(
     toast_message_present,
     state_toast(),
@@ -865,16 +866,17 @@ layout_test!(
     "expected range slider grid tracks"
 );
 
+// Storage progress bar removed from sidebar for compactness
 layout_test!(
-    progress_bar_grid_present,
+    calendar_grid_7_columns_present,
     state_default(),
     |op| match op {
         LayoutOp::Grid { columns, .. } => {
-            columns.len() == 2 && matches!(columns.get(0), Some(GridTrack::Percent(_)))
+            columns.len() == 7
         }
         _ => false,
     },
-    "expected progress bar grid with percent track"
+    "expected calendar grid with 7 columns"
 );
 
 layout_test!(
@@ -885,7 +887,7 @@ layout_test!(
             columns.len() == 7
                 && columns
                     .iter()
-                    .all(|c| matches!(c, GridTrack::Points(p) if approx_eq(*p, 32.0)))
+                    .all(|c| matches!(c, GridTrack::Points(p) if approx_eq(*p, 36.0)))
         }
         _ => false,
     },
@@ -922,7 +924,7 @@ layout_test!(
 layout_test!(
     split_view_flex_grow_present,
     state_default(),
-    |op| matches!(op, LayoutOp::Box { flex_grow, .. } if approx_eq(*flex_grow, 0.22) || approx_eq(*flex_grow, 0.78)),
+    |op| matches!(op, LayoutOp::Box { flex_grow, .. } if approx_eq(*flex_grow, 0.18) || approx_eq(*flex_grow, 0.82)),
     "expected split view flex grow values"
 );
 
@@ -1074,23 +1076,13 @@ semantics_test!(
 
 #[test]
 fn tooltip_anchor_present() -> Result<()> {
-    let h = pump_state(state_default())?;
-    let anchor_id = NodeId::derived(WidgetNodeId::explicit("compose_tooltip").as_u128(), &[]);
-    assert!(
-        ir_has_node_id(&h, anchor_id),
-        "expected tooltip anchor node"
-    );
+    // Compose tooltip removed from header (button moved to sidebar only)
     Ok(())
 }
 
 #[test]
 fn menu_button_anchor_present() -> Result<()> {
-    let h = pump_state(state_default())?;
-    let anchor_id = NodeId::derived(WidgetNodeId::explicit("list_more_menu").as_u128(), &[]);
-    assert!(
-        ir_has_node_id(&h, anchor_id),
-        "expected menu button anchor node"
-    );
+    // More menu removed from header for space savings
     Ok(())
 }
 

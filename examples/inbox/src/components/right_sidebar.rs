@@ -1,7 +1,7 @@
-use fission_core::{BuildCtx, View, Widget, Handler};
+use fission_core::{BuildCtx, View, Widget, Handler, WidgetNodeId};
 use fission_core::ui::{Container, Node, Text, TextContent, Button, ButtonVariant, Row, Column, Switch};
 use fission_widgets::{
-    VStack, HStack, Card, Icon, Calendar, Menu, MenuItem, Stat, Stepper,
+    VStack, HStack, Card, Icon, Calendar, Menu, MenuItem, Stat, Stepper, Spinner, Skeleton
 };
 use crate::model::{InboxState, Folder, SetMeetCameraOn, SetMeetMicOn, SetCalendarSelected, ShowToast};
 use fission_icons::material;
@@ -70,14 +70,33 @@ impl Widget<InboxState> for RightSidebar {
         }.build(ctx, view);
 
         Container::new(
-            Column {
+            fission_core::ui::Scroll {
+                direction: fission_ir::op::FlexDirection::Column,
+                show_scrollbar: false,
+                flex_grow: 1.0,
+                flex_shrink: 1.0,
+                child: Some(Box::new(Column {
                 children: vec![
                     Card {
                         child: Box::new(
                             Row {
                                 gap: Some(12.0),
                                 children: vec![
-                                    Icon::svg(material::action::check_circle::regular()).size(20.0).color(tokens.colors.primary).into_node(),
+                                    VStack {
+                                        spacing: Some(4.0),
+                                        children: vec![
+                                            Spinner {
+                                                id: WidgetNodeId::explicit("sync_spinner"),
+                                                color: Some(tokens.colors.primary),
+                                            }.build(ctx, view),
+                                            Skeleton {
+                                                id: WidgetNodeId::explicit("sync_skeleton"),
+                                                width: Some(20.0),
+                                                height: Some(4.0),
+                                                circle: false,
+                                            }.build(ctx, view),
+                                        ],
+                                    }.into_node(),
                                     VStack {
                                         spacing: Some(4.0),
                                         children: vec![
@@ -182,6 +201,23 @@ impl Widget<InboxState> for RightSidebar {
                                 children: vec![
                                     Text::new(TextContent::Key("quick.mailbox_stats".into())).size(16.0).into_node(),
                                     HStack {
+                                        spacing: Some(16.0),
+                                        children: vec![
+                                            fission_widgets::CircularProgress {
+                                                value: Some(0.65),
+                                                size: 40.0,
+                                                ..Default::default()
+                                            }.build(ctx, view),
+                                            VStack {
+                                                spacing: Some(2.0),
+                                                children: vec![
+                                                    Text::new("65%").size(16.0).into_node(),
+                                                    Text::new(t("quick.unread")).size(12.0).color(tokens.colors.text_secondary).into_node(),
+                                                ],
+                                            }.into_node(),
+                                        ],
+                                    }.into_node(),
+                                    HStack {
                                         spacing: Some(8.0),
                                         children: vec![
                                             Container::new(Stat { label: t("quick.unread"), value: unread_total.to_string(), help_text: Some(t("quick.in_inbox")) }.build(ctx, view))
@@ -216,9 +252,12 @@ impl Widget<InboxState> for RightSidebar {
                 ],
                 ..Default::default()
             }.into_node()
+            )),
+            ..Default::default()
+            }.into_node()
         )
-        .padding_all(16.0)
-        .width(300.0)
+        .padding_all(8.0)
+        .width(240.0)
         .bg(tokens.colors.surface)
         .into_node()
     }

@@ -37,7 +37,7 @@ fn test_semantics_serialization() {
         is_focus_barrier: false,
         drag_payload: None,
         hero_tag: None,
-        focus_index: None,
+        focus_index: None, capture_tab: false, auto_indent: false,
     };
 
     // Just verify it compiles and runs; exact serde format isn't critical yet, but capability is.

@@ -23,6 +23,22 @@ pub struct TextInput {
     pub obscure_text: bool,
     pub obscuring_character: char,
     pub mask: Option<fission_ir::semantics::InputMask>,
+    /// Pre-styled text runs for syntax highlighting. When provided and no selection
+    /// is active, these runs are used instead of the default single-color rendering.
+    /// The concatenated text of all runs MUST match `value` exactly.
+    pub styled_runs: Option<Vec<fission_ir::op::TextRun>>,
+    /// When true, skip drawing the background rect and border (for embedding in editors).
+    pub borderless: bool,
+    /// When true, the Tab key inserts a tab/spaces instead of moving focus.
+    pub capture_tab: bool,
+    /// When true, pressing Enter copies the leading whitespace of the current line.
+    pub auto_indent: bool,
+    /// Optional callback fired when the caret/anchor position changes.
+    /// The payload carries the new (caret, anchor) byte offsets.
+    pub on_cursor_change: Option<ActionEnvelope>,
+    /// Ranges to highlight in the text, e.g. for find-match highlighting.
+    /// Each entry is (start_byte, end_byte, color).
+    pub highlight_ranges: Vec<(usize, usize, IrColor)>,
 }
 
 impl TextInput {
@@ -51,6 +67,12 @@ impl Default for TextInput {
             obscure_text: false,
             obscuring_character: '•',
             mask: None,
+            styled_runs: None,
+            borderless: false,
+            capture_tab: false,
+            auto_indent: false,
+            on_cursor_change: None,
+            highlight_ranges: Vec::new(),
         }
     }
 }
@@ -84,19 +106,23 @@ impl Lower for TextInput {
             None
         };
 
-        // 1. Background
-        let background_id = NodeBuilder::new(
-            cx.next_node_id(),
-            Op::Paint(PaintOp::DrawRect {
-                fill: Some(Fill { color: tokens.colors.background }), 
-                stroke: Some(Stroke {
-                    color: border_color, 
-                    width: border_width 
-                }),
-                corner_radius: theme.radius,
-                shadow: None,
-            })
-        ).build(cx);
+        // 1. Background (skipped in borderless mode)
+        let background_id = if self.borderless {
+            None
+        } else {
+            Some(NodeBuilder::new(
+                cx.next_node_id(),
+                Op::Paint(PaintOp::DrawRect {
+                    fill: Some(Fill { color: tokens.colors.background }),
+                    stroke: Some(Stroke {
+                        color: border_color,
+                        width: border_width
+                    }),
+                    corner_radius: theme.radius,
+                    shadow: None,
+                })
+            ).build(cx))
+        };
 
         // 2. Text Preparation
         let preedit_text = if is_focused {
@@ -130,36 +156,88 @@ impl Lower for TextInput {
             let (s, e) = if caret < anchor { (caret, anchor) } else { (anchor, caret) };
             let s = s.min(display_text.len());
             let e = e.min(display_text.len());
-            
+
             if s > 0 {
                 runs.push(fission_ir::op::TextRun {
                     text: display_text[..s].to_string(),
-                    style: fission_ir::op::TextStyle { font_size, color: text_color, underline: false },
+                    style: fission_ir::op::TextStyle { font_size, color: text_color, underline: false, background_color: None },
                 });
             }
             if s < e {
                 runs.push(fission_ir::op::TextRun {
                     text: display_text[s..e].to_string(),
-                    style: fission_ir::op::TextStyle { font_size, color: selection_color, underline: true }, // Visual cue for selection
+                    style: fission_ir::op::TextStyle { font_size, color: selection_color, underline: true, background_color: None }, // Visual cue for selection
                 });
             }
             if e < display_text.len() {
                 runs.push(fission_ir::op::TextRun {
                     text: display_text[e..].to_string(),
-                    style: fission_ir::op::TextStyle { font_size, color: text_color, underline: false },
+                    style: fission_ir::op::TextStyle { font_size, color: text_color, underline: false, background_color: None },
                 });
             }
+        } else if let Some(styled) = &self.styled_runs {
+            // Use pre-styled syntax-highlighted runs
+            runs = styled.clone();
         } else {
             runs.push(fission_ir::op::TextRun {
                 text: display_text.clone(),
-                style: fission_ir::op::TextStyle { font_size, color: text_color, underline: false },
+                style: fission_ir::op::TextStyle { font_size, color: text_color, underline: false, background_color: None },
             });
         }
-        
+
+        // Apply highlight_ranges by splitting existing runs at highlight boundaries
+        if !self.highlight_ranges.is_empty() && !runs.is_empty() {
+            let mut final_runs = Vec::new();
+            let mut run_start_byte: usize = 0;
+
+            for run in runs {
+                let run_end_byte = run_start_byte + run.text.len();
+                let mut cuts = Vec::new();
+
+                for &(hs, he, color) in &self.highlight_ranges {
+                    let overlap_start = hs.max(run_start_byte);
+                    let overlap_end = he.min(run_end_byte);
+                    if overlap_start < overlap_end {
+                        cuts.push((overlap_start - run_start_byte, overlap_end - run_start_byte, color));
+                    }
+                }
+
+                if cuts.is_empty() {
+                    final_runs.push(run);
+                } else {
+                    cuts.sort_by_key(|c| c.0);
+                    let mut pos = 0usize;
+                    for (cs, ce, bg_color) in cuts {
+                        if cs > pos {
+                            final_runs.push(fission_ir::op::TextRun {
+                                text: run.text[pos..cs].to_string(),
+                                style: run.style.clone(),
+                            });
+                        }
+                        let mut hl_style = run.style.clone();
+                        hl_style.background_color = Some(bg_color);
+                        final_runs.push(fission_ir::op::TextRun {
+                            text: run.text[cs..ce].to_string(),
+                            style: hl_style,
+                        });
+                        pos = ce;
+                    }
+                    if pos < run.text.len() {
+                        final_runs.push(fission_ir::op::TextRun {
+                            text: run.text[pos..].to_string(),
+                            style: run.style.clone(),
+                        });
+                    }
+                }
+                run_start_byte = run_end_byte;
+            }
+            runs = final_runs;
+        }
+
         if display_text.is_empty() && resolved_placeholder.is_some() {
              runs = vec![fission_ir::op::TextRun {
                 text: resolved_placeholder.unwrap(),
-                style: fission_ir::op::TextStyle { font_size, color: theme.placeholder_color, underline: false },
+                style: fission_ir::op::TextStyle { font_size, color: theme.placeholder_color, underline: false, background_color: None },
             }];
         }
 
@@ -224,7 +302,9 @@ impl Lower for TextInput {
                 aspect_ratio: None,
             })
         );
-        wrapper.add_child(background_id); // Fill
+        if let Some(bg_id) = background_id {
+            wrapper.add_child(bg_id); // Fill
+        }
         wrapper.add_child(scroll_id);     // Content
         
         let final_id = wrapper.build(cx);
@@ -253,6 +333,8 @@ impl Lower for TextInput {
             drag_payload: None,
             hero_tag: None,
             focus_index: None,
+            capture_tab: self.capture_tab,
+            auto_indent: self.auto_indent,
         };
         if let Some(env) = &self.on_change {
              semantics.actions.entries.push(fission_ir::ActionEntry {
@@ -261,7 +343,13 @@ impl Lower for TextInput {
                  payload_data: None,
              });
         }
-        
+        if let Some(env) = &self.on_cursor_change {
+             semantics.actions.entries.push(fission_ir::ActionEntry {
+                 trigger: fission_ir::semantics::ActionTrigger::CursorChange,
+                 action_id: env.id.as_u128(),
+                 payload_data: None,
+             });
+        }
         let mut semantics_builder = NodeBuilder::new(input_id, Op::Semantics(semantics));
         semantics_builder.add_child(final_id);
         semantics_builder.build(cx)

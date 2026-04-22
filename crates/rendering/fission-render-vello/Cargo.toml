@@ -10,6 +10,7 @@ fission-ir = { path = "../../core/fission-ir" }
 anyhow = "1.0"
 vello = { version = "0.6.0", features = ["wgpu"] }
 parley = "0.7.0"
+fission-diagnostics = { path = "../../tools/fission-diagnostics" }
 image = "0.24"
 lazy_static = "1.5.0"
 peniko = "0.5"

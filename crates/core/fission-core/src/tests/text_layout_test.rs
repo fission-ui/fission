@@ -6,6 +6,7 @@ use fission_ir::{LayoutOp, Op};
 use fission_layout::{LayoutEngine, LayoutSize};
 use crate::ui::widgets::{Container, Text};
 use crate::ui::widgets::text::TextContent;
+use fission_ir::NodeId;
 
 struct SimpleMeasurer;
 impl fission_layout::TextMeasurer for SimpleMeasurer {
@@ -37,6 +38,8 @@ fn test_text_wrapping_in_constrained_flex() {
     let runtime_state = RuntimeState::default();
     let mut cx = LoweringContext::new(&env, &runtime_state, None, None);
 
+    let root_base = NodeId::derived(0xABC, &[0]);
+    cx.push_scope(root_base);
     let root_id = cx.next_node_id();
     let row_id = cx.next_node_id();
     let text_id = cx.next_node_id();
@@ -74,7 +77,7 @@ fn test_text_wrapping_in_constrained_flex() {
 
     cx.ir.root = Some(root_final);
 
-    let input_nodes = build_layout_tree(&cx.ir);
+    let input_nodes = build_layout_tree(&cx.ir, &env);
     let mut engine = LayoutEngine::new().with_measurer(std::sync::Arc::new(SimpleMeasurer));
     engine.rebuild(&input_nodes).unwrap();
     let snapshot = engine.compute_layout(
@@ -111,7 +114,7 @@ fn text_parent_max_width_drives_wrapping() {
     let root_id = root.lower(&mut cx);
     cx.ir.root = Some(root_id);
 
-    let input_nodes = build_layout_tree(&cx.ir);
+    let input_nodes = build_layout_tree(&cx.ir, &env);
     let mut engine = LayoutEngine::new().with_measurer(std::sync::Arc::new(SimpleMeasurer));
     engine.rebuild(&input_nodes).unwrap();
     let snapshot = engine.compute_layout(

@@ -302,6 +302,7 @@ impl Runtime {
         let current_time = self.clock().current_time();
 
         let mut finished = Vec::new();
+        let mut has_animation_changes = false;
         for ((target, property), anim) in self.runtime_state.animation.active.iter_mut() {
             let elapsed = current_time.saturating_sub(anim.start_time);
             let mut progress = if anim.duration == 0 {
@@ -316,20 +317,29 @@ impl Runtime {
                 progress = progress.clamp(0.0, 1.0);
             }
 
-            let value = anim.start_value + (anim.end_value - anim.start_value) * progress;
-            self.runtime_state
-                .animation
-                .values
-                .insert((*target, property.clone()), value);
-
             if !anim.repeat && (elapsed >= anim.duration || anim.duration == 0) {
                 finished.push((*target, property.clone()));
+            }
+
+            let value = anim.start_value + (anim.end_value - anim.start_value) * progress;
+            
+            // Only update and mark dirty if the value actually changed
+            let current_val = self.runtime_state.animation.values.get(&(*target, property.clone())).copied();
+            if current_val != Some(value) {
+                self.runtime_state
+                    .animation
+                    .values
+                    .insert((*target, property.clone()), value);
+                has_animation_changes = true;
             }
         }
 
         for key in finished {
             self.runtime_state.animation.active.remove(&key);
+            has_animation_changes = true;
         }
+
+        let _ = has_animation_changes;
 
         Ok(())
     }

@@ -28,7 +28,6 @@ impl<S: AppState + 'static> Widget<S> for DropDown {
                             content: TextContent::Literal(button_text.into()),
                             font_size: Some(14.0),
                             color: Some(tokens.colors.text_primary),
-                            flex_grow: 1.0,
                             ..Default::default()
                         }
                         .into(),

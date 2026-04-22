@@ -96,79 +96,35 @@ impl Widget<InboxState> for EmailList {
         // Header
         list_items.push(
             Row {
-                gap: Some(10.0),
+                gap: Some(6.0),
                 children: vec![
-                    Button {
-                        id: Some(NodeId::derived(WidgetNodeId::explicit("mobile_menu_button").as_u128(), &[])),
-                        variant: ButtonVariant::Ghost,
-                        child: Some(Box::new(Icon::svg(material::navigation::menu::regular()).size(24.0).into_node())),
-                        on_press: Some(ctx.bind(SetMobileMenuOpen(true), (|s: &mut InboxState, a: SetMobileMenuOpen, _| s.show_mobile_menu = a.0) as Handler<InboxState, SetMobileMenuOpen>)),
-                        ..Default::default()
-                    }.into_node(),
-                    Text::new(folder_label).size(28.0).into_node(),
+                    Text::new(folder_label).size(20.0).into_node(),
                     Badge { text: format!("{} {}", unread_count, t("badge.new")), ..Default::default() }.build(ctx, view),
-                    fission_core::ui::widgets::Spacer { flex_grow: 1.0, ..Default::default() }.into_node(),
-                    Tooltip {
-                        id: WidgetNodeId::explicit("compose_tooltip"),
-                        text: t("tooltip.compose"),
-                        is_visible: false,
-                        child: Box::new(
-                            Button {
-                                id: Some(NodeId::derived(WidgetNodeId::explicit("compose_button").as_u128(), &[])),
-                                variant: ButtonVariant::Filled,
-                                child: Some(Box::new(Text::new(TextContent::Key("button.compose".into())).color(tokens.colors.on_primary).into_node())),
-                                on_press: Some(ctx.bind(SetComposeOpen(true), (|s: &mut InboxState, a: SetComposeOpen, _| s.show_compose = a.0) as Handler<InboxState, SetComposeOpen>)),
-                                ..Default::default()
-                            }.into_node()
-                        ),
-                    }.build(ctx, view),
-                    MenuButton {
-                        id: WidgetNodeId::explicit("list_more_menu"),
-                        label: t("header.more"),
-                        is_open: view.state.show_filter_dropdown,
-                        on_toggle: Some(menu_toggle),
-                        items: vec![
-                            MenuItem { label: t("menu.mark_all_read"), icon: None, on_select: None },
-                            MenuItem { label: t("menu.add_label"), icon: None, on_select: None },
-                            MenuItem { label: t("menu.archive_all"), icon: None, on_select: None },
-                        ],
-                    }.build(ctx, view),
-                    {
-                        let help_toggle = ctx.bind(
-                            SetHelpPopoverOpen(!view.state.show_help_popover),
-                            (|s: &mut InboxState, a: SetHelpPopoverOpen, _| s.show_help_popover = a.0)
-                                as Handler<InboxState, SetHelpPopoverOpen>,
-                        );
-                        Tooltip {
-                            id: WidgetNodeId::explicit("help_tooltip"),
-                            text: t("tooltip.shortcuts"),
-                            is_visible: view.state.show_help_popover,
-                            child: Box::new(
-                                Button {
-                                    variant: ButtonVariant::Ghost,
-                                    child: Some(Box::new(Icon::svg(material::action::help_outline::regular()).size(20.0).into_node())),
-                                    on_press: Some(help_toggle),
-                                    ..Default::default()
-                                }.into_node()
-                            ),
-                        }.build(ctx, view)
-                    },
                 ],
                 ..Default::default()
             }.into_node()
         );
         
-        list_items.push(Divider { orientation: fission_widgets::divider::Orientation::Horizontal }.build(ctx, view));
-
         // Filter + Search row
         let sort_toggle = if view.state.sort_option == "Newest" { "Oldest" } else { "Newest" };
         let sort_toggle = ActionEnvelope {
             id: sort_id,
             payload: serde_json::to_vec(&SetSortOption(sort_toggle.into())).unwrap(),
         };
+        // Search row
+        list_items.push(
+            TextInput {
+                value: view.state.search_query.clone(),
+                placeholder: Some(TextContent::Key("search.placeholder".into())),
+                on_change: Some(ActionEnvelope { id: search_id, payload: Vec::new() }),
+                ..Default::default()
+            }.into_node(),
+        );
+
+        // Filter row
         list_items.push(
             HStack {
-                spacing: Some(14.0),
+                spacing: Some(8.0),
                 children: vec![
                     SegmentedControl {
                         options: vec!["All".into(), "Unread".into(), "Starred".into()],
@@ -181,13 +137,6 @@ impl Widget<InboxState> for EmailList {
                         })),
                     }.build(ctx, view),
                     fission_core::ui::widgets::Spacer { flex_grow: 1.0, ..Default::default() }.into_node(),
-                    TextInput {
-                        value: view.state.search_query.clone(),
-                        placeholder: Some(TextContent::Key("search.placeholder".into())),
-                        on_change: Some(ActionEnvelope { id: search_id, payload: Vec::new() }),
-                        width: Some(300.0),
-                        ..Default::default()
-                    }.into_node(),
                     DropDown {
                         selected: Some(view.state.sort_option.clone()),
                         options: vec!["Newest".into(), "Oldest".into(), "Unread".into()],
@@ -215,6 +164,10 @@ impl Widget<InboxState> for EmailList {
                                         Text::new(TextContent::Key("header.filters".into())).into_node(),
                                     ],
                                 }.into_node())),
+                                on_press: Some(ActionEnvelope {
+                                    id: filters_open_id,
+                                    payload: serde_json::to_vec(&SetAdvancedFiltersOpen(!view.state.show_advanced_filters)).unwrap(),
+                                }),
                                 ..Default::default()
                             }.into_node()
                         ),
@@ -365,7 +318,7 @@ impl Widget<InboxState> for EmailList {
                         }.into_node(),
                         Container::new(
                             VStack {
-                                spacing: Some(6.0),
+                                spacing: Some(3.0),
                                 children: vec![
                                 HStack {
                                     spacing: Some(8.0),
@@ -394,15 +347,16 @@ impl Widget<InboxState> for EmailList {
                                     tag: format!("email_subject_{}", email.id),
                                     child: Box::new(Text {
                                         content: TextContent::Literal(email.subject.clone()),
-                                        font_size: Some(18.0),
+                                        font_size: Some(15.0),
                                         color: Some(subject_color),
                                         ..Default::default()
                                     }.into()),
                                 }.build(ctx, view),
                                 Text {
-                                    content: TextContent::Literal(email.preview.clone()),
-                                    font_size: Some(14.0),
+                                    content: TextContent::Literal(email.preview.chars().take(80).collect::<String>()),
+                                    font_size: Some(13.0),
                                     color: Some(tokens.colors.text_secondary),
+                                    max_height: Some(20.0),
                                     ..Default::default()
                                 }.into(),
                                 Wrap {
@@ -425,7 +379,7 @@ impl Widget<InboxState> for EmailList {
                     spacing: Some(0.0),
                     children: vec![
                         Container::new(item_content)
-                            .padding_all(18.0)
+                            .padding_all(6.0)
                             .bg(if is_selected { tokens.colors.primary.with_alpha(20) } else { tokens.colors.surface })
                             .flex_grow(1.0)
                             .into_node(),
@@ -488,12 +442,12 @@ impl Widget<InboxState> for EmailList {
 
         Container::new(
             VStack {
-                spacing: Some(16.0),
+                spacing: Some(4.0),
                 children: list_items,
             }
             .build(ctx, view)
         )
-        .padding_all(16.0)
+        .padding_all(8.0)
         .flex_grow(1.0)
         .bg(tokens.colors.background)
         .into_node()

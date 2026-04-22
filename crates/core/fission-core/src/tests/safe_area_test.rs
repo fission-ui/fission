@@ -29,7 +29,7 @@ fn test_safe_area_layout() {
     let mut cx = LoweringContext::new(&env, &runtime_state, None, None);
     let root_id = safe_area.lower(&mut cx);
     
-    let input_nodes = build_layout_tree(&cx.ir);
+    let input_nodes = build_layout_tree(&cx.ir, &env);
     let mut engine = LayoutEngine::new();
     engine.rebuild(&input_nodes).unwrap();
     
