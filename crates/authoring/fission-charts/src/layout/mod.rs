@@ -5,6 +5,10 @@ pub mod force_graph;
 pub mod sankey;
 pub mod wordcloud;
 pub mod map;
+pub mod polar;
+pub mod calendar;
+pub mod time_scale;
+pub mod log_scale;
 
 use crate::Chart;
 use scale::{CategoryScale, LinearScale, Scale};

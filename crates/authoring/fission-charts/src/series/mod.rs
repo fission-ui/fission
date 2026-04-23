@@ -20,6 +20,7 @@ pub mod effect_scatter;
 pub mod custom;
 pub mod liquidfill;
 pub mod wordcloud;
+pub mod modifiers;
 
 use serde::{Deserialize, Serialize};
 

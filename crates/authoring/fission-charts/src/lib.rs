@@ -1,4 +1,7 @@
+pub mod dataset;
+pub mod encode;
 pub mod chart;
+pub mod components;
 pub mod series;
 pub mod axis;
 pub mod grid;
@@ -6,6 +9,7 @@ pub mod tooltip;
 pub mod legend;
 pub mod coord;
 pub mod layout;
+pub mod marks;
 
 pub use chart::Chart;
 pub use series::Series;
@@ -38,3 +42,5 @@ pub use axis::Axis;
 pub use grid::Grid;
 pub use tooltip::Tooltip;
 pub use legend::Legend;
+pub use dataset::{Dataset, DataValue};
+pub use encode::Encode;

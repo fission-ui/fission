@@ -23,6 +23,7 @@ pub struct Chart {
     pub x_axis: Option<Axis>,
     pub y_axis: Option<Axis>,
     pub series: Vec<Series>,
+    pub dataset: Option<crate::dataset::Dataset>,
     pub animate: bool,
 }
 
@@ -38,8 +39,14 @@ impl Chart {
             x_axis: None,
             y_axis: None,
             series: Vec::new(),
+            dataset: None,
             animate: false,
         }
+    }
+
+    pub fn dataset(mut self, ds: crate::dataset::Dataset) -> Self {
+        self.dataset = Some(ds);
+        self
     }
 
     pub fn title(mut self, title: &str) -> Self {
@@ -189,8 +196,15 @@ impl fission_core::ui::traits::LowerDyn for ChartLowerer {
                     let band = coord.x_band_width();
                     let bar_w = if band > 0.0 { band * 0.7 } else { 20.0 };
                     for (i, &val) in bar.data.iter().enumerate() {
-                        let (x, y) = coord.map_val(i as f32, val);
-                        let (_, y0) = coord.map_val(0.0, 0.0); // Baseline (y=0)
+                        let mut base_val = 0.0;
+                        if let Some(stack_name) = &bar.stack {
+                            let key = (stack_name.clone(), i);
+                            base_val = *stack_totals.get(&key).unwrap_or(&0.0);
+                            stack_totals.insert(key, base_val + val);
+                        }
+
+                        let (x, y) = coord.map_val(i as f32, base_val + val);
+                        let (_, y0) = coord.map_val(0.0, base_val); // Baseline (y=0 or stacked base)
                         
                         let bar_h = (y0 - y).abs().max(1.0);
                         let draw_y = y.min(y0);
@@ -199,7 +213,7 @@ impl fission_core::ui::traits::LowerDyn for ChartLowerer {
                         let bar_paint = fission_ir::Op::Paint(PaintOp::DrawRect {
                             fill: Some(Fill::Solid(bar.color)),
                             stroke: None,
-                            corner_radius: 2.0,
+                            corner_radius: bar.border_radius.unwrap_or(2.0),
                             shadow: None,
                         });
                         let mut bar_pos = fission_core::lowering::NodeBuilder::new(cx.next_node_id(), fission_ir::Op::Layout(LayoutOp::Positioned {
@@ -213,23 +227,63 @@ impl fission_core::ui::traits::LowerDyn for ChartLowerer {
                 Series::Line(line) => {
                     if line.data.is_empty() { continue; }
                     let mut path = String::new();
+                    let mut area_path = String::new();
                     let band = coord.x_band_width();
                     
+                    let mut points = Vec::new();
+                    let mut base_points = Vec::new();
+                    
                     for (i, &val) in line.data.iter().enumerate() {
-                        let (x, y) = coord.map_val(i as f32, val);
+                        let mut base_val = 0.0;
+                        if let Some(stack_name) = &line.stack {
+                            let key = (stack_name.clone(), i);
+                            base_val = *stack_totals.get(&key).unwrap_or(&0.0);
+                            stack_totals.insert(key, base_val + val);
+                        }
                         
+                        let (x, y) = coord.map_val(i as f32, base_val + val);
+                        let (_, y0) = coord.map_val(i as f32, base_val);
+                        
+                        points.push((x, y));
+                        base_points.push((x, y0));
+                    }
+                    
+                    for (i, &(x, y)) in points.iter().enumerate() {
                         if i == 0 {
                             path.push_str(&format!("M {} {}", x, y));
+                            area_path.push_str(&format!("M {} {}", base_points[0].0, base_points[0].1));
+                            area_path.push_str(&format!(" L {} {}", x, y));
                         } else {
                             if line.smooth {
-                                let (px, py) = coord.map_val((i - 1) as f32, line.data[i - 1]);
+                                let (px, py) = points[i - 1];
                                 let cp1x = px + band / 2.0;
                                 let cp2x = x - band / 2.0;
                                 path.push_str(&format!(" C {} {} {} {} {} {}", cp1x, py, cp2x, y, x, y));
+                                area_path.push_str(&format!(" C {} {} {} {} {} {}", cp1x, py, cp2x, y, x, y));
+                            } else if line.step.as_deref() == Some("middle") {
+                                let (px, py) = points[i - 1];
+                                let mx = px + (x - px) / 2.0;
+                                path.push_str(&format!(" L {} {} L {} {} L {} {}", mx, py, mx, y, x, y));
+                                area_path.push_str(&format!(" L {} {} L {} {} L {} {}", mx, py, mx, y, x, y));
                             } else {
                                 path.push_str(&format!(" L {} {}", x, y));
+                                area_path.push_str(&format!(" L {} {}", x, y));
                             }
                         }
+                    }
+
+                    if let Some(area_color) = line.area_style {
+                        for &(x, y0) in base_points.iter().rev() {
+                            area_path.push_str(&format!(" L {} {}", x, y0));
+                        }
+                        area_path.push_str(" Z");
+                        let area_id = cx.next_node_id();
+                        let area_paint = fission_ir::Op::Paint(PaintOp::DrawPath {
+                            path: area_path,
+                            fill: Some(Fill::Solid(area_color)),
+                            stroke: None,
+                        });
+                        root.add_child(cx.insert_node(area_id, area_paint, vec![]));
                     }
 
                     let line_id = cx.next_node_id();

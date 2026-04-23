@@ -155,6 +155,43 @@ impl Widget<GalleryState> for GalleryApp {
             }
             (0, 1) => {
                 Chart::new(800.0, 500.0)
+                    .title("Foundational: Stacked Area")
+                    .x_axis(Axis::category(vec!["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]))
+                    .y_axis(Axis::value())
+                    .series(vec![
+                        LineSeries::new("Email")
+                            .stack("total")
+                            .area_style(Color { r: 145, g: 204, b: 117, a: 100 })
+                            .data(vec![120.0 * s, 132.0 * s, 101.0 * s, 134.0 * s, 90.0 * s, 230.0 * s, 210.0 * s])
+                            .color(Color { r: 145, g: 204, b: 117, a: 255 })
+                            .smooth(view.state.smooth)
+                            .into(),
+                        LineSeries::new("Video Ads")
+                            .stack("total")
+                            .area_style(Color { r: 84, g: 112, b: 198, a: 100 })
+                            .data(vec![150.0 * s, 232.0 * s, 201.0 * s, 154.0 * s, 190.0 * s, 330.0 * s, 410.0 * s])
+                            .color(Color { r: 84, g: 112, b: 198, a: 255 })
+                            .smooth(view.state.smooth)
+                            .into(),
+                    ])
+                    .build(ctx, view)
+            }
+            (0, 2) => {
+                Chart::new(800.0, 500.0)
+                    .title("Foundational: Step Line")
+                    .x_axis(Axis::category(vec!["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]))
+                    .y_axis(Axis::value())
+                    .series(vec![
+                        LineSeries::new("Step Start")
+                            .step("middle")
+                            .data(vec![120.0 * s, 132.0 * s, 101.0 * s, 134.0 * s, 90.0 * s, 230.0 * s, 210.0 * s])
+                            .color(Color { r: 250, g: 200, b: 88, a: 255 })
+                            .into(),
+                    ])
+                    .build(ctx, view)
+            }
+            (0, 3) => {
+                Chart::new(800.0, 500.0)
                     .title("Foundational: Pie")
                     .series(vec![
                         PieSeries::new("Access Source")
@@ -169,7 +206,7 @@ impl Widget<GalleryState> for GalleryApp {
                     ])
                     .build(ctx, view)
             }
-            (0, 2) => {
+            (0, 4) => {
                 Chart::new(800.0, 500.0)
                     .title("Foundational: Scatter")
                     .x_axis(Axis::value())

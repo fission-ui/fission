@@ -7,6 +7,9 @@ pub struct LineSeries {
     pub data: Vec<f32>,
     pub smooth: bool,
     pub color: Color,
+    pub area_style: Option<Color>,
+    pub step: Option<String>, // "start", "middle", "end"
+    pub stack: Option<String>,
 }
 
 impl LineSeries {
@@ -16,6 +19,9 @@ impl LineSeries {
             data: Vec::new(),
             smooth: false,
             color: Color::BLUE,
+            area_style: None,
+            step: None,
+            stack: None,
         }
     }
     
@@ -31,6 +37,21 @@ impl LineSeries {
     
     pub fn color(mut self, color: Color) -> Self {
         self.color = color;
+        self
+    }
+
+    pub fn area_style(mut self, color: Color) -> Self {
+        self.area_style = Some(color);
+        self
+    }
+
+    pub fn step(mut self, step_type: &str) -> Self {
+        self.step = Some(step_type.into());
+        self
+    }
+
+    pub fn stack(mut self, stack_name: &str) -> Self {
+        self.stack = Some(stack_name.into());
         self
     }
 }

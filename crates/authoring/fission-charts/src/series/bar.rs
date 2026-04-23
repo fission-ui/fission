@@ -6,6 +6,8 @@ pub struct BarSeries {
     pub name: String,
     pub data: Vec<f32>,
     pub color: Color,
+    pub stack: Option<String>,
+    pub border_radius: Option<f32>,
 }
 
 impl BarSeries {
@@ -14,6 +16,8 @@ impl BarSeries {
             name: name.into(),
             data: Vec::new(),
             color: Color::BLUE,
+            stack: None,
+            border_radius: None,
         }
     }
     
@@ -24,6 +28,16 @@ impl BarSeries {
     
     pub fn color(mut self, color: Color) -> Self {
         self.color = color;
+        self
+    }
+
+    pub fn stack(mut self, stack_name: &str) -> Self {
+        self.stack = Some(stack_name.into());
+        self
+    }
+
+    pub fn border_radius(mut self, radius: f32) -> Self {
+        self.border_radius = Some(radius);
         self
     }
 }
