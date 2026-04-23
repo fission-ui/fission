@@ -4,6 +4,7 @@ use crate::ActionEnvelope;
 use crate::ActionId;
 use fission_diagnostics::prelude as diag;
 use fission_ir::semantics::InputMask;
+use fission_ir::FlexDirection;
 use fission_ir::{
     op::{self, LayoutOp, Op},
     NodeId, Semantics,
@@ -51,6 +52,28 @@ impl InputController for TextInputController {
                                         let value = sem.value.as_deref().unwrap_or("");
                                         let offset = ctx.scroll.get_offset(scroll_id);
 
+                                        // Accumulate ancestor scroll offsets to convert
+                                        // screen coordinates to local content coordinates.
+                                        let mut ancestor_scroll_y = 0.0f32;
+                                        let mut ancestor_scroll_x = 0.0f32;
+                                        {
+                                            let mut walk = ctx.ir.nodes.get(&scroll_id).and_then(|n| n.parent);
+                                            while let Some(pid) = walk {
+                                                if let Some(pnode) = ctx.ir.nodes.get(&pid) {
+                                                    if let Op::Layout(LayoutOp::Scroll { direction, .. }) = &pnode.op {
+                                                        let poff = ctx.scroll.get_offset(pid);
+                                                        match direction {
+                                                            FlexDirection::Row => ancestor_scroll_x += poff,
+                                                            FlexDirection::Column => ancestor_scroll_y += poff,
+                                                        }
+                                                    }
+                                                    walk = pnode.parent;
+                                                } else {
+                                                    break;
+                                                }
+                                            }
+                                        }
+
                                         let caret = if let Some(measurer) = ctx.measurer {
                                             let font_size = 16.0;
                                             let max_width = if sem.multiline
@@ -64,8 +87,8 @@ impl InputController for TextInputController {
                                                 value,
                                                 font_size,
                                                 max_width,
-                                                point.x - scroll_geom.rect.origin.x + offset,
-                                                point.y - scroll_geom.rect.origin.y,
+                                                point.x - scroll_geom.rect.origin.x + offset + ancestor_scroll_x,
+                                                point.y - scroll_geom.rect.origin.y + ancestor_scroll_y,
                                             )
                                         } else {
                                             Self::caret_from_point_in_text_fallback(

@@ -632,7 +632,13 @@ impl Runtime {
                                 }
 
                                 self.runtime_state.scroll.set_offset(node_id, new_offset);
-                                break;
+                                // If scroll actually changed, consume the event.
+                                // If it didn't (clamped to same value, e.g. max_offset==0),
+                                // propagate to parent scroll nodes.
+                                if (new_offset - current_offset).abs() > 0.001 {
+                                    break;
+                                }
+                                // Fall through to parent
                             }
                             current_id = node.parent;
                         } else {
