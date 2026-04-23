@@ -380,7 +380,22 @@ impl TextMeasurer for VelloTextMeasurer {
             return 0;
         }
 
-        // Build the same rich layout the renderer uses
+        // When all runs share the same style, the renderer takes a fast-path
+        // through `get_layout()` (the simple/plain cache).  We must do the same
+        // here so we look up the SAME cached Parley Layout the renderer painted
+        // with, rather than creating a separate entry in the rich cache.
+        if let Some(first) = runs.first() {
+            if runs.iter().all(|r| r.style == first.style) {
+                let mut full_text = String::new();
+                for run in runs {
+                    full_text.push_str(&run.text);
+                }
+                let layout = self.get_layout(&full_text, first.style.font_size, available_width);
+                return Self::hit_test_layout_impl(&full_text, &layout, x, y);
+            }
+        }
+
+        // Multi-style path: build the same rich layout the renderer uses.
         let mut full_text = String::new();
         let mut styles = Vec::new();
         let mut offset = 0;

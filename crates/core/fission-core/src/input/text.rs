@@ -105,16 +105,10 @@ impl InputController for TextInputController {
                                             let local_x = point.x - scroll_geom.rect.origin.x + offset + ancestor_scroll_x;
                                             let local_y = point.y - scroll_geom.rect.origin.y + ancestor_scroll_y;
 
-                                            // Use rich text hit_test when styled runs are available
-                                            // — the rich layout has the same line heights as the
-                                            // renderer, so Y→line mapping is accurate.
-                                            if let Some(runs) = Self::extract_rich_runs(ctx.ir, focused_id) {
-                                                measurer.hit_test_rich(&runs, None, local_x, local_y)
-                                            } else {
-                                                let font_size = Self::extract_font_size(ctx.ir, focused_id)
-                                                    .unwrap_or(13.0);
-                                                measurer.hit_test(value, font_size, None, local_x, local_y)
-                                            }
+                                            Self::hit_test_text(
+                                                measurer, ctx.ir, focused_id,
+                                                value, scroll_geom, local_x, local_y,
+                                            )
                                         } else {
                                             Self::caret_from_point_in_text_fallback(
                                                 value,
@@ -170,15 +164,33 @@ impl InputController for TextInputController {
                                                 let offset = ctx.scroll.get_offset(scroll_id);
                                                 let new_caret = if let Some(measurer) = ctx.measurer
                                                 {
-                                                    let font_size = Self::extract_font_size(ctx.ir, focused_id)
-                                                        .unwrap_or(13.0);
-                                                    measurer.hit_test(
-                                                        value,
-                                                        font_size,
-                                                        None,
-                                                        point.x - scroll_geom.rect.origin.x
-                                                            + offset,
-                                                        point.y - scroll_geom.rect.origin.y,
+                                                    // Accumulate ancestor scroll offsets for
+                                                    // pointer-move the same way as pointer-down.
+                                                    let mut anc_scroll_y = 0.0f32;
+                                                    let mut anc_scroll_x = 0.0f32;
+                                                    {
+                                                        let mut walk = ctx.ir.nodes.get(&scroll_id).and_then(|n| n.parent);
+                                                        while let Some(pid) = walk {
+                                                            if let Some(pnode) = ctx.ir.nodes.get(&pid) {
+                                                                if let Op::Layout(LayoutOp::Scroll { direction, .. }) = &pnode.op {
+                                                                    let poff = ctx.scroll.get_offset(pid);
+                                                                    match direction {
+                                                                        FlexDirection::Row => anc_scroll_x += poff,
+                                                                        FlexDirection::Column => anc_scroll_y += poff,
+                                                                    }
+                                                                }
+                                                                walk = pnode.parent;
+                                                            } else {
+                                                                break;
+                                                            }
+                                                        }
+                                                    }
+                                                    let local_x = point.x - scroll_geom.rect.origin.x + offset + anc_scroll_x;
+                                                    let local_y = point.y - scroll_geom.rect.origin.y + anc_scroll_y;
+
+                                                    Self::hit_test_text(
+                                                        measurer, ctx.ir, focused_id,
+                                                        value, scroll_geom, local_x, local_y,
                                                     )
                                                 } else {
                                                     Self::caret_from_point_in_text_fallback(
@@ -873,7 +885,7 @@ impl TextInputController {
     /// Extract rich text runs from the TextInput's DrawRichText child.
     fn extract_rich_runs(ir: &fission_ir::CoreIR, semantics_id: NodeId) -> Option<Vec<fission_ir::op::TextRun>> {
         fn walk(ir: &fission_ir::CoreIR, node_id: NodeId, depth: usize) -> Option<Vec<fission_ir::op::TextRun>> {
-            if depth > 10 { return None; }
+            if depth > 20 { return None; }
             let node = ir.nodes.get(&node_id)?;
             match &node.op {
                 Op::Paint(fission_ir::PaintOp::DrawRichText { runs, .. }) if !runs.is_empty() => {
@@ -914,6 +926,39 @@ impl TextInputController {
             }
         }
         walk(ir, semantics_id, 0)
+    }
+
+    /// Shared hit-test logic for both PointerDown and PointerMove.
+    ///
+    /// Uses the rich-text layout path when styled runs are available, passing the
+    /// same `available_width` that the renderer will use so both sides build (or
+    /// look up) the same Parley `Layout`.  This ensures the Y-to-line and X-to-
+    /// glyph mapping in hit-testing exactly matches the rendered text.
+    fn hit_test_text(
+        measurer: &std::sync::Arc<dyn fission_layout::TextMeasurer>,
+        ir: &fission_ir::CoreIR,
+        focused_id: NodeId,
+        value: &str,
+        scroll_geom: &fission_layout::LayoutNodeGeometry,
+        local_x: f32,
+        local_y: f32,
+    ) -> usize {
+        // The renderer calls `layout_rich(…, if bounds.width() > 0 { Some(w) } else { None })`.
+        // The bounds rect for a text node equals the layout geometry rect whose width comes
+        // from the scroll container (or the text node itself).  We replicate this here so
+        // the cache key matches and we reuse the SAME Parley layout the renderer painted.
+        let render_width = if scroll_geom.rect.size.width > 0.0 {
+            Some(scroll_geom.rect.size.width)
+        } else {
+            None
+        };
+
+        if let Some(runs) = Self::extract_rich_runs(ir, focused_id) {
+            measurer.hit_test_rich(&runs, render_width, local_x, local_y)
+        } else {
+            let font_size = Self::extract_font_size(ir, focused_id).unwrap_or(13.0);
+            measurer.hit_test(value, font_size, render_width, local_x, local_y)
+        }
     }
 
     fn caret_from_point_in_text_fallback(
