@@ -22,6 +22,7 @@ pub struct Pipeline {
     pub last_snapshot: Option<LayoutSnapshot>,
     pub paint_cache: HashMap<NodeId, (u64, Vec<DisplayOp>)>,
     pub video_surfaces: Vec<VideoSurfaceFrame>,
+    pub scene_3d_surfaces: Vec<(WidgetNodeId, LayoutRect, Vec<u8>)>,
     pub last_viewport: Option<LayoutRect>,
     pub layout_invariant_violation_count: u32,
     pub layout_full_rebuild_count: u32,
@@ -42,6 +43,7 @@ impl Pipeline {
             last_snapshot: None,
             paint_cache: HashMap::new(),
             video_surfaces: Vec::new(),
+            scene_3d_surfaces: Vec::new(),
             last_viewport: None,
             layout_invariant_violation_count: 0,
             layout_full_rebuild_count: 0,
@@ -460,6 +462,14 @@ impl Pipeline {
             {
                 let translated_rect = translate_rect(geom.rect, accumulated_offset);
                 self.push_video_surface(*widget_id, translated_rect, video_map);
+            } else if let fission_ir::Op::Layout(fission_ir::LayoutOp::Embed {
+                kind: EmbedKind::Custom(payload),
+                widget_id,
+                ..
+            }) = &node.op
+            {
+                let translated_rect = translate_rect(geom.rect, accumulated_offset);
+                self.scene_3d_surfaces.push((*widget_id, translated_rect, payload.clone()));
             }
 
             for child in &node.children {

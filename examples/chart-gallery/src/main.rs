@@ -17,6 +17,9 @@ use fission_macros::Action;
 pub struct GalleryState {
     pub selected_category: usize,
     pub selected_chart: usize,
+    pub smooth: bool,
+    pub gap: f32,
+    pub data_scale: f32,
 }
 
 impl Default for GalleryState {
@@ -24,6 +27,9 @@ impl Default for GalleryState {
         Self {
             selected_category: 0,
             selected_chart: 0,
+            smooth: true,
+            gap: 10.0,
+            data_scale: 1.0,
         }
     }
 }
@@ -32,6 +38,15 @@ impl AppState for GalleryState {}
 
 #[derive(Action, Serialize, Deserialize, Clone, Debug)]
 pub struct SelectChart(pub usize, pub usize);
+
+#[derive(Action, Serialize, Deserialize, Clone, Debug)]
+pub struct ToggleSmooth(pub bool);
+
+#[derive(Action, Serialize, Deserialize, Clone, Debug)]
+pub struct UpdateGap(pub f32);
+
+#[derive(Action, Serialize, Deserialize, Clone, Debug)]
+pub struct UpdateScale(pub f32);
 
 struct GalleryApp;
 
@@ -43,6 +58,20 @@ impl Widget<GalleryState> for GalleryApp {
                 s.selected_category = a.0;
                 s.selected_chart = a.1;
             }) as fission_core::registry::Handler<GalleryState, SelectChart>
+        ).id;
+
+        let toggle_smooth_id = ctx.bind(
+            ToggleSmooth(false),
+            (|s: &mut GalleryState, a: ToggleSmooth, _| {
+                s.smooth = !s.smooth; // toggle it
+            }) as fission_core::registry::Handler<GalleryState, ToggleSmooth>
+        ).id;
+
+        let update_scale_id = ctx.bind(
+            UpdateScale(0.0),
+            (|s: &mut GalleryState, a: UpdateScale, _| {
+                s.data_scale = a.0;
+            }) as fission_core::registry::Handler<GalleryState, UpdateScale>
         ).id;
 
         let categories = vec![
@@ -106,6 +135,7 @@ impl Widget<GalleryState> for GalleryApp {
         .into_node();
 
         // Main content area
+        let s = view.state.data_scale;
         let chart_node = match (view.state.selected_category, view.state.selected_chart) {
             (0, 0) => {
                 Chart::new(800.0, 500.0)
@@ -114,12 +144,13 @@ impl Widget<GalleryState> for GalleryApp {
                     .y_axis(Axis::value())
                     .series(vec![
                         BarSeries::new("Direct")
-                            .data(vec![320.0, 332.0, 301.0, 334.0, 390.0, 330.0, 320.0])
+                            .data(vec![320.0 * s, 332.0 * s, 301.0 * s, 334.0 * s, 390.0 * s, 330.0 * s, 320.0 * s])
                             .color(Color { r: 84, g: 112, b: 198, a: 255 })
                             .into(),
                         LineSeries::new("Email")
-                            .data(vec![120.0, 132.0, 101.0, 134.0, 90.0, 230.0, 210.0])
+                            .data(vec![120.0 * s, 132.0 * s, 101.0 * s, 134.0 * s, 90.0 * s, 230.0 * s, 210.0 * s])
                             .color(Color { r: 145, g: 204, b: 117, a: 255 })
+                            .smooth(view.state.smooth)
                             .into(),
                     ])
                     .build(ctx, view)
@@ -193,6 +224,29 @@ impl Widget<GalleryState> for GalleryApp {
             }
         };
 
+        let controls = Row {
+            children: vec![
+                Text::new("Smooth Lines:").color(Color::WHITE).into_node(),
+                fission_widgets::Switch {
+                    checked: view.state.smooth,
+                    on_toggle: Some(ActionEnvelope { id: toggle_smooth_id, payload: vec![] }),
+                    ..Default::default()
+                }.into_node(),
+                fission_widgets::Spacer { width: Some(32.0), ..Default::default() }.into_node(),
+                Text::new("Data Scale:").color(Color::WHITE).into_node(),
+                fission_widgets::Slider {
+                    value: view.state.data_scale,
+                    min: 0.1,
+                    max: 2.0,
+                    on_change: Some(ActionEnvelope { id: update_scale_id, payload: vec![] }),
+                    ..Default::default()
+                }.into_node(),
+            ],
+            gap: Some(12.0),
+            align_items: fission_core::op::AlignItems::Center,
+            ..Default::default()
+        }.into_node();
+
         let content = Container::new(
             Column {
                 children: vec![
@@ -205,6 +259,8 @@ impl Widget<GalleryState> for GalleryApp {
                     }.into_node(),
                     fission_widgets::Spacer { height: Some(24.0), ..Default::default() }.into_node(),
                     chart_node,
+                    fission_widgets::Spacer { height: Some(24.0), ..Default::default() }.into_node(),
+                    controls,
                 ],
                 flex_grow: 1.0,
                 ..Default::default()
@@ -228,6 +284,9 @@ fn main() -> anyhow::Result<()> {
         .with_title("Fission Chart Gallery")
         .with_sync_env(|_state: &GalleryState, env: &mut fission_core::Env| {
             env.theme = fission_theme::Theme::dark();
+        })
+        .with_frame_hook(|_state| {
+            true // Keep event loop active for QA testing script
         });
 
     app.run()

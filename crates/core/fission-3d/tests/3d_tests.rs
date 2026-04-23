@@ -40,10 +40,10 @@ fn test_scene3d_lowering() {
     let node = ir.nodes.get(&generated_id).expect("Node should exist");
     
     match &node.op {
-        fission_ir::Op::Layout(LayoutOp::Embed { kind, width, height, .. }) => {
-            assert_eq!(*kind, EmbedKind::Custom);
+        fission_ir::Op::Layout(LayoutOp::Embed { kind: EmbedKind::Custom(payload), width, height, .. }) => {
             assert_eq!(*width, Some(100.0));
             assert_eq!(*height, Some(200.0));
+            assert!(!payload.is_empty());
         },
         _ => panic!("Expected Embed LayoutOp"),
     }

@@ -73,8 +73,9 @@ impl fission_core::ui::traits::LowerDyn for Scene3DLowerer {
         // and fission-shell-desktop would intercept it to render a wgpu scene
         // For this milestone, we emit a 3D placeholder layout op.
         
+        let payload = bincode::serialize(&self.scene.primitives).unwrap_or_default();
         let op = fission_ir::Op::Layout(LayoutOp::Embed {
-            kind: EmbedKind::Custom,
+            kind: EmbedKind::Custom(payload),
             widget_id: fission_ir::WidgetNodeId::explicit("fission_3d_scene"),
             width: Some(self.scene.width),
             height: Some(self.scene.height),

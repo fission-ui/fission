@@ -302,7 +302,7 @@ pub fn build_layout_tree(ir: &CoreIR, env: &Env) -> Vec<LayoutInputNode> {
                 LayoutOp::ZStack => (LayoutOp::ZStack, None, None, 1.0, 1.0),
                 LayoutOp::Embed { kind, widget_id, width, height } => (
                     LayoutOp::Embed {
-                        kind: *kind,
+                        kind: kind.clone(),
                         widget_id: *widget_id,
                         width: *width,
                         height: *height,

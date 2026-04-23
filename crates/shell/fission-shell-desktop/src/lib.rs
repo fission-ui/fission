@@ -763,6 +763,13 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
         // Recreate target texture with COPY_SRC so GPU screenshots work
         recreate_target_texture(&mut surface, &render_cx);
 
+        let mut scene3d_renderer = fission_3d::render::Scene3DRenderer::new(
+            &device_handle.device,
+            window.inner_size().width,
+            window.inner_size().height,
+            wgpu::TextureFormat::Rgba8Unorm, // Same as vello render params
+        );
+
         let mut vello_renderer = VelloSceneRenderer::new(
             &device_handle.device,
             RendererOptions {
@@ -1371,6 +1378,22 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                                 &surface.target_view,
                                                 &render_params,
                                             ).expect("failed to render");
+
+                                            for (_, _rect, payload) in &pipeline.scene_3d_surfaces {
+                                                if let Ok(primitives) = bincode::deserialize::<Vec<fission_3d::Primitive3D>>(payload) {
+                                                    let scene3d = fission_3d::Scene3D {
+                                                        width: size.width as f32,
+                                                        height: size.height as f32,
+                                                        primitives,
+                                                    };
+                                                    scene3d_renderer.render(
+                                                        &device_handle.device,
+                                                        &device_handle.queue,
+                                                        &surface.target_view,
+                                                        &scene3d,
+                                                    );
+                                                }
+                                            }
 
                                             let surface_view = surface_texture.texture.create_view(&wgpu::TextureViewDescriptor::default());
 

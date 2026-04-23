@@ -43,11 +43,11 @@ impl Default for FlexDirection {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, Hash)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Hash)]
 pub enum EmbedKind {
     Video,
     Web,
-    Custom,
+    Custom(Vec<u8>),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
