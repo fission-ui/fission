@@ -147,12 +147,11 @@ impl Pipeline {
 
         let needs_layout = !layout_dirty_closure.is_empty() || use_full || viewport_changed;
 
-        // Clear paint cache when IR changes — the per-node cache doesn't
-        // track child subtree changes, so stale parent entries would
-        // render old child content (e.g., tab bar not showing new tabs).
-        if !layout_dirty_closure.is_empty() || use_full {
-            self.paint_cache.clear();
-        }
+        // Always clear paint cache — the per-node cache doesn't track
+        // child subtree changes or scroll offset changes, so stale entries
+        // would render old content. Rebuilding the display list is fast
+        // compared to layout/text measurement.
+        self.paint_cache.clear();
 
         if needs_layout {
             let start_layout = std::time::Instant::now();
