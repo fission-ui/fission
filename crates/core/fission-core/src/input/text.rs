@@ -106,17 +106,15 @@ impl InputController for TextInputController {
                                             // falling back to the theme default.
                                             let font_size = Self::extract_font_size(ctx.ir, focused_id)
                                                 .unwrap_or(13.0);
-                                            let max_width = if sem.multiline
-                                                && scroll_geom.rect.width() > 0.0
-                                            {
-                                                Some(scroll_geom.rect.width())
-                                            } else {
-                                                None
-                                            };
+                                            // Don't pass available_width for hit_test — the editor
+                                            // doesn't visually wrap lines, so the hit_test layout
+                                            // must match (unwrapped).  Passing a width causes the
+                                            // plain-text layout to wrap at different points than
+                                            // the rich-text renderer, producing wrong x→column mapping.
                                             measurer.hit_test(
                                                 value,
                                                 font_size,
-                                                max_width,
+                                                None,
                                                 point.x - scroll_geom.rect.origin.x + offset + ancestor_scroll_x,
                                                 point.y - scroll_geom.rect.origin.y + ancestor_scroll_y,
                                             )
@@ -175,18 +173,12 @@ impl InputController for TextInputController {
                                                 let offset = ctx.scroll.get_offset(scroll_id);
                                                 let new_caret = if let Some(measurer) = ctx.measurer
                                                 {
-                                                    let font_size = 16.0;
-                                                    let max_width = if sem.multiline
-                                                        && scroll_geom.rect.width() > 0.0
-                                                    {
-                                                        Some(scroll_geom.rect.width())
-                                                    } else {
-                                                        None
-                                                    };
+                                                    let font_size = Self::extract_font_size(ctx.ir, focused_id)
+                                                        .unwrap_or(13.0);
                                                     measurer.hit_test(
                                                         value,
                                                         font_size,
-                                                        max_width,
+                                                        None,
                                                         point.x - scroll_geom.rect.origin.x
                                                             + offset,
                                                         point.y - scroll_geom.rect.origin.y,
