@@ -4,6 +4,7 @@ use fission_charts::{
     LiquidfillSeries, MapSeries, ParallelSeries, PictorialBarSeries, PieSeries, RadarSeries,
     SankeySeries, ScatterSeries, Series, SunburstSeries, ThemeRiverSeries, Tooltip, TreemapNode,
     TreemapSeries, WordcloudSeries,
+    Dataset, DataValue, Encode,
 };
 use fission_3d::{Point3D, Primitive3D, Scene3D};
 use fission_core::{AppState, BuildCtx, View, Widget, ActionEnvelope};
@@ -391,6 +392,37 @@ impl Widget<GalleryState> for GalleryApp {
                     .build(ctx, view)
             }
             (5, 0) => {
+                Chart::new(800.0, 500.0)
+                    .title("Dataset Engine: Encoded Line & Bar")
+                    .dataset(Dataset::new()
+                        .dimensions(vec!["product".into(), "2015".into(), "2016".into(), "2017".into()])
+                        .source(vec![
+                            vec![DataValue::String("Matcha Latte".into()), DataValue::Number(43.3 * s), DataValue::Number(85.8 * s), DataValue::Number(93.7 * s)],
+                            vec![DataValue::String("Milk Tea".into()), DataValue::Number(83.1 * s), DataValue::Number(73.4 * s), DataValue::Number(55.1 * s)],
+                            vec![DataValue::String("Cheese Cocoa".into()), DataValue::Number(86.4 * s), DataValue::Number(65.2 * s), DataValue::Number(82.5 * s)],
+                            vec![DataValue::String("Walnut Brownie".into()), DataValue::Number(72.4 * s), DataValue::Number(53.9 * s), DataValue::Number(39.1 * s)],
+                        ])
+                    )
+                    .x_axis(Axis::category(vec!["Matcha Latte", "Milk Tea", "Cheese Cocoa", "Walnut Brownie"])) // Real axis mapping pending
+                    .y_axis(Axis::value())
+                    .series(vec![
+                        BarSeries::new("2015")
+                            .encode(Encode::new().x("product").y("2015"))
+                            .color(Color { r: 84, g: 112, b: 198, a: 255 })
+                            .into(),
+                        BarSeries::new("2016")
+                            .encode(Encode::new().x("product").y("2016"))
+                            .color(Color { r: 145, g: 204, b: 117, a: 255 })
+                            .into(),
+                        LineSeries::new("2017")
+                            .encode(Encode::new().x("product").y("2017"))
+                            .color(Color { r: 250, g: 204, b: 20, a: 255 })
+                            .smooth(view.state.smooth)
+                            .into(),
+                    ])
+                    .build(ctx, view)
+            }
+            (6, 0) => {
                 Scene3D::new(800.0, 500.0)
                     .add_primitive(Primitive3D::Cube {
                         center: Point3D::new(0.0, 0.0, 0.0),

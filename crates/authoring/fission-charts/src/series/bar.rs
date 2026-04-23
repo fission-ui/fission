@@ -1,10 +1,12 @@
 use serde::{Deserialize, Serialize};
 use fission_core::op::Color;
+use crate::encode::Encode;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BarSeries {
     pub name: String,
     pub data: Vec<f32>,
+    pub encode: Option<Encode>,
     pub color: Color,
     pub stack: Option<String>,
     pub border_radius: Option<f32>,
@@ -15,6 +17,7 @@ impl BarSeries {
         Self {
             name: name.into(),
             data: Vec::new(),
+            encode: None,
             color: Color::BLUE,
             stack: None,
             border_radius: None,
@@ -23,6 +26,11 @@ impl BarSeries {
     
     pub fn data(mut self, data: Vec<f32>) -> Self {
         self.data = data;
+        self
+    }
+
+    pub fn encode(mut self, encode: Encode) -> Self {
+        self.encode = Some(encode);
         self
     }
     

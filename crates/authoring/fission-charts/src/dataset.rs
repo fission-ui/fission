@@ -1,6 +1,8 @@
 use crate::encode::Encode;
 
-#[derive(Debug, Clone, PartialEq)]
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum DataValue {
     Number(f32),
     String(String),
@@ -25,7 +27,7 @@ impl From<String> for DataValue {
     }
 }
 
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct Dataset {
     pub dimensions: Option<Vec<String>>,
     pub source: Vec<Vec<DataValue>>,

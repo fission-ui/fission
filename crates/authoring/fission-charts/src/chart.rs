@@ -189,13 +189,22 @@ impl fission_core::ui::traits::LowerDyn for ChartLowerer {
             }
         }
 
+        let mut stack_totals: std::collections::HashMap<(String, usize), f32> = std::collections::HashMap::new();
+
         // 3. Series
         for series in &self.chart.series {
             match series {
                 Series::Bar(bar) => {
+                    let mut data = bar.data.clone();
+                    if let (Some(encode), Some(dataset)) = (&bar.encode, &self.chart.dataset) {
+                        if let Some(col) = dataset.extract_column_numbers(encode, "y") {
+                            data = col;
+                        }
+                    }
+                    
                     let band = coord.x_band_width();
                     let bar_w = if band > 0.0 { band * 0.7 } else { 20.0 };
-                    for (i, &val) in bar.data.iter().enumerate() {
+                    for (i, &val) in data.iter().enumerate() {
                         let mut base_val = 0.0;
                         if let Some(stack_name) = &bar.stack {
                             let key = (stack_name.clone(), i);
@@ -225,7 +234,14 @@ impl fission_core::ui::traits::LowerDyn for ChartLowerer {
                     }
                 }
                 Series::Line(line) => {
-                    if line.data.is_empty() { continue; }
+                    let mut data = line.data.clone();
+                    if let (Some(encode), Some(dataset)) = (&line.encode, &self.chart.dataset) {
+                        if let Some(col) = dataset.extract_column_numbers(encode, "y") {
+                            data = col;
+                        }
+                    }
+                    
+                    if data.is_empty() { continue; }
                     let mut path = String::new();
                     let mut area_path = String::new();
                     let band = coord.x_band_width();
@@ -233,7 +249,7 @@ impl fission_core::ui::traits::LowerDyn for ChartLowerer {
                     let mut points = Vec::new();
                     let mut base_points = Vec::new();
                     
-                    for (i, &val) in line.data.iter().enumerate() {
+                    for (i, &val) in data.iter().enumerate() {
                         let mut base_val = 0.0;
                         if let Some(stack_name) = &line.stack {
                             let key = (stack_name.clone(), i);

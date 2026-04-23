@@ -1,5 +1,7 @@
+use serde::{Deserialize, Serialize};
+
 /// Represents column mapping (e.g., mapping dataset dimensions to visual encodings).
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct Encode {
     pub x: Option<String>,
     pub y: Option<String>,

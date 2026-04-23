@@ -1,10 +1,12 @@
 use serde::{Deserialize, Serialize};
 use fission_core::op::Color;
+use crate::encode::Encode;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LineSeries {
     pub name: String,
     pub data: Vec<f32>,
+    pub encode: Option<Encode>,
     pub smooth: bool,
     pub color: Color,
     pub area_style: Option<Color>,
@@ -17,6 +19,7 @@ impl LineSeries {
         Self {
             name: name.into(),
             data: Vec::new(),
+            encode: None,
             smooth: false,
             color: Color::BLUE,
             area_style: None,
@@ -27,6 +30,11 @@ impl LineSeries {
     
     pub fn data(mut self, data: Vec<f32>) -> Self {
         self.data = data;
+        self
+    }
+
+    pub fn encode(mut self, encode: Encode) -> Self {
+        self.encode = Some(encode);
         self
     }
     
