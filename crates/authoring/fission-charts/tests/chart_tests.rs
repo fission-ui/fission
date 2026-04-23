@@ -11,7 +11,9 @@ use fission_ir::op::{LayoutOp, PaintOp};
 
 #[test]
 fn test_all_chart_builders() {
-    let mut chart = Chart::new(800.0, 600.0)
+    let mut chart = Chart::new()
+        .width(800.0)
+        .height(600.0)
         .title("Full Parity Test Chart")
         .x_axis(Axis::category(vec!["A", "B", "C"]))
         .y_axis(Axis::value())
@@ -48,13 +50,15 @@ fn test_all_chart_builders() {
     assert_eq!(chart.title.unwrap(), "Full Parity Test Chart");
     assert_eq!(chart.series.len(), 22);
     assert!(chart.animate);
-    assert_eq!(chart.width, 800.0);
-    assert_eq!(chart.height, 600.0);
+    assert_eq!(chart.width, Some(800.0));
+    assert_eq!(chart.height, Some(600.0));
 }
 
 #[test]
 fn test_chart_lowering() {
-    let chart = Chart::new(800.0, 600.0)
+    let chart = Chart::new()
+        .width(800.0)
+        .height(600.0)
         .x_axis(Axis::category(vec!["A", "B", "C"]))
         .y_axis(Axis::value())
         .series(vec![

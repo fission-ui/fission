@@ -27,18 +27,28 @@ pub enum Primitive3D {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Scene3D {
-    pub width: f32,
-    pub height: f32,
+    pub width: Option<f32>,
+    pub height: Option<f32>,
     pub primitives: Vec<Primitive3D>,
 }
 
 impl Scene3D {
-    pub fn new(width: f32, height: f32) -> Self {
+    pub fn new() -> Self {
         Self {
-            width,
-            height,
+            width: None,
+            height: None,
             primitives: Vec::new(),
         }
+    }
+
+    pub fn width(mut self, w: f32) -> Self {
+        self.width = Some(w);
+        self
+    }
+
+    pub fn height(mut self, h: f32) -> Self {
+        self.height = Some(h);
+        self
     }
 
     pub fn add_primitive(mut self, primitive: Primitive3D) -> Self {
@@ -49,14 +59,17 @@ impl Scene3D {
 
 impl<S: fission_core::AppState> Widget<S> for Scene3D {
     fn build(&self, _ctx: &mut BuildCtx<S>, _view: &View<S>) -> Node {
-        Container::new(
+        let mut container = Container::new(
             Node::Custom(CustomNode {
                 debug_tag: "fission_3d::Scene3D".into(),
                 lowerer: Some(std::sync::Arc::new(Scene3DLowerer {
                     scene: self.clone(),
                 })),
             })
-        ).width(self.width).height(self.height).into_node()
+        );
+        if let Some(w) = self.width { container = container.width(w); } else { container = container.flex_grow(1.0); }
+        if let Some(h) = self.height { container = container.height(h); } else { if self.width.is_none() { container = container.flex_grow(1.0); } }
+        container.into_node()
     }
 }
 
@@ -69,6 +82,13 @@ impl fission_core::ui::traits::LowerDyn for Scene3DLowerer {
     fn lower_dyn(&self, cx: &mut fission_core::lowering::LoweringContext) -> fission_ir::NodeId {
         let node_id = cx.next_node_id();
         
+        let w = self.scene.width.unwrap_or_else(|| {
+            (cx.env.viewport_size.width - 264.0).max(400.0)
+        });
+        let h = self.scene.height.unwrap_or_else(|| {
+            (cx.env.viewport_size.height - 200.0).max(300.0)
+        });
+
         // In a real implementation, this would emit an EmbedKind::Surface3D
         // and fission-shell-desktop would intercept it to render a wgpu scene
         // For this milestone, we emit a 3D placeholder layout op.
@@ -77,8 +97,8 @@ impl fission_core::ui::traits::LowerDyn for Scene3DLowerer {
         let op = fission_ir::Op::Layout(LayoutOp::Embed {
             kind: EmbedKind::Custom(payload),
             widget_id: fission_ir::WidgetNodeId::explicit("fission_3d_scene"),
-            width: Some(self.scene.width),
-            height: Some(self.scene.height),
+            width: Some(w),
+            height: Some(h),
         });
 
         cx.insert_node(node_id, op, vec![])

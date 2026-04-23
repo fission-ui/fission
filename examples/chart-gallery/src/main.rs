@@ -137,7 +137,7 @@ impl Widget<GalleryState> for GalleryApp {
         
         let chart_node = match (view.state.selected_category, view.state.selected_chart) {
             (0, 0) => {
-                Chart::new(800.0, 500.0)
+                Chart::new()
                     .title("Foundational: Line & Bar")
                     .x_axis(Axis::category(vec!["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]))
                     .y_axis(Axis::value())
@@ -155,7 +155,7 @@ impl Widget<GalleryState> for GalleryApp {
                     .build(ctx, view)
             }
             (0, 1) => {
-                Chart::new(800.0, 500.0)
+                Chart::new()
                     .title("Foundational: Stacked Area")
                     .x_axis(Axis::category(vec!["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]))
                     .y_axis(Axis::value())
@@ -178,7 +178,7 @@ impl Widget<GalleryState> for GalleryApp {
                     .build(ctx, view)
             }
             (0, 2) => {
-                Chart::new(800.0, 500.0)
+                Chart::new()
                     .title("Foundational: Step Line")
                     .x_axis(Axis::category(vec!["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]))
                     .y_axis(Axis::value())
@@ -192,7 +192,7 @@ impl Widget<GalleryState> for GalleryApp {
                     .build(ctx, view)
             }
             (0, 3) => {
-                Chart::new(800.0, 500.0)
+                Chart::new()
                     .title("Foundational: Pie")
                     .series(vec![
                         PieSeries::new("Access Source")
@@ -208,7 +208,7 @@ impl Widget<GalleryState> for GalleryApp {
                     .build(ctx, view)
             }
             (0, 4) => {
-                Chart::new(800.0, 500.0)
+                Chart::new()
                     .title("Foundational: Scatter")
                     .x_axis(Axis::value())
                     .y_axis(Axis::value())
@@ -221,7 +221,7 @@ impl Widget<GalleryState> for GalleryApp {
                     .build(ctx, view)
             }
             (1, 0) => {
-                Chart::new(800.0, 500.0)
+                Chart::new()
                     .title("Statistical: Boxplot")
                     .x_axis(Axis::category(vec!["expr 1", "expr 2", "expr 3"]))
                     .y_axis(Axis::value())
@@ -238,7 +238,7 @@ impl Widget<GalleryState> for GalleryApp {
                     .build(ctx, view)
             }
             (1, 1) => {
-                Chart::new(800.0, 500.0)
+                Chart::new()
                     .title("Statistical: Candlestick")
                     .x_axis(Axis::category(vec!["2017-10-24", "2017-10-25", "2017-10-26", "2017-10-27"]))
                     .y_axis(Axis::value())
@@ -255,7 +255,7 @@ impl Widget<GalleryState> for GalleryApp {
                     .build(ctx, view)
             }
             (1, 2) => {
-                Chart::new(800.0, 500.0)
+                Chart::new()
                     .title("Statistical: Heatmap")
                     .x_axis(Axis::category(vec!["12a", "1a", "2a", "3a"]))
                     .y_axis(Axis::category(vec!["Sat", "Fri", "Thu"]))
@@ -272,7 +272,7 @@ impl Widget<GalleryState> for GalleryApp {
                     .build(ctx, view)
             }
             (1, 3) => {
-                Chart::new(800.0, 500.0)
+                Chart::new()
                     .title("Statistical: Graph")
                     .series(vec![
                         GraphSeries::new("Les Miserables")
@@ -290,7 +290,7 @@ impl Widget<GalleryState> for GalleryApp {
                     .build(ctx, view)
             }
             (1, 4) => {
-                Chart::new(800.0, 500.0)
+                Chart::new()
                     .title("Statistical: Treemap")
                     .series(vec![
                         TreemapSeries::new("Disk Usage")
@@ -304,7 +304,7 @@ impl Widget<GalleryState> for GalleryApp {
                     .build(ctx, view)
             }
             (2, 0) => {
-                Chart::new(800.0, 500.0)
+                Chart::new()
                     .title("Specialized: Radar")
                     .series(vec![
                         RadarSeries::new("Budget vs spending")
@@ -317,7 +317,7 @@ impl Widget<GalleryState> for GalleryApp {
                     .build(ctx, view)
             }
             (2, 1) => {
-                Chart::new(800.0, 500.0)
+                Chart::new()
                     .title("Specialized: Funnel")
                     .series(vec![
                         FunnelSeries::new("Expected")
@@ -333,7 +333,7 @@ impl Widget<GalleryState> for GalleryApp {
                     .build(ctx, view)
             }
             (2, 2) => {
-                Chart::new(800.0, 500.0)
+                Chart::new()
                     .title("Specialized: Gauge")
                     .series(vec![
                         GaugeSeries::new("Speed")
@@ -343,7 +343,7 @@ impl Widget<GalleryState> for GalleryApp {
                     .build(ctx, view)
             }
             (2, 3) => {
-                Chart::new(800.0, 500.0)
+                Chart::new()
                     .title("Specialized: Map")
                     .series(vec![
                         MapSeries::new("World", "world")
@@ -353,7 +353,7 @@ impl Widget<GalleryState> for GalleryApp {
                     .build(ctx, view)
             }
             (2, 4) => {
-                Chart::new(800.0, 500.0)
+                Chart::new()
                     .title("Specialized: Sankey")
                     .series(vec![
                         SankeySeries::new("Energy Flow")
@@ -369,7 +369,7 @@ impl Widget<GalleryState> for GalleryApp {
                     .build(ctx, view)
             }
             (2, 5) => {
-                Chart::new(800.0, 500.0)
+                Chart::new()
                     .title("Specialized: Parallel")
                     .series(vec![
                         ParallelSeries::new("Data")
@@ -382,7 +382,7 @@ impl Widget<GalleryState> for GalleryApp {
                     .build(ctx, view)
             }
             (2, 6) => {
-                Chart::new(800.0, 500.0)
+                Chart::new()
                     .title("Specialized: Sunburst")
                     .series(vec![
                         SunburstSeries::new("Disk Usage")
@@ -392,7 +392,7 @@ impl Widget<GalleryState> for GalleryApp {
                     .build(ctx, view)
             }
             (5, 0) => {
-                Chart::new(800.0, 500.0)
+                Chart::new()
                     .title("Dataset Engine: Encoded Line & Bar")
                     .dataset(Dataset::new()
                         .dimensions(vec!["product".into(), "2015".into(), "2016".into(), "2017".into()])
@@ -422,8 +422,8 @@ impl Widget<GalleryState> for GalleryApp {
                     ])
                     .build(ctx, view)
             }
-            (6, 0) => {
-                Scene3D::new(800.0, 500.0)
+            (5, 0) => {
+                Scene3D::new()
                     .add_primitive(Primitive3D::Cube {
                         center: Point3D::new(0.0, 0.0, 0.0),
                         size: 2.0,

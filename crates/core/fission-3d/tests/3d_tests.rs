@@ -4,7 +4,9 @@ use fission_ir::op::{EmbedKind, LayoutOp};
 
 #[test]
 fn test_scene3d_builder() {
-    let scene = Scene3D::new(800.0, 600.0)
+    let scene = Scene3D::new()
+        .width(800.0)
+        .height(600.0)
         .add_primitive(Primitive3D::Cube {
             center: Point3D::new(0.0, 0.0, 0.0),
             size: 1.0,
@@ -16,14 +18,14 @@ fn test_scene3d_builder() {
             color: Color::BLUE,
         });
 
-    assert_eq!(scene.width, 800.0);
-    assert_eq!(scene.height, 600.0);
+    assert_eq!(scene.width, Some(800.0));
+    assert_eq!(scene.height, Some(600.0));
     assert_eq!(scene.primitives.len(), 2);
 }
 
 #[test]
 fn test_scene3d_lowering() {
-    let scene = Scene3D::new(100.0, 200.0);
+    let scene = Scene3D::new().width(100.0).height(200.0);
     let lowerer = Scene3DLowerer { scene };
     
     let env = Env::default();

@@ -1382,8 +1382,8 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                             for (_, _rect, payload) in &pipeline.scene_3d_surfaces {
                                                 if let Ok(primitives) = bincode::deserialize::<Vec<fission_3d::Primitive3D>>(payload) {
                                                     let scene3d = fission_3d::Scene3D {
-                                                        width: size.width as f32,
-                                                        height: size.height as f32,
+                                                        width: Some(size.width as f32),
+                                                        height: Some(size.height as f32),
                                                         primitives,
                                                     };
                                                     scene3d_renderer.render(

@@ -14,8 +14,8 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Chart {
-    pub width: f32,
-    pub height: f32,
+    pub width: Option<f32>,
+    pub height: Option<f32>,
     pub title: Option<String>,
     pub tooltip: Option<Tooltip>,
     pub legend: Option<Legend>,
@@ -28,10 +28,10 @@ pub struct Chart {
 }
 
 impl Chart {
-    pub fn new(width: f32, height: f32) -> Self {
+    pub fn new() -> Self {
         Self {
-            width,
-            height,
+            width: None,
+            height: None,
             title: None,
             tooltip: None,
             legend: None,
@@ -42,6 +42,16 @@ impl Chart {
             dataset: None,
             animate: false,
         }
+    }
+
+    pub fn width(mut self, w: f32) -> Self {
+        self.width = Some(w);
+        self
+    }
+
+    pub fn height(mut self, h: f32) -> Self {
+        self.height = Some(h);
+        self
     }
 
     pub fn dataset(mut self, ds: crate::dataset::Dataset) -> Self {
@@ -82,14 +92,27 @@ impl Chart {
 
 impl<S: fission_core::AppState> Widget<S> for Chart {
     fn build(&self, _ctx: &mut BuildCtx<S>, _view: &View<S>) -> Node {
-        Container::new(
+        let mut container = Container::new(
             Node::Custom(CustomNode {
                 debug_tag: "fission_charts::Chart".into(),
                 lowerer: Some(std::sync::Arc::new(ChartLowerer {
                     chart: self.clone(),
                 })),
             })
-        ).width(self.width).height(self.height).into_node()
+        );
+        if let Some(w) = self.width {
+            container = container.width(w);
+        } else {
+            container = container.flex_grow(1.0);
+        }
+        if let Some(h) = self.height {
+            container = container.height(h);
+        } else {
+            if self.width.is_none() {
+                container = container.flex_grow(1.0);
+            }
+        }
+        container.into_node()
     }
 }
 
@@ -105,8 +128,16 @@ impl fission_core::ui::traits::LowerDyn for ChartLowerer {
         let node_id = cx.next_node_id();
         let mut root = fission_core::lowering::NodeBuilder::new(node_id, fission_ir::Op::Layout(fission_ir::op::LayoutOp::ZStack));
         
-        let w = self.chart.width;
-        let h = self.chart.height;
+        let w = self.chart.width.unwrap_or_else(|| {
+            let available_w = cx.env.viewport_size.width;
+            (available_w - 264.0).max(400.0) // Minus sidebar and padding
+        });
+        
+        let h = self.chart.height.unwrap_or_else(|| {
+            let available_h = cx.env.viewport_size.height;
+            (available_h - 200.0).max(300.0) // Minus controls and padding
+        });
+
         let pad_left = 60.0;
         let pad_bottom = 40.0;
         let pad_top = 40.0;
