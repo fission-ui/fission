@@ -7,7 +7,7 @@ use std::time::{Duration, Instant};
 use winit::{
     dpi::PhysicalPosition,
     event::{ElementState, Event, Ime, KeyEvent, MouseButton, MouseScrollDelta, WindowEvent},
-    event_loop::{ControlFlow, EventLoop, EventLoopWindowTarget},
+    event_loop::{ControlFlow, EventLoopBuilder, EventLoopProxy, EventLoopWindowTarget},
     keyboard::PhysicalKey,
     window::{Window, WindowBuilder},
 };
@@ -31,6 +31,8 @@ use fission_render_vello::{VelloRenderer, VelloTextMeasurer};
 use fission_shell::{Platform, VideoBackend, VideoEvent, VideoPlayer};
 use fission_theme::fonts;
 use fontique::{Blob, Collection, CollectionOptions, FontInfoOverride, SourceCache};
+
+use fission_test_driver::TestEvent;
 
 // Vello / WGPU
 use pollster::block_on;
@@ -84,7 +86,7 @@ struct ActivePlayer {
 
 fn request_redraw_throttled(
     window: &Window,
-    elwt: &EventLoopWindowTarget<()>,
+    elwt: &EventLoopWindowTarget<TestEvent>,
     last_redraw_at: &mut Instant,
     min_frame: Duration,
     redraw_pending: &mut bool,
@@ -576,6 +578,322 @@ fn flush_text_traces(
     }
 }
 
+// ─── Extracted handler functions ─────────────────────────────────────────
+// These are called by BOTH real WindowEvent handlers AND the TestEvent (UserEvent)
+// handler, ensuring test infrastructure exercises the exact same code paths.
+
+/// Map a test button index (0=left, 1=right, 2=middle) to a `PointerButton`.
+fn map_test_button(button: u8) -> PointerButton {
+    match button {
+        0 => PointerButton::Primary,
+        1 => PointerButton::Secondary,
+        2 => PointerButton::Middle,
+        n => PointerButton::Other(n),
+    }
+}
+
+/// Handle cursor/mouse move — shared by WindowEvent::CursorMoved and TestEvent::MouseMove.
+fn handle_cursor_moved(
+    x: f32,
+    y: f32,
+    runtime: &mut Runtime,
+    pipeline: &Pipeline,
+    effect_result_tx: &mpsc::Sender<EffectResult>,
+    app_effect_handler: Option<&AppEffectHandler>,
+    window: &Window,
+    elwt: &EventLoopWindowTarget<TestEvent>,
+    last_redraw_at: &mut Instant,
+    min_frame: Duration,
+    redraw_pending: &mut bool,
+) {
+    if let (Some(ir), Some(layout)) = (&pipeline.prev_ir, &pipeline.last_snapshot) {
+        let point = LayoutPoint { x, y };
+        let event = InputEvent::Pointer(PointerEvent::Move { point });
+        if let Err(e) = runtime.handle_input(event, ir, layout) {
+            eprintln!("Input handling error: {:?}", e);
+        }
+        if process_pending_effects(runtime, effect_result_tx, app_effect_handler) {
+            request_redraw_throttled(window, elwt, last_redraw_at, min_frame, redraw_pending);
+        }
+        request_redraw_throttled(window, elwt, last_redraw_at, min_frame, redraw_pending);
+    }
+}
+
+/// Handle mouse button press/release — shared by WindowEvent::MouseInput and
+/// TestEvent::MouseDown / TestEvent::MouseUp.
+fn handle_mouse_button(
+    x: f32,
+    y: f32,
+    button: PointerButton,
+    is_pressed: bool,
+    runtime: &mut Runtime,
+    pipeline: &Pipeline,
+    effect_result_tx: &mpsc::Sender<EffectResult>,
+    app_effect_handler: Option<&AppEffectHandler>,
+    window: &Window,
+    elwt: &EventLoopWindowTarget<TestEvent>,
+    last_redraw_at: &mut Instant,
+    min_frame: Duration,
+    redraw_pending: &mut bool,
+    text_trace_enabled: bool,
+    pending_text_traces: &mut VecDeque<PendingTextTrace>,
+    next_text_trace_seq: &mut u64,
+    presented_frames: u64,
+    last_blink_toggle: &mut Instant,
+) {
+    if let (Some(ir), Some(layout)) = (&pipeline.prev_ir, &pipeline.last_snapshot) {
+        let point = LayoutPoint { x, y };
+        let pointer_event = if is_pressed {
+            PointerEvent::Down { point, button }
+        } else {
+            PointerEvent::Up { point, button }
+        };
+        let input_event = InputEvent::Pointer(pointer_event);
+
+        let trace_seq = if text_trace_enabled && is_pressed {
+            start_text_trace(
+                text_trace_enabled,
+                pending_text_traces,
+                next_text_trace_seq,
+                "pointer_down".to_string(),
+                None,
+                presented_frames,
+            )
+        } else {
+            None
+        };
+
+        if let Err(e) = runtime.handle_input(input_event, ir, layout) {
+            eprintln!("Input handling error: {:?}", e);
+        }
+
+        mark_text_trace_handled(pending_text_traces, trace_seq);
+        if process_pending_effects(runtime, effect_result_tx, app_effect_handler) {
+            mark_text_trace_effects(pending_text_traces, trace_seq);
+            request_redraw_throttled(window, elwt, last_redraw_at, min_frame, redraw_pending);
+        }
+        if is_pressed {
+            let target = focused_text_input_id(runtime, pipeline.prev_ir.as_ref());
+            if target.is_some() {
+                set_text_trace_target(pending_text_traces, trace_seq, target);
+            } else {
+                cancel_text_trace(pending_text_traces, trace_seq);
+            }
+            reset_text_input_caret(runtime, pipeline.prev_ir.as_ref(), last_blink_toggle);
+        }
+        request_redraw_throttled(window, elwt, last_redraw_at, min_frame, redraw_pending);
+    }
+}
+
+/// Handle scroll — shared by WindowEvent::MouseWheel and TestEvent::Scroll.
+fn handle_scroll(
+    point_x: f32,
+    point_y: f32,
+    delta_x: f32,
+    delta_y: f32,
+    runtime: &mut Runtime,
+    pipeline: &Pipeline,
+    effect_result_tx: &mpsc::Sender<EffectResult>,
+    app_effect_handler: Option<&AppEffectHandler>,
+    window: &Window,
+    elwt: &EventLoopWindowTarget<TestEvent>,
+    last_redraw_at: &mut Instant,
+    min_frame: Duration,
+    redraw_pending: &mut bool,
+) {
+    if let (Some(ir), Some(layout)) = (&pipeline.prev_ir, &pipeline.last_snapshot) {
+        let point = LayoutPoint { x: point_x, y: point_y };
+        let scroll_delta = LayoutPoint { x: delta_x, y: delta_y };
+        let event = InputEvent::Pointer(PointerEvent::Scroll { point, delta: scroll_delta });
+        if let Err(e) = runtime.handle_input(event, ir, layout) {
+            eprintln!("Scroll error: {:?}", e);
+        }
+        if process_pending_effects(runtime, effect_result_tx, app_effect_handler) {
+            request_redraw_throttled(window, elwt, last_redraw_at, min_frame, redraw_pending);
+        }
+        request_redraw_throttled(window, elwt, last_redraw_at, min_frame, redraw_pending);
+    }
+}
+
+/// Parse a key name string into a `KeyCode`.
+fn parse_key_code(key: &str) -> KeyCode {
+    match key {
+        "Enter" => KeyCode::Enter,
+        "Escape" => KeyCode::Escape,
+        "Tab" => KeyCode::Tab,
+        "Backspace" => KeyCode::Backspace,
+        "Left" => KeyCode::Left,
+        "Right" => KeyCode::Right,
+        "Up" => KeyCode::Up,
+        "Down" => KeyCode::Down,
+        "Home" => KeyCode::Home,
+        "End" => KeyCode::End,
+        "Space" => KeyCode::Space,
+        s if s.len() == 1 => KeyCode::Char(s.chars().next().unwrap()),
+        _ => KeyCode::Space,
+    }
+}
+
+/// Handle a key-down event — shared by WindowEvent::KeyboardInput and
+/// TestEvent::KeyDown / TestEvent::TextInput.
+///
+/// Returns `true` if the app key handler consumed the event.
+fn handle_key_down<S: AppState>(
+    code: KeyCode,
+    modifiers: u8,
+    runtime: &mut Runtime,
+    pipeline: &Pipeline,
+    effect_result_tx: &mpsc::Sender<EffectResult>,
+    app_effect_handler: Option<&AppEffectHandler>,
+    window: &Window,
+    elwt: &EventLoopWindowTarget<TestEvent>,
+    last_redraw_at: &mut Instant,
+    min_frame: Duration,
+    redraw_pending: &mut bool,
+    text_trace_enabled: bool,
+    pending_text_traces: &mut VecDeque<PendingTextTrace>,
+    next_text_trace_seq: &mut u64,
+    presented_frames: u64,
+    last_blink_toggle: &mut Instant,
+    key_handler: Option<&KeyHandler<S>>,
+) -> bool {
+    let ir_and_snap = match (&pipeline.prev_ir, &pipeline.last_snapshot) {
+        (Some(ir), Some(snap)) => Some((ir, snap)),
+        _ => None,
+    };
+
+    // App-level key handler intercepts before framework
+    if let Some(handler) = key_handler {
+        let handler = handler.clone();
+        if let Some(state) = runtime.get_app_state_mut::<S>() {
+            if handler(state, &code, modifiers) {
+                if process_pending_effects(runtime, effect_result_tx, app_effect_handler) {
+                    request_redraw_throttled(window, elwt, last_redraw_at, min_frame, redraw_pending);
+                }
+                request_redraw_throttled(window, elwt, last_redraw_at, min_frame, redraw_pending);
+                return true;
+            }
+        }
+    }
+
+    if let Some((ir, layout)) = ir_and_snap {
+        let target = focused_text_input_id(runtime, pipeline.prev_ir.as_ref());
+        let trace_seq = start_text_trace(
+            text_trace_enabled && target.is_some(),
+            pending_text_traces,
+            next_text_trace_seq,
+            format!("keyboard:{:?}", code),
+            target,
+            presented_frames,
+        );
+        let input_event = InputEvent::Keyboard(FissionKeyEvent::Down {
+            key_code: code,
+            modifiers,
+        });
+        if let Err(e) = runtime.handle_input(input_event, ir, layout) {
+            eprintln!("Keyboard error: {:?}", e);
+        }
+        mark_text_trace_handled(pending_text_traces, trace_seq);
+        if process_pending_effects(runtime, effect_result_tx, app_effect_handler) {
+            mark_text_trace_effects(pending_text_traces, trace_seq);
+            request_redraw_throttled(window, elwt, last_redraw_at, min_frame, redraw_pending);
+        }
+        reset_text_input_caret(runtime, pipeline.prev_ir.as_ref(), last_blink_toggle);
+        request_redraw_throttled(window, elwt, last_redraw_at, min_frame, redraw_pending);
+    }
+
+    false
+}
+
+/// Build the response for a GetText query.
+fn build_get_text_response(pipeline: &Pipeline) -> fission_test_driver::TestResponse {
+    use fission_test_driver::{TextItem, TestResponse};
+    let mut items = Vec::new();
+    if let (Some(ir), Some(snap)) = (pipeline.prev_ir.as_ref(), pipeline.last_snapshot.as_ref()) {
+        for (id, node) in &ir.nodes {
+            let text_content = match &node.op {
+                fission_ir::Op::Paint(fission_ir::PaintOp::DrawText { text, .. }) => Some(text.clone()),
+                fission_ir::Op::Paint(fission_ir::PaintOp::DrawRichText { runs, .. }) => {
+                    Some(runs.iter().map(|r| r.text.clone()).collect::<String>())
+                }
+                _ => None,
+            };
+            if let Some(text) = text_content {
+                if text.is_empty() { continue; }
+                let check_id = node.parent.unwrap_or(*id);
+                let rect = snap.get_node_rect(check_id).or_else(|| snap.get_node_rect(*id));
+                let (x, y, w, h) = rect.map(|r| (r.x(), r.y(), r.width(), r.height())).unwrap_or((0.0, 0.0, 0.0, 0.0));
+                items.push(TextItem { text, x, y, width: w, height: h });
+            }
+        }
+    }
+    TestResponse::Text { items }
+}
+
+/// Build the response for a GetTree query.
+fn build_get_tree_response(pipeline: &Pipeline) -> fission_test_driver::TestResponse {
+    use fission_test_driver::{SemanticNode, TestResponse};
+    let mut nodes = Vec::new();
+    if let Some(ir) = &pipeline.prev_ir {
+        for (id, node) in &ir.nodes {
+            if let fission_ir::Op::Semantics(sem) = &node.op {
+                let rect = pipeline.last_snapshot.as_ref()
+                    .and_then(|s| s.get_node_rect(*id));
+                let (x, y, w, h) = rect.map(|r| (r.x(), r.y(), r.width(), r.height())).unwrap_or((0.0, 0.0, 0.0, 0.0));
+                nodes.push(SemanticNode {
+                    role: format!("{:?}", sem.role),
+                    label: sem.label.clone(),
+                    value: sem.value.clone(),
+                    focusable: sem.focusable,
+                    x, y, width: w, height: h,
+                });
+            }
+        }
+    }
+    TestResponse::Tree { nodes }
+}
+
+/// Handle TapText — find text in the IR, tap at its center.
+fn handle_tap_text(
+    text: &str,
+    runtime: &mut Runtime,
+    pipeline: &Pipeline,
+) -> fission_test_driver::TestResponse {
+    use fission_test_driver::TestResponse;
+    if let (Some(ir), Some(snap)) = (pipeline.prev_ir.as_ref(), pipeline.last_snapshot.as_ref()) {
+        let mut found = None;
+        for (id, node) in &ir.nodes {
+            let txt = match &node.op {
+                fission_ir::Op::Paint(fission_ir::PaintOp::DrawText { text: t, .. }) => Some(t.as_str()),
+                fission_ir::Op::Paint(fission_ir::PaintOp::DrawRichText { runs, .. }) => {
+                    let combined: String = runs.iter().map(|r| r.text.clone()).collect();
+                    if combined.contains(text) { Some("") } else { None }
+                }
+                _ => None,
+            };
+            if let Some(t) = txt {
+                if t.contains(text) || t.is_empty() {
+                    let check_id = node.parent.unwrap_or(*id);
+                    if let Some(rect) = snap.get_node_rect(check_id).or_else(|| snap.get_node_rect(*id)) {
+                        found = Some((rect.x() + rect.width() / 2.0, rect.y() + rect.height() / 2.0));
+                        break;
+                    }
+                }
+            }
+        }
+        if let Some((cx, cy)) = found {
+            let point = LayoutPoint::new(cx, cy);
+            let _ = runtime.handle_input(InputEvent::Pointer(PointerEvent::Down { point, button: PointerButton::Primary }), ir, snap);
+            let _ = runtime.handle_input(InputEvent::Pointer(PointerEvent::Up { point, button: PointerButton::Primary }), ir, snap);
+            TestResponse::Ok {}
+        } else {
+            TestResponse::Error { message: format!("text '{}' not found", text) }
+        }
+    } else {
+        TestResponse::Error { message: "no frame rendered yet".into() }
+    }
+}
+
 pub type KeyHandler<S> = Arc<dyn Fn(&mut S, &fission_core::KeyCode, u8) -> bool + Send + Sync>;
 pub type FrameHook<S> = Arc<dyn Fn(&mut S) -> bool + Send + Sync>;
 
@@ -731,8 +1049,14 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
             diag::DiagEventKind::FrameStart { root: None },
         );
         diag::init_from_env();
-        let event_loop =
-            EventLoop::new().map_err(|e| anyhow::anyhow!("Event loop error: {}", e))?;
+
+        // Build event loop with TestEvent as the user event type.
+        // This allows the test control server to inject events via EventLoopProxy.
+        let event_loop = EventLoopBuilder::<TestEvent>::with_user_event()
+            .build()
+            .map_err(|e| anyhow::anyhow!("Event loop error: {}", e))?;
+        let event_proxy = event_loop.create_proxy();
+
         let window = Arc::new(
             WindowBuilder::new()
                 .with_title(&self.title)
@@ -834,22 +1158,162 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
 
         let mut current_mods: u8 = 0;
 
-        // Test control channel (enabled via FISSION_TEST_CONTROL_PORT env var)
-        let test_control_rx: Option<test_control::CommandReceiver> = std::env::var("FISSION_TEST_CONTROL_PORT")
+        // Test control (enabled via FISSION_TEST_CONTROL_PORT env var).
+        // The TCP server injects TestEvents via the EventLoopProxy and receives
+        // query responses through a dedicated mpsc channel.
+        let test_response_tx: Option<test_control::ResponseSender> = std::env::var("FISSION_TEST_CONTROL_PORT")
             .ok()
             .and_then(|v| v.parse::<u16>().ok())
             .map(|port| {
-                let (tx, rx) = test_control::create_channel();
-                test_control::spawn_server(port, tx);
-                rx
+                let (resp_tx, resp_rx) = test_control::create_response_channel();
+                test_control::spawn_server(port, event_proxy.clone(), resp_rx);
+                resp_tx
             });
-        let mut pending_screenshot: Option<(String, test_control::ResponseSender)> = None;
+        // Pending screenshot/pump: path + whether it needs a screenshot (vs pump).
+        let mut pending_screenshot_path: Option<String> = None;
 
         event_loop
             .run(move |event, elwt| {
                 elwt.set_control_flow(ControlFlow::Wait);
 
                 match event {
+                    // ═══════════════════════════════════════════════════════
+                    // UserEvent — injected by test control server via proxy
+                    // ═══════════════════════════════════════════════════════
+                    Event::UserEvent(test_event) => {
+                        match test_event {
+                            TestEvent::MouseMove { x, y } => {
+                                // Update cursor position for subsequent button events
+                                let scale_factor = window.scale_factor();
+                                last_cursor_position = Some(PhysicalPosition::new(
+                                    (x as f64) * scale_factor,
+                                    (y as f64) * scale_factor,
+                                ));
+                                handle_cursor_moved(
+                                    x, y,
+                                    &mut runtime, &pipeline,
+                                    &effect_result_tx, app_effect_handler.as_ref(),
+                                    &window, elwt,
+                                    &mut last_redraw_at, min_frame, &mut redraw_pending,
+                                );
+                            }
+                            TestEvent::MouseDown { x, y, button } => {
+                                let btn = map_test_button(button);
+                                handle_mouse_button(
+                                    x, y, btn, true,
+                                    &mut runtime, &pipeline,
+                                    &effect_result_tx, app_effect_handler.as_ref(),
+                                    &window, elwt,
+                                    &mut last_redraw_at, min_frame, &mut redraw_pending,
+                                    text_trace_enabled, &mut pending_text_traces,
+                                    &mut next_text_trace_seq, presented_frames,
+                                    &mut last_blink_toggle,
+                                );
+                            }
+                            TestEvent::MouseUp { x, y, button } => {
+                                let btn = map_test_button(button);
+                                handle_mouse_button(
+                                    x, y, btn, false,
+                                    &mut runtime, &pipeline,
+                                    &effect_result_tx, app_effect_handler.as_ref(),
+                                    &window, elwt,
+                                    &mut last_redraw_at, min_frame, &mut redraw_pending,
+                                    text_trace_enabled, &mut pending_text_traces,
+                                    &mut next_text_trace_seq, presented_frames,
+                                    &mut last_blink_toggle,
+                                );
+                            }
+                            TestEvent::KeyDown { key_code, modifiers } => {
+                                let code = parse_key_code(&key_code);
+                                handle_key_down::<S>(
+                                    code, modifiers,
+                                    &mut runtime, &pipeline,
+                                    &effect_result_tx, app_effect_handler.as_ref(),
+                                    &window, elwt,
+                                    &mut last_redraw_at, min_frame, &mut redraw_pending,
+                                    text_trace_enabled, &mut pending_text_traces,
+                                    &mut next_text_trace_seq, presented_frames,
+                                    &mut last_blink_toggle,
+                                    self.key_handler.as_ref(),
+                                );
+                            }
+                            TestEvent::KeyUp { .. } => {
+                                // Key-up is currently a no-op in the framework
+                                // (only key-down dispatches actions), but we request
+                                // a redraw so any state changes are rendered.
+                                request_redraw_throttled(&window, elwt, &mut last_redraw_at, min_frame, &mut redraw_pending);
+                            }
+                            TestEvent::TextInput { text } => {
+                                // Type each character as a key-down — same as the
+                                // old TestCommand::TypeText handler.
+                                if let (Some(ir), Some(snap)) = (pipeline.prev_ir.as_ref(), pipeline.last_snapshot.as_ref()) {
+                                    for ch in text.chars() {
+                                        let key = if ch == ' ' { KeyCode::Space } else if ch == '\n' { KeyCode::Enter } else { KeyCode::Char(ch) };
+                                        let _ = runtime.handle_input(InputEvent::Keyboard(FissionKeyEvent::Down { key_code: key, modifiers: 0 }), ir, snap);
+                                    }
+                                }
+                                request_redraw_throttled(&window, elwt, &mut last_redraw_at, min_frame, &mut redraw_pending);
+                            }
+                            TestEvent::Scroll { x, y, dx, dy } => {
+                                handle_scroll(
+                                    x, y, dx, dy,
+                                    &mut runtime, &pipeline,
+                                    &effect_result_tx, app_effect_handler.as_ref(),
+                                    &window, elwt,
+                                    &mut last_redraw_at, min_frame, &mut redraw_pending,
+                                );
+                            }
+                            TestEvent::Resize { width, height } => {
+                                if width > 0 && height > 0 {
+                                    pipeline.last_viewport = None;
+                                    request_redraw_throttled(&window, elwt, &mut last_redraw_at, min_frame, &mut redraw_pending);
+                                }
+                            }
+                            TestEvent::TapText { text } => {
+                                let resp = handle_tap_text(&text, &mut runtime, &pipeline);
+                                if let Some(ref tx) = test_response_tx {
+                                    let _ = tx.send(resp);
+                                }
+                                request_redraw_throttled(&window, elwt, &mut last_redraw_at, min_frame, &mut redraw_pending);
+                            }
+                            TestEvent::Screenshot { path } => {
+                                pending_screenshot_path = Some(path);
+                                window.request_redraw();
+                            }
+                            TestEvent::GetText => {
+                                let resp = build_get_text_response(&pipeline);
+                                if let Some(ref tx) = test_response_tx {
+                                    let _ = tx.send(resp);
+                                }
+                            }
+                            TestEvent::GetTree => {
+                                let resp = build_get_tree_response(&pipeline);
+                                if let Some(ref tx) = test_response_tx {
+                                    let _ = tx.send(resp);
+                                }
+                            }
+                            TestEvent::Pump => {
+                                // Schedule a frame and respond after it renders.
+                                pending_screenshot_path = Some("__pump__".into());
+                                window.request_redraw();
+                            }
+                            TestEvent::Wait { ms: _ } => {
+                                // Wait is handled on the server thread; this
+                                // should not arrive here. If it does, just
+                                // respond OK.
+                                if let Some(ref tx) = test_response_tx {
+                                    let _ = tx.send(fission_test_driver::TestResponse::Ok {});
+                                }
+                            }
+                            TestEvent::Quit => {
+                                elwt.exit();
+                            }
+                        }
+                    }
+
+                    // ═══════════════════════════════════════════════════════
+                    // AboutToWait — idle / animation / blink / effects
+                    // ═══════════════════════════════════════════════════════
                     Event::AboutToWait => {
                         let now = Instant::now();
                         let dt = now.duration_since(last_frame_time);
@@ -977,10 +1441,6 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                         }
 
                         // Cursor blink: toggle visibility and request a redraw.
-                        // Previous versions skipped the redraw to avoid CPU usage,
-                        // but text caching and fast hashing now make 500ms blink
-                        // redraws cheap enough.  The CPU issue was caused by
-                        // blocking I/O in the frame hook, not rebuild speed.
                         if blink_enabled {
                             if let Some(id) = blink_focus_id {
                                 if now.duration_since(last_blink_toggle) >= blink_period {
@@ -997,170 +1457,6 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                         } else {
                             None
                         };
-
-                        // Poll test control channel
-                        if let Some(ref rx) = test_control_rx {
-                            while let Ok((cmd, responder)) = rx.try_recv() {
-                                use fission_test_driver::{TestCommand, TestResponse, TextItem, SemanticNode};
-                                let resp = match cmd {
-                                    TestCommand::Tap { x, y } => {
-                                        let point = LayoutPoint::new(x, y);
-                                        if let (Some(ir), Some(snap)) = (pipeline.prev_ir.as_ref(), pipeline.last_snapshot.as_ref()) {
-                                            let _ = runtime.handle_input(InputEvent::Pointer(PointerEvent::Down { point, button: PointerButton::Primary }), ir, snap);
-                                            let _ = runtime.handle_input(InputEvent::Pointer(PointerEvent::Up { point, button: PointerButton::Primary }), ir, snap);
-                                        }
-                                        TestResponse::Ok {}
-                                    }
-                                    TestCommand::TapText { text } => {
-                                        if let (Some(ir), Some(snap)) = (pipeline.prev_ir.as_ref(), pipeline.last_snapshot.as_ref()) {
-                                            let mut found = None;
-                                            for (id, node) in &ir.nodes {
-                                                let txt = match &node.op {
-                                                    fission_ir::Op::Paint(fission_ir::PaintOp::DrawText { text: t, .. }) => Some(t.as_str()),
-                                                    fission_ir::Op::Paint(fission_ir::PaintOp::DrawRichText { runs, .. }) => {
-                                                        // Check concatenated text
-                                                        let combined: String = runs.iter().map(|r| r.text.clone()).collect();
-                                                        if combined.contains(&text) { Some("") } else { None }
-                                                    }
-                                                    _ => None,
-                                                };
-                                                if let Some(t) = txt {
-                                                    if t.contains(&text) || t.is_empty() {
-                                                        // Find parent layout node for position
-                                                        let check_id = node.parent.unwrap_or(*id);
-                                                        if let Some(rect) = snap.get_node_rect(check_id).or_else(|| snap.get_node_rect(*id)) {
-                                                            found = Some((rect.x() + rect.width() / 2.0, rect.y() + rect.height() / 2.0));
-                                                            break;
-                                                        }
-                                                    }
-                                                }
-                                            }
-                                            if let Some((cx, cy)) = found {
-                                                let point = LayoutPoint::new(cx, cy);
-                                                let _ = runtime.handle_input(InputEvent::Pointer(PointerEvent::Down { point, button: PointerButton::Primary }), ir, snap);
-                                                let _ = runtime.handle_input(InputEvent::Pointer(PointerEvent::Up { point, button: PointerButton::Primary }), ir, snap);
-                                                TestResponse::Ok {}
-                                            } else {
-                                                TestResponse::Error { message: format!("text '{}' not found", text) }
-                                            }
-                                        } else {
-                                            TestResponse::Error { message: "no frame rendered yet".into() }
-                                        }
-                                    }
-                                    TestCommand::Scroll { x, y, dx, dy } => {
-                                        let point = LayoutPoint::new(x, y);
-                                        let delta = LayoutPoint::new(dx, dy);
-                                        if let (Some(ir), Some(snap)) = (pipeline.prev_ir.as_ref(), pipeline.last_snapshot.as_ref()) {
-                                            let _ = runtime.handle_input(InputEvent::Pointer(PointerEvent::Scroll { point, delta }), ir, snap);
-                                        }
-                                        TestResponse::Ok {}
-                                    }
-                                    TestCommand::TypeText { text } => {
-                                        if let (Some(ir), Some(snap)) = (pipeline.prev_ir.as_ref(), pipeline.last_snapshot.as_ref()) {
-                                            for ch in text.chars() {
-                                                let key = if ch == ' ' { KeyCode::Space } else if ch == '\n' { KeyCode::Enter } else { KeyCode::Char(ch) };
-                                                let _ = runtime.handle_input(InputEvent::Keyboard(FissionKeyEvent::Down { key_code: key, modifiers: 0 }), ir, snap);
-                                            }
-                                        }
-                                        TestResponse::Ok {}
-                                    }
-                                    TestCommand::PressKey { key, modifiers } => {
-                                        let kc = match key.as_str() {
-                                            "Enter" => KeyCode::Enter,
-                                            "Escape" => KeyCode::Escape,
-                                            "Tab" => KeyCode::Tab,
-                                            "Backspace" => KeyCode::Backspace,
-                                            "Left" => KeyCode::Left,
-                                            "Right" => KeyCode::Right,
-                                            "Up" => KeyCode::Up,
-                                            "Down" => KeyCode::Down,
-                                            "Home" => KeyCode::Home,
-                                            "End" => KeyCode::End,
-                                            "Space" => KeyCode::Space,
-                                            s if s.len() == 1 => KeyCode::Char(s.chars().next().unwrap()),
-                                            _ => KeyCode::Space,
-                                        };
-                                        // Check app key handler first
-                                        let mut handled = false;
-                                        if let Some(handler) = &self.key_handler {
-                                            let handler = handler.clone();
-                                            if let Some(state) = runtime.get_app_state_mut::<S>() {
-                                                handled = handler(state, &kc, modifiers);
-                                            }
-                                        }
-                                        if !handled {
-                                            if let (Some(ir), Some(snap)) = (pipeline.prev_ir.as_ref(), pipeline.last_snapshot.as_ref()) {
-                                                let _ = runtime.handle_input(InputEvent::Keyboard(FissionKeyEvent::Down { key_code: kc, modifiers }), ir, snap);
-                                            }
-                                        }
-                                        TestResponse::Ok {}
-                                    }
-                                    TestCommand::Screenshot { path } => {
-                                        pending_screenshot = Some((path, responder));
-                                        window.request_redraw();
-                                        continue; // Don't respond yet, respond after render
-                                    }
-                                    TestCommand::GetText {} => {
-                                        let mut items = Vec::new();
-                                        if let (Some(ir), Some(snap)) = (pipeline.prev_ir.as_ref(), pipeline.last_snapshot.as_ref()) {
-                                            for (id, node) in &ir.nodes {
-                                                let text_content = match &node.op {
-                                                    fission_ir::Op::Paint(fission_ir::PaintOp::DrawText { text, .. }) => Some(text.clone()),
-                                                    fission_ir::Op::Paint(fission_ir::PaintOp::DrawRichText { runs, .. }) => {
-                                                        Some(runs.iter().map(|r| r.text.clone()).collect::<String>())
-                                                    }
-                                                    _ => None,
-                                                };
-                                                if let Some(text) = text_content {
-                                                    if text.is_empty() { continue; }
-                                                    let check_id = node.parent.unwrap_or(*id);
-                                                    let rect = snap.get_node_rect(check_id).or_else(|| snap.get_node_rect(*id));
-                                                    let (x, y, w, h) = rect.map(|r| (r.x(), r.y(), r.width(), r.height())).unwrap_or((0.0, 0.0, 0.0, 0.0));
-                                                    items.push(TextItem { text, x, y, width: w, height: h });
-                                                }
-                                            }
-                                        }
-                                        TestResponse::Text { items }
-                                    }
-                                    TestCommand::GetTree {} => {
-                                        let mut nodes = Vec::new();
-                                        if let Some(ir) = &pipeline.prev_ir {
-                                            for (id, node) in &ir.nodes {
-                                                if let fission_ir::Op::Semantics(sem) = &node.op {
-                                                    let rect = pipeline.last_snapshot.as_ref()
-                                                        .and_then(|s| s.get_node_rect(*id));
-                                                    let (x, y, w, h) = rect.map(|r| (r.x(), r.y(), r.width(), r.height())).unwrap_or((0.0, 0.0, 0.0, 0.0));
-                                                    nodes.push(SemanticNode {
-                                                        role: format!("{:?}", sem.role),
-                                                        label: sem.label.clone(),
-                                                        value: sem.value.clone(),
-                                                        focusable: sem.focusable,
-                                                        x, y, width: w, height: h,
-                                                    });
-                                                }
-                                            }
-                                        }
-                                        TestResponse::Tree { nodes }
-                                    }
-                                    TestCommand::Wait { ms } => {
-                                        std::thread::sleep(std::time::Duration::from_millis(ms));
-                                        TestResponse::Ok {}
-                                    }
-                                    TestCommand::Pump {} => {
-                                        // Defer response until after the next frame renders
-                                        pending_screenshot = Some(("__pump__".into(), responder));
-                                        window.request_redraw();
-                                        continue; // Don't respond yet
-                                    }
-                                    TestCommand::Quit {} => {
-                                        elwt.exit();
-                                        TestResponse::Ok {}
-                                    }
-                                };
-                                let _ = responder.send(resp);
-                                window.request_redraw();
-                            }
-                        }
 
                         // Drain completed background effect results and dispatch
                         // their continuations back into the runtime on the main thread.
@@ -1227,6 +1523,10 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                             elwt.set_control_flow(ControlFlow::Wait);
                         }
                     }
+
+                    // ═══════════════════════════════════════════════════════
+                    // WindowEvent — real user interaction
+                    // ═══════════════════════════════════════════════════════
                     Event::WindowEvent { window_id, event } if window_id == window.id() => {
                         match event {
                             WindowEvent::Resized(size) => {
@@ -1283,7 +1583,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                         let videos = ctx.take_video_registrations();
                                         let web_views = ctx.take_web_registrations();
                                         let portals_with_ids = ctx.take_portals();
-                                        
+
                                         let portals = portals_with_ids.into_iter().map(|(id, node)| {
                                             if let Some(id) = id {
                                                 // Use a derived ID for the wrapper to avoid conflict with the widget's own node
@@ -1409,20 +1709,22 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
 
                                             device_handle.queue.submit(Some(encoder.finish()));
 
-                                            // GPU screenshot BEFORE present (target texture has content)
-                                            if let Some((path, responder)) = pending_screenshot.take() {
-                                                if path == "__pump__" {
-                                                    let _ = responder.send(fission_test_driver::TestResponse::Ok {});
-                                                } else {
-                                                    let resp = gpu_screenshot(
-                                                        &device_handle.device,
-                                                        &device_handle.queue,
-                                                        &surface.target_texture,
-                                                        size.width,
-                                                        size.height,
-                                                        &path,
-                                                    );
-                                                    let _ = responder.send(resp);
+                                            // GPU screenshot / pump response BEFORE present
+                                            if let Some(path) = pending_screenshot_path.take() {
+                                                if let Some(ref tx) = test_response_tx {
+                                                    if path == "__pump__" {
+                                                        let _ = tx.send(fission_test_driver::TestResponse::Ok {});
+                                                    } else {
+                                                        let resp = gpu_screenshot(
+                                                            &device_handle.device,
+                                                            &device_handle.queue,
+                                                            &surface.target_texture,
+                                                            size.width,
+                                                            size.height,
+                                                            &path,
+                                                        );
+                                                        let _ = tx.send(resp);
+                                                    }
                                                 }
                                             }
 
@@ -1446,109 +1748,68 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                             WindowEvent::CloseRequested => {
                                 elwt.exit();
                             }
-                            // Input Handling
+                            // Input Handling — delegates to the same extracted functions
+                            // that TestEvent handlers use.
                             WindowEvent::CursorMoved { position, .. } => {
-                                if let (Some(ir), Some(layout)) = (&pipeline.prev_ir, &pipeline.last_snapshot) {
-                                    last_cursor_position = Some(position);
-                                    let scale_factor = window.scale_factor();
-                                    let point = LayoutPoint {
-                                        x: (position.x / scale_factor) as f32,
-                                        y: (position.y / scale_factor) as f32,
-                                    };
-                                    let event = InputEvent::Pointer(PointerEvent::Move { point });
-                                    if let Err(e) = runtime.handle_input(event, ir, layout) {
-                                        eprintln!("Input handling error: {:?}", e);
-                                    }
-                                    if process_pending_effects(&mut runtime, &effect_result_tx, app_effect_handler.as_ref()) {
-                                        request_redraw_throttled(&window, elwt, &mut last_redraw_at, min_frame, &mut redraw_pending);
-                                    }
-                                    request_redraw_throttled(&window, elwt, &mut last_redraw_at, min_frame, &mut redraw_pending);
-                                }
+                                last_cursor_position = Some(position);
+                                let scale_factor = window.scale_factor();
+                                let x = (position.x / scale_factor) as f32;
+                                let y = (position.y / scale_factor) as f32;
+                                handle_cursor_moved(
+                                    x, y,
+                                    &mut runtime, &pipeline,
+                                    &effect_result_tx, app_effect_handler.as_ref(),
+                                    &window, elwt,
+                                    &mut last_redraw_at, min_frame, &mut redraw_pending,
+                                );
                             }
                             WindowEvent::MouseInput { state, button, .. } => {
-                                if let (Some(ir), Some(layout)) = (&pipeline.prev_ir, &pipeline.last_snapshot) {
-                                    if let Some(position) = last_cursor_position {
-                                        let scale_factor = window.scale_factor();
-                                        let point = LayoutPoint {
-                                            x: (position.x / scale_factor) as f32,
-                                            y: (position.y / scale_factor) as f32,
-                                        };
-                                        if let Some(btn) = map_mouse_button(button) {
-                                            if let Some(event) = build_pointer_event(state, btn, point) {
-                                                let trace_seq = if text_trace_enabled && state.is_pressed() {
-                                                    start_text_trace(
-                                                        text_trace_enabled,
-                                                        &mut pending_text_traces,
-                                                        &mut next_text_trace_seq,
-                                                        "pointer_down".to_string(),
-                                                        None,
-                                                        presented_frames,
-                                                    )
-                                                } else {
-                                                    None
-                                                };
-                                                // println!("Dispatching input: {:?} at {:?}", event, point);
-                                                if let Err(e) = runtime.handle_input(event, ir, layout) {
-                                                    eprintln!("Input handling error: {:?}", e);
-                                                } else {
-                                                    // println!("Input dispatched successfully");
-                                                }
-                                                mark_text_trace_handled(&mut pending_text_traces, trace_seq);
-                                                if process_pending_effects(&mut runtime, &effect_result_tx, app_effect_handler.as_ref()) {
-                                                    mark_text_trace_effects(&mut pending_text_traces, trace_seq);
-                                                    request_redraw_throttled(&window, elwt, &mut last_redraw_at, min_frame, &mut redraw_pending);
-                                                }
-                                                if state.is_pressed() {
-                                                    let target = focused_text_input_id(&runtime, pipeline.prev_ir.as_ref());
-                                                    if target.is_some() {
-                                                        set_text_trace_target(&mut pending_text_traces, trace_seq, target);
-                                                    } else {
-                                                        cancel_text_trace(&mut pending_text_traces, trace_seq);
-                                                    }
-                                                    reset_text_input_caret(&mut runtime, pipeline.prev_ir.as_ref(), &mut last_blink_toggle);
-                                                }
-                                                request_redraw_throttled(&window, elwt, &mut last_redraw_at, min_frame, &mut redraw_pending);
-                                            }
-                                        }
+                                if let Some(position) = last_cursor_position {
+                                    let scale_factor = window.scale_factor();
+                                    let x = (position.x / scale_factor) as f32;
+                                    let y = (position.y / scale_factor) as f32;
+                                    if let Some(btn) = map_mouse_button(button) {
+                                        let is_pressed = state.is_pressed();
+                                        handle_mouse_button(
+                                            x, y, btn, is_pressed,
+                                            &mut runtime, &pipeline,
+                                            &effect_result_tx, app_effect_handler.as_ref(),
+                                            &window, elwt,
+                                            &mut last_redraw_at, min_frame, &mut redraw_pending,
+                                            text_trace_enabled, &mut pending_text_traces,
+                                            &mut next_text_trace_seq, presented_frames,
+                                            &mut last_blink_toggle,
+                                        );
                                     }
                                 }
                             }
                             WindowEvent::MouseWheel { delta, .. } => {
-                                if let (Some(ir), Some(layout)) = (&pipeline.prev_ir, &pipeline.last_snapshot) {
-                                    if let Some(position) = last_cursor_position {
-                                        let scale_factor = window.scale_factor();
-                                        let point = LayoutPoint {
-                                            x: (position.x / scale_factor) as f32,
-                                            y: (position.y / scale_factor) as f32,
-                                        };
+                                if let Some(position) = last_cursor_position {
+                                    let scale_factor = window.scale_factor();
+                                    let point_x = (position.x / scale_factor) as f32;
+                                    let point_y = (position.y / scale_factor) as f32;
 
-                                        let scroll_delta = match delta {
-                                            MouseScrollDelta::LineDelta(x, y) => LayoutPoint { x: -x * 50.0, y: -y * 50.0 },
-                                            MouseScrollDelta::PixelDelta(p) => LayoutPoint {
-                                                x: -(p.x / scale_factor) as f32,
-                                                y: -(p.y / scale_factor) as f32,
-                                            },
-                                        };
+                                    let (dx, dy) = match delta {
+                                        MouseScrollDelta::LineDelta(x, y) => (-x * 50.0, -y * 50.0),
+                                        MouseScrollDelta::PixelDelta(p) => (
+                                            -(p.x / scale_factor) as f32,
+                                            -(p.y / scale_factor) as f32,
+                                        ),
+                                    };
 
-                                        let event = InputEvent::Pointer(PointerEvent::Scroll { point, delta: scroll_delta });
-                                        if std::env::var("FISSION_SCROLL_TRACE").ok().as_deref() == Some("1") {
-                                            eprintln!(
-                                                "[scroll-trace] mousewheel raw={:?} point=({:.1},{:.1}) delta=({:.1},{:.1})",
-                                                delta,
-                                                point.x,
-                                                point.y,
-                                                scroll_delta.x,
-                                                scroll_delta.y
-                                            );
-                                        }
-                                        if let Err(e) = runtime.handle_input(event, ir, layout) {
-                                            eprintln!("Scroll error: {:?}", e);
-                                        }
-                                        if process_pending_effects(&mut runtime, &effect_result_tx, app_effect_handler.as_ref()) {
-                                            request_redraw_throttled(&window, elwt, &mut last_redraw_at, min_frame, &mut redraw_pending);
-                                        }
-                                        request_redraw_throttled(&window, elwt, &mut last_redraw_at, min_frame, &mut redraw_pending);
+                                    if std::env::var("FISSION_SCROLL_TRACE").ok().as_deref() == Some("1") {
+                                        eprintln!(
+                                            "[scroll-trace] mousewheel raw={:?} point=({:.1},{:.1}) delta=({:.1},{:.1})",
+                                            delta, point_x, point_y, dx, dy
+                                        );
                                     }
+                                    handle_scroll(
+                                        point_x, point_y, dx, dy,
+                                        &mut runtime, &pipeline,
+                                        &effect_result_tx, app_effect_handler.as_ref(),
+                                        &window, elwt,
+                                        &mut last_redraw_at, min_frame, &mut redraw_pending,
+                                    );
                                 }
                             }
                             WindowEvent::ModifiersChanged(modifiers) => {
@@ -1582,50 +1843,18 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                         }
                                     };
 
-                                    if let (Some(code), Some(ir), Some(layout)) = (key_code, &pipeline.prev_ir, &pipeline.last_snapshot) {
-                                        // App-level key handler intercepts before framework
-                                        let mut key_handled_by_app = false;
-                                        if let Some(handler) = &self.key_handler {
-                                            let handler = handler.clone();
-                                            if let Some(state) = runtime.get_app_state_mut::<S>() {
-                                                if handler(state, &code, current_mods) {
-                                                    if process_pending_effects(&mut runtime, &effect_result_tx, app_effect_handler.as_ref()) {
-                                                        request_redraw_throttled(&window, elwt, &mut last_redraw_at, min_frame, &mut redraw_pending);
-                                                    }
-                                                    request_redraw_throttled(&window, elwt, &mut last_redraw_at, min_frame, &mut redraw_pending);
-                                                    key_handled_by_app = true;
-                                                }
-                                            }
-                                        }
-
-                                        if key_handled_by_app {
-                                            // Skip normal key handling
-                                        } else {
-
-                                        let target = focused_text_input_id(&runtime, pipeline.prev_ir.as_ref());
-                                        let trace_seq = start_text_trace(
-                                            text_trace_enabled && target.is_some(),
-                                            &mut pending_text_traces,
-                                            &mut next_text_trace_seq,
-                                            format!("keyboard:{:?}", code),
-                                            target,
-                                            presented_frames,
+                                    if let Some(code) = key_code {
+                                        handle_key_down::<S>(
+                                            code, current_mods,
+                                            &mut runtime, &pipeline,
+                                            &effect_result_tx, app_effect_handler.as_ref(),
+                                            &window, elwt,
+                                            &mut last_redraw_at, min_frame, &mut redraw_pending,
+                                            text_trace_enabled, &mut pending_text_traces,
+                                            &mut next_text_trace_seq, presented_frames,
+                                            &mut last_blink_toggle,
+                                            self.key_handler.as_ref(),
                                         );
-                                        let input_event = InputEvent::Keyboard(FissionKeyEvent::Down {
-                                            key_code: code,
-                                            modifiers: current_mods,
-                                        });
-                                        if let Err(e) = runtime.handle_input(input_event, ir, layout) {
-                                            eprintln!("Keyboard error: {:?}", e);
-                                        }
-                                        mark_text_trace_handled(&mut pending_text_traces, trace_seq);
-                                        if process_pending_effects(&mut runtime, &effect_result_tx, app_effect_handler.as_ref()) {
-                                            mark_text_trace_effects(&mut pending_text_traces, trace_seq);
-                                            request_redraw_throttled(&window, elwt, &mut last_redraw_at, min_frame, &mut redraw_pending);
-                                        }
-                                        reset_text_input_caret(&mut runtime, pipeline.prev_ir.as_ref(), &mut last_blink_toggle);
-                                        request_redraw_throttled(&window, elwt, &mut last_redraw_at, min_frame, &mut redraw_pending);
-                                    } // else (not handled by app key handler)
                                     }
                                 }
                             }
@@ -1697,19 +1926,6 @@ fn map_mouse_button(button: MouseButton) -> Option<PointerButton> {
         MouseButton::Other(id) => Some(PointerButton::Other(id as u8)),
         _ => None,
     }
-}
-
-fn build_pointer_event(
-    state: ElementState,
-    button: PointerButton,
-    point: LayoutPoint,
-) -> Option<InputEvent> {
-    let pointer_event = match state {
-        ElementState::Pressed => PointerEvent::Down { point, button },
-        ElementState::Released => PointerEvent::Up { point, button },
-    };
-
-    Some(InputEvent::Pointer(pointer_event))
 }
 
 fn gpu_screenshot(
