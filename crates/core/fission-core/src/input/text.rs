@@ -105,17 +105,12 @@ impl InputController for TextInputController {
                                             let local_x = point.x - scroll_geom.rect.origin.x + offset + ancestor_scroll_x;
                                             let local_y = point.y - scroll_geom.rect.origin.y + ancestor_scroll_y;
 
-                                            // Try rich text hit_test first — this uses the same
-                                            // styled layout as the renderer, so glyph positions
-                                            // match exactly.  Falls back to plain hit_test if no
-                                            // rich text runs are found.
-                                            if let Some(runs) = Self::extract_rich_runs(ctx.ir, focused_id) {
-                                                measurer.hit_test_rich(&runs, None, local_x, local_y)
-                                            } else {
-                                                let font_size = Self::extract_font_size(ctx.ir, focused_id)
-                                                    .unwrap_or(13.0);
-                                                measurer.hit_test(value, font_size, None, local_x, local_y)
-                                            }
+                                            // Use plain text hit_test — it operates on the same
+                                            // text string as value, so byte offsets map correctly
+                                            // to caret positions.
+                                            let font_size = Self::extract_font_size(ctx.ir, focused_id)
+                                                .unwrap_or(13.0);
+                                            measurer.hit_test(value, font_size, None, local_x, local_y)
                                         } else {
                                             Self::caret_from_point_in_text_fallback(
                                                 value,
