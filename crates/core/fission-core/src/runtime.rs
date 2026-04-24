@@ -533,6 +533,34 @@ impl Runtime {
             }
         }
 
+        // --- Keyboard events → focused node's custom render object -----------
+        // Keyboard events have no point, so we route them to the focused node
+        // (if any) and walk up its ancestor chain looking for a custom render
+        // object.  This allows custom editor nodes to handle arrow keys,
+        // typing, etc. before the framework's default focus-navigation logic.
+        if matches!(event, InputEvent::Keyboard(_)) {
+            if let Some(focused_id) = self.runtime_state.interaction.focused {
+                let mut walk_id = Some(focused_id);
+                while let Some(nid) = walk_id {
+                    if let Some(any_ro) = ir.custom_render_objects.get(&nid) {
+                        if let Some(render_obj) = downcast_render_object(any_ro) {
+                            let node_rect = layout
+                                .get_node_rect(nid)
+                                .unwrap_or(LayoutRect::new(0.0, 0.0, 0.0, 0.0));
+                            let result = render_obj.handle_event(nid, &event, node_rect);
+                            if result.handled {
+                                for (target, envelope) in result.actions {
+                                    self.dispatch(envelope, target)?;
+                                }
+                                return Ok(());
+                            }
+                        }
+                    }
+                    walk_id = ir.nodes.get(&nid).and_then(|n| n.parent);
+                }
+            }
+        }
+
         let mut dispatched_actions = Vec::new();
         let mut handled = false;
 

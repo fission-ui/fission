@@ -350,6 +350,10 @@ pub struct FileBuffer {
     pub language: Language,
     pub cursor_line: usize,
     pub cursor_col: usize,
+    /// Selection anchor line (same as cursor when no selection).
+    pub anchor_line: usize,
+    /// Selection anchor column (same as cursor when no selection).
+    pub anchor_col: usize,
     pub edit_history: fission_text_engine::EditHistory,
     pub line_index: fission_text_engine::LineIndex,
 }
@@ -693,6 +697,11 @@ pub struct UpdateCursorPosition {
     pub anchor: usize,
 }
 
+/// Action dispatched by the editor render node to update the model's scroll
+/// position so that scroll-follows-cursor works.
+#[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub struct UpdateScrollY(pub f32);
+
 // --- Additional types ---
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -762,6 +771,8 @@ impl EditorState {
                 language: lang,
                 cursor_line: 0,
                 cursor_col: 0,
+                anchor_line: 0,
+                anchor_col: 0,
                 edit_history: fission_text_engine::EditHistory::new(),
                 line_index,
             },
@@ -1519,6 +1530,8 @@ mod tests {
             language: Language::Plain,
             cursor_line: 0,
             cursor_col: 0,
+            anchor_line: 0,
+            anchor_col: 0,
             edit_history: fission_text_engine::EditHistory::new(),
             line_index: fission_text_engine::LineIndex::build_from_str("a"),
         };
@@ -1546,6 +1559,8 @@ mod tests {
             language: Language::Plain,
             cursor_line: 0,
             cursor_col: 0,
+            anchor_line: 0,
+            anchor_col: 0,
             edit_history: fission_text_engine::EditHistory::with_max(100),
             line_index: fission_text_engine::LineIndex::build_from_str("start"),
         };
@@ -2793,6 +2808,8 @@ mod tests {
             language: Language::Plain,
             cursor_line: 0,
             cursor_col: 0,
+            anchor_line: 0,
+            anchor_col: 0,
             edit_history: fission_text_engine::EditHistory::new(),
             line_index: fission_text_engine::LineIndex::build_from_str("initial"),
         };
@@ -2817,6 +2834,8 @@ mod tests {
             language: Language::Plain,
             cursor_line: 0,
             cursor_col: 0,
+            anchor_line: 0,
+            anchor_col: 0,
             edit_history: fission_text_engine::EditHistory::new(),
             line_index: fission_text_engine::LineIndex::build_from_str("start"),
         };

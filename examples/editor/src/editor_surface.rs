@@ -1,6 +1,6 @@
 use crate::editor_render_node::{offset_to_line_col, EditorRenderNode};
 use crate::minimap::Minimap;
-use crate::model::{EditorState, UpdateCursorPosition, UpdateFileContent};
+use crate::model::{EditorState, UpdateCursorPosition, UpdateFileContent, UpdateScrollY};
 use fission_core::op::Color;
 use fission_core::ui::custom_render::CustomRenderObject;
 use fission_core::ui::traits::LowerDyn;
@@ -34,6 +34,9 @@ impl Widget<EditorState> for EditorSurface {
                     let (line, col) = offset_to_line_col(&content, a.caret);
                     buf.cursor_line = line;
                     buf.cursor_col = col;
+                    let (aline, acol) = offset_to_line_col(&content, a.anchor);
+                    buf.anchor_line = aline;
+                    buf.anchor_col = acol;
                 }
             }) as Handler<EditorState, UpdateCursorPosition>,
         );
@@ -50,6 +53,13 @@ impl Widget<EditorState> for EditorSurface {
                     tab.is_dirty = true;
                 }
             }) as Handler<EditorState, UpdateFileContent>,
+        );
+
+        ctx.bind(
+            UpdateScrollY(0.0),
+            (|s: &mut EditorState, a: UpdateScrollY, _| {
+                s.scroll_offset_y = a.0;
+            }) as Handler<EditorState, UpdateScrollY>,
         );
 
         // ---- Editor surface via CustomNode ----------------------------------
