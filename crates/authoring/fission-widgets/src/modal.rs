@@ -41,7 +41,7 @@ impl<S: fission_core::AppState> Widget<S> for Modal {
                     r: 0,
                     g: 0,
                     b: 0,
-                    a: 128,
+                    a: 200,
                 })
                 .flex_grow(1.0)
                 .into_node();

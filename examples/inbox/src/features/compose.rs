@@ -115,6 +115,7 @@ impl Widget<InboxState> for ComposeModal {
                         is_flagged: false,
                         labels: vec!["Sent".into()],
                         messages: vec![message],
+                        category: 0,
                     };
                     email.refresh_preview();
                     s.emails.insert(0, email);

@@ -131,15 +131,21 @@ impl Widget<InboxState> for Sidebar {
                         variant: ButtonVariant::Ghost,
                         child: Some(Box::new(Text::new(t("nav.contacts")).size(14.0).into_node())),
                         content_align: ButtonContentAlign::Start,
-                        on_press: Some(ctx.bind(SetContactsOpen(true), (|s: &mut InboxState, a: SetContactsOpen, _| s.show_contacts = a.0) as Handler<InboxState, SetContactsOpen>)),
+                        on_press: Some(ctx.bind(SetContactsOpen(true), (|s: &mut InboxState, a: SetContactsOpen, _| {
+                            s.show_contacts = a.0;
+                            s.show_settings = false;
+                        }) as Handler<InboxState, SetContactsOpen>)),
                         ..Default::default()
                     }.into_node(),
-                    
+
                     Button {
                         variant: ButtonVariant::Ghost,
                         child: Some(Box::new(Text::new(t("nav.settings")).size(14.0).into_node())),
                         content_align: ButtonContentAlign::Start,
-                        on_press: Some(ctx.bind(SetSettingsOpen(true), (|s: &mut InboxState, a: SetSettingsOpen, _| s.show_settings = a.0) as Handler<InboxState, SetSettingsOpen>)),
+                        on_press: Some(ctx.bind(SetSettingsOpen(true), (|s: &mut InboxState, a: SetSettingsOpen, _| {
+                            s.show_settings = a.0;
+                            s.show_contacts = false;
+                        }) as Handler<InboxState, SetSettingsOpen>)),
                         ..Default::default()
                     }.into_node(),
                 ],

@@ -75,8 +75,10 @@ impl Widget<InboxState> for EmailDetail {
         };
 
         Container::new(
+            Scroll {
+                child: Some(Box::new(
             VStack {
-                spacing: Some(8.0),
+                spacing: Some(16.0),
                 children: vec![
                     Button {
                         variant: ButtonVariant::Ghost,
@@ -94,11 +96,15 @@ impl Widget<InboxState> for EmailDetail {
                         ..Default::default()
                     }.into_node(),
 
-                    Alert {
-                        kind: AlertKind::Warning,
-                        title: t("alert.external_sender.title"),
-                        description: Some(t("alert.external_sender.desc")),
-                    }.build(ctx, view),
+                    Container::new(
+                        Alert {
+                            kind: AlertKind::Warning,
+                            title: t("alert.external_sender.title"),
+                            description: Some(t("alert.external_sender.desc")),
+                        }.build(ctx, view)
+                    )
+                    .flex_shrink(0.0)
+                    .into_node(),
 
                     HStack {
                         spacing: Some(8.0),
@@ -122,7 +128,7 @@ impl Widget<InboxState> for EmailDetail {
                     }.build(ctx, view),
 
                     HStack {
-                        spacing: Some(8.0),
+                        spacing: Some(12.0),
                         children: vec![
                             Avatar {
                                 name: Some(latest.from.clone()),
@@ -130,7 +136,7 @@ impl Widget<InboxState> for EmailDetail {
                                 ..Default::default()
                             }.build(ctx, view),
                             VStack {
-                                spacing: Some(2.0),
+                                spacing: Some(4.0),
                                 children: vec![
                                     Text { content: TextContent::Literal(latest.from.clone()), font_size: Some(14.0), ..Default::default() }.into(),
                                     Text { content: TextContent::Literal(latest.sent_at.format("%b %d, %I:%M %p").to_string()), font_size: Some(12.0), color: Some(tokens.colors.text_secondary), ..Default::default() }.into(),
@@ -330,6 +336,10 @@ impl Widget<InboxState> for EmailDetail {
                 ]
             }
             .build(ctx, view)
+                )),
+                show_scrollbar: true,
+                ..Default::default()
+            }.into_node()
         )
         .padding_all(16.0)
         .bg(tokens.colors.background)

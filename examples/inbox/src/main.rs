@@ -70,11 +70,11 @@ impl Widget<InboxState> for InboxApp {
                     .unwrap_or_else(|| "Action completed successfully".into()),
                 on_close: Some(ctx.bind(ToggleToast(false), (|s, _, _| s.show_toast = false) as Handler<InboxState, ToggleToast>)),
             }.build(ctx, view);
-            
+
             ctx.register_portal(
                 fission_widgets::Positioned {
-                    left: Some(20.0), bottom: Some(20.0), // Bottom left toast
-                    width: None, height: None,
+                    left: Some(20.0), bottom: Some(20.0),
+                    width: Some(360.0), height: Some(48.0),
                     child: Some(Box::new(toast)),
                     ..Default::default()
                 }.into_node()

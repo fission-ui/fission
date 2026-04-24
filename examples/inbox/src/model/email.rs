@@ -23,6 +23,8 @@ pub struct Email {
     pub is_flagged: bool,
     pub labels: Vec<String>,
     pub messages: Vec<EmailMessage>,
+    /// 0 = Primary, 1 = Social, 2 = Promotions
+    pub category: usize,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -101,6 +103,7 @@ pub fn seed_mailbox() -> SeededMailbox {
                           is_read: bool,
                           is_flagged: bool,
                           labels: &[&str],
+                          category: usize,
                           bodies: &[&str]| {
         let id = next_email_id;
         next_email_id += 1;
@@ -134,6 +137,7 @@ pub fn seed_mailbox() -> SeededMailbox {
             is_flagged,
             labels: labels.iter().map(|s| (*s).to_string()).collect(),
             messages,
+            category,
         };
         email.refresh_preview();
         emails.push(email);
@@ -146,6 +150,7 @@ pub fn seed_mailbox() -> SeededMailbox {
         false,
         true,
         &["Work", "Planning"],
+        0, // Primary
         &[
             "Hey team — can we align on the Q1 goals? I pulled the draft OKRs into the doc.",
             "Following up with an updated deck. Please leave comments by Friday.",
@@ -158,6 +163,7 @@ pub fn seed_mailbox() -> SeededMailbox {
         true,
         true,
         &["Design"],
+        0, // Primary
         &[
             "Sharing the latest design pass. The header area needs more breathing room.",
             "Thanks! I like the new hierarchy. Let's ship it next sprint.",
@@ -170,6 +176,7 @@ pub fn seed_mailbox() -> SeededMailbox {
         true,
         false,
         &["Receipts"],
+        2, // Promotions
         &[
             "Your subscription renewed on Jan 12. Total: $249.00. Invoice attached.",
         ],
@@ -181,6 +188,7 @@ pub fn seed_mailbox() -> SeededMailbox {
         true,
         false,
         &["Drafts"],
+        0, // Primary
         &[
             "Hi Jordan,\n\nI wanted to follow up on the partnership outline we discussed...",
         ],
@@ -192,6 +200,7 @@ pub fn seed_mailbox() -> SeededMailbox {
         true,
         false,
         &["Sent"],
+        0, // Primary
         &[
             "Thanks for the time today. Here are the notes and the next steps we agreed on.",
         ],
@@ -203,6 +212,7 @@ pub fn seed_mailbox() -> SeededMailbox {
         false,
         false,
         &["Travel"],
+        1, // Social
         &[
             "Attached are your flight details and hotel confirmation. Reach out if anything changes.",
         ],
@@ -214,6 +224,7 @@ pub fn seed_mailbox() -> SeededMailbox {
         true,
         false,
         &["Updates"],
+        2, // Promotions
         &[
             "Here is your weekly product roundup. Highlights include new themes and analytics.",
         ],

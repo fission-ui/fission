@@ -1,6 +1,6 @@
 use fission_core::{BuildCtx, View, Widget, WidgetNodeId, NodeId, Handler};
 use fission_core::ui::{Button, ButtonContentAlign, ButtonVariant, Checkbox, Container, Node, Row, Text, TextContent};
-use fission_widgets::{VStack, HStack, LazyColumn, Tabs, TabItem, TextInput, MenuButton, MenuItem, Badge, Divider, Icon, SegmentedControl, Pagination, EmptyState, Hero, DropDown, Tooltip, Popover, DateRangePicker, RangeSlider, Wrap, Tag};
+use fission_widgets::{VStack, HStack, LazyColumn, Tabs, TabItem, TextInput, Badge, Divider, Icon, SegmentedControl, Pagination, EmptyState, Hero, DropDown, Tooltip, Popover, DateRangePicker, RangeSlider, Wrap, Tag};
 use crate::model::{InboxState, Folder, SelectTab, UpdateSearch, ToggleFilterDropdown, ToggleEmailSelection, ToggleFlag, SetComposeOpen, Navigate, SetMobileMenuOpen, SetFilterMode, SetPage, SetAdvancedFiltersOpen, SetSortOption, SetHelpPopoverOpen};
 use fission_icons::material;
 use std::sync::Arc;
@@ -138,8 +138,8 @@ impl Widget<InboxState> for EmailList {
                     }.build(ctx, view),
                     fission_core::ui::widgets::Spacer { flex_grow: 1.0, ..Default::default() }.into_node(),
                     DropDown {
-                        selected: Some(view.state.sort_option.clone()),
-                        options: vec!["Newest".into(), "Oldest".into(), "Unread".into()],
+                        selected: Some(format!("{}▾", view.state.sort_option)),
+                        options: vec!["Newest".into(), "Oldest".into()],
                         on_toggle: Some(sort_toggle),
                         ..Default::default()
                     }.build(ctx, view),
@@ -203,7 +203,7 @@ impl Widget<InboxState> for EmailList {
                                 }.into_node()
                             )
                             .padding_all(12.0)
-                            .width(260.0)
+                            .width(220.0)
                             .into_node()
                         ),
                     }.build(ctx, view),
@@ -249,6 +249,12 @@ impl Widget<InboxState> for EmailList {
             .iter()
             .filter(|e| e.folders.contains(&folder))
             .collect();
+
+        // Filter by active tab (category): 0=Primary, 1=Social, 2=Promotions
+        // Only apply tab filtering in the Inbox folder
+        if folder == Folder::Inbox {
+            emails.retain(|e| e.category == view.state.active_tab);
+        }
 
         if !view.state.search_query.trim().is_empty() {
             emails.retain(|e| e.matches_query(&view.state.search_query));
@@ -486,7 +492,12 @@ mod tests {
             }
         }
 
-        let mut h = TestHarness::new(InboxState::default()).with_root_widget(Root);
+        let mut initial_state = InboxState::default();
+        // Set all emails to Primary category so tab filtering doesn't interfere
+        for email in &mut initial_state.emails {
+            email.category = 0;
+        }
+        let mut h = TestHarness::new(initial_state).with_root_widget(Root);
         h.pump()?;
 
         let all_count = count_subject_text_nodes(&h);
