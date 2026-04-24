@@ -949,6 +949,7 @@ dependencies = [
  "fission-shell-desktop",
  "fission-test",
  "fission-test-driver",
+ "fission-text-engine",
  "fission-theme",
  "fission-widgets",
  "lazy_static",

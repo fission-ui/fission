@@ -10,14 +10,18 @@
 //! The struct is built from `EditorState` via [`EditorRenderNode::from_state`]
 //! and wrapped in a `Node::Custom(CustomNode { .. })` by `EditorSurface`.
 
-use crate::model::{EditorState, Language};
+use crate::model::{EditorState, Language, UpdateCursorPosition, UpdateFileContent};
 use crate::syntax;
+use fission_core::action::ActionEnvelope;
+use fission_core::event::{InputEvent, KeyCode, KeyEvent, PointerEvent};
 use fission_core::lowering::{LoweringContext, NodeBuilder};
+use fission_core::ui::custom_render::{CustomEventResult, CustomHitResult, CustomRenderObject};
 use fission_core::ui::traits::LowerDyn;
 use fission_ir::op::{
     AlignItems, Color as IrColor, Fill, FlexDirection, LayoutOp, Op, PaintOp, TextRun, TextStyle,
 };
 use fission_ir::NodeId;
+use fission_core::{LayoutPoint, LayoutRect};
 use std::fmt;
 
 // ---------------------------------------------------------------------------
@@ -92,7 +96,7 @@ impl EditorRenderNode {
     /// to the welcome screen).
     pub fn from_state(state: &EditorState) -> Option<Self> {
         let (tab, buffer) = state.active_buffer()?;
-        let content = buffer.content.clone();
+        let content = buffer.content();
         let language = buffer.language;
         let file_path = tab.path.clone();
 
@@ -432,11 +436,189 @@ impl LowerDyn for EditorRenderNode {
 }
 
 // ---------------------------------------------------------------------------
+// CustomRenderObject — hit-testing and event handling
+// ---------------------------------------------------------------------------
+
+impl CustomRenderObject for EditorRenderNode {
+    fn hit_test(&self, local_point: LayoutPoint, _node_rect: LayoutRect) -> CustomHitResult {
+        let byte_offset = self.point_to_offset(local_point);
+        CustomHitResult::inside(Some(byte_offset))
+    }
+
+    fn handle_event(
+        &self,
+        node_id: NodeId,
+        event: &InputEvent,
+        node_rect: LayoutRect,
+    ) -> CustomEventResult {
+        match event {
+            // --- Click to place caret ---
+            InputEvent::Pointer(PointerEvent::Down { point, .. }) => {
+                let local_point = LayoutPoint::new(
+                    point.x - node_rect.origin.x,
+                    point.y - node_rect.origin.y,
+                );
+                let byte_offset = self.point_to_offset(local_point);
+
+                let action = UpdateCursorPosition {
+                    caret: byte_offset,
+                    anchor: byte_offset,
+                };
+                let envelope = ActionEnvelope::from(action);
+                CustomEventResult::consumed_with(vec![(node_id, envelope)])
+            }
+
+            // --- Keyboard input ---
+            InputEvent::Keyboard(KeyEvent::Down { key_code, modifiers }) => {
+                self.handle_key(node_id, key_code, *modifiers)
+            }
+
+            _ => CustomEventResult::ignored(),
+        }
+    }
+}
+
+impl EditorRenderNode {
+    /// Convert a local point (relative to the node's top-left) to a byte
+    /// offset in `self.content`.
+    fn point_to_offset(&self, local_point: LayoutPoint) -> usize {
+        let char_width = self.font_size * 0.6;
+
+        // Account for vertical scroll offset.
+        let adjusted_y = local_point.y + self.scroll_y;
+        let line = (adjusted_y / self.line_height).floor().max(0.0) as usize;
+
+        // Horizontal: subtract gutter width, then divide by char width.
+        let text_x = (local_point.x - self.gutter_width).max(0.0);
+        let col = (text_x / char_width).round() as usize;
+
+        line_col_to_offset(&self.content, line, col)
+    }
+
+    /// Handle a key press, producing a `CustomEventResult` with the
+    /// appropriate actions to dispatch.
+    fn handle_key(
+        &self,
+        node_id: NodeId,
+        key_code: &KeyCode,
+        _modifiers: u8,
+    ) -> CustomEventResult {
+        let mut content = self.content.clone();
+        let mut offset = self.cursor_offset;
+        let content_len = content.len();
+
+        match key_code {
+            // -- Character insertion --
+            KeyCode::Char(ch) => {
+                let clamped = offset.min(content_len);
+                content.insert(clamped, *ch);
+                offset = clamped + ch.len_utf8();
+            }
+            KeyCode::Space => {
+                let clamped = offset.min(content_len);
+                content.insert(clamped, ' ');
+                offset = clamped + 1;
+            }
+            KeyCode::Enter => {
+                let clamped = offset.min(content_len);
+                content.insert(clamped, '\n');
+                offset = clamped + 1;
+            }
+            KeyCode::Tab => {
+                let clamped = offset.min(content_len);
+                content.insert_str(clamped, "    ");
+                offset = clamped + 4;
+            }
+
+            // -- Deletion --
+            KeyCode::Backspace => {
+                if offset > 0 {
+                    // Find the start of the preceding character.
+                    let prev_boundary = content[..offset]
+                        .char_indices()
+                        .next_back()
+                        .map(|(i, _)| i)
+                        .unwrap_or(0);
+                    content.remove(prev_boundary);
+                    offset = prev_boundary;
+                }
+            }
+
+            // -- Arrow key navigation --
+            KeyCode::Left => {
+                if offset > 0 {
+                    offset = content[..offset]
+                        .char_indices()
+                        .next_back()
+                        .map(|(i, _)| i)
+                        .unwrap_or(0);
+                }
+            }
+            KeyCode::Right => {
+                if offset < content_len {
+                    offset = content[offset..]
+                        .char_indices()
+                        .nth(1)
+                        .map(|(i, _)| offset + i)
+                        .unwrap_or(content_len);
+                }
+            }
+            KeyCode::Up => {
+                let (line, col) = offset_to_line_col(&content, offset);
+                if line > 0 {
+                    offset = line_col_to_offset(&content, line - 1, col);
+                }
+            }
+            KeyCode::Down => {
+                let (line, col) = offset_to_line_col(&content, offset);
+                offset = line_col_to_offset(&content, line + 1, col);
+            }
+            KeyCode::Home => {
+                // Move to start of current line.
+                let (line, _) = offset_to_line_col(&content, offset);
+                offset = line_col_to_offset(&content, line, 0);
+            }
+            KeyCode::End => {
+                // Move to end of current line.
+                let (line, _) = offset_to_line_col(&content, offset);
+                let line_text = content.lines().nth(line).unwrap_or("");
+                offset = line_col_to_offset(&content, line, line_text.len());
+            }
+
+            KeyCode::Escape => {
+                return CustomEventResult::ignored();
+            }
+        }
+
+        // Build actions: always update cursor, and update file content if it
+        // changed.
+        let mut actions: Vec<(NodeId, ActionEnvelope)> = Vec::new();
+
+        if content != self.content {
+            actions.push((
+                node_id,
+                ActionEnvelope::from(UpdateFileContent(content)),
+            ));
+        }
+
+        actions.push((
+            node_id,
+            ActionEnvelope::from(UpdateCursorPosition {
+                caret: offset,
+                anchor: offset,
+            }),
+        ));
+
+        CustomEventResult::consumed_with(actions)
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
 /// Convert a (line, col) pair to a byte offset in `content`.
-fn line_col_to_offset(content: &str, line: usize, col: usize) -> usize {
+pub(crate) fn line_col_to_offset(content: &str, line: usize, col: usize) -> usize {
     let mut offset = 0;
     for (i, text_line) in content.lines().enumerate() {
         if i == line {
@@ -449,7 +631,7 @@ fn line_col_to_offset(content: &str, line: usize, col: usize) -> usize {
 }
 
 /// Convert a byte offset to a (line, col) pair.
-fn offset_to_line_col(content: &str, offset: usize) -> (usize, usize) {
+pub(crate) fn offset_to_line_col(content: &str, offset: usize) -> (usize, usize) {
     let mut line = 0;
     let mut col = 0;
     for (i, ch) in content.char_indices() {

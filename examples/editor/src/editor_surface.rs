@@ -1,10 +1,13 @@
-use crate::editor_render_node::EditorRenderNode;
+use crate::editor_render_node::{offset_to_line_col, EditorRenderNode};
 use crate::minimap::Minimap;
-use crate::model::EditorState;
+use crate::model::{EditorState, UpdateCursorPosition, UpdateFileContent};
 use fission_core::op::Color;
+use fission_core::ui::custom_render::CustomRenderObject;
+use fission_core::ui::traits::LowerDyn;
 use fission_core::ui::{Container, CustomNode, Node, Row, Scroll, Text};
-use fission_core::{BuildCtx, FlexDirection, View, Widget};
+use fission_core::{BuildCtx, FlexDirection, Handler, View, Widget};
 use fission_widgets::{HStack, VStack, Spacer};
+use std::sync::Arc;
 
 pub struct EditorSurface;
 
@@ -22,11 +25,42 @@ impl Widget<EditorState> for EditorSurface {
             line_count as f32 * render_node.line_height
         };
 
+        // ---- Register reducers for actions dispatched by the render object ---
+        ctx.bind(
+            UpdateCursorPosition { caret: 0, anchor: 0 },
+            (|s: &mut EditorState, a: UpdateCursorPosition, _| {
+                if let Some((_tab, buf)) = s.active_buffer_mut() {
+                    let content = buf.content();
+                    let (line, col) = offset_to_line_col(&content, a.caret);
+                    buf.cursor_line = line;
+                    buf.cursor_col = col;
+                }
+            }) as Handler<EditorState, UpdateCursorPosition>,
+        );
+
+        ctx.bind(
+            UpdateFileContent(String::new()),
+            (|s: &mut EditorState, a: UpdateFileContent, _| {
+                if let Some((_tab, buf)) = s.active_buffer_mut() {
+                    buf.push_undo_force();
+                    buf.set_content(&a.0);
+                    // Mark tab dirty.
+                }
+                if let Some(tab) = s.open_tabs.get_mut(s.active_tab) {
+                    tab.is_dirty = true;
+                }
+            }) as Handler<EditorState, UpdateFileContent>,
+        );
+
         // ---- Editor surface via CustomNode ----------------------------------
+        let rn = Arc::new(render_node);
+        let lowerer: Arc<dyn LowerDyn> = rn.clone();
+        let render_obj: Arc<dyn CustomRenderObject> = rn;
+
         let editor_custom = Node::Custom(CustomNode {
             debug_tag: format!("EditorRenderNode({})", path),
-            lowerer: Some(std::sync::Arc::new(render_node)),
-            render_object: None,
+            lowerer: Some(lowerer),
+            render_object: Some(render_obj),
         });
 
         // Wrap the custom node in a Container that fills available space.

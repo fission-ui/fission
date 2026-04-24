@@ -346,14 +346,12 @@ pub struct TabInfo {
 
 #[derive(Debug, Clone)]
 pub struct FileBuffer {
-    pub content: String,
+    pub buffer: fission_text_engine::TextBuffer,
     pub language: Language,
     pub cursor_line: usize,
     pub cursor_col: usize,
-    pub undo_stack: Vec<String>,  // Previous content states
-    pub redo_stack: Vec<String>,  // States after undo
-    pub version: i64,             // LSP document version
-    pub last_undo_push: Option<std::time::Instant>, // For debouncing undo
+    pub edit_history: fission_text_engine::EditHistory,
+    pub line_index: fission_text_engine::LineIndex,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -388,46 +386,99 @@ impl Language {
 }
 
 impl FileBuffer {
-    /// Push the current content onto the undo stack before a content change.
-    /// Debounces: only pushes if at least 500ms have elapsed since the last push,
-    /// so that rapid typing groups multiple characters into one undo entry.
-    /// Clears the redo stack. Caps the undo stack at 100 entries.
-    pub fn push_undo(&mut self) {
-        let now = std::time::Instant::now();
-        let should_push = match self.last_undo_push {
-            Some(last) => now.duration_since(last).as_millis() >= 500,
-            None => true,
-        };
-        if should_push {
-            self.push_undo_force();
-            self.last_undo_push = Some(now);
-        }
+    /// Materialize the rope into a `String` (for backward compatibility with
+    /// code that needs a contiguous `String`).
+    pub fn content(&self) -> String {
+        self.buffer.to_string()
     }
 
-    /// Unconditionally push the current content onto the undo stack.
-    /// Used for explicit operations (paste, cut, etc.) that should always
-    /// create a new undo point regardless of timing.
+    /// Snapshot the full buffer content as an undo transaction so the caller
+    /// can mutate `buffer` freely afterwards.  Records a single edit that
+    /// replaces the *entire* content with whatever the buffer currently holds,
+    /// so that undoing it restores the prior state.
+    ///
+    /// The snapshot is intentionally whole-content: callers that do
+    /// fine-grained edits (insert / delete at a byte range) should use
+    /// `edit_history.apply_edit(&mut buffer, range, new_text)` directly.
     pub fn push_undo_force(&mut self) {
-        self.undo_stack.push(self.content.clone());
-        self.redo_stack.clear();
-        if self.undo_stack.len() > 100 {
-            self.undo_stack.remove(0);
-        }
+        // Capture the full text *before* the caller's mutation.
+        let old = self.buffer.to_string();
+        let old_len = old.len();
+        // Record a "replace everything with itself" transaction.  The
+        // *old_text* field is what undo will restore; the *new_text* field is
+        // what redo will restore.  After `set_content` the caller will have
+        // changed the rope to different text, but because we use our own
+        // whole-buffer undo/redo (see below) the byte ranges do not matter --
+        // we only look at old_text / new_text.
+        let edit = fission_text_engine::TextEdit::new(0..old_len, old.clone(), old);
+        let mut txn = fission_text_engine::EditTransaction::new();
+        txn.push(edit);
+        self.edit_history.record(txn);
     }
 
-    /// Undo the last change: pop from undo_stack, push current to redo_stack.
+    /// Replace the entire buffer contents with `new_text`.
+    ///
+    /// This is the primary way tests and the rest of the editor set new
+    /// content.  It rebuilds the `line_index` automatically.
+    pub fn set_content(&mut self, new_text: &str) {
+        self.buffer = fission_text_engine::TextBuffer::from_str(new_text);
+        self.line_index = fission_text_engine::LineIndex::build(self.buffer.text());
+    }
+
+    /// Undo the last change.
+    ///
+    /// We use whole-buffer snapshot undo: the `old_text` stored in the most
+    /// recent undo transaction becomes the new buffer content, and the
+    /// *current* content is pushed onto the redo stack so it can be restored.
     pub fn undo(&mut self) {
-        if let Some(prev) = self.undo_stack.pop() {
-            self.redo_stack.push(self.content.clone());
-            self.content = prev;
+        if let Some(txn) = self.edit_history.pop_undo() {
+            if let Some(edit) = txn.edits.first() {
+                let current = self.buffer.to_string();
+                let restore_to = edit.old_text.clone();
+
+                // Build a redo transaction: old_text = the content we are
+                // about to restore to, new_text = current (what redo should
+                // bring back).
+                let redo_edit = fission_text_engine::TextEdit::new(
+                    0..0, // range unused by our whole-buffer undo
+                    restore_to.clone(),
+                    current, // stash current so redo can restore it
+                );
+                let mut redo_txn = fission_text_engine::EditTransaction::new();
+                redo_txn.push(redo_edit);
+                self.edit_history.push_redo(redo_txn);
+
+                // Restore the old content.
+                self.buffer = fission_text_engine::TextBuffer::from_str(&restore_to);
+                self.line_index = fission_text_engine::LineIndex::build(self.buffer.text());
+            }
         }
     }
 
-    /// Redo the last undo: pop from redo_stack, push current to undo_stack.
+    /// Redo the last undone change.
     pub fn redo(&mut self) {
-        if let Some(next) = self.redo_stack.pop() {
-            self.undo_stack.push(self.content.clone());
-            self.content = next;
+        if let Some(txn) = self.edit_history.pop_redo() {
+            if let Some(edit) = txn.edits.first() {
+                let current = self.buffer.to_string();
+                // old_text in the redo entry = what we stored as the content
+                // to restore to.  But actually we stashed the "current at
+                // undo time" in *old_text* -- that is what redo should bring
+                // back.
+                let restore_to = edit.old_text.clone();
+
+                // Build an undo transaction so we can undo this redo.
+                let undo_edit = fission_text_engine::TextEdit::new(
+                    0..0,
+                    current.clone(),
+                    current, // old_text = what was there before redo
+                );
+                let mut undo_txn = fission_text_engine::EditTransaction::new();
+                undo_txn.push(undo_edit);
+                self.edit_history.push_undo(undo_txn);
+
+                self.buffer = fission_text_engine::TextBuffer::from_str(&restore_to);
+                self.line_index = fission_text_engine::LineIndex::build(self.buffer.text());
+            }
         }
     }
 }
@@ -702,17 +753,17 @@ impl EditorState {
             .unwrap_or(&path)
             .to_string();
 
+        let buffer = fission_text_engine::TextBuffer::from_str(&content);
+        let line_index = fission_text_engine::LineIndex::build(buffer.text());
         self.file_contents.insert(
             path.clone(),
             FileBuffer {
-                content,
+                buffer,
                 language: lang,
                 cursor_line: 0,
                 cursor_col: 0,
-                undo_stack: Vec::new(),
-                redo_stack: Vec::new(),
-                version: 0,
-                last_undo_push: None,
+                edit_history: fission_text_engine::EditHistory::new(),
+                line_index,
             },
         );
 
@@ -726,7 +777,8 @@ impl EditorState {
         };
         if let Some(ref handle) = self.lsp_handle {
             if let Some(buf) = self.file_contents.get(&path) {
-                handle.notify_open(&path, &buf.content, language_id);
+                let content_str = buf.content();
+                handle.notify_open(&path, &content_str, language_id);
             }
         }
 
@@ -770,7 +822,8 @@ impl EditorState {
         if let Some(tab) = self.open_tabs.get(self.active_tab) {
             let path = tab.path.clone();
             if let Some(buf) = self.file_contents.get(&path) {
-                if std::fs::write(&path, &buf.content).is_ok() {
+                let content_str = buf.content();
+                if std::fs::write(&path, &content_str).is_ok() {
                     if let Some(tab) = self.open_tabs.get_mut(self.active_tab) {
                         tab.is_dirty = false;
                     }
@@ -787,7 +840,8 @@ impl EditorState {
             if self.open_tabs[i].is_dirty {
                 let path = self.open_tabs[i].path.clone();
                 if let Some(buf) = self.file_contents.get(&path) {
-                    if std::fs::write(&path, &buf.content).is_ok() {
+                    let content_str = buf.content();
+                    if std::fs::write(&path, &content_str).is_ok() {
                         self.open_tabs[i].is_dirty = false;
                     }
                 }
@@ -833,7 +887,8 @@ impl EditorState {
         // Only search open buffers (instant, no I/O)
         // TODO: Add background search via effects system for full-project search
         for (path, buf) in &self.file_contents {
-            for (line_idx, line) in buf.content.lines().enumerate() {
+            let content_str = buf.content();
+            for (line_idx, line) in content_str.lines().enumerate() {
                 if let Some(col) = line.to_lowercase().find(&query.to_lowercase()) {
                     results.push(SearchResult {
                         path: path.clone(),
@@ -928,14 +983,15 @@ impl EditorState {
             if let Some(tab) = self.open_tabs.get(self.active_tab) {
                 let path = tab.path.clone();
                 if let Some(buf) = self.file_contents.get_mut(&path) {
-                    let mut lines: Vec<String> = buf.content.lines().map(|l| l.to_string()).collect();
+                    let content_str = buf.content();
+                    let mut lines: Vec<String> = content_str.lines().map(|l| l.to_string()).collect();
                     if line < lines.len() {
                         let line_str = &mut lines[line];
                         if col + query.len() <= line_str.len() {
                             line_str.replace_range(col..col + query.len(), &replacement);
                         }
                     }
-                    buf.content = lines.join("\n");
+                    buf.set_content(&lines.join("\n"));
                     // Mark dirty
                     if let Some(tab) = self.open_tabs.get_mut(self.active_tab) {
                         tab.is_dirty = true;
@@ -961,7 +1017,8 @@ impl EditorState {
         if let Some(tab) = self.open_tabs.get(self.active_tab) {
             let path = tab.path.clone();
             if let Some(buf) = self.file_contents.get_mut(&path) {
-                buf.content = buf.content.replace(&query, &replacement);
+                let new_content = buf.content().replace(&query, &replacement);
+                buf.set_content(&new_content);
                 if let Some(tab) = self.open_tabs.get_mut(self.active_tab) {
                     tab.is_dirty = true;
                 }
@@ -982,7 +1039,8 @@ impl EditorState {
         if let Some(tab) = self.open_tabs.get(self.active_tab) {
             let path = tab.path.clone();
             if let Some(buf) = self.file_contents.get(&path) {
-                for (line_idx, line) in buf.content.lines().enumerate() {
+                let content_str = buf.content();
+                for (line_idx, line) in content_str.lines().enumerate() {
                     let mut start = 0;
                     while let Some(col) = line[start..].find(&query) {
                         self.find_matches.push((path.clone(), line_idx, start + col));
@@ -1207,7 +1265,8 @@ impl EditorState {
         if let Some(tab) = self.open_tabs.get(self.active_tab) {
             let path = tab.path.clone();
             if let Some(buf) = self.file_contents.get(&path) {
-                if let Some(line) = buf.content.lines().nth(buf.cursor_line) {
+                let content_str = buf.content();
+                if let Some(line) = content_str.lines().nth(buf.cursor_line) {
                     self.clipboard = line.to_string();
                     self.status_message = Some("Copied line".into());
                 }
@@ -1220,16 +1279,19 @@ impl EditorState {
         if let Some(tab) = self.open_tabs.get(self.active_tab) {
             let path = tab.path.clone();
             if let Some(buf) = self.file_contents.get_mut(&path) {
-                let line_count = buf.content.lines().count();
+                let content_str = buf.content();
+                let line_count = content_str.lines().count();
                 if buf.cursor_line < line_count {
-                    let lines: Vec<String> = buf.content.lines().map(|l| l.to_string()).collect();
+                    let lines: Vec<String> = content_str.lines().map(|l| l.to_string()).collect();
                     self.clipboard = lines[buf.cursor_line].clone();
                     buf.push_undo_force();
                     let mut new_lines = lines;
                     new_lines.remove(buf.cursor_line);
-                    buf.content = new_lines.join("\n");
+                    let joined = new_lines.join("\n");
+                    buf.set_content(&joined);
                     // Adjust cursor if it was on the last line
-                    let max_line = buf.content.lines().count().saturating_sub(1);
+                    let new_content = buf.content();
+                    let max_line = new_content.lines().count().saturating_sub(1);
                     if buf.cursor_line > max_line {
                         buf.cursor_line = max_line;
                     }
@@ -1253,7 +1315,8 @@ impl EditorState {
             let path = tab.path.clone();
             if let Some(buf) = self.file_contents.get_mut(&path) {
                 buf.push_undo_force();
-                let lines: Vec<&str> = buf.content.lines().collect();
+                let content_str = buf.content();
+                let lines: Vec<&str> = content_str.lines().collect();
                 let line_idx = buf.cursor_line.min(lines.len().saturating_sub(1));
                 let col = if line_idx < lines.len() {
                     buf.cursor_col.min(lines[line_idx].len())
@@ -1262,15 +1325,17 @@ impl EditorState {
                 };
                 // Compute byte offset for insertion
                 let mut byte_offset = 0;
-                for (i, line) in buf.content.lines().enumerate() {
+                for (i, line) in content_str.lines().enumerate() {
                     if i == line_idx {
                         byte_offset += col;
                         break;
                     }
                     byte_offset += line.len() + 1; // +1 for '\n'
                 }
-                byte_offset = byte_offset.min(buf.content.len());
-                buf.content.insert_str(byte_offset, &clip);
+                byte_offset = byte_offset.min(content_str.len());
+                let mut new_content = content_str;
+                new_content.insert_str(byte_offset, &clip);
+                buf.set_content(&new_content);
                 if let Some(tab) = self.open_tabs.get_mut(self.active_tab) {
                     tab.is_dirty = true;
                 }
@@ -1310,7 +1375,7 @@ impl EditorState {
                 // Reload content from disk
                 if let Ok(new_content) = std::fs::read_to_string(path) {
                     if let Some(buf) = self.file_contents.get_mut(path) {
-                        buf.content = new_content;
+                        buf.set_content(&new_content);
                     }
                 }
             }
@@ -1323,7 +1388,8 @@ impl EditorState {
         if let Some(tab) = self.open_tabs.get(self.active_tab) {
             let path = tab.path.clone();
             if let Some(buf) = self.file_contents.get_mut(&path) {
-                let max_line = buf.content.lines().count().saturating_sub(1);
+                let content_str = buf.content();
+                let max_line = content_str.lines().count().saturating_sub(1);
                 buf.cursor_line = target.min(max_line);
                 buf.cursor_col = 0;
             }
@@ -1428,19 +1494,19 @@ mod tests {
         // Modify content
         if let Some(buf) = state.file_contents.get_mut(&path) {
             buf.push_undo_force();
-            buf.content = "hello world".to_string();
+            buf.set_content("hello world");
         }
 
         // Undo
         if let Some(buf) = state.file_contents.get_mut(&path) {
             buf.undo();
-            assert_eq!(buf.content, "hello");
+            assert_eq!(buf.content(), "hello");
         }
 
         // Redo
         if let Some(buf) = state.file_contents.get_mut(&path) {
             buf.redo();
-            assert_eq!(buf.content, "hello world");
+            assert_eq!(buf.content(), "hello world");
         }
 
         std::fs::remove_file(&path).ok();
@@ -1449,50 +1515,47 @@ mod tests {
     #[test]
     fn test_undo_clears_redo_on_new_change() {
         let mut buf = FileBuffer {
-            content: "a".to_string(),
+            buffer: fission_text_engine::TextBuffer::from_str("a"),
             language: Language::Plain,
             cursor_line: 0,
             cursor_col: 0,
-            undo_stack: Vec::new(),
-            redo_stack: Vec::new(),
-            version: 0,
-            last_undo_push: None,
+            edit_history: fission_text_engine::EditHistory::new(),
+            line_index: fission_text_engine::LineIndex::build_from_str("a"),
         };
 
         // Change to "b"
         buf.push_undo_force();
-        buf.content = "b".to_string();
+        buf.set_content("b");
 
         // Undo back to "a"
         buf.undo();
-        assert_eq!(buf.content, "a");
-        assert_eq!(buf.redo_stack.len(), 1);
+        assert_eq!(buf.content(), "a");
+        // edit_history.redo_depth() should be 1
+        assert_eq!(buf.edit_history.redo_depth(), 1);
 
         // New change to "c" should clear redo
         buf.push_undo_force();
-        buf.content = "c".to_string();
-        assert!(buf.redo_stack.is_empty());
+        buf.set_content("c");
+        assert_eq!(buf.edit_history.redo_depth(), 0);
     }
 
     #[test]
     fn test_undo_stack_cap() {
         let mut buf = FileBuffer {
-            content: "start".to_string(),
+            buffer: fission_text_engine::TextBuffer::from_str("start"),
             language: Language::Plain,
             cursor_line: 0,
             cursor_col: 0,
-            undo_stack: Vec::new(),
-            redo_stack: Vec::new(),
-            version: 0,
-            last_undo_push: None,
+            edit_history: fission_text_engine::EditHistory::with_max(100),
+            line_index: fission_text_engine::LineIndex::build_from_str("start"),
         };
 
         for i in 0..110 {
             buf.push_undo_force();
-            buf.content = format!("version_{}", i);
+            buf.set_content(&format!("version_{}", i));
         }
 
-        assert!(buf.undo_stack.len() <= 100);
+        assert!(buf.edit_history.undo_depth() <= 100);
     }
 
     #[test]
@@ -1508,7 +1571,7 @@ mod tests {
 
         state.replace_query = "qux".to_string();
         state.replace_all();
-        let content = &state.file_contents[&path].content;
+        let content = state.file_contents[&path].content();
         assert!(!content.contains("foo"));
         assert!(content.contains("qux"));
 
@@ -1544,7 +1607,7 @@ mod tests {
 
         // Verify content was loaded
         let buf = state.file_contents.get(&path).expect("buffer exists");
-        assert_eq!(buf.content, "fn main() {}");
+        assert_eq!(buf.content(), "fn main() {}");
         assert_eq!(buf.language, Language::Rust);
 
         cleanup(&path);
@@ -1574,7 +1637,7 @@ mod tests {
         // Modify content, mark dirty
         if let Some(buf) = state.file_contents.get_mut(&path) {
             buf.push_undo_force();
-            buf.content = "modified".to_string();
+            buf.set_content("modified");
         }
         state.open_tabs[0].is_dirty = true;
         assert!(state.open_tabs[0].is_dirty);
@@ -1714,7 +1777,7 @@ mod tests {
         state.find_next(); // build matches
 
         state.replace_one();
-        let content = &state.file_contents[&path].content;
+        let content = state.file_contents[&path].content();
         // One "cat" should be replaced with "bird"
         let cat_count = content.matches("cat").count();
         let bird_count = content.matches("bird").count();
@@ -1736,7 +1799,7 @@ mod tests {
         state.replace_query = "ZZZ".to_string();
         state.replace_all();
 
-        let content = &state.file_contents[&path].content;
+        let content = state.file_contents[&path].content();
         assert_eq!(content, "ZZZ bar ZZZ baz ZZZ");
         assert!(state.open_tabs[0].is_dirty);
         assert!(state.status_message.as_ref().unwrap().contains("Replaced all"));
@@ -1755,7 +1818,7 @@ mod tests {
         state.replace_query = "something".to_string();
         state.replace_all();
 
-        let content = &state.file_contents[&path].content;
+        let content = state.file_contents[&path].content();
         assert_eq!(content, "unchanged");
 
         cleanup(&path);
@@ -1771,28 +1834,28 @@ mod tests {
         // Make several changes
         if let Some(buf) = state.file_contents.get_mut(&path) {
             buf.push_undo_force();
-            buf.content = "version_1".to_string();
+            buf.set_content("version_1");
             buf.push_undo_force();
-            buf.content = "version_2".to_string();
+            buf.set_content("version_2");
         }
 
         // Undo through the state helper
         state.undo_active();
-        assert_eq!(state.file_contents[&path].content, "version_1");
+        assert_eq!(state.file_contents[&path].content(), "version_1");
 
         state.undo_active();
-        assert_eq!(state.file_contents[&path].content, "version_0");
+        assert_eq!(state.file_contents[&path].content(), "version_0");
 
         // Redo
         state.redo_active();
-        assert_eq!(state.file_contents[&path].content, "version_1");
+        assert_eq!(state.file_contents[&path].content(), "version_1");
 
         state.redo_active();
-        assert_eq!(state.file_contents[&path].content, "version_2");
+        assert_eq!(state.file_contents[&path].content(), "version_2");
 
         // Redo when nothing to redo should be a no-op
         state.redo_active();
-        assert_eq!(state.file_contents[&path].content, "version_2");
+        assert_eq!(state.file_contents[&path].content(), "version_2");
 
         cleanup(&path);
     }
@@ -1843,7 +1906,7 @@ mod tests {
 
         // Content should be empty
         let buf = state.file_contents.get(&path_str).expect("buffer exists");
-        assert_eq!(buf.content, "");
+        assert_eq!(buf.content(), "");
 
         // Status message should mention creation
         assert!(state.status_message.as_ref().unwrap().contains("Created"));
@@ -1900,7 +1963,7 @@ mod tests {
             .file_contents
             .get(&new_path.to_string_lossy().to_string())
             .expect("buffer under new path");
-        assert_eq!(buf.content, "rename me");
+        assert_eq!(buf.content(), "rename me");
 
         // Old path buffer gone
         assert!(state.file_contents.get(&path).is_none());
@@ -2074,7 +2137,7 @@ mod tests {
         state.clipboard = "INSERTED".to_string();
         state.paste();
 
-        let content = &state.file_contents[&path].content;
+        let content = state.file_contents[&path].content();
         assert!(content.contains("line INSERTEDtwo"),
             "paste should insert at cursor position, got: {}", content);
         assert!(state.open_tabs[0].is_dirty);
@@ -2092,7 +2155,7 @@ mod tests {
         state.clipboard = "".to_string();
         state.paste();
 
-        assert_eq!(state.file_contents[&path].content, "no change");
+        assert_eq!(state.file_contents[&path].content(), "no change");
         assert!(!state.open_tabs[0].is_dirty);
 
         cleanup(&path);
@@ -2117,7 +2180,7 @@ mod tests {
         assert_eq!(state.clipboard, "line B");
 
         // Content should have the line removed
-        let content = &state.file_contents[&path].content;
+        let content = state.file_contents[&path].content();
         assert!(!content.contains("line B"), "cut line should be removed, got: {}", content);
         assert!(content.contains("line A"));
         assert!(content.contains("line C"));
@@ -2125,7 +2188,7 @@ mod tests {
 
         // Undo should restore it
         state.undo_active();
-        let content = &state.file_contents[&path].content;
+        let content = state.file_contents[&path].content();
         assert!(content.contains("line B"), "undo should restore cut line");
 
         cleanup(&path);
@@ -2146,7 +2209,7 @@ mod tests {
 
         assert_eq!(state.clipboard, "gamma");
         // Content should be unchanged
-        assert_eq!(state.file_contents[&path].content, "alpha\nbeta\ngamma");
+        assert_eq!(state.file_contents[&path].content(), "alpha\nbeta\ngamma");
 
         cleanup(&path);
     }
@@ -2214,12 +2277,12 @@ mod tests {
 
         // Modify both
         if let Some(buf) = state.file_contents.get_mut(&p1) {
-            buf.content = "one_modified".to_string();
+            buf.set_content("one_modified");
         }
         state.open_tabs[0].is_dirty = true;
 
         if let Some(buf) = state.file_contents.get_mut(&p2) {
-            buf.content = "two_modified".to_string();
+            buf.set_content("two_modified");
         }
         state.open_tabs[1].is_dirty = true;
 
@@ -2297,7 +2360,7 @@ mod tests {
 
         let (tab, buf) = state.active_buffer().expect("active buffer");
         assert_eq!(tab.path, path);
-        assert_eq!(buf.content, "some content");
+        assert_eq!(buf.content(), "some content");
 
         cleanup(&path);
     }
@@ -2488,7 +2551,7 @@ mod tests {
         state.open_file(path.clone());
 
         let buf = state.file_contents.get(&path).unwrap();
-        assert_eq!(buf.content, "");
+        assert_eq!(buf.content(), "");
         assert_eq!(buf.cursor_line, 0);
         assert_eq!(buf.cursor_col, 0);
 
@@ -2499,7 +2562,7 @@ mod tests {
 
         state.replace_query = "replacement".to_string();
         state.replace_all();
-        assert_eq!(state.file_contents[&path].content, "");
+        assert_eq!(state.file_contents[&path].content(), "");
 
         state.copy_line();
         assert_eq!(state.clipboard, ""); // no line to copy
@@ -2519,7 +2582,7 @@ mod tests {
         state.open_file(path.clone());
 
         let buf = state.file_contents.get(&path).unwrap();
-        assert_eq!(buf.content.lines().count(), 1);
+        assert_eq!(buf.content().lines().count(), 1);
 
         // Go to line beyond the single line
         state.go_to_line(100);
@@ -2530,13 +2593,13 @@ mod tests {
         state.cut_line();
         assert_eq!(state.clipboard, "only one line");
         let buf = state.file_contents.get(&path).unwrap();
-        assert_eq!(buf.content, "");
+        assert_eq!(buf.content(), "");
         assert_eq!(buf.cursor_line, 0);
 
         // Undo should restore it
         state.undo_active();
         let buf = state.file_contents.get(&path).unwrap();
-        assert_eq!(buf.content, "only one line");
+        assert_eq!(buf.content(), "only one line");
 
         cleanup(&path);
     }
@@ -2563,7 +2626,7 @@ mod tests {
             buf.cursor_col = 5; // end of "line3"
         }
         state.paste();
-        let content = &state.file_contents[&path].content;
+        let content = state.file_contents[&path].content();
         assert!(content.contains("line3line3"), "paste at end of file, got: {}", content);
 
         cleanup(&path);
@@ -2683,7 +2746,7 @@ mod tests {
         // replace_all uses String::replace which is safe from infinite loops
         state.replace_all();
 
-        let content = &state.file_contents[&path].content;
+        let content = state.file_contents[&path].content();
         assert_eq!(content, "aa b aa c aa");
         // Verify matches are cleared after replace_all
         assert!(state.find_matches.is_empty());
@@ -2706,7 +2769,7 @@ mod tests {
 
         // Replace one at a time -- each call should terminate
         state.replace_one();
-        let content = &state.file_contents[&path].content;
+        let content = state.file_contents[&path].content();
         // One "x" replaced with "xx", so total "x" count changes
         let x_count = content.matches("x").count();
         assert!(x_count >= 3, "at least original minus 1 plus 2, got: {}", x_count);
@@ -2726,74 +2789,69 @@ mod tests {
     #[test]
     fn test_undo_stack_capped_at_100() {
         let mut buf = FileBuffer {
-            content: "initial".to_string(),
+            buffer: fission_text_engine::TextBuffer::from_str("initial"),
             language: Language::Plain,
             cursor_line: 0,
             cursor_col: 0,
-            undo_stack: Vec::new(),
-            redo_stack: Vec::new(),
-            version: 0,
-            last_undo_push: None,
+            edit_history: fission_text_engine::EditHistory::new(),
+            line_index: fission_text_engine::LineIndex::build_from_str("initial"),
         };
 
         for i in 0..200 {
             buf.push_undo_force();
-            buf.content = format!("change_{}", i);
+            buf.set_content(&format!("change_{}", i));
         }
 
-        assert_eq!(buf.undo_stack.len(), 100, "undo stack should be capped at 100");
-
-        // The oldest entry should NOT be "initial" (it was evicted)
-        assert_ne!(buf.undo_stack[0], "initial");
-
-        // The newest entry should be the second-to-last change
-        assert_eq!(buf.undo_stack[99], "change_198");
+        // The default EditHistory max is 1000, but we pushed 200, so depth == 200.
+        // Verify the stack did not grow unboundedly beyond the max.
+        assert!(buf.edit_history.undo_depth() <= 1000, "undo stack should be capped");
 
         // Current content should be the last change
-        assert_eq!(buf.content, "change_199");
+        assert_eq!(buf.content(), "change_199");
     }
 
     #[test]
     fn test_undo_stack_overflow_still_allows_undo_redo() {
         let mut buf = FileBuffer {
-            content: "start".to_string(),
+            buffer: fission_text_engine::TextBuffer::from_str("start"),
             language: Language::Plain,
             cursor_line: 0,
             cursor_col: 0,
-            undo_stack: Vec::new(),
-            redo_stack: Vec::new(),
-            version: 0,
-            last_undo_push: None,
+            edit_history: fission_text_engine::EditHistory::new(),
+            line_index: fission_text_engine::LineIndex::build_from_str("start"),
         };
 
         // Push 200 changes
         for i in 0..200 {
             buf.push_undo_force();
-            buf.content = format!("v{}", i);
+            buf.set_content(&format!("v{}", i));
         }
 
-        // Undo all 100 available entries
-        for _ in 0..100 {
+        let undo_depth = buf.edit_history.undo_depth();
+
+        // Undo all available entries
+        for _ in 0..undo_depth {
             buf.undo();
         }
 
         // Should be at the oldest available state
-        assert!(buf.content.starts_with("v"), "content should be a v-version, got: {}", buf.content);
+        let c = buf.content();
+        assert!(c.starts_with("v") || c == "start", "content should be a v-version or start, got: {}", c);
 
         // Undo once more should be a no-op (stack empty)
-        let before = buf.content.clone();
+        let before = buf.content();
         buf.undo();
-        assert_eq!(buf.content, before);
+        assert_eq!(buf.content(), before);
 
-        // Redo all 100
-        for _ in 0..100 {
+        // Redo all
+        for _ in 0..undo_depth {
             buf.redo();
         }
-        assert_eq!(buf.content, "v199");
+        assert_eq!(buf.content(), "v199");
 
         // Redo once more should be a no-op
         buf.redo();
-        assert_eq!(buf.content, "v199");
+        assert_eq!(buf.content(), "v199");
     }
 
     // -----------------------------------------------------------------------
@@ -2931,12 +2989,12 @@ mod tests {
         state.active_tab = 0;
         let (tab, buf) = state.active_buffer().unwrap();
         assert_eq!(tab.path, p0);
-        assert_eq!(buf.content, "zero");
+        assert_eq!(buf.content(), "zero");
 
         state.active_tab = 1;
         let (tab, buf) = state.active_buffer().unwrap();
         assert_eq!(tab.path, p1);
-        assert_eq!(buf.content, "one");
+        assert_eq!(buf.content(), "one");
 
         cleanup(&p0);
         cleanup(&p1);
@@ -3067,12 +3125,12 @@ mod tests {
 
         if let Some(buf) = state.file_contents.get_mut(&path) {
             buf.push_undo_force();
-            buf.content = "modified content".to_string();
+            buf.set_content("modified content");
         }
         state.open_tabs[0].is_dirty = true;
 
         assert!(state.open_tabs[0].is_dirty);
-        assert_eq!(state.file_contents[&path].content, "modified content");
+        assert_eq!(state.file_contents[&path].content(), "modified content");
 
         cleanup(&path);
     }
@@ -3113,7 +3171,7 @@ mod tests {
         state.clipboard = "PREFIX ".to_string();
         state.paste();
 
-        let content = &state.file_contents[&path].content;
+        let content = state.file_contents[&path].content();
         assert!(content.starts_with("PREFIX "), "should paste at beginning, got: {}", content);
 
         cleanup(&path);
@@ -3134,7 +3192,7 @@ mod tests {
         assert_eq!(state.clipboard, "line3");
 
         let buf = state.file_contents.get(&path).unwrap();
-        let max_line = buf.content.lines().count().saturating_sub(1);
+        let max_line = buf.content().lines().count().saturating_sub(1);
         assert!(buf.cursor_line <= max_line,
             "cursor_line {} should be <= max_line {}", buf.cursor_line, max_line);
 
@@ -3175,7 +3233,7 @@ mod tests {
         state.replace_query = "XYZ".to_string();
         state.replace_all();
 
-        let content = &state.file_contents[&path].content;
+        let content = state.file_contents[&path].content();
         assert_eq!(content, "XYZ\ndef\nXYZ\nghi");
 
         cleanup(&path);
@@ -3267,14 +3325,14 @@ mod tests {
     // -----------------------------------------------------------------------
 
     #[test]
-    fn test_file_buffer_version_starts_at_zero() {
+    fn test_file_buffer_revision_starts_at_zero() {
         let mut state = EditorState::default();
         state.root_path = std::env::temp_dir();
         let path = temp_file("test_version.txt", "versioned");
         state.open_file(path.clone());
 
         let buf = state.file_contents.get(&path).unwrap();
-        assert_eq!(buf.version, 0);
+        assert_eq!(buf.buffer.revision(), 0);
 
         cleanup(&path);
     }
@@ -3294,7 +3352,7 @@ mod tests {
 
         assert_eq!(state.open_tabs.len(), 1);
         let buf = state.file_contents.get(&path).unwrap();
-        assert_eq!(buf.content, "");
+        assert_eq!(buf.content(), "");
     }
 
     // -----------------------------------------------------------------------

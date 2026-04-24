@@ -55,7 +55,8 @@ impl Widget<EditorState> for Minimap {
             return Spacer::default().into_node();
         };
 
-        let lines: Vec<&str> = buffer.content.lines().collect();
+        let content_str = buffer.content();
+        let lines: Vec<&str> = content_str.lines().collect();
         let line_count = lines.len();
         if line_count == 0 {
             return Spacer::default().into_node();

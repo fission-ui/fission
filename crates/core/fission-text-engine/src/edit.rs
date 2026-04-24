@@ -176,6 +176,52 @@ impl EditHistory {
         true
     }
 
+    /// Record a pre-built [`EditTransaction`] in the undo stack **without**
+    /// applying it to the buffer.  This is useful when the caller has already
+    /// mutated the buffer (or is about to) and just needs the history entry.
+    ///
+    /// Clears the redo stack and evicts the oldest entry when the stack
+    /// exceeds `max_entries`.
+    pub fn record(&mut self, txn: EditTransaction) {
+        self.undo_stack.push(txn);
+        if self.undo_stack.len() > self.max_entries {
+            self.undo_stack.remove(0);
+        }
+        self.redo_stack.clear();
+    }
+
+    /// Pop the most recent transaction from the undo stack.
+    ///
+    /// Returns `None` if the undo stack is empty.  The caller is responsible
+    /// for applying the inverse and pushing a matching entry onto the redo
+    /// stack via [`push_redo`](Self::push_redo).
+    pub fn pop_undo(&mut self) -> Option<EditTransaction> {
+        self.undo_stack.pop()
+    }
+
+    /// Pop the most recent transaction from the redo stack.
+    ///
+    /// Returns `None` if the redo stack is empty.  The caller is responsible
+    /// for re-applying the edits and pushing a matching entry onto the undo
+    /// stack via [`push_undo`](Self::push_undo).
+    pub fn pop_redo(&mut self) -> Option<EditTransaction> {
+        self.redo_stack.pop()
+    }
+
+    /// Push a transaction onto the redo stack (used by external undo logic).
+    pub fn push_redo(&mut self, txn: EditTransaction) {
+        self.redo_stack.push(txn);
+    }
+
+    /// Push a transaction onto the undo stack without clearing the redo stack
+    /// (used by external redo logic that manually manages both stacks).
+    pub fn push_undo(&mut self, txn: EditTransaction) {
+        self.undo_stack.push(txn);
+        if self.undo_stack.len() > self.max_entries {
+            self.undo_stack.remove(0);
+        }
+    }
+
     /// Number of entries currently on the undo stack.
     pub fn undo_depth(&self) -> usize {
         self.undo_stack.len()
