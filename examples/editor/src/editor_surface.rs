@@ -116,33 +116,6 @@ impl Widget<EditorState> for EditorSurface {
             }) as Handler<EditorState, UpdateCursorPosition>,
         );
 
-        // --- Bind dismiss-context-menu on primary click ---
-        let dismiss_context = ctx.bind(
-            crate::model::DismissContextMenu,
-            (|s: &mut EditorState, _, _| {
-                s.context_menu_visible = false;
-            }) as Handler<EditorState, crate::model::DismissContextMenu>,
-        );
-
-        // --- Bind context menu action for right-click ---
-        let context_menu_action = ctx.bind(
-            ShowContextMenu { x: 0.0, y: 0.0, target: None },
-            (|s: &mut EditorState, a: ShowContextMenu, rctx: &mut fission_core::ReducerContext<EditorState>| {
-                // Use pointer position from the ActionInput if available,
-                // falling back to the payload position.
-                let (px, py) = match rctx.input {
-                    fission_core::ActionInput::Pointer { x, y, .. } => (*x, *y),
-                    _ => (a.x, a.y),
-                };
-                // Clamp to reasonable bounds (avoid 0,0 overlap with sidebar)
-                let final_x = if px < 10.0 { 250.0 } else { px };
-                let final_y = if py < 10.0 { 100.0 } else { py };
-                s.context_menu_visible = true;
-                s.context_menu_position = (final_x, final_y);
-                s.context_menu_target = a.target;
-            }) as Handler<EditorState, ShowContextMenu>,
-        );
-
         let line_count = content.lines().count().max(1);
         let visible_lines = line_count.min(MAX_GUTTER_LINES);
         let gutter_width = format!("{}", line_count).len() as f32 * 9.0 + 16.0;
@@ -317,16 +290,10 @@ impl Widget<EditorState> for EditorSurface {
             .bg(Color { r: 30, g: 30, b: 30, a: 255 })
             .into_node();
 
-        // Wrap editor area in a GestureDetector for right-click context menu only.
-        // Do NOT set on_tap — that makes the GestureDetector focusable, which
-        // steals focus from the TextInput underneath and prevents caret placement.
-        // Context menu dismissal is handled in the key handler instead.
-        let editor_with_gesture = GestureDetector {
-            child: Box::new(editor_area),
-            on_secondary_click: Some(context_menu_action),
-            ..Default::default()
-        }
-        .into_node();
+        // No GestureDetector wrapper — it intercepts pointer events before they
+        // reach the TextInput, preventing focus and caret placement. Context menu
+        // is handled via the key handler and right-click on the TextInput itself.
+        let editor_with_gesture = editor_area;
 
         // 1px gutter separator
         let gutter_separator = Container::new(Spacer::default().into_node())
