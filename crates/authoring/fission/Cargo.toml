@@ -1,22 +1,22 @@
 [package]
 name = "fission"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 license = "MIT"
 repository = "https://github.com/worka-ai/fission"
 description = "Cross-platform GPU-accelerated UI framework for Rust"
 
 [dependencies]
-fission-core = { path = "../../core/fission-core", version = "0.1.0" }
-fission-ir = { path = "../../core/fission-ir", version = "0.1.0" }
-fission-layout = { path = "../../core/fission-layout", version = "0.1.0" }
-fission-theme = { path = "../../core/fission-theme", version = "0.1.0" }
-fission-i18n = { path = "../../core/fission-i18n", version = "0.1.0" }
-fission-widgets = { path = "../fission-widgets", version = "0.1.0" }
-fission-macros = { path = "../fission-macros", version = "0.1.0" }
-fission-icons = { path = "../fission-icons", version = "0.1.0" }
-fission-shell-desktop = { path = "../../shell/fission-shell-desktop", version = "0.1.0" }
-fission-render = { path = "../../rendering/fission-render", version = "0.1.0" }
-fission-diagnostics = { path = "../../tools/fission-diagnostics", version = "0.1.0" }
-fission-test-driver = { path = "../../tools/fission-test-driver", version = "0.1.0" }
+fission-core = { path = "../../core/fission-core", version = "0.1.1" }
+fission-ir = { path = "../../core/fission-ir", version = "0.1.1" }
+fission-layout = { path = "../../core/fission-layout", version = "0.1.1" }
+fission-theme = { path = "../../core/fission-theme", version = "0.1.1" }
+fission-i18n = { path = "../../core/fission-i18n", version = "0.1.1" }
+fission-widgets = { path = "../fission-widgets", version = "0.1.1" }
+fission-macros = { path = "../fission-macros", version = "0.1.1" }
+fission-icons = { path = "../fission-icons", version = "0.1.1" }
+fission-shell-desktop = { path = "../../shell/fission-shell-desktop", version = "0.1.1" }
+fission-render = { path = "../../rendering/fission-render", version = "0.1.1" }
+fission-diagnostics = { path = "../../tools/fission-diagnostics", version = "0.1.1" }
+fission-test-driver = { path = "../../tools/fission-test-driver", version = "0.1.1" }
 serde = { version = "1.0", features = ["derive"] }

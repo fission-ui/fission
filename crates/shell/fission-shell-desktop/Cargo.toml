@@ -1,24 +1,24 @@
 [package]
 name = "fission-shell-desktop"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 license = "MIT"
 repository = "https://github.com/worka-ai/fission"
 description = "Shell Desktop"
 
 [dependencies]
-fission-shell = { path = "../fission-shell", version = "0.1.0" }
-fission-render = { path = "../../rendering/fission-render", version = "0.1.0" }
-fission-render-vello = { path = "../../rendering/fission-render-vello", version = "0.1.0" }
-fission-core = { path = "../../core/fission-core", version = "0.1.0" }
-fission-layout = { path = "../../core/fission-layout", version = "0.1.0" } 
-fission-ir = { path = "../../core/fission-ir", version = "0.1.0" }
-fission-semantics = { path = "../../core/fission-semantics", version = "0.1.0" }
-fission-theme = { path = "../../core/fission-theme", version = "0.1.0" }
+fission-shell = { path = "../fission-shell", version = "0.1.1" }
+fission-render = { path = "../../rendering/fission-render", version = "0.1.1" }
+fission-render-vello = { path = "../../rendering/fission-render-vello", version = "0.1.1" }
+fission-core = { path = "../../core/fission-core", version = "0.1.1" }
+fission-layout = { path = "../../core/fission-layout", version = "0.1.1" } 
+fission-ir = { path = "../../core/fission-ir", version = "0.1.1" }
+fission-semantics = { path = "../../core/fission-semantics", version = "0.1.1" }
+fission-theme = { path = "../../core/fission-theme", version = "0.1.1" }
 winit = "0.29.15"
 arboard = "3.4"
-fission-diagnostics = { path = "../../tools/fission-diagnostics", version = "0.1.0" }
-fission-test-driver = { path = "../../tools/fission-test-driver", version = "0.1.0" }
+fission-diagnostics = { path = "../../tools/fission-diagnostics", version = "0.1.1" }
+fission-test-driver = { path = "../../tools/fission-test-driver", version = "0.1.1" }
 image = "0.25"
 anyhow = "1.0"
 raw-window-handle = "0.6"
@@ -36,6 +36,6 @@ core-graphics = "0.23"
 
 [dev-dependencies]
 serde = { version = "1", features = ["derive"] }
-fission-macros = { path = "../../authoring/fission-macros", version = "0.1.0" }
-fission-widgets = { path = "../../authoring/fission-widgets", version = "0.1.0" }
+fission-macros = { path = "../../authoring/fission-macros", version = "0.1.1" }
+fission-widgets = { path = "../../authoring/fission-widgets", version = "0.1.1" }
 lazy_static = "1"

@@ -1,23 +1,23 @@
 [package]
 name = "fission-widgets"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 license = "MIT"
 repository = "https://github.com/worka-ai/fission"
 description = "Widgets"
 
 [dependencies]
-fission-macros = { path = "../fission-macros", version = "0.1.0" }
-fission-core = { path = "../../core/fission-core", version = "0.1.0" }
-fission-ir = { path = "../../core/fission-ir", version = "0.1.0" }
-fission-theme = { path = "../../core/fission-theme", version = "0.1.0" }
-fission-icons = { path = "../fission-icons", version = "0.1.0" }
+fission-macros = { path = "../fission-macros", version = "0.1.1" }
+fission-core = { path = "../../core/fission-core", version = "0.1.1" }
+fission-ir = { path = "../../core/fission-ir", version = "0.1.1" }
+fission-theme = { path = "../../core/fission-theme", version = "0.1.1" }
+fission-icons = { path = "../fission-icons", version = "0.1.1" }
 serde = { version = "1.0", features = ["derive"] }
 lazy_static = "1.4"
 anyhow = "1.0"
 serde_json = "1.0"
-fission-diagnostics = { path = "../../tools/fission-diagnostics", version = "0.1.0" }
+fission-diagnostics = { path = "../../tools/fission-diagnostics", version = "0.1.1" }
 chrono = { version = "0.4", default-features = false, features = ["alloc", "clock", "serde"] }
 
 [dev-dependencies]
-fission-layout = { path = "../../core/fission-layout", version = "0.1.0" }
+fission-layout = { path = "../../core/fission-layout", version = "0.1.1" }
