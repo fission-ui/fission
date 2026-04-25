@@ -2,7 +2,19 @@
 name = "fission"
 version = "0.1.0"
 edition = "2021"
+description = "Cross-platform GPU-accelerated UI framework for Rust"
 
 [dependencies]
 fission-core = { path = "../../core/fission-core" }
+fission-ir = { path = "../../core/fission-ir" }
+fission-layout = { path = "../../core/fission-layout" }
+fission-theme = { path = "../../core/fission-theme" }
+fission-i18n = { path = "../../core/fission-i18n" }
 fission-widgets = { path = "../fission-widgets" }
+fission-macros = { path = "../fission-macros" }
+fission-icons = { path = "../fission-icons" }
+fission-shell-desktop = { path = "../../shell/fission-shell-desktop" }
+fission-render = { path = "../../rendering/fission-render" }
+fission-diagnostics = { path = "../../tools/fission-diagnostics" }
+fission-test-driver = { path = "../../tools/fission-test-driver" }
+serde = { version = "1.0", features = ["derive"] }

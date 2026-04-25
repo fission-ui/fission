@@ -853,7 +853,18 @@ name = "fission"
 version = "0.1.0"
 dependencies = [
  "fission-core",
+ "fission-diagnostics",
+ "fission-i18n",
+ "fission-icons",
+ "fission-ir",
+ "fission-layout",
+ "fission-macros",
+ "fission-render",
+ "fission-shell-desktop",
+ "fission-test-driver",
+ "fission-theme",
  "fission-widgets",
+ "serde",
 ]
 
 [[package]]
