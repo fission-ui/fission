@@ -56,6 +56,24 @@ pub mod test_control;
 
 use fission_core::action::ActionEnvelope;
 
+/// Choose a supported composite alpha mode, preferring PostMultiplied for
+/// video hole-punching when available.
+fn pick_alpha_mode<'a>(
+    render_cx: &RenderContext,
+    surface: &RenderSurface<'a>,
+) -> wgpu::CompositeAlphaMode {
+    let adapter = render_cx.devices[surface.dev_id].adapter();
+    let caps = surface.surface.get_capabilities(adapter);
+    if caps.alpha_modes.contains(&wgpu::CompositeAlphaMode::PostMultiplied) {
+        wgpu::CompositeAlphaMode::PostMultiplied
+    } else {
+        caps.alpha_modes
+            .first()
+            .copied()
+            .unwrap_or(wgpu::CompositeAlphaMode::Opaque)
+    }
+}
+
 /// A single completed background effect result, ready to be dispatched on the main thread.
 ///
 /// Fields: `(req_id, result_payload_or_error, on_ok_continuation, on_err_continuation)`
@@ -1077,9 +1095,9 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
         ))
         .unwrap();
 
-        // Enable Alpha for video hole punching
+        // Enable Alpha for video hole punching (if supported by the GPU)
         let device_handle = &render_cx.devices[surface.dev_id];
-        surface.config.alpha_mode = wgpu::CompositeAlphaMode::PostMultiplied;
+        surface.config.alpha_mode = pick_alpha_mode(&render_cx, &surface);
         surface
             .surface
             .configure(&device_handle.device, &surface.config);
@@ -1569,7 +1587,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                         render_cx.resize_surface(&mut surface, size.width, size.height);
                                         // Re-apply alpha mode after resize
                                         let device_handle = &render_cx.devices[surface.dev_id];
-                                        surface.config.alpha_mode = wgpu::CompositeAlphaMode::PostMultiplied;
+                                        surface.config.alpha_mode = pick_alpha_mode(&render_cx, &surface);
                                         surface.surface.configure(&device_handle.device, &surface.config);
                                         // Recreate target texture with COPY_SRC for screenshots
                                         recreate_target_texture(&mut surface, &render_cx);
