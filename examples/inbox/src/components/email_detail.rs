@@ -1,6 +1,7 @@
 use fission_core::{BuildCtx, View, Widget, WidgetNodeId, Handler, ActionEnvelope};
 use fission_core::ui::{Container, Node, Text, TextContent, Button, ButtonVariant, Scroll, Video};
 use fission_core::op::{Color, ImageFit};
+use fission_icons::material;
 use fission_widgets::{VStack, HStack, Avatar, Accordion, AccordionItem, Card, Image, Spinner, Radio, Alert, AlertKind, Divider, Icon, Timeline, TimelineItem, Hero, Wrap, Tag, SimpleGrid, AspectRatio, Code, Kbd};
 use crate::model::{InboxState, EmailMessage, Folder, ToggleDetails, ToggleToast, SelectReplyMode, SetReplyBody, SendReply, Navigate};
 use serde_json;
@@ -73,120 +74,163 @@ impl Widget<InboxState> for EmailDetail {
             Vec::new()
         };
 
-        Container::new(
-            VStack {
-                spacing: Some(8.0),
-                children: vec![
-                    Button {
-                        variant: ButtonVariant::Ghost,
-                        child: Some(Box::new(
-                            HStack {
-                                spacing: Some(4.0),
-                                children: vec![
-                                    Icon::path("M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z").size(16.0).into_node(),
-                                    Text::new(folder_label).size(14.0).into_node(),
-                                ],
-                            }.into_node()
-                        )),
-                        on_press: Some(ctx.bind(Navigate(folder_path.clone()), (|s: &mut InboxState, a: Navigate, _| s.navigate_to(a.0)) as Handler<InboxState, Navigate>)),
-                        content_align: fission_core::ui::ButtonContentAlign::Start,
-                        ..Default::default()
-                    }.into_node(),
+        // ── Section spacing constant ────────────────────────────────
+        let section_gap = 16.0;
 
-                    Alert {
-                        kind: AlertKind::Warning,
-                        title: t("alert.external_sender.title"),
-                        description: Some(t("alert.external_sender.desc")),
-                    }.build(ctx, view),
-
+        // ── 1. Back button ──────────────────────────────────────────
+        let back_button = Container::new(
+            Button {
+                variant: ButtonVariant::Ghost,
+                child: Some(Box::new(
                     HStack {
-                        spacing: Some(8.0),
+                        spacing: Some(4.0),
                         children: vec![
-                            Hero {
-                                tag: format!("email_subject_{}", email.id),
-                                child: Box::new(Text {
-                                    content: TextContent::Literal(email.subject.clone()),
-                                    font_size: Some(18.0),
-                                    ..Default::default()
-                                }.into()),
-                            }.build(ctx, view),
-                            fission_core::ui::widgets::Spacer { flex_grow: 1.0, ..Default::default() }.into_node(),
-                            Button {
-                                variant: ButtonVariant::Outline,
-                                child: Some(Box::new(Icon::path("M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z").size(20.0).into_node())),
-                                on_press: Some(ctx.bind(ToggleToast(true), (|s: &mut InboxState, _: ToggleToast, _| s.show_toast = true) as Handler<InboxState, ToggleToast>)),
-                                ..Default::default()
-                            }.into_node(),
-                        ]
-                    }.build(ctx, view),
+                            Icon::path("M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z").size(16.0).into_node(),
+                            Text::new(folder_label).size(14.0).into_node(),
+                        ],
+                    }.into_node()
+                )),
+                on_press: Some(ctx.bind(Navigate(folder_path.clone()), (|s: &mut InboxState, a: Navigate, _| s.navigate_to(a.0)) as Handler<InboxState, Navigate>)),
+                content_align: fission_core::ui::ButtonContentAlign::Start,
+                ..Default::default()
+            }.into_node()
+        ).into_node();
 
-                    HStack {
-                        spacing: Some(8.0),
-                        children: vec![
-                            Avatar {
-                                name: Some(latest.from.clone()),
-                                size: Some(40.0),
-                                ..Default::default()
-                            }.build(ctx, view),
-                            VStack {
-                                spacing: Some(2.0),
-                                children: vec![
-                                    Text { content: TextContent::Literal(latest.from.clone()), font_size: Some(14.0), ..Default::default() }.into(),
-                                    Text { content: TextContent::Literal(latest.sent_at.format("%b %d, %I:%M %p").to_string()), font_size: Some(12.0), color: Some(tokens.colors.text_secondary), ..Default::default() }.into(),
-                                ]
-                            }.build(ctx, view)
-                        ]
-                    }.build(ctx, view),
+        // ── 2. External sender banner ───────────────────────────────
+        let external_banner = Container::new(
+            Alert {
+                kind: AlertKind::Warning,
+                title: t("alert.external_sender.title"),
+                description: Some(t("alert.external_sender.desc")),
+            }.build(ctx, view)
+        )
+        .into_node();
 
-                    Wrap {
-                        direction: fission_ir::op::FlexDirection::Row,
-                        spacing: Some(6.0),
-                        children: email.labels.iter().map(|label| {
-                            Tag { label: label.clone(), on_close: None }.build(ctx, view)
-                        }).collect(),
-                    }.build(ctx, view),
-
-                    Accordion {
-                        items: vec![
-                            AccordionItem {
-                                title: t("email.details"),
-                                is_expanded: view.state.details_expanded,
-                                on_toggle: Some(ctx.bind(ToggleDetails, (|s: &mut InboxState, _: ToggleDetails, _| s.details_expanded = !s.details_expanded) as Handler<InboxState, ToggleDetails>)),
-                                content: Text {
-                                    content: TextContent::Literal(format!("Date: {}\nTo: {}\nCc: {}", latest.sent_at.format("%b %d, %Y"), latest.to.join(", "), latest.cc.join(", "))),
-                                    font_size: Some(12.0),
-                                    color: Some(tokens.colors.text_secondary),
-                                    ..Default::default()
-                                }.into()
-                            }
-                        ]
-                    }.build(ctx, view),
-
-                    Divider { orientation: fission_widgets::divider::Orientation::Horizontal }.build(ctx, view),
-
-                    Container::new(
-                        Scroll {
-                            child: Some(Box::new(
-                                Text {
-                                    content: TextContent::Literal(latest.body.clone()),
-                                    ..Default::default()
-                                }.into()
-                            )),
-                            show_scrollbar: true,
+        // ── 3. Subject row with delete button ───────────────────────
+        let subject_row = HStack {
+            spacing: Some(12.0),
+            children: vec![
+                Container::new(
+                    Hero {
+                        tag: format!("email_subject_{}", email.id),
+                        child: Box::new(Text {
+                            content: TextContent::Literal(email.subject.clone()),
+                            font_size: Some(20.0),
                             ..Default::default()
-                        }.into_node()
-                    )
-                    .padding_all(12.0)
-                    .bg(tokens.colors.surface)
-                    .border(tokens.colors.border, 1.0)
-                    .into_node(),
+                        }.into()),
+                    }.build(ctx, view)
+                )
+                .flex_grow(1.0)
+                .into_node(),
+                Button {
+                    variant: ButtonVariant::Outline,
+                    child: Some(Box::new(
+                        Icon::svg(material::action::delete::regular()).size(20.0).into_node()
+                    )),
+                    on_press: Some(ctx.bind(ToggleToast(true), (|s: &mut InboxState, _: ToggleToast, _| s.show_toast = true) as Handler<InboxState, ToggleToast>)),
+                    ..Default::default()
+                }.into_node(),
+            ]
+        }.build(ctx, view);
 
-                    Text::new(TextContent::Key("email.attachments".into())).size(16.0).into_node(),
+        // ── 4. Sender metadata row ─────────────────────────────────
+        let sender_row = HStack {
+            spacing: Some(12.0),
+            children: vec![
+                Avatar {
+                    name: Some(latest.from.clone()),
+                    size: Some(40.0),
+                    ..Default::default()
+                }.build(ctx, view),
+                VStack {
+                    spacing: Some(2.0),
+                    children: vec![
+                        Text::new(latest.from.clone()).size(14.0).into_node(),
+                        Text::new(latest.sent_at.format("%b %d, %Y  %I:%M %p").to_string())
+                            .size(12.0)
+                            .color(tokens.colors.text_secondary)
+                            .into_node(),
+                    ]
+                }.build(ctx, view),
+            ]
+        }.build(ctx, view);
+
+        // ── 5. Tags row ────────────────────────────────────────────
+        let tags_row = if !email.labels.is_empty() {
+            Wrap {
+                direction: fission_ir::op::FlexDirection::Row,
+                spacing: Some(6.0),
+                children: email.labels.iter().map(|label| {
+                    Tag { label: label.clone(), on_close: None }.build(ctx, view)
+                }).collect(),
+            }.build(ctx, view)
+        } else {
+            // Empty container when no tags
+            Container::default().into_node()
+        };
+
+        // ── 6. Expandable details accordion ────────────────────────
+        let details_accordion = Accordion {
+            items: vec![
+                AccordionItem {
+                    title: t("email.details"),
+                    is_expanded: view.state.details_expanded,
+                    on_toggle: Some(ctx.bind(ToggleDetails, (|s: &mut InboxState, _: ToggleDetails, _| s.details_expanded = !s.details_expanded) as Handler<InboxState, ToggleDetails>)),
+                    content: Container::new(
+                        Text {
+                            content: TextContent::Literal(format!(
+                                "Date: {}\nTo: {}\nCc: {}",
+                                latest.sent_at.format("%b %d, %Y"),
+                                latest.to.join(", "),
+                                latest.cc.join(", ")
+                            )),
+                            font_size: Some(12.0),
+                            color: Some(tokens.colors.text_secondary),
+                            ..Default::default()
+                        }.into()
+                    )
+                    .padding_all(8.0)
+                    .into_node()
+                }
+            ]
+        }.build(ctx, view);
+
+        // ── 7. Divider between header and body ─────────────────────
+        let header_divider = Divider {
+            orientation: fission_widgets::divider::Orientation::Horizontal,
+        }.build(ctx, view);
+
+        // ── 8. Email body ──────────────────────────────────────────
+        let email_body = Container::new(
+            Text {
+                content: TextContent::Literal(latest.body.clone()),
+                font_size: Some(14.0),
+                ..Default::default()
+            }.into()
+        )
+        .padding_all(16.0)
+        .bg(tokens.colors.surface)
+        .border(tokens.colors.border, 1.0)
+        .border_radius(6.0)
+        .min_height(80.0)
+        .into_node();
+
+        // ── 9. Attachments section ─────────────────────────────────
+        let attachments_section = Container::new(
+            VStack {
+                spacing: Some(12.0),
+                children: vec![
+                    Text::new(TextContent::Key("email.attachments".into()))
+                        .size(16.0)
+                        .into_node(),
                     HStack {
                         spacing: Some(8.0),
                         children: vec![
                             Spinner { id: WidgetNodeId::explicit("attachments_spinner"), color: None }.build(ctx, view),
-                            Text::new(TextContent::Key("email.scanning_attachments".into())).size(12.0).color(tokens.colors.text_secondary).into_node(),
+                            Text::new(TextContent::Key("email.scanning_attachments".into()))
+                                .size(12.0)
+                                .color(tokens.colors.text_secondary)
+                                .into_node(),
                         ],
                     }.build(ctx, view),
                     SimpleGrid {
@@ -226,31 +270,56 @@ impl Widget<InboxState> for EmailDetail {
                             }.build(ctx, view),
                         ],
                     }.build(ctx, view),
+                ],
+            }.build(ctx, view)
+        )
+        .padding_all(12.0)
+        .bg(tokens.colors.surface)
+        .border(tokens.colors.border, 1.0)
+        .border_radius(6.0)
+        .into_node();
 
-                    Card {
-                        child: Box::new(
-                            VStack {
-                                spacing: Some(8.0),
+        // ── 10. Power user tip card ────────────────────────────────
+        let power_tip = Card {
+            child: Box::new(
+                Container::new(
+                    VStack {
+                        spacing: Some(8.0),
+                        children: vec![
+                            Text::new(TextContent::Key("email.power_tip".into()))
+                                .size(14.0)
+                                .into_node(),
+                            Code { text: "label:important after:2025/01/01".into() }.build(ctx, view),
+                            HStack {
+                                spacing: Some(6.0),
                                 children: vec![
-                                    Text::new(TextContent::Key("email.power_tip".into())).size(14.0).into_node(),
-                                    Code { text: "label:important after:2025/01/01".into() }.build(ctx, view),
-                                    HStack {
-                                        spacing: Some(6.0),
-                                        children: vec![
-                                            Kbd { text: "g".into() }.build(ctx, view),
-                                            Kbd { text: "i".into() }.build(ctx, view),
-                                            Text::new("to jump to Inbox").size(12.0).into_node(),
-                                        ],
-                                    }.into_node(),
+                                    Kbd { text: "g".into() }.build(ctx, view),
+                                    Kbd { text: "i".into() }.build(ctx, view),
+                                    Text::new("to jump to Inbox").size(12.0).into_node(),
                                 ],
-                            }.into_node()
-                        ),
-                        ..Default::default()
-                    }.build(ctx, view),
+                            }.into_node(),
+                        ],
+                    }.build(ctx, view)
+                )
+                .padding_all(12.0)
+                .into_node()
+            ),
+            ..Default::default()
+        }.build(ctx, view);
 
-                    Text::new(TextContent::Key("email.history".into())).size(18.0).into_node(),
+        // ── 11. History section ────────────────────────────────────
+        let history_section = Container::new(
+            VStack {
+                spacing: Some(8.0),
+                children: vec![
+                    Text::new(TextContent::Key("email.history".into()))
+                        .size(18.0)
+                        .into_node(),
                     if history.is_empty() {
-                        Text::new(TextContent::Key("email.no_history".into())).size(12.0).into_node()
+                        Text::new(TextContent::Key("email.no_history".into()))
+                            .size(12.0)
+                            .color(tokens.colors.text_secondary)
+                            .into_node()
                     } else {
                         Timeline {
                             items: history.iter().map(|m| {
@@ -262,8 +331,26 @@ impl Widget<InboxState> for EmailDetail {
                             }).collect()
                         }.build(ctx, view)
                     },
+                ],
+            }.build(ctx, view)
+        )
+        .padding_all(12.0)
+        .into_node();
 
-                    Text::new(TextContent::Key("email.reply_mode".into())).size(12.0).into_node(),
+        // ── 12. Divider before reply ───────────────────────────────
+        let reply_divider = Divider {
+            orientation: fission_widgets::divider::Orientation::Horizontal,
+        }.build(ctx, view);
+
+        // ── 13. Reply mode selector ────────────────────────────────
+        let reply_mode_selector = Container::new(
+            VStack {
+                spacing: Some(8.0),
+                children: vec![
+                    Text::new(TextContent::Key("email.reply_mode".into()))
+                        .size(12.0)
+                        .color(tokens.colors.text_secondary)
+                        .into_node(),
                     HStack {
                         spacing: Some(12.0),
                         children: vec![
@@ -296,41 +383,92 @@ impl Widget<InboxState> for EmailDetail {
                             }.into_node(),
                         ]
                     }.build(ctx, view),
+                ],
+            }.build(ctx, view)
+        )
+        .padding_all(8.0)
+        .into_node();
 
-                    VStack {
+        // ── 14. Reply compose area ─────────────────────────────────
+        let reply_area = Container::new(
+            VStack {
+                spacing: Some(12.0),
+                children: vec![
+                    Text::new(TextContent::Key("email.reply".into()))
+                        .size(14.0)
+                        .into_node(),
+                    fission_widgets::TextInput {
+                        value: view.state.reply_body.clone(),
+                        placeholder: Some(TextContent::Key("email.reply_placeholder".into())),
+                        on_change: Some(ActionEnvelope { id: reply_body_id, payload: Vec::new() }),
+                        multiline: true,
+                        height: Some(120.0),
+                        ..Default::default()
+                    }.into_node(),
+                    HStack {
                         spacing: Some(8.0),
                         children: vec![
-                            Text::new(TextContent::Key("email.reply".into())).size(14.0).into_node(),
-                            fission_widgets::TextInput {
-                                value: view.state.reply_body.clone(),
-                                placeholder: Some(TextContent::Key("email.reply_placeholder".into())),
-                                on_change: Some(ActionEnvelope { id: reply_body_id, payload: Vec::new() }),
-                                multiline: true,
-                                height: Some(140.0),
+                            fission_core::ui::widgets::Spacer { flex_grow: 1.0, ..Default::default() }.into_node(),
+                            Button {
+                                variant: ButtonVariant::Filled,
+                                child: Some(Box::new(
+                                    Text::new(TextContent::Key("email.send_reply".into()))
+                                        .color(tokens.colors.on_primary)
+                                        .into_node()
+                                )),
+                                on_press: Some(ActionEnvelope {
+                                    id: send_reply_id,
+                                    payload: serde_json::to_vec(&SendReply(email.id)).unwrap(),
+                                }),
                                 ..Default::default()
                             }.into_node(),
-                            HStack {
-                                spacing: Some(8.0),
-                                children: vec![
-                                    fission_core::ui::widgets::Spacer { flex_grow: 1.0, ..Default::default() }.into_node(),
-                                    Button {
-                                        variant: ButtonVariant::Filled,
-                                        child: Some(Box::new(Text::new(TextContent::Key("email.send_reply".into())).color(tokens.colors.on_primary).into_node())),
-                                        on_press: Some(ActionEnvelope {
-                                            id: send_reply_id,
-                                            payload: serde_json::to_vec(&SendReply(email.id)).unwrap(),
-                                        }),
-                                        ..Default::default()
-                                    }.into_node(),
-                                ],
-                            }.build(ctx, view),
                         ],
                     }.build(ctx, view),
-                ]
-            }
-            .build(ctx, view)
+                ],
+            }.build(ctx, view)
         )
         .padding_all(16.0)
+        .bg(tokens.colors.surface)
+        .border(tokens.colors.border, 1.0)
+        .border_radius(6.0)
+        .into_node();
+
+        // ── Assemble the full detail view inside a Scroll ──────────
+        let content = VStack {
+            spacing: Some(section_gap),
+            children: vec![
+                back_button,
+                external_banner,
+                subject_row,
+                sender_row,
+                tags_row,
+                details_accordion,
+                header_divider,
+                email_body,
+                attachments_section,
+                power_tip,
+                history_section,
+                reply_divider,
+                reply_mode_selector,
+                reply_area,
+            ],
+        }.build(ctx, view);
+
+        // Wrap the whole thing in a Scroll so it scrolls when content
+        // is taller than the viewport, then put it in a flex-growing
+        // Container with padding.
+        Container::new(
+            Scroll {
+                child: Some(Box::new(
+                    Container::new(content)
+                        .padding_all(24.0)
+                        .into_node()
+                )),
+                show_scrollbar: true,
+                flex_grow: 1.0,
+                ..Default::default()
+            }.into_node()
+        )
         .bg(tokens.colors.background)
         .flex_grow(1.0)
         .into_node()
