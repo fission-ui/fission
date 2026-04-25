@@ -954,6 +954,8 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                         // shimmer) should not burn CPU when idle.
                         let has_finite_animation = runtime.runtime_state.animation.active.values()
                             .any(|a| !a.repeat);
+                        let has_repeating_animation = runtime.runtime_state.animation.active.values()
+                            .any(|a| a.repeat);
                         let needs_redraw = has_finite_animation || !players.is_empty();
 
                         let focused_text_input = focused_text_input_id(&runtime, pipeline.prev_ir.as_ref());
@@ -1219,6 +1221,11 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                             elwt.set_control_flow(ControlFlow::WaitUntil(wake_at));
                         } else if let Some(hook_at) = frame_hook_wake_at {
                             elwt.set_control_flow(ControlFlow::WaitUntil(hook_at));
+                        } else if has_repeating_animation {
+                            // Wake at 200ms for repeating animations (spinners, shimmer)
+                            let anim_at = now + Duration::from_millis(200);
+                            request_redraw_throttled(&window, elwt, &mut last_redraw_at, min_frame, &mut redraw_pending);
+                            elwt.set_control_flow(ControlFlow::WaitUntil(anim_at));
                         } else {
                             elwt.set_control_flow(ControlFlow::Wait);
                         }
