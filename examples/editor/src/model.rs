@@ -865,11 +865,19 @@ impl EditorState {
         let cmd = self.terminal_input.trim().to_string();
         if cmd.is_empty() { return; }
         self.terminal_lines.push(format!("$ {}", cmd));
-        match std::process::Command::new("sh")
+        #[cfg(windows)]
+        let output = std::process::Command::new("cmd")
+            .arg("/c")
+            .arg(&cmd)
+            .current_dir(&self.root_path)
+            .output();
+        #[cfg(not(windows))]
+        let output = std::process::Command::new("sh")
             .arg("-c")
             .arg(&cmd)
             .current_dir(&self.root_path)
-            .output()
+            .output();
+        match output
         {
             Ok(output) => {
                 let stdout = String::from_utf8_lossy(&output.stdout);
@@ -1496,10 +1504,9 @@ mod tests {
     #[test]
     fn test_undo_redo() {
         let mut state = EditorState::default();
-        state.root_path = PathBuf::from("/tmp");
+        state.root_path = std::env::temp_dir();
         // Create a temp file
-        let path = "/tmp/test_undo.txt".to_string();
-        std::fs::write(&path, "hello").ok();
+        let path = temp_file("test_undo.txt", "hello");
         state.open_file(path.clone());
 
         // Modify content
@@ -1520,7 +1527,7 @@ mod tests {
             assert_eq!(buf.content(), "hello world");
         }
 
-        std::fs::remove_file(&path).ok();
+        cleanup(&path);
     }
 
     #[test]
@@ -1576,9 +1583,8 @@ mod tests {
     #[test]
     fn test_find_replace() {
         let mut state = EditorState::default();
-        state.root_path = PathBuf::from("/tmp");
-        let path = "/tmp/test_find.txt".to_string();
-        std::fs::write(&path, "foo bar foo baz foo").ok();
+        state.root_path = std::env::temp_dir();
+        let path = temp_file("test_find.txt", "foo bar foo baz foo");
         state.open_file(path.clone());
         state.find_query = "foo".to_string();
         state.find_next();
@@ -1590,7 +1596,7 @@ mod tests {
         assert!(!content.contains("foo"));
         assert!(content.contains("qux"));
 
-        std::fs::remove_file(&path).ok();
+        cleanup(&path);
     }
 
     // --- New tests ---
