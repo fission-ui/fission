@@ -1,1 +1,3 @@
-fn main() { println\!("chart-gallery placeholder"); }
+fn main() {
+    println!("chart-gallery placeholder");
+}
