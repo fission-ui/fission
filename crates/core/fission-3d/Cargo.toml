@@ -1,0 +1,12 @@
+[package]
+name = "fission-3d"
+version = "0.1.1"
+edition = "2021"
+
+[dependencies]
+fission-core = { path = "../fission-core" }
+fission-ir = { path = "../fission-ir" }
+serde = { version = "1.0", features = ["derive"] }
+wgpu = "26.0"
+bytemuck = { version = "1.18", features = ["derive"] }
+bincode = "1.3"

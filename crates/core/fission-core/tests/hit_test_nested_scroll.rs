@@ -52,14 +52,11 @@ fn test_nested_scroll_hit_test() {
     );
 
     // Button C: at 0, 50 relative to B's content (so 0, 150+50 = 200 relative to A's content).
+    let mut semantics = fission_ir::Semantics::default();
+    semantics.focusable = true;
     ir.add_node(
         button_c,
-        Op::Paint(PaintOp::DrawRect {
-            fill: None,
-            stroke: None,
-            corner_radius: 0.0,
-            shadow: None,
-        }),
+        Op::Semantics(semantics),
         vec![],
     );
 

@@ -117,7 +117,7 @@ fn radio_dot_centered() {
     let (ir, snapshot) = layout_from_node(radio.into_node());
     let parents = parent_map(&ir);
 
-    let dot_id = find_boxes_by_size(&ir, 10.0, 10.0)
+    let dot_id = find_boxes_by_size(&ir, 9.0, 9.0)
         .into_iter()
         .next()
         .expect("radio dot box");

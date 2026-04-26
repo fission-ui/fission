@@ -17,6 +17,7 @@ impl<S: fission_core::AppState> Widget<S> for AspectRatio {
                 ratio: self.ratio,
                 child: *self.child.clone(),
             })),
+            render_object: None,
         })
     }
 }

@@ -1,44 +1,32 @@
 use anyhow::Result;
-use fission_core::env::Env;
 use fission_core::lowering::build_layout_tree;
-use fission_core::{ActionEnvelope, AppState, BuildCtx, Clock, CurrentTime, Node, View, Widget, WidgetNodeId, NodeId};
-use fission_ir::CoreIR;
-use fission_layout::{LayoutEngine, LayoutRect, LayoutSnapshot, TextMeasurer, LayoutUnit, LineMetric};
-use fission_render::{DisplayList, DisplayOp, Renderer};
-use serde_json;
-use std::collections::{HashMap, HashSet};
-use std::sync::Arc;
+use fission_core::{
+    Action, ActionEnvelope, ActionId, AdvanceTo, AppState, BuildCtx, Clock, CurrentTime, Env,
+    InputEvent, LayoutPoint, Lower, LoweringContext, Node, Runtime, ScrollStateMap, Tick, View,
+    Widget,
+};
+use fission_ir::{CoreIR, NodeId};
+use fission_layout::{LayoutEngine, LayoutSize, LayoutSnapshot, TextMeasurer};
+use fission_render::{
+    BoxShadow, Color, DisplayList, DisplayOp, Fill, LayoutRect, Renderer, Stroke,
+};
+use fission_render_vello::VelloTextMeasurer;
+use fission_render_vello::parley::FontContext;
+use fission_theme::fonts;
+use fontique::{Blob, Collection, CollectionOptions, FontInfoOverride, SourceCache};
+use std::collections::HashSet;
+use std::sync::{Arc, Mutex};
 
-pub struct HeadlessApp<S: AppState> {
-    pub state: S,
-    pub root: Box<dyn Widget<S>>,
-    pub clock: Clock,
-    pub env: Env,
-    pub layout_engine: LayoutEngine,
-    pub action_registry: fission_core::registry::ActionRegistry<S>,
-    pub last_snapshot: Option<LayoutSnapshot>,
-    pub last_ir: Option<CoreIR>,
+// A mock renderer that captures the display list for inspection.
+#[derive(Default, Clone)]
+pub struct MockRenderer {
+    pub last_display_list: Arc<Mutex<Option<DisplayList>>>,
 }
 
-impl<S: AppState> HeadlessApp<S> {
-    pub fn new(state: S, root: impl Widget<S> + 'static) -> Self {
-        let measurer: Arc<dyn TextMeasurer> = Arc::new(MockTextMeasurer);
-        let mut env = Env::default();
-        // Env doesn't have measurer field in clean version
-        Self {
-            state,
-            root: Box::new(root),
-            clock: Clock::default(),
-            env,
-            layout_engine: LayoutEngine::new().with_measurer(measurer),
-            action_registry: fission_core::registry::ActionRegistry::new(),
-            last_snapshot: None,
-            last_ir: None,
-        }
-    }
-
-    pub fn tick(&mut self, dt_ms: u64) -> Result<()> {
-        self.clock.advance_by(dt_ms)?;
+impl Renderer for MockRenderer {
+    fn render(&mut self, display_list: &DisplayList) -> Result<()> {
+        let mut lock = self.last_display_list.lock().unwrap();
+        *lock = Some(display_list.clone());
         Ok(())
     }
 }
@@ -52,6 +40,8 @@ impl TextMeasurer for MockTextMeasurer {
         
         if let Some(w) = avail {
             if full_width > w {
+                // Wrap
+                // Avoid division by zero
                 let safe_w = w.max(char_width); 
                 let lines = (full_width / safe_w).ceil();
                 return (w, lines * line_height);
@@ -59,7 +49,9 @@ impl TextMeasurer for MockTextMeasurer {
         }
         (full_width, line_height)
     }
-
+    fn hit_test(&self, _text: &str, _font_size: f32, _available_width: Option<f32>, _x: f32, _y: f32) -> usize {
+        0
+    }
     fn measure_rich_text(&self, runs: &[fission_ir::op::TextRun], available_width: Option<f32>) -> (f32, f32) {
         let full_w: f32 = runs.iter().map(|r| r.text.len() as f32 * 10.0).sum();
         let char_width = 10.0;
@@ -73,18 +65,6 @@ impl TextMeasurer for MockTextMeasurer {
             }
         }
         (full_w.max(10.0), line_height)
-    }
-
-    fn hit_test(&self, _text: &str, _font_size: f32, _available_width: Option<f32>, _x: f32, _y: f32) -> usize {
-        0
-    }
-
-    fn get_line_metrics(&self, _text: &str, _font_size: f32, _available_width: Option<f32>) -> Vec<LineMetric> {
-        vec![]
-    }
-
-    fn get_caret_position(&self, _text: &str, _font_size: f32, _available_width: Option<f32>, _caret_index: usize) -> (f32, f32) {
-        (0.0, 0.0)
     }
 }
 
@@ -103,19 +83,512 @@ fn should_use_mock_measurer() -> bool {
     env_mock || matches!(env_kind.as_deref(), Some("mock"))
 }
 
-pub struct TestRenderer {
-    pub display_list: Option<DisplayList>,
+fn build_vello_measurer() -> Arc<dyn TextMeasurer> {
+    let font_cx = Arc::new(Mutex::new(build_font_context()));
+    {
+        let mut font_cx = font_cx.lock().unwrap();
+        let font_data = fonts::default_font_bytes().to_vec();
+        let info_override = FontInfoOverride {
+            family_name: Some(DEFAULT_TEST_FONT_FAMILY),
+            ..Default::default()
+        };
+        font_cx
+            .collection
+            .register_fonts(Blob::from(font_data), Some(info_override));
+    }
+    Arc::new(VelloTextMeasurer::new_with_default_family(
+        font_cx,
+        DEFAULT_TEST_FONT_FAMILY,
+    ))
 }
 
-impl TestRenderer {
-    pub fn new() -> Self {
-        Self { display_list: None }
+fn build_font_context() -> FontContext {
+    let use_system_fonts = std::env::var("FISSION_USE_SYSTEM_FONTS")
+        .map(|v| matches!(v.to_ascii_lowercase().as_str(), "1" | "true" | "yes"))
+        .unwrap_or(false);
+    let options = CollectionOptions {
+        shared: false,
+        system_fonts: use_system_fonts,
+    };
+    FontContext {
+        collection: Collection::new(options),
+        source_cache: SourceCache::default(),
     }
 }
 
-impl Renderer for TestRenderer {
-    fn render(&mut self, display_list: &DisplayList) -> Result<()> {
-        self.display_list = Some(display_list.clone());
+pub mod linter;
+pub use linter::*;
+
+pub mod driver;
+pub use driver::{TestDriver, TextMatch, SemanticMatch};
+
+pub mod prelude {
+    pub use crate::{detect_ir_cycle, MockRenderer, TestHarness, TestDriver, TextMatch, SemanticMatch};
+    pub use crate::linter::{LayoutLinter, LayoutViolation};
+    pub use fission_ir::{EmbedKind, LayoutOp, Op, PaintOp};
+    pub use fission_ir::semantics::{ActionTrigger, Role};
+    pub use fission_render::{DisplayList, DisplayOp};
+}
+
+pub struct TestHarness<S: AppState> {
+    pub runtime: Runtime,
+    pub renderer: MockRenderer,
+    pub layout_engine: LayoutEngine,
+    pub last_snapshot: Option<LayoutSnapshot>,
+    pub last_ir: Option<CoreIR>,
+    pub root_widget: Option<Box<dyn Widget<S>>>,
+    pub env: Env,
+    pub measurer: Arc<dyn TextMeasurer>,
+    _phantom: std::marker::PhantomData<S>,
+}
+
+impl<S: AppState> TestHarness<S> {
+// ...
+    pub fn lint(&self) -> Vec<LayoutViolation> {
+        if let (Some(ir), Some(snapshot)) = (&self.last_ir, &self.last_snapshot) {
+            LayoutLinter::new(ir, snapshot).check()
+        } else {
+            vec![]
+        }
+    }
+
+    pub fn new(initial_state: S) -> Self {
+        if should_use_mock_measurer() {
+            return Self::new_with_measurer(initial_state, Arc::new(MockTextMeasurer));
+        }
+        Self::new_with_measurer(initial_state, build_vello_measurer())
+    }
+
+    pub fn new_with_mock_measurer(initial_state: S) -> Self {
+        Self::new_with_measurer(initial_state, Arc::new(MockTextMeasurer))
+    }
+
+    pub fn new_with_measurer(initial_state: S, measurer: Arc<dyn TextMeasurer>) -> Self {
+        let mut runtime = Runtime::default();
+        if std::any::TypeId::of::<S>() != std::any::TypeId::of::<Clock>() {
+            runtime
+                .add_app_state(Box::new(initial_state))
+                .expect("Failed to add initial state");
+        }
+
+        Self {
+            runtime: runtime.with_measurer(measurer.clone()),
+            renderer: MockRenderer::default(),
+            layout_engine: LayoutEngine::new().with_measurer(measurer.clone()),
+            last_snapshot: None,
+            last_ir: None,
+            root_widget: None,
+            env: Env::default(),
+            measurer,
+            _phantom: std::marker::PhantomData,
+        }
+    }
+
+    pub fn with_root_widget<W: Widget<S> + 'static>(mut self, widget: W) -> Self {
+        self.root_widget = Some(Box::new(widget));
+        self
+    }
+
+    pub fn register_reducer(
+        mut self,
+        action_id: ActionId,
+        reducer: fn(&mut S, &ActionEnvelope, NodeId) -> Result<()>,
+    ) -> Self {
+        self.runtime
+            .register_reducer::<S>(action_id, reducer)
+            .unwrap();
+        self
+    }
+
+    pub fn dispatch(&mut self, action: impl Action + 'static) -> Result<()> {
+        let target = NodeId::derived(0, &[0]);
+        let envelope: ActionEnvelope = action.into();
+        self.runtime.dispatch(envelope, target)
+    }
+
+    pub fn send_event(&mut self, event: InputEvent) -> Result<()> {
+        if let (Some(ir), Some(layout)) = (&self.last_ir, &self.last_snapshot) {
+            self.runtime.handle_input(event, ir, layout)
+        } else {
+            anyhow::bail!(
+                "Cannot handle input: no frame pumped (missing IR/Layout). Call pump() first."
+            );
+        }
+    }
+
+    pub fn tick(&mut self, dt: CurrentTime) -> Result<()> {
+        let action = Tick { dt };
+        self.dispatch(action)
+    }
+
+    pub fn advance_to(&mut self, time: CurrentTime) -> Result<()> {
+        self.dispatch(AdvanceTo { time })
+    }
+
+    pub fn current_time(&self) -> CurrentTime {
+        self.runtime.clock().current_time()
+    }
+
+    pub fn pump(&mut self) -> Result<()> {
+        let trace = std::env::var("FISSION_TEST_TRACE").ok().as_deref() == Some("1");
+        let mut viewport = LayoutSize {
+            width: 800.0,
+            height: 600.0,
+        };
+        if self.env.viewport_size.width > 0.0
+            && self.env.viewport_size.height > 0.0
+            && self.env.viewport_size.width.is_finite()
+            && self.env.viewport_size.height.is_finite()
+        {
+            viewport = self.env.viewport_size;
+        } else {
+            self.env.viewport_size = viewport;
+        }
+        // 1. Build & Lower
+        let mut layout_input_nodes = Vec::new();
+
+        if let Some(root) = &self.root_widget {
+            // Build
+            if trace {
+                eprintln!("[test-trace] build start");
+            }
+            let node_tree = {
+                let state = self
+                    .runtime
+                    .get_app_state::<S>()
+                    .expect("App state missing");
+                let view = View::new(state, &self.runtime.runtime_state, &self.env, self.last_snapshot.as_ref());
+                let mut ctx = BuildCtx::new();
+                let tree = root.build(&mut ctx, &view);
+
+                self.runtime.clear_reducers();
+                let animation_requests = ctx.take_animation_requests();
+                let video_nodes = ctx.take_video_registrations();
+                let portals_with_ids = ctx.take_portals();
+                
+                let portals = portals_with_ids.into_iter().map(|(id, node)| {
+                    if let Some(id) = id {
+                        // Use a derived ID for the wrapper to avoid conflict with the widget's own node
+                        let wrapper_id = NodeId::derived(id.as_u128(), &[0x0000_F001]);
+                        fission_core::ui::Container::new(node)
+                            .id(wrapper_id)
+                            .width(viewport.width)
+                            .height(viewport.height)
+                            .into_node()
+                    } else {
+                        node
+                    }
+                }).collect::<Vec<_>>();
+
+                self.runtime.absorb_registry(ctx.registry);
+                for (target, request) in animation_requests {
+                    self.runtime.enqueue_animation(target, request);
+                }
+                self.runtime.sync_video_nodes(&video_nodes);
+                
+                if portals.is_empty() {
+                    tree
+                } else {
+                    // Match the desktop shell overlay composition: always wrap content
+                    // in an Overlay so portals render in a separate AbsoluteFill layer
+                    // and do not participate in normal layout.
+                    fission_core::ui::Node::Overlay(fission_core::ui::Overlay {
+                        id: None,
+                        // Ensure content establishes a viewport-sized containing block so
+                        // the overlay AbsoluteFill has a concrete size in tests.
+                        content: Box::new(
+                            fission_core::ui::Container::new(tree)
+                                .width(viewport.width)
+                                .height(viewport.height)
+                                .into_node()
+                        ),
+                        overlay: Box::new(fission_core::ui::Node::ZStack(
+                            fission_core::ui::ZStack { id: None, children: portals }
+                        )),
+                    })
+                }
+            };
+            if trace {
+                eprintln!("[test-trace] build done");
+            }
+
+            // Lower
+            if trace {
+                eprintln!("[test-trace] lower start");
+            }
+            let mut cx = LoweringContext::new(&self.env, &self.runtime.runtime_state, Some(&self.measurer), self.last_snapshot.as_ref());
+            let root_id = node_tree.lower(&mut cx);
+            cx.ir.root = Some(root_id);
+
+            layout_input_nodes = build_layout_tree(&cx.ir, &self.env);
+            self.last_ir = Some(cx.ir);
+            if trace {
+                eprintln!("[test-trace] lower done nodes={}", layout_input_nodes.len());
+            }
+
+            // 2. Layout
+            if trace {
+                eprintln!("[test-trace] layout start");
+            }
+            let dirty: HashSet<_> = layout_input_nodes.iter().map(|n| n.id).collect();
+            self.layout_engine.update(&layout_input_nodes, &dirty);
+            self.layout_engine.verify_post_update(&layout_input_nodes, root_id)?;
+            let snapshot =
+                self.layout_engine
+                    .compute_layout(&layout_input_nodes, root_id, viewport, &|id| self.runtime.runtime_state.scroll.get_offset(id))?;
+            self.last_snapshot = Some(snapshot);
+            if trace {
+                eprintln!("[test-trace] layout done");
+            }
+        }
+
+        // 3. Render
+        if trace {
+            eprintln!("[test-trace] render start");
+        }
+        let mut display_list = DisplayList::new(LayoutRect::new(0.0, 0.0, viewport.width, viewport.height));
+
+        if let (Some(ir), Some(snapshot)) = (&self.last_ir, &self.last_snapshot) {
+            if let Some(root_id) = ir.root {
+                let scroll_map = &self.runtime.runtime_state.scroll;
+                generate_display_list(root_id, ir, snapshot, scroll_map, &mut display_list);
+            }
+        }
+
+        self.renderer.render(&display_list)?;
+        if trace {
+            eprintln!("[test-trace] render done");
+        }
+
         Ok(())
+    }
+
+    pub fn get_last_display_list(&self) -> Option<DisplayList> {
+        self.renderer.last_display_list.lock().unwrap().clone()
+    }
+}
+
+pub fn detect_ir_cycle(ir: &CoreIR) -> Option<Vec<NodeId>> {
+    use std::collections::HashSet;
+
+    fn dfs(
+        ir: &CoreIR,
+        node: NodeId,
+        visited: &mut HashSet<NodeId>,
+        stack: &mut HashSet<NodeId>,
+        path: &mut Vec<NodeId>,
+    ) -> Option<Vec<NodeId>> {
+        if !visited.insert(node) {
+            return None;
+        }
+        stack.insert(node);
+        path.push(node);
+        if let Some(n) = ir.nodes.get(&node) {
+            for &child in &n.children {
+                if stack.contains(&child) {
+                    if let Some(pos) = path.iter().position(|&id| id == child) {
+                        return Some(path[pos..].to_vec());
+                    } else {
+                        return Some(vec![child]);
+                    }
+                }
+                if let Some(cy) = dfs(ir, child, visited, stack, path) {
+                    return Some(cy);
+                }
+            }
+        }
+        stack.remove(&node);
+        path.pop();
+        None
+    }
+
+    if let Some(root) = ir.root {
+        let mut visited = HashSet::new();
+        let mut stack = HashSet::new();
+        let mut path = Vec::new();
+        return dfs(ir, root, &mut visited, &mut stack, &mut path);
+    }
+    None
+}
+
+fn map_fill(f: &fission_ir::op::Fill) -> fission_render::Fill {
+    match f {
+        fission_ir::op::Fill::Solid(c) => fission_render::Fill::Solid(fission_render::Color { r: c.r, g: c.g, b: c.b, a: c.a }),
+        fission_ir::op::Fill::LinearGradient { start, end, stops } => fission_render::Fill::LinearGradient {
+            start: *start,
+            end: *end,
+            stops: stops.iter().map(|(o, c)| (*o, fission_render::Color { r: c.r, g: c.g, b: c.b, a: c.a })).collect(),
+        },
+        fission_ir::op::Fill::RadialGradient { center, radius, stops } => fission_render::Fill::RadialGradient {
+            center: *center,
+            radius: *radius,
+            stops: stops.iter().map(|(o, c)| (*o, fission_render::Color { r: c.r, g: c.g, b: c.b, a: c.a })).collect(),
+        },
+    }
+}
+
+fn map_stroke(s: &fission_ir::op::Stroke) -> fission_render::Stroke {
+    fission_render::Stroke {
+        fill: map_fill(&s.fill),
+        width: s.width,
+        dash_array: s.dash_array.clone(),
+        line_cap: match s.line_cap {
+            fission_ir::op::LineCap::Butt => fission_render::LineCap::Butt,
+            fission_ir::op::LineCap::Round => fission_render::LineCap::Round,
+            fission_ir::op::LineCap::Square => fission_render::LineCap::Square,
+        },
+        line_join: match s.line_join {
+            fission_ir::op::LineJoin::Miter => fission_render::LineJoin::Miter,
+            fission_ir::op::LineJoin::Round => fission_render::LineJoin::Round,
+            fission_ir::op::LineJoin::Bevel => fission_render::LineJoin::Bevel,
+        },
+    }
+}
+
+fn generate_display_list(
+    node_id: NodeId,
+    ir: &CoreIR,
+    snapshot: &LayoutSnapshot,
+    scroll_map: &ScrollStateMap,
+    list: &mut DisplayList,
+) {
+    use std::collections::HashSet;
+    let mut visited = HashSet::new();
+    generate_display_list_with_visited(node_id, ir, snapshot, scroll_map, list, &mut visited);
+}
+
+fn generate_display_list_with_visited(
+    node_id: NodeId,
+    ir: &CoreIR,
+    snapshot: &LayoutSnapshot,
+    scroll_map: &ScrollStateMap,
+    list: &mut DisplayList,
+    visited: &mut std::collections::HashSet<NodeId>,
+) {
+    if !visited.insert(node_id) {
+        return;
+    }
+    if let Some(geom) = snapshot.nodes.get(&node_id) {
+        if let Some(node) = ir.nodes.get(&node_id) {
+            let mut pushed_state = false;
+
+            match &node.op {
+                fission_ir::Op::Layout(fission_ir::LayoutOp::Scroll { .. }) => {
+                    let offset = scroll_map.get_offset(node_id);
+
+                    list.push(DisplayOp::Save);
+                    list.push(DisplayOp::ClipRect(geom.rect));
+                    list.push(DisplayOp::Translate(LayoutPoint::new(0.0, -offset)));
+                    pushed_state = true;
+                }
+                fission_ir::Op::Layout(fission_ir::LayoutOp::Clip { .. }) => {
+                    list.push(DisplayOp::Save);
+                    list.push(DisplayOp::ClipRect(geom.rect));
+                    pushed_state = true;
+                }
+                fission_ir::Op::Layout(fission_ir::LayoutOp::Transform { transform }) => {
+                    list.push(DisplayOp::Save);
+                    list.push(DisplayOp::Transform(*transform));
+                    pushed_state = true;
+                }
+                fission_ir::Op::Paint(fission_ir::PaintOp::DrawRect {
+                    fill,
+                    stroke,
+                    corner_radius,
+                    shadow,
+                }) => {
+                    list.push(DisplayOp::DrawRect {
+                        rect: geom.rect,
+                        fill: fill.as_ref().map(map_fill),
+                        stroke: stroke.as_ref().map(map_stroke),
+                        corner_radius: *corner_radius,
+                        shadow: shadow.map(|s| BoxShadow {
+                            color: Color {
+                                r: s.color.r,
+                                g: s.color.g,
+                                b: s.color.b,
+                                a: s.color.a,
+                            },
+                            blur_radius: s.blur_radius,
+                            offset: s.offset,
+                        }),
+                        bounds: geom.rect,
+                        node_id: Some(node_id),
+                    });
+                }
+                fission_ir::Op::Paint(fission_ir::PaintOp::DrawText { text, size, color, underline, caret_index }) => {
+                    list.push(DisplayOp::DrawText {
+                        text: text.clone(),
+                        position: LayoutPoint::new(geom.rect.x(), geom.rect.y()),
+                        size: *size,
+                        color: fission_render::Color { r: color.r, g: color.g, b: color.b, a: color.a },
+                        bounds: geom.rect,
+                        node_id: Some(node_id),
+                        underline: *underline,
+                        caret_index: *caret_index,
+                    });
+                }
+                fission_ir::Op::Paint(fission_ir::PaintOp::DrawRichText { runs, caret_index }) => {
+                    list.push(DisplayOp::DrawRichText {
+                        runs: runs.iter().map(|r| fission_render::TextRun {
+                            text: r.text.clone(),
+                            style: fission_render::TextStyle {
+                                font_size: r.style.font_size,
+                                color: fission_render::Color { r: r.style.color.r, g: r.style.color.g, b: r.style.color.b, a: r.style.color.a },
+                                underline: r.style.underline,
+                                background_color: r.style.background_color.map(|c| fission_render::Color {
+                                    r: c.r, g: c.g, b: c.b, a: c.a,
+                                }),
+                            },
+                        }).collect(),
+                        position: LayoutPoint::new(geom.rect.x(), geom.rect.y()),
+                        bounds: geom.rect,
+                        node_id: Some(node_id),
+                        caret_index: *caret_index,
+                    });
+                }
+                fission_ir::Op::Paint(fission_ir::PaintOp::DrawSvg { content, fill, stroke }) => {
+                    list.push(DisplayOp::DrawSvg {
+                        content: content.clone(),
+                        fill: fill.as_ref().map(map_fill),
+                        stroke: stroke.as_ref().map(map_stroke),
+                        bounds: geom.rect,
+                        node_id: Some(node_id),
+                    });
+                }
+                fission_ir::Op::Paint(fission_ir::PaintOp::DrawImage { source, fit }) => {
+                    list.push(DisplayOp::DrawImage {
+                        rect: geom.rect,
+                        source: source.clone(),
+                        fit: match fit {
+                            fission_ir::op::ImageFit::Contain => fission_render::ImageFit::Contain,
+                            fission_ir::op::ImageFit::Cover => fission_render::ImageFit::Cover,
+                            fission_ir::op::ImageFit::Fill => fission_render::ImageFit::Fill,
+                            fission_ir::op::ImageFit::None => fission_render::ImageFit::None,
+                        },
+                        bounds: geom.rect,
+                        node_id: Some(node_id),
+                    });
+                }
+                fission_ir::Op::Paint(fission_ir::PaintOp::DrawPath { path, fill, stroke }) => {
+                    list.push(DisplayOp::DrawPath {
+                        path: path.clone(),
+                        fill: fill.as_ref().map(map_fill),
+                        stroke: stroke.as_ref().map(map_stroke),
+                        bounds: geom.rect,
+                        node_id: Some(node_id),
+                    });
+                }
+                _ => {}
+            }
+
+            for child in &node.children {
+                generate_display_list_with_visited(*child, ir, snapshot, scroll_map, list, visited);
+            }
+
+            if pushed_state {
+                list.push(DisplayOp::Restore);
+            }
+        }
     }
 }

@@ -96,7 +96,7 @@ fn badge_background_uses_theme_secondary() {
 
     let mut found = false;
     for node in ir.nodes.values() {
-        if let Op::Paint(PaintOp::DrawRect { fill: Some(Fill { color }), .. }) = &node.op {
+        if let Op::Paint(PaintOp::DrawRect { fill: Some(fission_ir::op::Fill::Solid(color)), .. }) = &node.op {
             if *color == env.theme.tokens.colors.secondary {
                 found = true;
                 break;

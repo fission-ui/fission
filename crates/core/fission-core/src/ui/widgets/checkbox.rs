@@ -59,7 +59,7 @@ impl Lower for Checkbox {
         
         let bg_paint = if self.checked {
             Op::Paint(PaintOp::DrawRect {
-                fill: Some(Fill { color: active_color }),
+                fill: Some(fission_ir::op::Fill::Solid(active_color)),
                 stroke: None,
                 corner_radius: radius,
                 shadow: None,
@@ -67,7 +67,13 @@ impl Lower for Checkbox {
         } else {
             Op::Paint(PaintOp::DrawRect {
                 fill: None,
-                stroke: Some(Stroke { color: border_color, width: 1.5 }),
+                stroke: Some(fission_ir::op::Stroke {
+                    fill: fission_ir::op::Fill::Solid(border_color),
+                    width: 1.5,
+                    dash_array: None,
+                    line_cap: fission_ir::op::LineCap::Butt,
+                    line_join: fission_ir::op::LineJoin::Miter,
+                }),
                 corner_radius: radius,
                 shadow: None,
             })
@@ -77,7 +83,7 @@ impl Lower for Checkbox {
         // Checkmark
         let check_node = if self.checked {
             let check = NodeBuilder::new(cx.next_node_id(), Op::Paint(PaintOp::DrawRect {
-                fill: Some(Fill { color: tokens.colors.on_primary }),
+                fill: Some(fission_ir::op::Fill::Solid(tokens.colors.on_primary)),
                 stroke: None,
                 corner_radius: 1.0,
                 shadow: None,

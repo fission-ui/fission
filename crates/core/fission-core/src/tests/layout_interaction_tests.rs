@@ -64,6 +64,7 @@ fn test_overlay_backdrop_hit_geometry() {
     let absolute_zstack = Node::Custom(crate::ui::CustomNode {
         debug_tag: "AbsFill".into(),
         lowerer: Some(std::sync::Arc::new(TestAbsoluteFill { child: zstack })),
+        render_object: None,
     });
 
     let root = crate::ui::Container::new(

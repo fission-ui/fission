@@ -134,21 +134,21 @@ impl Lower for Icon {
         let paint_op = match &self.source {
             IconSource::Path(d) => PaintOp::DrawPath {
                 path: d.clone(),
-                fill: if self.stroke.is_some() { None } else { Some(Fill { color }) },
-                stroke: self.stroke,
+                fill: if self.stroke.is_some() { None } else { Some(fission_ir::op::Fill::Solid(color)) },
+                stroke: self.stroke.clone(),
             },
             IconSource::File(f) => {
                 let content = std::fs::read_to_string(f).unwrap_or_default();
                 PaintOp::DrawSvg {
                     content,
-                    fill: if self.stroke.is_some() { None } else { Some(Fill { color }) },
-                    stroke: self.stroke,
+                    fill: if self.stroke.is_some() { None } else { Some(fission_ir::op::Fill::Solid(color)) },
+                    stroke: self.stroke.clone(),
                 }
             },
             IconSource::SvgContent(c) => PaintOp::DrawSvg {
                 content: c.clone(),
-                fill: if self.stroke.is_some() { None } else { Some(Fill { color }) },
-                stroke: self.stroke,
+                fill: if self.stroke.is_some() { None } else { Some(fission_ir::op::Fill::Solid(color)) },
+                stroke: self.stroke.clone(),
             },
         };
 

@@ -17,23 +17,17 @@ use std::fs::File;
 use std::io::Write;
 use std::sync::Arc;
 
-/// The render pipeline that manages incremental IR diffing, layout computation,
-/// paint caching, and display list generation.
-///
-/// Each frame, the pipeline receives a new [`CoreIR`] tree, diffs it against the
-/// previous frame, recomputes layout for dirty subtrees, generates a display list,
-/// and hands it to the renderer.
 pub struct Pipeline {
     pub prev_ir: Option<CoreIR>, 
     pub last_snapshot: Option<LayoutSnapshot>,
     pub paint_cache: HashMap<NodeId, (u64, Vec<DisplayOp>)>,
     pub video_surfaces: Vec<VideoSurfaceFrame>,
+    pub scene_3d_surfaces: Vec<(WidgetNodeId, LayoutRect, Vec<u8>)>,
     pub last_viewport: Option<LayoutRect>,
     pub layout_invariant_violation_count: u32,
     pub layout_full_rebuild_count: u32,
 }
 
-/// Per-frame statistics from the render pipeline.
 pub struct PipelineStats {
     pub dirty_nodes: usize,
     pub layout_updates: usize,
@@ -49,6 +43,7 @@ impl Pipeline {
             last_snapshot: None,
             paint_cache: HashMap::new(),
             video_surfaces: Vec::new(),
+            scene_3d_surfaces: Vec::new(),
             last_viewport: None,
             layout_invariant_violation_count: 0,
             layout_full_rebuild_count: 0,
@@ -152,9 +147,10 @@ impl Pipeline {
 
         let needs_layout = !layout_dirty_closure.is_empty() || use_full || viewport_changed;
 
-        // Always clear paint cache — it doesn't track child subtree changes
-        // or layout position changes, so stale entries cause incorrect rendering
-        // after resize, scroll, animation, or any child content change.
+        // Always clear paint cache — the per-node cache doesn't track
+        // child subtree changes or scroll offset changes, so stale entries
+        // would render old content. Rebuilding the display list is fast
+        // compared to layout/text measurement.
         self.paint_cache.clear();
 
         if needs_layout {
@@ -283,23 +279,8 @@ impl Pipeline {
                 }) => {
                     segment.push(DisplayOp::DrawRect {
                         rect: geom.rect,
-                        fill: fill.as_ref().map(|f| Fill {
-                            color: RenderColor {
-                                r: f.color.r,
-                                g: f.color.g,
-                                b: f.color.b,
-                                a: f.color.a,
-                            },
-                        }),
-                        stroke: stroke.as_ref().map(|s| Stroke {
-                            color: RenderColor {
-                                r: s.color.r,
-                                g: s.color.g,
-                                b: s.color.b,
-                                a: s.color.a,
-                            },
-                            width: s.width,
-                        }),
+                        fill: fill.as_ref().map(map_fill),
+                        stroke: stroke.as_ref().map(map_stroke),
                         corner_radius: *corner_radius,
                         shadow: shadow.as_ref().map(|s| BoxShadow {
                             color: RenderColor {
@@ -370,23 +351,8 @@ impl Pipeline {
                 fission_ir::Op::Paint(fission_ir::PaintOp::DrawPath { path, fill, stroke }) => {
                     segment.push(DisplayOp::DrawPath {
                         path: path.clone(),
-                        fill: fill.as_ref().map(|f| Fill {
-                            color: RenderColor {
-                                r: f.color.r,
-                                g: f.color.g,
-                                b: f.color.b,
-                                a: f.color.a,
-                            },
-                        }),
-                        stroke: stroke.as_ref().map(|s| Stroke {
-                            color: RenderColor {
-                                r: s.color.r,
-                                g: s.color.g,
-                                b: s.color.b,
-                                a: s.color.a,
-                            },
-                            width: s.width,
-                        }),
+                        fill: fill.as_ref().map(map_fill),
+                        stroke: stroke.as_ref().map(map_stroke),
                         bounds: geom.rect,
                         node_id: Some(node_id),
                     });
@@ -394,23 +360,8 @@ impl Pipeline {
                 fission_ir::Op::Paint(fission_ir::PaintOp::DrawSvg { content, fill, stroke }) => {
                     segment.push(DisplayOp::DrawSvg {
                         content: content.clone(),
-                        fill: fill.as_ref().map(|f| Fill {
-                            color: RenderColor {
-                                r: f.color.r,
-                                g: f.color.g,
-                                b: f.color.b,
-                                a: f.color.a,
-                            },
-                        }),
-                        stroke: stroke.as_ref().map(|s| Stroke {
-                            color: RenderColor {
-                                r: s.color.r,
-                                g: s.color.g,
-                                b: s.color.b,
-                                a: s.color.a,
-                            },
-                            width: s.width,
-                        }),
+                        fill: fill.as_ref().map(map_fill),
+                        stroke: stroke.as_ref().map(map_stroke),
                         bounds: geom.rect,
                         node_id: Some(node_id),
                     });
@@ -517,6 +468,14 @@ impl Pipeline {
             {
                 let translated_rect = translate_rect(geom.rect, accumulated_offset);
                 self.push_video_surface(*widget_id, translated_rect, video_map);
+            } else if let fission_ir::Op::Layout(fission_ir::LayoutOp::Embed {
+                kind: EmbedKind::Custom(payload),
+                widget_id,
+                ..
+            }) = &node.op
+            {
+                let translated_rect = translate_rect(geom.rect, accumulated_offset);
+                self.scene_3d_surfaces.push((*widget_id, translated_rect, payload.clone()));
             }
 
             for child in &node.children {
@@ -543,6 +502,40 @@ impl SnapshotProvider for Pipeline {
                     .map(|json| SnapshotBlob { kind, json })
             }),
         }
+    }
+}
+
+fn map_fill(f: &fission_ir::op::Fill) -> Fill {
+    match f {
+        fission_ir::op::Fill::Solid(c) => Fill::Solid(RenderColor { r: c.r, g: c.g, b: c.b, a: c.a }),
+        fission_ir::op::Fill::LinearGradient { start, end, stops } => Fill::LinearGradient {
+            start: *start,
+            end: *end,
+            stops: stops.iter().map(|(o, c)| (*o, RenderColor { r: c.r, g: c.g, b: c.b, a: c.a })).collect(),
+        },
+        fission_ir::op::Fill::RadialGradient { center, radius, stops } => Fill::RadialGradient {
+            center: *center,
+            radius: *radius,
+            stops: stops.iter().map(|(o, c)| (*o, RenderColor { r: c.r, g: c.g, b: c.b, a: c.a })).collect(),
+        },
+    }
+}
+
+fn map_stroke(s: &fission_ir::op::Stroke) -> Stroke {
+    Stroke {
+        fill: map_fill(&s.fill),
+        width: s.width,
+        dash_array: s.dash_array.clone(),
+        line_cap: match s.line_cap {
+            fission_ir::op::LineCap::Butt => fission_render::LineCap::Butt,
+            fission_ir::op::LineCap::Round => fission_render::LineCap::Round,
+            fission_ir::op::LineCap::Square => fission_render::LineCap::Square,
+        },
+        line_join: match s.line_join {
+            fission_ir::op::LineJoin::Miter => fission_render::LineJoin::Miter,
+            fission_ir::op::LineJoin::Round => fission_render::LineJoin::Round,
+            fission_ir::op::LineJoin::Bevel => fission_render::LineJoin::Bevel,
+        },
     }
 }
 

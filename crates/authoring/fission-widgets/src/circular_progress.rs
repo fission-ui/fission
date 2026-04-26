@@ -43,6 +43,7 @@ impl<S: fission_core::AppState> Widget<S> for CircularProgress {
                 track_color,
                 thickness: self.thickness,
             })),
+            render_object: None,
         })
     }
 }
@@ -79,9 +80,12 @@ impl LowerDyn for CircularProgressLowerer {
             Op::Paint(PaintOp::DrawPath {
                 path: track_path,
                 fill: None,
-                stroke: Some(Stroke {
-                    color: self.track_color,
+                stroke: Some(fission_ir::op::Stroke {
+                    fill: fission_ir::op::Fill::Solid(self.track_color),
                     width: self.thickness,
+                    dash_array: None,
+                    line_cap: fission_ir::op::LineCap::Butt,
+                    line_join: fission_ir::op::LineJoin::Miter,
                 }),
             }),
         )
@@ -124,9 +128,12 @@ impl LowerDyn for CircularProgressLowerer {
             Op::Paint(PaintOp::DrawPath {
                 path: arc_path,
                 fill: None,
-                stroke: Some(Stroke {
-                    color: self.color,
+                stroke: Some(fission_ir::op::Stroke {
+                    fill: fission_ir::op::Fill::Solid(self.color),
                     width: self.thickness,
+                    dash_array: None,
+                    line_cap: fission_ir::op::LineCap::Butt,
+                    line_join: fission_ir::op::LineJoin::Miter,
                 }),
             }),
         )

@@ -33,6 +33,42 @@ pub enum TestCommand {
     Wait { ms: u64 },
     Pump {},
     Quit {},
+    // NEW: simulate real winit-level events for realistic testing
+    SimulateMouseMove { x: f32, y: f32 },
+    SimulateRightClick { x: f32, y: f32 },
+    SimulateResize { width: u32, height: u32 },
+}
+
+/// Events injected into the winit event loop via `EventLoopProxy`.
+///
+/// Input-simulation variants (`MouseMove`, `MouseDown`, etc.) travel through
+/// the **same** `Event::UserEvent` → handler path as real `WindowEvent`s, so
+/// test code exercises identical code paths as real user interaction.
+///
+/// Query / control variants (`Screenshot`, `GetText`, etc.) also go through
+/// the proxy so the main loop can respond via a dedicated response channel.
+#[derive(Debug, Clone)]
+pub enum TestEvent {
+    // --- Input simulation (mirrors winit WindowEvents) ---
+    MouseMove { x: f32, y: f32 },
+    MouseDown { x: f32, y: f32, button: u8 },   // 0=left, 1=right, 2=middle
+    MouseUp { x: f32, y: f32, button: u8 },
+    KeyDown { key_code: String, modifiers: u8 },
+    KeyUp { key_code: String, modifiers: u8 },
+    TextInput { text: String },
+    Scroll { x: f32, y: f32, dx: f32, dy: f32 },
+    Resize { width: u32, height: u32 },
+    // --- Queries / control (need response channel) ---
+    Screenshot { path: String },
+    GetText,
+    GetTree,
+    Pump,
+    Quit,
+    /// Internal: TapText resolves a text label to coordinates; the server
+    /// injects this so the main loop can do the lookup with access to the IR.
+    TapText { text: String },
+    /// Internal: Wait is handled server-side (sleep) then responds.
+    Wait { ms: u64 },
 }
 
 /// A visible text element with its bounding rectangle, returned by [`TestCommand::GetText`].
@@ -196,6 +232,26 @@ impl LiveTestClient {
 
     pub fn quit(&self) -> Result<()> {
         let _ = self.send(TestCommand::Quit {});
+        Ok(())
+    }
+
+    // --- NEW: simulate real winit-level events ---
+
+    /// Simulate a mouse move to (x, y) — goes through the real CursorMoved path.
+    pub fn simulate_mouse_move(&self, x: f32, y: f32) -> Result<()> {
+        self.send(TestCommand::SimulateMouseMove { x, y })?;
+        Ok(())
+    }
+
+    /// Simulate a right-click at (x, y) — move + down + up with right button.
+    pub fn right_click(&self, x: f32, y: f32) -> Result<()> {
+        self.send(TestCommand::SimulateRightClick { x, y })?;
+        Ok(())
+    }
+
+    /// Simulate a window resize — goes through the real Resized path.
+    pub fn simulate_resize(&self, width: u32, height: u32) -> Result<()> {
+        self.send(TestCommand::SimulateResize { width, height })?;
         Ok(())
     }
 

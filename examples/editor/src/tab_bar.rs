@@ -126,7 +126,7 @@ impl Widget<EditorState> for TabBar {
                 direction: fission_ir::op::FlexDirection::Row,
                 show_scrollbar: false,
                 flex_grow: 1.0,
-                flex_shrink: 1.0,
+                flex_shrink: 0.0,
                 child: Some(Box::new(
                     HStack {
                         spacing: Some(0.0),
@@ -139,7 +139,7 @@ impl Widget<EditorState> for TabBar {
             .into_node(),
         )
         .height(35.0)
-        .flex_grow(1.0)
+        .min_height(35.0)
         .bg(Color { r: 37, g: 37, b: 38, a: 255 })
         .border(Color { r: 48, g: 48, b: 49, a: 255 }, 1.0)
         .flex_shrink(0.0)

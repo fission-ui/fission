@@ -28,6 +28,7 @@ impl<S: fission_core::AppState> Widget<S> for Hero {
                 tag: self.tag.clone(),
                 child: *self.child.clone(),
             })),
+            render_object: None,
         })
     }
 }

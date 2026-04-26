@@ -539,6 +539,109 @@ impl Runtime {
         use crate::input::slider::SliderController;
         use crate::input::text::TextInputController;
         use crate::input::{ControllerContext, InputController};
+        use crate::ui::custom_render::downcast_render_object;
+
+        // --- Custom render object event handling (runs first) ----------------
+        // For pointer events we hit-test, then walk up from the hit node to
+        // check whether any ancestor carries a custom render object.  The
+        // first one that returns `handled = true` short-circuits the entire
+        // standard controller chain.
+        if let Some(point) = Self::event_point(&event) {
+            if let Some(hit_node_id) =
+                hit_test_with_scroll(ir, layout, &self.runtime_state.scroll, point)
+            {
+                // Find the custom render object for this click.  Walk up from the
+                // hit node first; if not found, check all registered render objects
+                // by rect containment (the hit may be on a wrapper node above the
+                // CustomNode's lowered subtree).
+                let mut target_ro: Option<(NodeId, &fission_ir::AnyRenderObject)> = None;
+                {
+                    let mut walk = Some(hit_node_id);
+                    while let Some(nid) = walk {
+                        if let Some(ro) = ir.custom_render_objects.get(&nid) {
+                            target_ro = Some((nid, ro));
+                            break;
+                        }
+                        walk = ir.nodes.get(&nid).and_then(|n| n.parent);
+                    }
+                }
+                if target_ro.is_none() {
+                    for (ro_nid, ro) in &ir.custom_render_objects {
+                        if let Some(rect) = layout.get_node_rect(*ro_nid) {
+                            if rect.contains(point) {
+                                target_ro = Some((*ro_nid, ro));
+                                break;
+                            }
+                        }
+                    }
+                }
+
+                if let Some((nid, any_ro)) = target_ro {
+                    if let Some(render_obj) = downcast_render_object(any_ro) {
+                        let mut node_rect = layout
+                            .get_node_rect(nid)
+                            .unwrap_or(LayoutRect::new(0.0, 0.0, 0.0, 0.0));
+                        // Adjust node_rect by ancestor scroll offsets so it reflects
+                        // the VISUAL position, matching the screen-coordinate click.
+                        {
+                            let mut walk = ir.nodes.get(&nid).and_then(|n| n.parent);
+                            while let Some(pid) = walk {
+                                if let Some(pnode) = ir.nodes.get(&pid) {
+                                    if let fission_ir::Op::Layout(fission_ir::LayoutOp::Scroll { direction, .. }) = &pnode.op {
+                                        let off = self.runtime_state.scroll.get_offset(pid);
+                                        match direction {
+                                            fission_ir::FlexDirection::Row => node_rect.origin.x -= off,
+                                            fission_ir::FlexDirection::Column => node_rect.origin.y -= off,
+                                        }
+                                    }
+                                    walk = pnode.parent;
+                                } else { break; }
+                            }
+                        }
+                        let result = render_obj.handle_event(nid, &event, node_rect);
+                        if result.handled {
+                            // Set focus to this node so keyboard events route here
+                            if matches!(event, InputEvent::Pointer(PointerEvent::Down { .. })) {
+                                self.runtime_state.interaction.set_focused(Some(nid));
+                            }
+                            // Dispatch any actions the render object produced.
+                            for (target, envelope) in result.actions {
+                                self.dispatch(envelope, target)?;
+                            }
+                            return Ok(());
+                        }
+                    }
+                }
+            }
+        }
+
+        // --- Keyboard events → focused node's custom render object -----------
+        // Keyboard events have no point, so we route them to the focused node
+        // (if any) and walk up its ancestor chain looking for a custom render
+        // object.  This allows custom editor nodes to handle arrow keys,
+        // typing, etc. before the framework's default focus-navigation logic.
+        if matches!(event, InputEvent::Keyboard(_)) {
+            if let Some(focused_id) = self.runtime_state.interaction.focused {
+                let mut walk_id = Some(focused_id);
+                while let Some(nid) = walk_id {
+                    if let Some(any_ro) = ir.custom_render_objects.get(&nid) {
+                        if let Some(render_obj) = downcast_render_object(any_ro) {
+                            let node_rect = layout
+                                .get_node_rect(nid)
+                                .unwrap_or(LayoutRect::new(0.0, 0.0, 0.0, 0.0));
+                            let result = render_obj.handle_event(nid, &event, node_rect);
+                            if result.handled {
+                                for (target, envelope) in result.actions {
+                                    self.dispatch(envelope, target)?;
+                                }
+                                return Ok(());
+                            }
+                        }
+                    }
+                    walk_id = ir.nodes.get(&nid).and_then(|n| n.parent);
+                }
+            }
+        }
 
         let mut dispatched_actions = Vec::new();
         let mut handled = false;
@@ -672,7 +775,13 @@ impl Runtime {
                                 }
 
                                 self.runtime_state.scroll.set_offset(node_id, new_offset);
-                                break;
+                                // If scroll actually changed, consume the event.
+                                // If it didn't (clamped to same value, e.g. max_offset==0),
+                                // propagate to parent scroll nodes.
+                                if (new_offset - current_offset).abs() > 0.001 {
+                                    break;
+                                }
+                                // Fall through to parent
                             }
                             current_id = node.parent;
                         } else {
@@ -1000,5 +1109,20 @@ impl Runtime {
             }
         }
         None
+    }
+
+    /// Extract the pointer position from an input event, if applicable.
+    ///
+    /// Used by the custom-render-object event dispatch to perform a hit-test
+    /// before delegating to render objects.  Returns `None` for keyboard and
+    /// other non-positional events.
+    fn event_point(event: &InputEvent) -> Option<LayoutPoint> {
+        match event {
+            InputEvent::Pointer(PointerEvent::Down { point, .. })
+            | InputEvent::Pointer(PointerEvent::Up { point, .. })
+            | InputEvent::Pointer(PointerEvent::Move { point, .. })
+            | InputEvent::Pointer(PointerEvent::Scroll { point, .. }) => Some(*point),
+            _ => None,
+        }
     }
 }

@@ -54,34 +54,46 @@ impl Lower for Radio {
 
         let tokens = &cx.env.theme.tokens;
         let size = 18.0;
+        let dot_size = size * 0.5;
         let radius = size / 2.0;
         let border_color = tokens.colors.text_secondary;
         let active_color = tokens.colors.primary;
         let text_color = tokens.colors.text_primary;
 
         // Outer Circle
-        let outer_paint = if self.checked {
+        let bg_paint = if self.checked {
             Op::Paint(PaintOp::DrawRect {
-                fill: None, 
-                stroke: Some(Stroke { color: active_color, width: 2.0 }),
-                corner_radius: radius,
+                fill: None,
+                stroke: Some(fission_ir::op::Stroke {
+                    fill: fission_ir::op::Fill::Solid(active_color),
+                    width: 2.0,
+                    dash_array: None,
+                    line_cap: fission_ir::op::LineCap::Butt,
+                    line_join: fission_ir::op::LineJoin::Miter,
+                }),
+                corner_radius: size / 2.0,
                 shadow: None,
             })
         } else {
             Op::Paint(PaintOp::DrawRect {
                 fill: None,
-                stroke: Some(Stroke { color: border_color, width: 1.5 }),
-                corner_radius: radius,
+                stroke: Some(fission_ir::op::Stroke {
+                    fill: fission_ir::op::Fill::Solid(border_color),
+                    width: 1.5,
+                    dash_array: None,
+                    line_cap: fission_ir::op::LineCap::Butt,
+                    line_join: fission_ir::op::LineJoin::Miter,
+                }),
+                corner_radius: size / 2.0,
                 shadow: None,
             })
         };
-        let outer_node = NodeBuilder::new(cx.next_node_id(), outer_paint).build(cx);
+        let outer_node = NodeBuilder::new(cx.next_node_id(), bg_paint).build(cx);
 
-        // Inner Dot
+        // Dot
         let dot_node = if self.checked {
-            let dot_size = 10.0;
             let dot = NodeBuilder::new(cx.next_node_id(), Op::Paint(PaintOp::DrawRect {
-                fill: Some(Fill { color: active_color }),
+                fill: Some(fission_ir::op::Fill::Solid(active_color)),
                 stroke: None,
                 corner_radius: dot_size / 2.0,
                 shadow: None,

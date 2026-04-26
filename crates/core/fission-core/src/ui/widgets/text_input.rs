@@ -165,10 +165,13 @@ impl Lower for TextInput {
             Some(NodeBuilder::new(
                 cx.next_node_id(),
                 Op::Paint(PaintOp::DrawRect {
-                    fill: Some(Fill { color: tokens.colors.background }),
-                    stroke: Some(Stroke {
-                        color: border_color,
-                        width: border_width
+                    fill: Some(fission_ir::op::Fill::Solid(tokens.colors.background)),
+                    stroke: Some(fission_ir::op::Stroke {
+                        fill: fission_ir::op::Fill::Solid(border_color),
+                        width: border_width,
+                        dash_array: None,
+                        line_cap: fission_ir::op::LineCap::Butt,
+                        line_join: fission_ir::op::LineJoin::Miter,
                     }),
                     corner_radius: theme.radius,
                     shadow: None,

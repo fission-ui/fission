@@ -237,8 +237,11 @@ impl ButtonTheme {
             elevation_hover: tokens.elevations.level2,
             elevation_pressed: tokens.elevations.level0,
             focus_stroke: Some(Stroke {
-                color: tokens.colors.on_background,
-                width: 2.0,
+                fill: fission_ir::op::Fill::Solid(tokens.colors.on_background),
+                width: 1.0,
+                dash_array: None,
+                line_cap: fission_ir::op::LineCap::Butt,
+                line_join: fission_ir::op::LineJoin::Miter,
             }),
         }
     }

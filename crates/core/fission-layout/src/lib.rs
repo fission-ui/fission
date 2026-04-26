@@ -568,6 +568,22 @@ pub trait TextMeasurer: Send + Sync {
     fn measure_rich_text(&self, _runs: &[TextRun], _available_width: Option<f32>) -> (f32, f32) {
         (0.0, 0.0)
     }
+
+    /// Hit-test rich text (styled runs) at the given (x, y) position.
+    /// Returns the byte offset into the concatenated text of all runs.
+    /// Default falls back to plain hit_test using the first run's font size.
+    fn hit_test_rich(
+        &self,
+        runs: &[TextRun],
+        _available_width: Option<f32>,
+        x: f32,
+        y: f32,
+    ) -> usize {
+        // Default: concatenate text and use plain hit_test
+        let text: String = runs.iter().map(|r| r.text.as_str()).collect();
+        let font_size = runs.first().map(|r| r.style.font_size).unwrap_or(13.0);
+        self.hit_test(&text, font_size, None, x, y)
+    }
 }
 
 /// The constraint-based layout solver.
@@ -1894,8 +1910,14 @@ impl LayoutEngine {
                 let mut local = constraints.apply_min_max(*min_width, *max_width, *min_height, *max_height);
                 local = local.tighten(*width, *height);
                 let is_horizontal = matches!(direction, FlexDirection::Row);
-                let mut child_constraints = local.deflate(*padding).loosen();
-                if is_horizontal { child_constraints.max_w = f32::INFINITY; } else { child_constraints.max_h = f32::INFINITY; }
+                let mut child_constraints = local.deflate(*padding);
+                if is_horizontal { 
+                    child_constraints.min_w = 0.0;
+                    child_constraints.max_w = f32::INFINITY; 
+                } else { 
+                    child_constraints.min_h = 0.0;
+                    child_constraints.max_h = f32::INFINITY; 
+                }
                 let mut child_size = LayoutSize::ZERO;
                 if let Some(child_id) = flow_children.first() {
                     child_size = self.layout_node_constraints(*child_id, child_constraints, LayoutPoint::ZERO, node_map, out, constraints_out, scroll_source, false, depth + 1);

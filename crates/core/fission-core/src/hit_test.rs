@@ -1,4 +1,5 @@
 use crate::env::ScrollStateMap;
+use crate::ui::custom_render::downcast_render_object;
 use fission_diagnostics::prelude as diag;
 use fission_ir::{CoreIR, LayoutOp, NodeId, Op, PaintOp};
 use fission_layout::{LayoutPoint, LayoutRect, LayoutSnapshot, LayoutUnit};
@@ -103,6 +104,24 @@ fn hit_test_recursive(
     for child_id in node.children.iter().rev() {
         if let Some(hit) = hit_test_recursive(*child_id, ir, layout, scroll_map, child_point) {
             return Some(hit);
+        }
+    }
+
+    // --- Custom render object hit-test ----------------------------------
+    // If this node has a custom render object, delegate to it before
+    // falling through to the standard semantics-based check.
+    if geom.rect.contains(point) {
+        if let Some(any_ro) = ir.custom_render_objects.get(&node_id) {
+            if let Some(render_obj) = downcast_render_object(any_ro) {
+                let local_point = LayoutPoint::new(
+                    point.x - geom.rect.origin.x,
+                    point.y - geom.rect.origin.y,
+                );
+                let result = render_obj.hit_test(local_point, geom.rect);
+                if result.hit {
+                    return Some(node_id);
+                }
+            }
         }
     }
 

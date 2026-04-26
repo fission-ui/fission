@@ -117,7 +117,7 @@ impl Widget<EditorState> for GitPanel {
             }.into_node(),
         )
         .padding_all(8.0)
-        .bg(Color { r: 45, g: 30, b: 30, a: 255 }) // Debug background
+        .bg(Color { r: 37, g: 37, b: 38, a: 255 }) // Surface background
         .flex_grow(1.0)
         .into_node()
     }

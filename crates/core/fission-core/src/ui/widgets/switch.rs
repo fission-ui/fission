@@ -54,7 +54,7 @@ impl Lower for Switch {
 
         // Track
         let track_paint = Op::Paint(PaintOp::DrawRect {
-            fill: Some(Fill { color: track_color }),
+            fill: Some(fission_ir::op::Fill::Solid(track_color)),
             stroke: None,
             corner_radius: height / 2.0,
             shadow: None,
@@ -63,7 +63,7 @@ impl Lower for Switch {
 
         // Thumb
         let thumb_paint = Op::Paint(PaintOp::DrawRect {
-            fill: Some(Fill { color: thumb_color }),
+            fill: Some(fission_ir::op::Fill::Solid(thumb_color)),
             stroke: None,
             corner_radius: thumb_size / 2.0,
             shadow: Some(fission_ir::op::BoxShadow { 

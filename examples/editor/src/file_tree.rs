@@ -1,10 +1,10 @@
 use crate::model::{
-    CreateFile, CreateFolder, EditorState, FileEntry, OpenFile, RefreshTree, SelectTreeNode,
-    ShowContextMenu, ToggleTreeNode,
+    CancelRename, ConfirmRename, CreateFile, CreateFolder, EditorState, FileEntry, OpenFile,
+    RefreshTree, SelectTreeNode, ShowContextMenu, ToggleTreeNode, UpdateRenameInput,
 };
 use fission_core::op::Color;
 use fission_core::ui::{
-    Button, ButtonContentAlign, ButtonVariant, Container, GestureDetector, Node, Text,
+    Button, ButtonContentAlign, ButtonVariant, Container, GestureDetector, Node, Text, TextInput,
 };
 use fission_core::{ActionEnvelope, BuildCtx, Handler, View, Widget};
 use fission_widgets::{HStack, Icon, Spacer, VStack};
@@ -73,10 +73,18 @@ impl Widget<EditorState> for FileTree {
             .bind(
                 CreateFile(String::new()),
                 (|s: &mut EditorState, a: CreateFile, _| {
-                    // Create an empty file at the given path
-                    let _ = std::fs::write(&a.0, "");
+                    // Generate a unique path so multiple "New File" clicks
+                    // each create a distinct file.
+                    let mut path = a.0.clone();
+                    while std::path::Path::new(&path).exists()
+                        || s.open_tabs.iter().any(|t| t.path == path)
+                    {
+                        s.untitled_counter += 1;
+                        path = format!("{}-{}", a.0, s.untitled_counter);
+                    }
+                    let _ = std::fs::write(&path, "");
                     s.tree_cache_dirty = true;
-                    s.open_file(a.0);
+                    s.open_file(path);
                 }) as Handler<EditorState, CreateFile>,
             )
             .id;
@@ -85,10 +93,21 @@ impl Widget<EditorState> for FileTree {
             .bind(
                 CreateFolder(String::new()),
                 (|s: &mut EditorState, a: CreateFolder, _| {
-                    let _ = std::fs::create_dir_all(&a.0);
+                    // Generate a unique folder name
+                    let mut path = a.0.clone();
+                    let mut counter = 0u32;
+                    while std::path::Path::new(&path).exists() {
+                        counter += 1;
+                        path = format!("{}-{}", a.0, counter);
+                    }
+                    let _ = std::fs::create_dir_all(&path);
                     s.tree_cache_dirty = true;
                     // Expand the parent so the new folder is visible
-                    s.tree_expanded.insert(a.0);
+                    if let Some(parent) = std::path::Path::new(&path).parent() {
+                        s.tree_expanded.insert(parent.to_string_lossy().to_string());
+                    }
+                    // Start inline rename so user can give it a proper name
+                    s.start_rename(path);
                 }) as Handler<EditorState, CreateFolder>,
             )
             .id;
@@ -103,6 +122,30 @@ impl Widget<EditorState> for FileTree {
                 }) as Handler<EditorState, RefreshTree>,
             )
             .id;
+
+        let rename_input_id = ctx
+            .bind(
+                UpdateRenameInput(String::new()),
+                (|s: &mut EditorState, a: UpdateRenameInput, _| {
+                    s.rename_input = a.0;
+                }) as Handler<EditorState, UpdateRenameInput>,
+            );
+
+        let confirm_rename_id = ctx
+            .bind(
+                ConfirmRename,
+                (|s: &mut EditorState, _a: ConfirmRename, _| {
+                    s.confirm_rename();
+                }) as Handler<EditorState, ConfirmRename>,
+            );
+
+        let _cancel_rename_id = ctx
+            .bind(
+                CancelRename,
+                (|s: &mut EditorState, _a: CancelRename, _| {
+                    s.cancel_rename();
+                }) as Handler<EditorState, CancelRename>,
+            );
 
         // --- Toolbar row ---
 
@@ -200,10 +243,13 @@ impl Widget<EditorState> for FileTree {
                 open_id,
                 select_id,
                 context_menu_id,
+                &rename_input_id,
+                &confirm_rename_id,
             );
         }
 
         let tree_scroll = fission_core::ui::Scroll {
+            id: Some(fission_ir::NodeId::explicit("file_tree_scroll")),
             direction: fission_ir::op::FlexDirection::Column,
             show_scrollbar: true,
             flex_grow: 1.0,
@@ -243,6 +289,8 @@ fn build_tree_rows(
     open_id: fission_core::ActionId,
     select_id: fission_core::ActionId,
     context_menu_id: fission_core::ActionId,
+    rename_input_action: &ActionEnvelope,
+    confirm_rename_action: &ActionEnvelope,
 ) {
     let tokens = &view.env.theme.tokens;
     let is_expanded = view.state.tree_expanded.contains(&entry.path);
@@ -318,6 +366,27 @@ fn build_tree_rows(
         .unwrap(),
     };
 
+    // Check if this entry is being renamed
+    let is_renaming = view.state.renaming_path.as_deref() == Some(&entry.path);
+
+    // Build the name column: either a TextInput (renaming) or a Text label
+    let name_node = if is_renaming {
+        TextInput {
+            id: Some(fission_ir::NodeId::explicit("rename_input")),
+            value: view.state.rename_input.clone(),
+            placeholder: Some("New name".into()),
+            on_change: Some(rename_input_action.clone()),
+            ..Default::default()
+        }
+        .into_node()
+    } else {
+        Text::new(entry.name.clone())
+            .size(13.0)
+            .color(tokens.colors.text_primary)
+            .flex_grow(1.0)
+            .into_node()
+    };
+
     // Build the row content
     let row_content = Container::new(
         HStack {
@@ -343,12 +412,8 @@ fn build_tree_rows(
                     .size(16.0)
                     .color(icon_color)
                     .into_node(),
-                // File/folder name
-                Text::new(entry.name.clone())
-                    .size(13.0)
-                    .color(tokens.colors.text_primary)
-                    .flex_grow(1.0)
-                    .into_node(),
+                // File/folder name (or rename TextInput)
+                name_node,
             ],
         }
         .into_node(),
@@ -357,25 +422,40 @@ fn build_tree_rows(
     .padding_all(2.0)
     .into_node();
 
-    // Wrap in a Button for tap handling, then wrap that in GestureDetector for long-press
-    let button_row = Button {
-        variant: ButtonVariant::Ghost,
-        content_align: ButtonContentAlign::Start,
-        on_press: Some(tap_action),
-        child: Some(Box::new(row_content)),
-        height: Some(24.0),
-        padding: Some([0.0; 4]),
-        ..Default::default()
-    }
-    .into_node();
+    let row = if is_renaming {
+        // When renaming, wrap in a Button that confirms rename on press
+        let confirm_btn = Button {
+            variant: ButtonVariant::Ghost,
+            content_align: ButtonContentAlign::Start,
+            on_press: Some(confirm_rename_action.clone()),
+            child: Some(Box::new(row_content)),
+            height: Some(24.0),
+            padding: Some([0.0; 4]),
+            ..Default::default()
+        }
+        .into_node();
+        confirm_btn
+    } else {
+        // Wrap in a Button for tap handling, then wrap that in GestureDetector for long-press
+        let button_row = Button {
+            variant: ButtonVariant::Ghost,
+            content_align: ButtonContentAlign::Start,
+            on_press: Some(tap_action),
+            child: Some(Box::new(row_content)),
+            height: Some(24.0),
+            padding: Some([0.0; 4]),
+            ..Default::default()
+        }
+        .into_node();
 
-    // GestureDetector wraps the entire row to capture right-click for context menu
-    let row = GestureDetector {
-        on_secondary_click: Some(long_press_action),
-        child: Box::new(button_row),
-        ..Default::default()
-    }
-    .into_node();
+        // GestureDetector wraps the entire row to capture right-click for context menu
+        GestureDetector {
+            on_secondary_click: Some(long_press_action),
+            child: Box::new(button_row),
+            ..Default::default()
+        }
+        .into_node()
+    };
 
     rows.push(row);
 
@@ -390,6 +470,8 @@ fn build_tree_rows(
                 open_id,
                 select_id,
                 context_menu_id,
+                rename_input_action,
+                confirm_rename_action,
             );
         }
     }

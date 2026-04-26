@@ -39,6 +39,7 @@ fn test_hero_text_layout_height() {
     let hero = Node::Custom(crate::ui::CustomNode {
         debug_tag: "Hero".into(),
         lowerer: Some(std::sync::Arc::new(MockHero { child: text })),
+        render_object: None,
     });
 
     // VStack

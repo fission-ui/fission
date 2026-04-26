@@ -133,19 +133,19 @@ impl Button {
             (
                 if self.variant == ButtonVariant::Filled { Some(tokens.border) } else { None }, // Grey bg or transparent
                 tokens.text_secondary, // Grey text
-                if self.variant == ButtonVariant::Outline { Some(Stroke { color: tokens.border, width: 1.0 }) } else { None },
+                if self.variant == ButtonVariant::Outline { Some(Stroke { fill: Fill::Solid(tokens.border), width: 1.0, dash_array: None, line_cap: fission_ir::op::LineCap::Butt, line_join: fission_ir::op::LineJoin::Miter }) } else { None },
             )
         } else {
             match self.variant {
                 ButtonVariant::Filled => (
                     Some(tokens.primary),
                     tokens.on_primary,
-                    if is_focused { default_style.focus_stroke } else { None },
+                    if is_focused { default_style.focus_stroke.clone() } else { None },
                 ),
                 ButtonVariant::Outline => (
                     if is_hovered { Some(tokens.surface) } else { None },
                     tokens.primary,
-                    Some(Stroke { color: tokens.border, width: 1.0 }),
+                    Some(Stroke { fill: Fill::Solid(tokens.border), width: 1.0, dash_array: None, line_cap: fission_ir::op::LineCap::Butt, line_join: fission_ir::op::LineJoin::Miter }),
                 ),
                 ButtonVariant::Ghost => (
                     if is_hovered { Some(tokens.surface) } else { None },
@@ -227,7 +227,7 @@ impl Lower for Button {
         let background_id = NodeBuilder::new(
             cx.next_node_id(),
             Op::Paint(PaintOp::DrawRect {
-                fill: resolved_style.background_color.map(|c| Fill { color: c }),
+                fill: resolved_style.background_color.map(|c| Fill::Solid(c)),
                 stroke: resolved_style.stroke,
                 corner_radius: resolved_style.corner_radius,
                 shadow: resolved_style.shadow,

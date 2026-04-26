@@ -6,7 +6,58 @@ use anyhow::Result;
 use fission_render::{DisplayList, DisplayOp, Renderer, Color as RenderColor, TextStyle as RenderTextStyle};
 use vello::kurbo::{Affine, Rect, RoundedRect, Stroke, BezPath};
 // Minimal imports from peniko
-use vello::peniko::{Color, Fill, Mix, Blob, ImageData, ImageFormat, ImageAlphaType, ImageBrush, ImageSampler};
+use vello::peniko::{Color, Fill, Mix, Blob, ImageData, ImageFormat, ImageAlphaType, ImageBrush, ImageSampler, Brush, ColorStops};
+
+fn map_color(c: &fission_render::Color) -> Color {
+    Color::from_rgba8(c.r, c.g, c.b, c.a).into()
+}
+
+fn map_fill_to_brush(f: &fission_render::Fill) -> Brush {
+    match f {
+        fission_render::Fill::Solid(c) => Brush::Solid(map_color(c)),
+        fission_render::Fill::LinearGradient { start, end, stops } => {
+            let vello_stops: Vec<_> = stops.iter().map(|(o, c)| vello::peniko::ColorStop {
+                offset: *o,
+                color: map_color(c).into(),
+            }).collect();
+            Brush::Gradient(vello::peniko::Gradient::new_linear(
+                vello::kurbo::Point::new(start.0 as f64, start.1 as f64),
+                vello::kurbo::Point::new(end.0 as f64, end.1 as f64),
+            ).with_stops(vello_stops.as_slice()))
+        },
+        fission_render::Fill::RadialGradient { center, radius, stops } => {
+            let vello_stops: Vec<_> = stops.iter().map(|(o, c)| vello::peniko::ColorStop {
+                offset: *o,
+                color: map_color(c).into(),
+            }).collect();
+            Brush::Gradient(vello::peniko::Gradient::new_radial(
+                vello::kurbo::Point::new(center.0 as f64, center.1 as f64),
+                *radius as f32,
+            ).with_stops(vello_stops.as_slice()))
+        }
+    }
+}
+
+fn map_stroke(s: &fission_render::Stroke) -> (vello::kurbo::Stroke, Brush) {
+    let cap = match s.line_cap {
+        fission_render::LineCap::Butt => vello::kurbo::Cap::Butt,
+        fission_render::LineCap::Round => vello::kurbo::Cap::Round,
+        fission_render::LineCap::Square => vello::kurbo::Cap::Square,
+    };
+    let join = match s.line_join {
+        fission_render::LineJoin::Miter => vello::kurbo::Join::Miter,
+        fission_render::LineJoin::Round => vello::kurbo::Join::Round,
+        fission_render::LineJoin::Bevel => vello::kurbo::Join::Bevel,
+    };
+    
+    let mut stroke = vello::kurbo::Stroke::new(s.width as f64).with_caps(cap).with_join(join);
+    if let Some(dash) = &s.dash_array {
+        let dashes: Vec<f64> = dash.iter().map(|v| *v as f64).collect();
+        stroke = stroke.with_dashes(0.0, dashes);
+    }
+    
+    (stroke, map_fill_to_brush(&s.fill))
+}
 use vello::{Scene, Glyph};
 use std::sync::{Arc, Mutex};
 use std::collections::HashMap;
@@ -560,12 +611,12 @@ impl<'a> Renderer for VelloRenderer<'a> {
                     }
 
                     if let Some(f) = fill {
-                        let c = Color::from_rgba8(f.color.r, f.color.g, f.color.b, f.color.a);
-                        self.scene.fill(Fill::NonZero, self.current_transform, c, None, &shape);
+                        let brush = map_fill_to_brush(f);
+                        self.scene.fill(Fill::NonZero, self.current_transform, &brush, None, &shape);
                     }
                     if let Some(s) = stroke {
-                        let c = Color::from_rgba8(s.color.r, s.color.g, s.color.b, s.color.a);
-                        self.scene.stroke(&Stroke::new(s.width as f64), self.current_transform, c, None, &shape);
+                        let (stroke_style, brush) = map_stroke(s);
+                        self.scene.stroke(&stroke_style, self.current_transform, &brush, None, &shape);
                     }
                 }
                 DisplayOp::DrawText { text, size, color, underline, position, bounds, caret_index, .. } => {
@@ -672,12 +723,12 @@ impl<'a> Renderer for VelloRenderer<'a> {
                         let transform = self.current_transform * Affine::translate((bounds.origin.x as f64, bounds.origin.y as f64));
                         
                         if let Some(f) = fill {
-                            let c = Color::from_rgba8(f.color.r, f.color.g, f.color.b, f.color.a);
-                            self.scene.fill(Fill::NonZero, transform, c, None, &bez_path);
+                            let brush = map_fill_to_brush(f);
+                            self.scene.fill(Fill::NonZero, transform, &brush, None, &bez_path);
                         }
                         if let Some(s) = stroke {
-                            let c = Color::from_rgba8(s.color.r, s.color.g, s.color.b, s.color.a);
-                            self.scene.stroke(&Stroke::new(s.width as f64), transform, c, None, &bez_path);
+                            let (stroke_style, brush) = map_stroke(s);
+                            self.scene.stroke(&stroke_style, transform, &brush, None, &bez_path);
                         }
                     } else {
                         // eprintln!("Failed to parse SVG path: {}", path);
@@ -709,22 +760,22 @@ impl<'a> Renderer for VelloRenderer<'a> {
                         match shape {
                             SvgShape::Path(path) => {
                                 if let Some(f) = fill {
-                                    let c = Color::from_rgba8(f.color.r, f.color.g, f.color.b, f.color.a);
-                                    self.scene.fill(Fill::NonZero, svg_transform, c, None, path);
+                                    let brush = map_fill_to_brush(f);
+                                    self.scene.fill(Fill::NonZero, svg_transform, &brush, None, path);
                                 }
                                 if let Some(s) = stroke {
-                                    let c = Color::from_rgba8(s.color.r, s.color.g, s.color.b, s.color.a);
-                                    self.scene.stroke(&Stroke::new(s.width as f64), svg_transform, c, None, path);
+                                    let (stroke_style, brush) = map_stroke(s);
+                                    self.scene.stroke(&stroke_style, svg_transform, &brush, None, path);
                                 }
                             }
                             SvgShape::Rect(rect) => {
                                 if let Some(f) = fill {
-                                    let c = Color::from_rgba8(f.color.r, f.color.g, f.color.b, f.color.a);
-                                    self.scene.fill(Fill::NonZero, svg_transform, c, None, rect);
+                                    let brush = map_fill_to_brush(f);
+                                    self.scene.fill(Fill::NonZero, svg_transform, &brush, None, rect);
                                 }
                                 if let Some(s) = stroke {
-                                    let c = Color::from_rgba8(s.color.r, s.color.g, s.color.b, s.color.a);
-                                    self.scene.stroke(&Stroke::new(s.width as f64), svg_transform, c, None, rect);
+                                    let (stroke_style, brush) = map_stroke(s);
+                                    self.scene.stroke(&stroke_style, svg_transform, &brush, None, rect);
                                 }
                             }
                         }

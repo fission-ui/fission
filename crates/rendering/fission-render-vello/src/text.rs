@@ -132,6 +132,84 @@ impl VelloTextMeasurer {
         layout_arc
     }
 
+    fn hit_test_layout_impl(text: &str, layout: &Layout<ParleyBrush>, x: f32, y: f32) -> usize {
+        let mut target_line: Option<(usize, usize)> = None;
+        let mut best_distance = f32::INFINITY;
+
+        for line in layout.lines() {
+            let range = line.text_range();
+            let metrics = line.metrics();
+            let top = metrics.baseline - metrics.ascent;
+            let bottom = metrics.baseline + metrics.descent;
+
+            if y >= top && y <= bottom {
+                target_line = Some((range.start, range.end));
+                break;
+            }
+
+            let distance = if y < top { top - y } else { y - bottom };
+            if distance < best_distance {
+                best_distance = distance;
+                target_line = Some((range.start, range.end));
+            }
+        }
+
+        let Some((line_start, line_end)) = target_line else {
+            return text.len();
+        };
+
+        if x <= 0.0 {
+            return line_start;
+        }
+
+        let mut fallback_idx = line_start;
+
+        for line in layout.lines() {
+            let line_range = line.text_range();
+            if line_range.start != line_start || line_range.end != line_end {
+                continue;
+            }
+
+            for item in line.items() {
+                if let PositionedLayoutItem::GlyphRun(glyph_run) = item {
+                    let style_range = glyph_run.run().text_range();
+                    let run_start = style_range.start.max(line_range.start);
+                    let run_end = style_range.end.min(line_range.end);
+                    if run_end <= run_start {
+                        continue;
+                    }
+
+                    let mut cursor_x = glyph_run.offset();
+                    if x <= cursor_x {
+                        return run_start;
+                    }
+
+                    let mut idx = run_start;
+                    for glyph in glyph_run.glyphs() {
+                        if idx >= run_end {
+                            break;
+                        }
+                        let mid = cursor_x + (glyph.advance * 0.5);
+                        if x < mid {
+                            return idx;
+                        }
+                        cursor_x += glyph.advance;
+                        idx = Self::next_char_boundary(text, idx).min(run_end);
+                    }
+
+                    if x <= cursor_x {
+                        return idx.min(run_end);
+                    }
+
+                    fallback_idx = run_end;
+                }
+            }
+            break;
+        }
+
+        fallback_idx.min(text.len())
+    }
+
     fn next_char_boundary(text: &str, idx: usize) -> usize {
         if idx >= text.len() {
             return text.len();
@@ -291,88 +369,85 @@ impl TextMeasurer for VelloTextMeasurer {
         (layout.width(), layout.height())
     }
 
+    fn hit_test_rich(
+        &self,
+        runs: &[TextRun],
+        available_width: Option<f32>,
+        x: f32,
+        y: f32,
+    ) -> usize {
+        if runs.is_empty() {
+            return 0;
+        }
+
+        // When all runs share the same style, the renderer takes a fast-path
+        // through `get_layout()` (the simple/plain cache).  We must do the same
+        // here so we look up the SAME cached Parley Layout the renderer painted
+        // with, rather than creating a separate entry in the rich cache.
+        if let Some(first) = runs.first() {
+            if runs.iter().all(|r| r.style == first.style) {
+                let mut full_text = String::new();
+                for run in runs {
+                    full_text.push_str(&run.text);
+                }
+                let layout = self.get_layout(&full_text, first.style.font_size, available_width);
+                return Self::hit_test_layout_impl(&full_text, &layout, x, y);
+            }
+        }
+
+        // Multi-style path: build the same rich layout the renderer uses.
+        let mut full_text = String::new();
+        let mut styles = Vec::new();
+        let mut offset = 0;
+        for run in runs {
+            let len = run.text.len();
+            full_text.push_str(&run.text);
+            styles.push((
+                offset..(offset + len),
+                RenderTextStyle {
+                    font_size: run.style.font_size,
+                    color: fission_render::Color {
+                        r: run.style.color.r,
+                        g: run.style.color.g,
+                        b: run.style.color.b,
+                        a: run.style.color.a,
+                    },
+                    underline: run.style.underline,
+                    background_color: run.style.background_color.map(|c| fission_render::Color {
+                        r: c.r, g: c.g, b: c.b, a: c.a,
+                    }),
+                },
+            ));
+            offset += len;
+        }
+
+        let (base_size, base_color) = if let Some(first) = runs.first() {
+            (first.style.font_size, fission_render::Color {
+                r: first.style.color.r,
+                g: first.style.color.g,
+                b: first.style.color.b,
+                a: first.style.color.a,
+            })
+        } else {
+            (13.0, fission_render::Color { r: 212, g: 212, b: 212, a: 255 })
+        };
+
+        let layout = self.layout_rich(&full_text, base_size, base_color, &styles, available_width);
+
+        // Reuse the same hit-test logic as plain text but on the rich layout
+        Self::hit_test_layout_impl(&full_text, &layout, x, y)
+    }
+
     fn hit_test(&self, text: &str, font_size: f32, available_width: Option<f32>, x: f32, y: f32) -> usize {
         if text.is_empty() {
             return 0;
         }
-
         let layout = self.get_layout(text, font_size, available_width);
-        let mut target_line: Option<(usize, usize)> = None;
-        let mut best_distance = f32::INFINITY;
-
-        for line in layout.lines() {
-            let range = line.text_range();
-            let metrics = line.metrics();
-            let top = metrics.baseline - metrics.ascent;
-            let bottom = metrics.baseline + metrics.descent;
-
-            if y >= top && y <= bottom {
-                target_line = Some((range.start, range.end));
-                break;
-            }
-
-            let distance = if y < top { top - y } else { y - bottom };
-            if distance < best_distance {
-                best_distance = distance;
-                target_line = Some((range.start, range.end));
-            }
-        }
-
-        let Some((line_start, line_end)) = target_line else {
-            return text.len();
-        };
-
-        if x <= 0.0 {
-            return line_start;
-        }
-
-        let mut fallback_idx = line_start;
-
-        for line in layout.lines() {
-            let line_range = line.text_range();
-            if line_range.start != line_start || line_range.end != line_end {
-                continue;
-            }
-
-            for item in line.items() {
-                if let PositionedLayoutItem::GlyphRun(glyph_run) = item {
-                    let style_range = glyph_run.run().text_range();
-                    let run_start = style_range.start.max(line_range.start);
-                    let run_end = style_range.end.min(line_range.end);
-                    if run_end <= run_start {
-                        continue;
-                    }
-
-                    let mut cursor_x = glyph_run.offset();
-                    if x <= cursor_x {
-                        return run_start;
-                    }
-
-                    let mut idx = run_start;
-                    for glyph in glyph_run.glyphs() {
-                        if idx >= run_end {
-                            break;
-                        }
-                        let mid = cursor_x + (glyph.advance * 0.5);
-                        if x < mid {
-                            return idx;
-                        }
-                        cursor_x += glyph.advance;
-                        idx = Self::next_char_boundary(text, idx).min(run_end);
-                    }
-
-                    if x <= cursor_x {
-                        return idx.min(run_end);
-                    }
-
-                    fallback_idx = run_end;
-                }
-            }
-            break;
-        }
-
-        fallback_idx.min(text.len())
+        Self::hit_test_layout_impl(text, &layout, x, y)
     }
+
+    /// Shared hit-test logic over any parley Layout (plain or rich).
+    // hit_test_layout_impl is in impl VelloTextMeasurer (inherent block)
 
     fn get_line_metrics(&self, text: &str, font_size: f32, available_width: Option<f32>) -> Vec<LineMetric> {
         let layout = self.get_layout(text, font_size, available_width);

@@ -45,11 +45,12 @@ fn test_email_list_overlap_regression() {
                                     // Hero Subject
                                     Node::Custom(fission_core::ui::CustomNode {
                                         debug_tag: "Hero".into(),
-                                        lowerer: Some(std::sync::Arc::new(MockHero { 
+                                        lowerer: Some(std::sync::Arc::new(MockHero {
                                             child: Text::new("Subject 10 Subject 10 Subject 10")
                                                 .min_width(0.0) // Ensure it can shrink
-                                                .into_node() 
+                                                .into_node()
                                         })),
+                                        render_object: None,
                                     }),
                                     // Preview
                                     Text::new("Short preview...")

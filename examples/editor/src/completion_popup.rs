@@ -68,12 +68,13 @@ impl Widget<EditorState> for CompletionPopup {
                     if let Some((_tab, buf)) = s.active_buffer_mut() {
                         // Simple insertion: append the label at cursor position.
                         // A full implementation would replace the prefix being typed.
-                        let lines: Vec<&str> = buf.content.lines().collect();
+                        let content_str = buf.content();
+                        let lines: Vec<&str> = content_str.lines().collect();
                         if buf.cursor_line < lines.len() {
                             let line = lines[buf.cursor_line];
                             let col = buf.cursor_col.min(line.len());
                             let mut new_content = String::new();
-                            for (i, l) in buf.content.lines().enumerate() {
+                            for (i, l) in content_str.lines().enumerate() {
                                 if i > 0 {
                                     new_content.push('\n');
                                 }
@@ -85,7 +86,7 @@ impl Widget<EditorState> for CompletionPopup {
                                     new_content.push_str(l);
                                 }
                             }
-                            buf.content = new_content;
+                            buf.set_content(&new_content);
                             buf.cursor_col = col + label.len();
                         }
                     }

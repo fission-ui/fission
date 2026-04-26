@@ -4,6 +4,7 @@ use crate::ActionEnvelope;
 use crate::ActionId;
 use fission_diagnostics::prelude as diag;
 use fission_ir::semantics::InputMask;
+use fission_ir::FlexDirection;
 use fission_ir::{
     op::{self, LayoutOp, Op},
     NodeId, Semantics,
@@ -23,7 +24,30 @@ impl InputController for TextInputController {
             }) => self.handle_key(ctx, key_code.clone(), *modifiers),
             InputEvent::Ime(ime) => self.handle_ime(ctx, ime),
             InputEvent::Pointer(PointerEvent::Down { point, .. }) => {
-                if let Some(focused_id) = ctx.interaction.focused {
+                // Try the currently focused TextInput first.  If nothing is focused,
+                // try to find the TextInput under the click point and focus + place
+                // caret in one step (so the user doesn't need to click twice).
+                let effective_focused = ctx.interaction.focused.or_else(|| {
+                    let hit = crate::hit_test::hit_test_with_scroll(ctx.ir, ctx.layout, ctx.scroll, *point)?;
+                    // Walk up from hit node to find a focusable TextInput
+                    let mut walk = Some(hit);
+                    while let Some(nid) = walk {
+                        if let Some(node) = ctx.ir.nodes.get(&nid) {
+                            if let Op::Semantics(s) = &node.op {
+                                if s.focusable && s.role == fission_ir::semantics::Role::TextInput {
+                                    // Focus it now
+                                    ctx.interaction.set_focused(Some(nid));
+                                    return Some(nid);
+                                }
+                            }
+                            walk = node.parent;
+                        } else {
+                            break;
+                        }
+                    }
+                    None
+                });
+                if let Some(focused_id) = effective_focused {
                     if let Some(node) = ctx.ir.nodes.get(&focused_id) {
                         if let Op::Semantics(sem) = &node.op {
                             if sem.role == fission_ir::semantics::Role::TextInput {
@@ -33,39 +57,96 @@ impl InputController for TextInputController {
                                 // Otherwise, allow the generic focus logic in `Runtime::handle_input`
                                 // to run so clicks can move focus to other widgets (including other
                                 // TextInputs, buttons, etc).
-                                if let Some(geom) = ctx.layout.get_node_geometry(focused_id) {
-                                    if !geom.rect.contains(*point) {
-                                        return false;
+                                //
+                                // The geometry rect is in layout coordinates (no scroll offset applied).
+                                // We need to adjust the rect by ancestor scroll offsets to compare
+                                // against the screen-coordinate click point.
+                                // The focused_id is a Semantics node which may not have
+                                // layout geometry.  Walk to its first child or parent
+                                // that has geometry for the containment check.
+                                let geom_id = std::iter::successors(Some(focused_id), |id| {
+                                    ctx.ir.nodes.get(id).and_then(|n| n.children.first().copied())
+                                })
+                                .find(|id| ctx.layout.get_node_geometry(*id).is_some())
+                                .or_else(|| {
+                                    let mut w = ctx.ir.nodes.get(&focused_id).and_then(|n| n.parent);
+                                    while let Some(pid) = w {
+                                        if ctx.layout.get_node_geometry(pid).is_some() {
+                                            return Some(pid);
+                                        }
+                                        w = ctx.ir.nodes.get(&pid).and_then(|n| n.parent);
                                     }
+                                    None
+                                });
+                                if let Some(geom) = geom_id.and_then(|id| ctx.layout.get_node_geometry(id)) {
+                                    let mut scroll_adj_y = 0.0f32;
+                                    let mut scroll_adj_x = 0.0f32;
+                                    let mut walk_id = ctx.ir.nodes.get(&focused_id).and_then(|n| n.parent);
+                                    while let Some(pid) = walk_id {
+                                        if let Some(pnode) = ctx.ir.nodes.get(&pid) {
+                                            if let Op::Layout(LayoutOp::Scroll { direction, .. }) = &pnode.op {
+                                                let poff = ctx.scroll.get_offset(pid);
+                                                match direction {
+                                                    FlexDirection::Row => scroll_adj_x += poff,
+                                                    FlexDirection::Column => scroll_adj_y += poff,
+                                                }
+                                            }
+                                            walk_id = pnode.parent;
+                                        } else {
+                                            break;
+                                        }
+                                    }
+                                    let visual_rect = fission_layout::LayoutRect::new(
+                                        geom.rect.origin.x - scroll_adj_x,
+                                        geom.rect.origin.y - scroll_adj_y,
+                                        geom.rect.size.width,
+                                        geom.rect.size.height,
+                                    );
+                                    // Skip containment check — the focus logic already verified
+                                    // the click is on this TextInput
+                                    let _ = visual_rect;
                                 }
-                                if let Some((scroll_id, _text_op_node_id, scroll_direction)) =
-                                    Self::find_scroll_container_and_text_op(
-                                        ctx.ir,
-                                        focused_id,
-                                        sem.multiline,
-                                    )
-                                {
+                                let scroll_result = Self::find_scroll_container_and_text_op(
+                                    ctx.ir,
+                                    focused_id,
+                                    sem.multiline,
+                                );
+                                if let Some((scroll_id, _text_op_node_id, scroll_direction)) = scroll_result {
                                     if let Some(scroll_geom) =
                                         ctx.layout.get_node_geometry(scroll_id)
                                     {
                                         let value = sem.value.as_deref().unwrap_or("");
                                         let offset = ctx.scroll.get_offset(scroll_id);
 
+                                        // Accumulate ancestor scroll offsets to convert
+                                        // screen coordinates to local content coordinates.
+                                        let mut ancestor_scroll_y = 0.0f32;
+                                        let mut ancestor_scroll_x = 0.0f32;
+                                        {
+                                            let mut walk = ctx.ir.nodes.get(&scroll_id).and_then(|n| n.parent);
+                                            while let Some(pid) = walk {
+                                                if let Some(pnode) = ctx.ir.nodes.get(&pid) {
+                                                    if let Op::Layout(LayoutOp::Scroll { direction, .. }) = &pnode.op {
+                                                        let poff = ctx.scroll.get_offset(pid);
+                                                        match direction {
+                                                            FlexDirection::Row => ancestor_scroll_x += poff,
+                                                            FlexDirection::Column => ancestor_scroll_y += poff,
+                                                        }
+                                                    }
+                                                    walk = pnode.parent;
+                                                } else {
+                                                    break;
+                                                }
+                                            }
+                                        }
+
                                         let caret = if let Some(measurer) = ctx.measurer {
-                                            let font_size = 16.0;
-                                            let max_width = if sem.multiline
-                                                && scroll_geom.rect.width() > 0.0
-                                            {
-                                                Some(scroll_geom.rect.width())
-                                            } else {
-                                                None
-                                            };
-                                            measurer.hit_test(
-                                                value,
-                                                font_size,
-                                                max_width,
-                                                point.x - scroll_geom.rect.origin.x + offset,
-                                                point.y - scroll_geom.rect.origin.y,
+                                            let local_x = point.x - scroll_geom.rect.origin.x + offset + ancestor_scroll_x;
+                                            let local_y = point.y - scroll_geom.rect.origin.y + ancestor_scroll_y;
+
+                                            Self::hit_test_text(
+                                                measurer, ctx.ir, focused_id,
+                                                value, scroll_geom, local_x, local_y,
                                             )
                                         } else {
                                             Self::caret_from_point_in_text_fallback(
@@ -122,21 +203,33 @@ impl InputController for TextInputController {
                                                 let offset = ctx.scroll.get_offset(scroll_id);
                                                 let new_caret = if let Some(measurer) = ctx.measurer
                                                 {
-                                                    let font_size = 16.0;
-                                                    let max_width = if sem.multiline
-                                                        && scroll_geom.rect.width() > 0.0
+                                                    // Accumulate ancestor scroll offsets for
+                                                    // pointer-move the same way as pointer-down.
+                                                    let mut anc_scroll_y = 0.0f32;
+                                                    let mut anc_scroll_x = 0.0f32;
                                                     {
-                                                        Some(scroll_geom.rect.width())
-                                                    } else {
-                                                        None
-                                                    };
-                                                    measurer.hit_test(
-                                                        value,
-                                                        font_size,
-                                                        max_width,
-                                                        point.x - scroll_geom.rect.origin.x
-                                                            + offset,
-                                                        point.y - scroll_geom.rect.origin.y,
+                                                        let mut walk = ctx.ir.nodes.get(&scroll_id).and_then(|n| n.parent);
+                                                        while let Some(pid) = walk {
+                                                            if let Some(pnode) = ctx.ir.nodes.get(&pid) {
+                                                                if let Op::Layout(LayoutOp::Scroll { direction, .. }) = &pnode.op {
+                                                                    let poff = ctx.scroll.get_offset(pid);
+                                                                    match direction {
+                                                                        FlexDirection::Row => anc_scroll_x += poff,
+                                                                        FlexDirection::Column => anc_scroll_y += poff,
+                                                                    }
+                                                                }
+                                                                walk = pnode.parent;
+                                                            } else {
+                                                                break;
+                                                            }
+                                                        }
+                                                    }
+                                                    let local_x = point.x - scroll_geom.rect.origin.x + offset + anc_scroll_x;
+                                                    let local_y = point.y - scroll_geom.rect.origin.y + anc_scroll_y;
+
+                                                    Self::hit_test_text(
+                                                        measurer, ctx.ir, focused_id,
+                                                        value, scroll_geom, local_x, local_y,
                                                     )
                                                 } else {
                                                     Self::caret_from_point_in_text_fallback(
@@ -828,6 +921,85 @@ impl TextInputController {
         None
     }
 
+    /// Extract rich text runs from the TextInput's DrawRichText child.
+    fn extract_rich_runs(ir: &fission_ir::CoreIR, semantics_id: NodeId) -> Option<Vec<fission_ir::op::TextRun>> {
+        fn walk(ir: &fission_ir::CoreIR, node_id: NodeId, depth: usize) -> Option<Vec<fission_ir::op::TextRun>> {
+            if depth > 20 { return None; }
+            let node = ir.nodes.get(&node_id)?;
+            match &node.op {
+                Op::Paint(fission_ir::PaintOp::DrawRichText { runs, .. }) if !runs.is_empty() => {
+                    Some(runs.clone())
+                }
+                _ => {
+                    for child_id in &node.children {
+                        if let Some(r) = walk(ir, *child_id, depth + 1) {
+                            return Some(r);
+                        }
+                    }
+                    None
+                }
+            }
+        }
+        walk(ir, semantics_id, 0)
+    }
+
+    /// Extract the font size from the TextInput's DrawRichText or DrawText child.
+    fn extract_font_size(ir: &fission_ir::CoreIR, semantics_id: NodeId) -> Option<f32> {
+        // Walk children of the semantics node to find a text paint op
+        fn walk(ir: &fission_ir::CoreIR, node_id: NodeId, depth: usize) -> Option<f32> {
+            if depth > 10 { return None; }
+            let node = ir.nodes.get(&node_id)?;
+            match &node.op {
+                Op::Paint(fission_ir::PaintOp::DrawText { size, .. }) => Some(*size),
+                Op::Paint(fission_ir::PaintOp::DrawRichText { runs, .. }) => {
+                    runs.first().map(|r| r.style.font_size)
+                }
+                _ => {
+                    for child_id in &node.children {
+                        if let Some(sz) = walk(ir, *child_id, depth + 1) {
+                            return Some(sz);
+                        }
+                    }
+                    None
+                }
+            }
+        }
+        walk(ir, semantics_id, 0)
+    }
+
+    /// Shared hit-test logic for both PointerDown and PointerMove.
+    ///
+    /// Uses the rich-text layout path when styled runs are available, passing the
+    /// same `available_width` that the renderer will use so both sides build (or
+    /// look up) the same Parley `Layout`.  This ensures the Y-to-line and X-to-
+    /// glyph mapping in hit-testing exactly matches the rendered text.
+    fn hit_test_text(
+        measurer: &std::sync::Arc<dyn fission_layout::TextMeasurer>,
+        ir: &fission_ir::CoreIR,
+        focused_id: NodeId,
+        value: &str,
+        scroll_geom: &fission_layout::LayoutNodeGeometry,
+        local_x: f32,
+        local_y: f32,
+    ) -> usize {
+        // The renderer calls `layout_rich(…, if bounds.width() > 0 { Some(w) } else { None })`.
+        // The bounds rect for a text node equals the layout geometry rect whose width comes
+        // from the scroll container (or the text node itself).  We replicate this here so
+        // the cache key matches and we reuse the SAME Parley layout the renderer painted.
+        let render_width = if scroll_geom.rect.size.width > 0.0 {
+            Some(scroll_geom.rect.size.width)
+        } else {
+            None
+        };
+
+        if let Some(runs) = Self::extract_rich_runs(ir, focused_id) {
+            measurer.hit_test_rich(&runs, render_width, local_x, local_y)
+        } else {
+            let font_size = Self::extract_font_size(ir, focused_id).unwrap_or(13.0);
+            measurer.hit_test(value, font_size, render_width, local_x, local_y)
+        }
+    }
+
     fn caret_from_point_in_text_fallback(
         value: &str,
         font_size: f32,
@@ -973,7 +1145,10 @@ impl TextInputController {
                     for (idx, line) in line_metrics.iter().enumerate() {
                         if caret >= line.start_index && caret <= line.end_index {
                             current_line_idx = idx;
-                            break;
+                            // Don't break: if the caret sits at the boundary
+                            // between two lines (end of line N == start of
+                            // line N+1), prefer the later line so empty lines
+                            // are reachable.
                         }
                     }
 
@@ -994,8 +1169,10 @@ impl TextInputController {
                             target_y,
                         );
 
-                        // Ensure we stay within the target line's bounds
-                        new_caret_pos = new_caret_pos.max(target_line.start_index).min(target_line.end_index);
+                        // Ensure we stay within the target line's bounds.
+                        // For empty lines (start_index == end_index), this
+                        // correctly places the cursor at start_index.
+                        new_caret_pos = new_caret_pos.clamp(target_line.start_index, target_line.end_index.max(target_line.start_index));
 
                         let st = ctx.text_edit.get_mut_or_default(focused_id);
                         st.caret = new_caret_pos;

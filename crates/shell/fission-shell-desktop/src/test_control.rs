@@ -1,17 +1,36 @@
-use fission_test_driver::{TestCommand, TestResponse, TextItem, SemanticNode};
+use fission_test_driver::{TestCommand, TestEvent, TestResponse};
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::sync::mpsc;
+use winit::event_loop::EventLoopProxy;
 
-pub type CommandSender = mpsc::Sender<(TestCommand, ResponseSender)>;
-pub type CommandReceiver = mpsc::Receiver<(TestCommand, ResponseSender)>;
+/// Sender for query responses from the main event loop back to the TCP server.
 pub type ResponseSender = mpsc::Sender<TestResponse>;
+/// Receiver for query responses.
+pub type ResponseReceiver = mpsc::Receiver<TestResponse>;
 
-pub fn create_channel() -> (CommandSender, CommandReceiver) {
+/// Create a (sender, receiver) pair for query responses.
+///
+/// The sender is stored by the main event loop; when a query `TestEvent`
+/// (GetText, GetTree, Screenshot, etc.) is handled it sends the result
+/// through this channel.  The TCP server thread waits on the receiver.
+pub fn create_response_channel() -> (ResponseSender, ResponseReceiver) {
     mpsc::channel()
 }
 
-pub fn spawn_server(port: u16, cmd_tx: CommandSender) -> std::thread::JoinHandle<()> {
+/// Spawn the TCP test-control server.
+///
+/// * `port` — TCP port to bind on 127.0.0.1.
+/// * `proxy` — winit `EventLoopProxy` used to inject `TestEvent`s into the
+///   main event loop.  Input-simulation events (MouseMove, MouseDown, …) and
+///   query events (GetText, Screenshot, …) all go through this proxy so they
+///   are handled on the main thread.
+/// * `response_rx` — receiver for query results sent back by the main loop.
+pub fn spawn_server(
+    port: u16,
+    proxy: EventLoopProxy<TestEvent>,
+    response_rx: ResponseReceiver,
+) -> std::thread::JoinHandle<()> {
     std::thread::spawn(move || {
         let listener = TcpListener::bind(format!("127.0.0.1:{}", port))
             .unwrap_or_else(|e| panic!("failed to bind test control port {}: {}", port, e));
@@ -19,14 +38,18 @@ pub fn spawn_server(port: u16, cmd_tx: CommandSender) -> std::thread::JoinHandle
 
         for stream in listener.incoming() {
             match stream {
-                Ok(stream) => handle_connection(stream, &cmd_tx),
+                Ok(stream) => handle_connection(stream, &proxy, &response_rx),
                 Err(e) => eprintln!("[fission-test-control] accept error: {}", e),
             }
         }
     })
 }
 
-fn handle_connection(mut stream: TcpStream, cmd_tx: &CommandSender) {
+fn handle_connection(
+    mut stream: TcpStream,
+    proxy: &EventLoopProxy<TestEvent>,
+    response_rx: &ResponseReceiver,
+) {
     let mut buf = Vec::new();
     let mut tmp = [0u8; 4096];
 
@@ -104,29 +127,128 @@ fn handle_connection(mut stream: TcpStream, cmd_tx: &CommandSender) {
         }
     };
 
-    // Send to event loop and wait for response
-    let (resp_tx, resp_rx) = mpsc::channel();
-    if cmd_tx.send((cmd, resp_tx)).is_err() {
-        send_http_response(
-            &mut stream,
-            500,
-            r#"{"status":"Error","message":"event loop disconnected"}"#,
-        );
-        return;
-    }
+    // Translate TestCommand → TestEvent(s) injected via the proxy, then
+    // optionally wait for a response from the main loop.
+    let response = dispatch_command(cmd, proxy, response_rx);
+    send_http_response(&mut stream, 200, &serde_json::to_string(&response).unwrap());
+}
 
-    // Wait for response (with timeout)
-    match resp_rx.recv_timeout(std::time::Duration::from_secs(30)) {
-        Ok(response) => {
-            send_http_response(&mut stream, 200, &serde_json::to_string(&response).unwrap());
+/// Translate a `TestCommand` into one or more `TestEvent`s injected into the
+/// winit event loop via the proxy.
+///
+/// * **Input-simulation** commands (`Tap`, `Scroll`, `TypeText`, …) inject
+///   events that travel through the same handler path as real `WindowEvent`s.
+///   They are fire-and-forget from the server's perspective.
+///
+/// * **Query / control** commands (`GetText`, `Screenshot`, `Pump`, `Quit`)
+///   inject an event and then block waiting for the main loop to send a
+///   response through `response_rx`.
+fn dispatch_command(
+    cmd: TestCommand,
+    proxy: &EventLoopProxy<TestEvent>,
+    response_rx: &ResponseReceiver,
+) -> TestResponse {
+    match cmd {
+        // ── Input simulation: Tap = MouseMove + MouseDown + MouseUp ─────
+        TestCommand::Tap { x, y } => {
+            let _ = proxy.send_event(TestEvent::MouseMove { x, y });
+            let _ = proxy.send_event(TestEvent::MouseDown { x, y, button: 0 });
+            let _ = proxy.send_event(TestEvent::MouseUp { x, y, button: 0 });
+            // Fire-and-forget — the events will be processed on the next
+            // event loop iteration.
+            TestResponse::Ok {}
         }
-        Err(_) => {
-            send_http_response(
-                &mut stream,
-                504,
-                r#"{"status":"Error","message":"timeout waiting for response"}"#,
-            );
+
+        // ── TapText: needs IR access, so delegate to main loop ──────────
+        TestCommand::TapText { text } => {
+            let _ = proxy.send_event(TestEvent::TapText { text });
+            wait_for_response(response_rx)
         }
+
+        // ── Scroll ──────────────────────────────────────────────────────
+        TestCommand::Scroll { x, y, dx, dy } => {
+            let _ = proxy.send_event(TestEvent::Scroll { x, y, dx, dy });
+            TestResponse::Ok {}
+        }
+
+        // ── TypeText: inject individual key events ──────────────────────
+        TestCommand::TypeText { text } => {
+            let _ = proxy.send_event(TestEvent::TextInput { text });
+            TestResponse::Ok {}
+        }
+
+        // ── PressKey ────────────────────────────────────────────────────
+        TestCommand::PressKey { key, modifiers } => {
+            let _ = proxy.send_event(TestEvent::KeyDown { key_code: key.clone(), modifiers });
+            let _ = proxy.send_event(TestEvent::KeyUp { key_code: key, modifiers });
+            TestResponse::Ok {}
+        }
+
+        // ── Screenshot: needs GPU access, wait for response ─────────────
+        TestCommand::Screenshot { path } => {
+            let _ = proxy.send_event(TestEvent::Screenshot { path });
+            wait_for_response(response_rx)
+        }
+
+        // ── GetText: needs IR, wait for response ────────────────────────
+        TestCommand::GetText {} => {
+            let _ = proxy.send_event(TestEvent::GetText);
+            wait_for_response(response_rx)
+        }
+
+        // ── GetTree: needs IR, wait for response ────────────────────────
+        TestCommand::GetTree {} => {
+            let _ = proxy.send_event(TestEvent::GetTree);
+            wait_for_response(response_rx)
+        }
+
+        // ── Wait: sleep on server thread, then respond ──────────────────
+        TestCommand::Wait { ms } => {
+            std::thread::sleep(std::time::Duration::from_millis(ms));
+            TestResponse::Ok {}
+        }
+
+        // ── Pump: force a frame, wait for completion ────────────────────
+        TestCommand::Pump {} => {
+            let _ = proxy.send_event(TestEvent::Pump);
+            wait_for_response(response_rx)
+        }
+
+        // ── Quit ────────────────────────────────────────────────────────
+        TestCommand::Quit {} => {
+            let _ = proxy.send_event(TestEvent::Quit);
+            TestResponse::Ok {}
+        }
+
+        // ── NEW: SimulateMouseMove ──────────────────────────────────────
+        TestCommand::SimulateMouseMove { x, y } => {
+            let _ = proxy.send_event(TestEvent::MouseMove { x, y });
+            TestResponse::Ok {}
+        }
+
+        // ── NEW: SimulateRightClick ─────────────────────────────────────
+        TestCommand::SimulateRightClick { x, y } => {
+            let _ = proxy.send_event(TestEvent::MouseMove { x, y });
+            let _ = proxy.send_event(TestEvent::MouseDown { x, y, button: 1 });
+            let _ = proxy.send_event(TestEvent::MouseUp { x, y, button: 1 });
+            TestResponse::Ok {}
+        }
+
+        // ── NEW: SimulateResize ─────────────────────────────────────────
+        TestCommand::SimulateResize { width, height } => {
+            let _ = proxy.send_event(TestEvent::Resize { width, height });
+            TestResponse::Ok {}
+        }
+    }
+}
+
+/// Block until the main event loop sends a response, with a 30-second timeout.
+fn wait_for_response(rx: &ResponseReceiver) -> TestResponse {
+    match rx.recv_timeout(std::time::Duration::from_secs(30)) {
+        Ok(resp) => resp,
+        Err(_) => TestResponse::Error {
+            message: "timeout waiting for response from event loop".into(),
+        },
     }
 }
 

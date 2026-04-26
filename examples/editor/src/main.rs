@@ -12,6 +12,7 @@ use std::path::PathBuf;
 
 mod model;
 mod file_tree;
+mod editor_render_node;
 mod editor_surface;
 mod tab_bar;
 mod status_bar;
@@ -61,7 +62,7 @@ impl Widget<EditorState> for ActivityBar {
         let section_icons = vec![
             (fission_icons::material::action::description::round(), SidebarSection::Explorer, "Explorer"),
             (fission_icons::material::action::search::round(), SidebarSection::Search, "Search"),
-            (fission_icons::material::notification::account_tree::round(), SidebarSection::Git, "Source Control"),
+            (fission_icons::material::action::commit::round(), SidebarSection::Git, "Source Control"),
             (fission_icons::material::action::extension::round(), SidebarSection::Extensions, "Extensions"),
         ];
 
@@ -765,6 +766,42 @@ impl Widget<EditorState> for ContextMenu {
             }) as Handler<EditorState, Noop>,
         );
 
+        let rename_action = ctx.bind(
+            Noop,
+            (|s: &mut EditorState, _, _| {
+                s.context_menu_visible = false;
+                if let Some(target) = s.context_menu_target.clone() {
+                    s.start_rename(target);
+                } else {
+                    s.status_message = Some("Nothing selected to rename".into());
+                }
+            }) as Handler<EditorState, Noop>,
+        );
+
+        let delete_action = ctx.bind(
+            Noop,
+            (|s: &mut EditorState, _, _| {
+                s.context_menu_visible = false;
+                if let Some(target) = s.context_menu_target.clone() {
+                    let path = std::path::Path::new(&target);
+                    let result = if path.is_dir() {
+                        std::fs::remove_dir_all(&target)
+                    } else {
+                        std::fs::remove_file(&target)
+                    };
+                    match result {
+                        Ok(()) => {
+                            s.tree_cache_dirty = true;
+                            s.status_message = Some(format!("Deleted '{}'", target));
+                        }
+                        Err(e) => {
+                            s.status_message = Some(format!("Delete failed: {}", e));
+                        }
+                    }
+                }
+            }) as Handler<EditorState, Noop>,
+        );
+
         let go_to_def = ctx.bind(
             GoToDefinition,
             (|s: &mut EditorState, _, _| {
@@ -818,8 +855,8 @@ impl Widget<EditorState> for ContextMenu {
             vec![
                 Self::item("New File", new_file_ctx.clone()),
                 Self::item("New Folder", new_folder_ctx.clone()),
-                Self::item("Rename", noop.clone()),
-                Self::item("Delete", noop.clone()),
+                Self::item("Rename", rename_action.clone()),
+                Self::item("Delete", delete_action.clone()),
             ]
         } else {
             // Editor context menu
@@ -1147,8 +1184,12 @@ fn main() -> anyhow::Result<()> {
                 state.context_menu_visible = false;
             }
 
-            // Enter submits terminal command when terminal is visible and input is non-empty
+            // Enter confirms rename if one is in progress
             if matches!(key, fission_core::KeyCode::Enter) && !ctrl {
+                if state.renaming_path.is_some() {
+                    state.confirm_rename();
+                    return true;
+                }
                 if state.terminal_visible && !state.terminal_input.is_empty() {
                     state.run_terminal_command();
                     return true;
@@ -1156,9 +1197,13 @@ fn main() -> anyhow::Result<()> {
                 return false;
             }
 
-            // Escape dismisses menus / context menus / find bar / command palette
+            // Escape dismisses menus / context menus / find bar / command palette / rename
             if matches!(key, fission_core::KeyCode::Escape) {
                 let mut handled = false;
+                if state.renaming_path.is_some() {
+                    state.cancel_rename();
+                    handled = true;
+                }
                 if state.active_menu.is_some() {
                     state.active_menu = None;
                     handled = true;

@@ -18,6 +18,7 @@ fn test_explicit_focus_order() {
         Node::Custom(fission_core::ui::CustomNode {
             debug_tag: format!("Button({})", index),
             lowerer: Some(std::sync::Arc::new(FocusButtonLowerer { index })),
+            render_object: None,
         })
     }
 

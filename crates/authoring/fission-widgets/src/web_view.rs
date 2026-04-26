@@ -25,6 +25,7 @@ impl<S: fission_core::AppState> Widget<S> for WebView {
                 id: self.id,
                 url: self.url.clone(),
             })),
+            render_object: None,
         })
     }
 }

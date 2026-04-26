@@ -188,8 +188,8 @@ impl Lower for Container {
         // 1. Background Layer (PaintOp -> AbsoluteFill)
         if self.background_color.is_some() || self.border_color.is_some() || self.shadow.is_some() {
              let paint = NodeBuilder::new(cx.next_node_id(), Op::Paint(PaintOp::DrawRect {
-                 fill: self.background_color.map(|c| Fill { color: c }),
-                 stroke: self.border_color.map(|c| Stroke { color: c, width: self.border_width }),
+                 fill: self.background_color.map(|c| Fill::Solid(c)),
+                 stroke: self.border_color.map(|c| Stroke { fill: Fill::Solid(c), width: self.border_width, dash_array: None, line_cap: fission_ir::op::LineCap::Butt, line_join: fission_ir::op::LineJoin::Miter }),
                  corner_radius: self.border_radius,
                  shadow: self.shadow,
              })).build(cx);
