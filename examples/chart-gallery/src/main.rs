@@ -73,13 +73,14 @@ impl Widget<GalleryState> for GalleryApp {
             }) as fission_core::registry::Handler<GalleryState, UpdateScale>
         ).id;
 
+        // Sidebar labels — indices MUST match the (category, chart) match arms below.
         let categories = vec![
-            ("Foundational", vec!["Line & Bar", "Pie", "Scatter"]),
+            ("Foundational", vec!["Line & Bar", "Stacked Area", "Step Line", "Pie", "Scatter"]),
             ("Statistical", vec!["Boxplot", "Candlestick", "Heatmap", "Graph", "Treemap"]),
             ("Specialized", vec!["Radar", "Funnel", "Gauge", "Map", "Sankey", "Parallel", "Sunburst"]),
             ("Dynamic", vec!["ThemeRiver", "PictorialBar", "EffectScatter"]),
-            ("Extensions & Custom", vec!["Custom", "Liquidfill", "Wordcloud"]),
-            ("3D", vec!["Scene3D"]),
+            ("Extensions", vec!["Custom", "Liquidfill", "Wordcloud"]),
+            ("3D + Dataset", vec!["Dataset Demo", "3D Scene"]),
         ];
 
         let mut sidebar_items = vec![
@@ -124,6 +125,7 @@ impl Widget<GalleryState> for GalleryApp {
                     ..Default::default()
                 }.into_node())),
                 show_scrollbar: true,
+                flex_grow: 1.0,
                 ..Default::default()
             }.into_node()
         )
@@ -391,6 +393,73 @@ impl Widget<GalleryState> for GalleryApp {
                     ])
                     .build(ctx, view)
             }
+            // --- Dynamic (category 3) ---
+            (3, 0) => {
+                Chart::new()
+                    .title("Dynamic: ThemeRiver")
+                    .series(vec![
+                        ThemeRiverSeries::new("Theme River")
+                            .data(vec![])
+                            .into()
+                    ])
+                    .build(ctx, view)
+            }
+            (3, 1) => {
+                Chart::new()
+                    .title("Dynamic: PictorialBar")
+                    .x_axis(Axis::category(vec!["January", "February", "March"]))
+                    .y_axis(Axis::value())
+                    .series(vec![
+                        PictorialBarSeries::new("Spirits")
+                            .data(vec![120.0 * s, 200.0 * s, 150.0 * s])
+                            .into()
+                    ])
+                    .build(ctx, view)
+            }
+            (3, 2) => {
+                Chart::new()
+                    .title("Dynamic: EffectScatter")
+                    .x_axis(Axis::value())
+                    .y_axis(Axis::value())
+                    .series(vec![
+                        EffectScatterSeries::new("Effects")
+                            .data(vec![(10.0 * s, 8.0 * s), (8.0 * s, 7.0 * s), (13.0 * s, 7.5 * s)])
+                            .into()
+                    ])
+                    .build(ctx, view)
+            }
+            // --- Extensions (category 4) ---
+            (4, 0) => {
+                Chart::new()
+                    .title("Extensions: Custom Series")
+                    .series(vec![
+                        CustomSeries::new("Custom", "circle")
+                            .data(vec![10.0, 20.0, 30.0, 40.0])
+                            .into()
+                    ])
+                    .build(ctx, view)
+            }
+            (4, 1) => {
+                Chart::new()
+                    .title("Extensions: Liquidfill")
+                    .series(vec![
+                        LiquidfillSeries::new("Water Level")
+                            .data(vec![0.6 * s, 0.5 * s, 0.4 * s])
+                            .into()
+                    ])
+                    .build(ctx, view)
+            }
+            (4, 2) => {
+                Chart::new()
+                    .title("Extensions: Wordcloud")
+                    .series(vec![
+                        WordcloudSeries::new("Words")
+                            .data(vec![("Rust", 100.0 * s), ("Fission", 80.0 * s), ("GPU", 60.0 * s), ("Vello", 40.0 * s)])
+                            .into()
+                    ])
+                    .build(ctx, view)
+            }
+            // --- 3D + Dataset (category 5) ---
             (5, 0) => {
                 Chart::new()
                     .title("Dataset Engine: Encoded Line & Bar")
@@ -403,7 +472,7 @@ impl Widget<GalleryState> for GalleryApp {
                             vec![DataValue::String("Walnut Brownie".into()), DataValue::Number(72.4 * s), DataValue::Number(53.9 * s), DataValue::Number(39.1 * s)],
                         ])
                     )
-                    .x_axis(Axis::category(vec!["Matcha Latte", "Milk Tea", "Cheese Cocoa", "Walnut Brownie"])) // Real axis mapping pending
+                    .x_axis(Axis::category(vec!["Matcha Latte", "Milk Tea", "Cheese Cocoa", "Walnut Brownie"]))
                     .y_axis(Axis::value())
                     .series(vec![
                         BarSeries::new("2015")
@@ -422,7 +491,7 @@ impl Widget<GalleryState> for GalleryApp {
                     ])
                     .build(ctx, view)
             }
-            (5, 0) => {
+            (5, 1) => {
                 Scene3D::new()
                     .add_primitive(Primitive3D::Cube {
                         center: Point3D::new(0.0, 0.0, 0.0),
@@ -506,9 +575,7 @@ fn main() -> anyhow::Result<()> {
         .with_sync_env(|_state: &GalleryState, env: &mut fission_core::Env| {
             env.theme = fission_theme::Theme::dark();
         })
-        .with_frame_hook(|_state| {
-            true // Keep event loop active for QA testing script
-        });
+;
 
     app.run()
 }
