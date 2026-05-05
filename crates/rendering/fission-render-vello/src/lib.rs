@@ -1020,8 +1020,25 @@ impl<'a> VelloRenderer<'a> {
             self.current_transform = self.current_transform * affine;
         }
 
-        for child in &layer.children {
-            self.render_node(child)?;
+        if let Some(cache_key) = layer.style.content_cache_key {
+            if !self.scene_cache.contains(cache_key) {
+                let mut cached_scene = Scene::new();
+                {
+                    let mut cached_renderer = VelloRenderer::new(
+                        &mut cached_scene,
+                        Arc::clone(&self.measurer),
+                        self.scene_cache,
+                        1.0,
+                    );
+                    cached_renderer.render_layer_contents(layer)?;
+                }
+                self.scene_cache.insert(cache_key, cached_scene);
+            }
+            if let Some(cached_scene) = self.scene_cache.get(cache_key) {
+                self.scene.append(cached_scene, Some(self.current_transform));
+            }
+        } else {
+            self.render_layer_contents(layer)?;
         }
 
         while self.current_layer_count > saved_layer_count {
@@ -1029,6 +1046,13 @@ impl<'a> VelloRenderer<'a> {
             self.current_layer_count -= 1;
         }
         self.current_transform = saved_transform;
+        Ok(())
+    }
+
+    fn render_layer_contents(&mut self, layer: &RenderLayer) -> Result<()> {
+        for child in &layer.children {
+            self.render_node(child)?;
+        }
         Ok(())
     }
 }

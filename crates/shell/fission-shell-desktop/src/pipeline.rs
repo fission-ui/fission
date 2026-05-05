@@ -871,10 +871,20 @@ fn generate_render_layer_recursive(
         Op::Layout(LayoutOp::Transform { transform }) => Some(*transform),
         _ => None,
     };
+    let has_dynamic_transform = needs_dynamic_transform || scroll.is_some();
+    let has_dynamic_style = emit_opacity_layer || has_dynamic_transform || has_runtime_clip;
+    let has_dynamic_children = node.children.iter().any(|child| {
+        runtime_dynamic_subtrees
+            .get(child)
+            .copied()
+            .unwrap_or(false)
+    });
     let mut layer = RenderLayer::new(rect);
     layer.node_id = Some(node_id);
     if can_cache_scene {
         layer.style.cache_key = Some(scene_cache_key);
+    } else if has_dynamic_style && !has_dynamic_children {
+        layer.style.content_cache_key = Some(scene_cache_key ^ 0x9E37_79B9_7F4A_7C15);
     }
 
     layer.style.clip = match &node.op {
@@ -1427,7 +1437,17 @@ mod tests {
     use fission_ir::op::{Color, Fill};
     use fission_ir::{CompositeScalar, CompositeStyle, CoreIR, LayoutOp, NodeId, Op, PaintOp, WidgetNodeId};
     use fission_core::ScrollStateMap;
+    use fission_layout::{LayoutEngine, LayoutRect, LayoutSize};
+    use fission_render::{RenderScene, Renderer};
     use std::collections::HashMap;
+
+    struct NullRenderer;
+
+    impl Renderer for NullRenderer {
+        fn render_scene(&mut self, _scene: &RenderScene) -> anyhow::Result<()> {
+            Ok(())
+        }
+    }
 
     #[test]
     fn unchanged_scroll_offsets_do_not_invalidate_cache() {
@@ -1555,4 +1575,92 @@ mod tests {
         );
     }
 
+    #[test]
+    fn dynamic_layer_with_static_contents_gets_content_cache_key() {
+        let mut ir = CoreIR::new();
+        let child = NodeId::derived(12, &[1]);
+        let root = NodeId::derived(12, &[0]);
+        ir.add_node(
+            child,
+            Op::Paint(PaintOp::DrawRect {
+                fill: Some(Fill::Solid(Color {
+                    r: 20,
+                    g: 40,
+                    b: 60,
+                    a: 255,
+                })),
+                stroke: None,
+                corner_radius: 8.0,
+                shadow: None,
+            }),
+            vec![],
+        );
+        ir.add_node_with_composite(
+            root,
+            Op::Layout(LayoutOp::Box {
+                width: Some(160.0),
+                height: Some(72.0),
+                min_width: None,
+                max_width: None,
+                min_height: None,
+                max_height: None,
+                padding: [0.0, 0.0, 0.0, 0.0],
+                flex_grow: 0.0,
+                flex_shrink: 0.0,
+                aspect_ratio: None,
+            }),
+            CompositeStyle {
+                opacity: Some(
+                    CompositeScalar::new(0.4).animated(WidgetNodeId::explicit("fade-cache")),
+                ),
+                ..Default::default()
+            },
+            vec![child],
+        );
+        ir.set_root(root);
+
+        let mut pipeline = Pipeline::new();
+        let mut layout_engine = LayoutEngine::new();
+        let mut renderer = NullRenderer;
+        let scroll = ScrollStateMap::default();
+        pipeline.replace_ir(ir, &Env::default());
+        pipeline
+            .ensure_layout(
+                LayoutRect::new(0.0, 0.0, 320.0, 240.0),
+                &mut layout_engine,
+                &scroll,
+            )
+            .unwrap();
+        pipeline
+            .render_current(
+                LayoutSize {
+                    width: 320.0,
+                    height: 240.0,
+                },
+                LayoutSize {
+                    width: 320.0,
+                    height: 240.0,
+                },
+                false,
+                &mut renderer,
+                &scroll,
+                &Default::default(),
+                &Default::default(),
+                &Default::default(),
+            )
+            .unwrap();
+
+        let scene = pipeline.retained_scene.as_ref().expect("retained scene missing");
+        let presentation_root = match scene.roots.first() {
+            Some(fission_render::RenderNode::Layer(layer)) => layer,
+            _ => panic!("missing presentation layer"),
+        };
+        let animated_layer = match presentation_root.children.first() {
+            Some(fission_render::RenderNode::Layer(layer)) => layer,
+            _ => panic!("missing animated layer"),
+        };
+
+        assert!(animated_layer.style.cache_key.is_none());
+        assert!(animated_layer.style.content_cache_key.is_some());
+    }
 }
