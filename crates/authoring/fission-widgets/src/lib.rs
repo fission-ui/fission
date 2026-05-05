@@ -140,6 +140,9 @@ pub use hero::Hero;
 pub mod web_view;
 pub use web_view::WebView;
 
+pub mod terminal;
+pub use terminal::{TerminalLaunchConfig, TerminalSession, TerminalView};
+
 pub mod draggable;
 pub use draggable::{DragTarget, Draggable};
 

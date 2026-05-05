@@ -5,7 +5,7 @@ use fission_core::ui::{
 };
 use fission_core::{ActionEnvelope, BuildCtx, Handler, PortalLayer, View, Widget, WidgetNodeId};
 use fission_shell_desktop::DesktopApp;
-use fission_widgets::{Spacer, VStack};
+use fission_widgets::{Spacer, TerminalLaunchConfig, TerminalSession, VStack};
 use std::path::PathBuf;
 
 mod command_palette;
@@ -1258,6 +1258,11 @@ fn main() -> anyhow::Result<()> {
             state.root_path = root_for_init.clone();
             state.tree_cache_dirty = true;
             state.refresh_git_status(); // Initial git status scan
+            state.terminal_session = TerminalSession::spawn(TerminalLaunchConfig {
+                cwd: Some(root_for_init.clone()),
+                ..Default::default()
+            })
+            .ok();
         })
         .with_sync_env(move |_state: &EditorState, env: &mut fission_core::Env| {
             env.theme = fission_theme::Theme::dark();
@@ -1303,6 +1308,10 @@ fn main() -> anyhow::Result<()> {
                         state.cached_tree_entries = entries;
                         changed = true;
                     }
+                }
+
+                if let Some(session) = state.terminal_session.as_ref() {
+                    changed |= session.take_dirty();
                 }
 
                 // Skip LSP entirely in test mode
@@ -1366,10 +1375,6 @@ fn main() -> anyhow::Result<()> {
                 if matches!(key, fission_core::KeyCode::Enter) && !ctrl {
                     if state.renaming_path.is_some() {
                         state.confirm_rename();
-                        return true;
-                    }
-                    if state.terminal_visible && !state.terminal_input.is_empty() {
-                        state.run_terminal_command();
                         return true;
                     }
                     return false;

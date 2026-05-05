@@ -179,6 +179,21 @@ impl Widget<EditorState> for StatusBar {
             );
 
             items.push(
+                Text::new(buf.mode_label())
+                    .size(12.0)
+                    .color(text_color)
+                    .into_node(),
+            );
+
+            items.push(
+                Spacer {
+                    width: Some(16.0),
+                    ..Default::default()
+                }
+                .into_node(),
+            );
+
+            items.push(
                 Text::new("Spaces: 4")
                     .size(12.0)
                     .color(text_color)

@@ -1,0 +1,12 @@
+[package]
+name = "terminal"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+fission = { path = "../../crates/authoring/fission" }
+fission-shell-desktop = { path = "../../crates/shell/fission-shell-desktop" }
+fission-core = { path = "../../crates/core/fission-core" }
+fission-widgets = { path = "../../crates/authoring/fission-widgets" }
+fission-theme = { path = "../../crates/core/fission-theme" }
+anyhow = "1.0"

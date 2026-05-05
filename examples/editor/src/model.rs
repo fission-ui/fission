@@ -1,7 +1,9 @@
 use fission_core::AppState;
 use fission_macros::Action;
+use fission_widgets::TerminalSession;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
+use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
@@ -163,10 +165,9 @@ fn completion_kind_str(kind: Option<u32>) -> String {
     }
 }
 
-/// Maximum file size (in bytes) that the editor will open.  Files larger
-/// than this are rejected with a status-bar message to avoid freezing
-/// the UI with excessive IR node generation.
-const MAX_FILE_SIZE: u64 = 1_000_000;
+const NORMAL_FILE_LIMIT: u64 = 8 * 1024 * 1024;
+const LARGE_FILE_LIMIT: u64 = 64 * 1024 * 1024;
+const HUGE_FILE_PREVIEW_BYTES: usize = 1_048_576;
 
 // --- State ---
 
@@ -193,7 +194,7 @@ pub struct EditorState {
     pub sidebar_visible: bool,
     pub sidebar_section: SidebarSection,
     pub terminal_visible: bool,
-    pub terminal_lines: Vec<String>,
+    pub terminal_session: Option<Arc<TerminalSession>>,
     pub status_message: Option<String>,
 
     // Split
@@ -207,9 +208,6 @@ pub struct EditorState {
     pub selected_completion: usize,
     #[allow(dead_code)]
     pub hover_info: Option<String>,
-
-    // Terminal input
-    pub terminal_input: String,
 
     // Search
     pub search_query: String,
@@ -297,7 +295,7 @@ impl Default for EditorState {
             sidebar_visible: true,
             sidebar_section: SidebarSection::Explorer,
             terminal_visible: true,
-            terminal_lines: vec!["Fission Editor v0.1.0".into(), "Ready.".into()],
+            terminal_session: None,
             status_message: None,
             sidebar_width: 240.0,
             terminal_height: 120.0,
@@ -306,7 +304,6 @@ impl Default for EditorState {
             show_completions: false,
             selected_completion: 0,
             hover_info: None,
-            terminal_input: String::new(),
             search_query: String::new(),
             search_results: Vec::new(),
             git_status_lines: Vec::new(),
@@ -352,6 +349,8 @@ pub struct FileBuffer {
     pub buffer: fission_text_engine::TextBuffer,
     pub language: Language,
     pub wrap_mode: WrapMode,
+    pub document_mode: DocumentMode,
+    pub backing: DocumentBacking,
     pub cursor_line: usize,
     pub cursor_col: usize,
     /// Selection anchor line (same as cursor when no selection).
@@ -382,6 +381,24 @@ pub enum Language {
 pub enum WrapMode {
     NoWrap,
     SoftWrap,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum DocumentMode {
+    Normal,
+    Large,
+    Huge,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DocumentBacking {
+    InMemory,
+    PreviewFile {
+        path: String,
+        size_bytes: u64,
+        loaded_bytes: usize,
+        truncated: bool,
+    },
 }
 
 impl Language {
@@ -438,7 +455,56 @@ pub fn default_wrap_mode_for_path(path: &str, language: Language) -> WrapMode {
     language.default_wrap_mode()
 }
 
+pub fn classify_document_mode_for_size(size_bytes: u64) -> DocumentMode {
+    if size_bytes > LARGE_FILE_LIMIT {
+        DocumentMode::Huge
+    } else if size_bytes > NORMAL_FILE_LIMIT {
+        DocumentMode::Large
+    } else {
+        DocumentMode::Normal
+    }
+}
+
+fn load_huge_file_preview(path: &str) -> std::io::Result<(String, usize, bool)> {
+    let mut file = std::fs::File::open(path)?;
+    let mut buf = vec![0u8; HUGE_FILE_PREVIEW_BYTES];
+    let read = file.read(&mut buf)?;
+    buf.truncate(read);
+    if let Some(first_nul) = buf.iter().position(|byte| *byte == 0) {
+        buf.truncate(first_nul);
+    }
+    let mut preview = String::from_utf8_lossy(&buf).into_owned();
+    let truncated = read == HUGE_FILE_PREVIEW_BYTES;
+    if truncated {
+        if let Some(boundary) = preview
+            .char_indices()
+            .rev()
+            .find(|(_, ch)| *ch == '\n')
+            .map(|(idx, _)| idx)
+        {
+            preview.truncate(boundary);
+        }
+        if !preview.ends_with('\n') {
+            preview.push('\n');
+        }
+        preview.push_str("\n[preview truncated: huge file opened in read-only mode]\n");
+    }
+    Ok((preview, read, truncated))
+}
+
 impl FileBuffer {
+    pub fn is_editable(&self) -> bool {
+        matches!(self.backing, DocumentBacking::InMemory)
+    }
+
+    pub fn mode_label(&self) -> &'static str {
+        match self.document_mode {
+            DocumentMode::Normal => "Normal",
+            DocumentMode::Large => "Large",
+            DocumentMode::Huge => "Huge",
+        }
+    }
+
     fn rebuild_line_index(&mut self) {
         self.line_index = fission_text_engine::LineIndex::build(self.buffer.text());
     }
@@ -552,6 +618,9 @@ impl FileBuffer {
     }
 
     pub fn apply_edit(&mut self, range: std::ops::Range<usize>, new_text: &str) {
+        if !self.is_editable() {
+            return;
+        }
         let (caret, anchor) = self.current_offsets();
         self.clear_preedit();
         self.edit_history
@@ -564,6 +633,9 @@ impl FileBuffer {
     }
 
     pub fn apply_transaction(&mut self, txn: &fission_text_engine::EditTransaction) {
+        if !self.is_editable() {
+            return;
+        }
         let (caret, anchor) = self.current_offsets();
         self.clear_preedit();
         self.edit_history.apply(txn, &mut self.buffer);
@@ -577,6 +649,9 @@ impl FileBuffer {
     /// Replace the entire document through a single undoable transaction.
     #[allow(dead_code)]
     pub fn replace_document(&mut self, new_text: &str) {
+        if !self.is_editable() {
+            return;
+        }
         let (caret, anchor) = self.current_offsets();
         self.clear_preedit();
         let len = self.buffer.len_bytes();
@@ -605,6 +680,9 @@ impl FileBuffer {
 
     /// Undo the last change.
     pub fn undo(&mut self) {
+        if !self.is_editable() {
+            return;
+        }
         self.clear_preedit();
         let (caret, anchor) = self.current_offsets();
         if self.edit_history.undo(&mut self.buffer) {
@@ -618,6 +696,9 @@ impl FileBuffer {
 
     /// Redo the last undone change.
     pub fn redo(&mut self) {
+        if !self.is_editable() {
+            return;
+        }
         self.clear_preedit();
         let (caret, anchor) = self.current_offsets();
         if self.edit_history.redo(&mut self.buffer) {
@@ -716,14 +797,6 @@ pub struct Noop;
 
 #[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct SaveAllFiles;
-
-#[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
-#[serde(transparent)]
-pub struct UpdateTerminalInput(pub String);
-
-#[allow(dead_code)]
-#[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
-pub struct SubmitTerminalCommand;
 
 #[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 #[serde(transparent)]
@@ -890,18 +963,8 @@ impl EditorState {
             return;
         }
 
-        // Reject files that are too large — reading them into the editor would
-        // generate thousands of IR nodes and freeze the UI.
-        if let Ok(meta) = std::fs::metadata(&path) {
-            if meta.len() > MAX_FILE_SIZE {
-                self.status_message = Some(format!(
-                    "File too large to open ({:.1} MB). Max is {} MB.",
-                    meta.len() as f64 / 1_000_000.0,
-                    MAX_FILE_SIZE / 1_000_000,
-                ));
-                return;
-            }
-        }
+        let file_size = std::fs::metadata(&path).map(|meta| meta.len()).unwrap_or(0);
+        let document_mode = classify_document_mode_for_size(file_size);
 
         // Store the file's modification time for external-change detection
         if let Ok(meta) = std::fs::metadata(&path) {
@@ -910,8 +973,6 @@ impl EditorState {
             }
         }
 
-        // Read file
-        let content = std::fs::read_to_string(&path).unwrap_or_else(|_| String::new());
         let ext = Path::new(&path)
             .extension()
             .and_then(|e| e.to_str())
@@ -924,6 +985,33 @@ impl EditorState {
             .unwrap_or(&path)
             .to_string();
 
+        let (content, backing) = match document_mode {
+            DocumentMode::Huge => match load_huge_file_preview(&path) {
+                Ok((preview, loaded_bytes, truncated)) => (
+                    preview,
+                    DocumentBacking::PreviewFile {
+                        path: path.clone(),
+                        size_bytes: file_size,
+                        loaded_bytes,
+                        truncated,
+                    },
+                ),
+                Err(_) => (
+                    String::new(),
+                    DocumentBacking::PreviewFile {
+                        path: path.clone(),
+                        size_bytes: file_size,
+                        loaded_bytes: 0,
+                        truncated: false,
+                    },
+                ),
+            },
+            DocumentMode::Normal | DocumentMode::Large => (
+                std::fs::read_to_string(&path).unwrap_or_else(|_| String::new()),
+                DocumentBacking::InMemory,
+            ),
+        };
+
         let buffer = fission_text_engine::TextBuffer::from_str(&content);
         let line_index = fission_text_engine::LineIndex::build(buffer.text());
         self.file_contents.insert(
@@ -932,6 +1020,8 @@ impl EditorState {
                 buffer,
                 language: lang,
                 wrap_mode,
+                document_mode,
+                backing,
                 cursor_line: 0,
                 cursor_col: 0,
                 anchor_line: 0,
@@ -950,10 +1040,12 @@ impl EditorState {
             Language::Json => "json",
             Language::Plain => "plaintext",
         };
-        if let Some(ref handle) = self.lsp_handle {
-            if let Some(buf) = self.file_contents.get(&path) {
-                let content_str = buf.content();
-                handle.notify_open(&path, &content_str, language_id);
+        if matches!(document_mode, DocumentMode::Normal | DocumentMode::Large) {
+            if let Some(ref handle) = self.lsp_handle {
+                if let Some(buf) = self.file_contents.get(&path) {
+                    let content_str = buf.content();
+                    handle.notify_open(&path, &content_str, language_id);
+                }
             }
         }
 
@@ -966,6 +1058,17 @@ impl EditorState {
         self.scroll_offset_y = 0.0;
         self.tree_cache_dirty = true;
         self.update_breadcrumb();
+        self.status_message = match document_mode {
+            DocumentMode::Normal => Some(format!("Opened {}", path)),
+            DocumentMode::Large => Some(format!(
+                "Opened large file ({:.1} MB)",
+                file_size as f64 / 1_000_000.0
+            )),
+            DocumentMode::Huge => Some(format!(
+                "Opened huge file in read-only preview mode ({:.1} MB)",
+                file_size as f64 / 1_000_000.0
+            )),
+        };
     }
 
     pub fn close_tab(&mut self, idx: usize) {
@@ -996,6 +1099,9 @@ impl EditorState {
     pub fn notify_buffer_changed(&self, path: &str) {
         if let Some(ref handle) = self.lsp_handle {
             if let Some(buf) = self.file_contents.get(path) {
+                if !buf.is_editable() {
+                    return;
+                }
                 let content = buf.content();
                 handle.notify_change(path, &content);
             }
@@ -1004,7 +1110,14 @@ impl EditorState {
 
     pub fn mark_active_tab_dirty(&mut self) {
         if let Some(tab) = self.open_tabs.get_mut(self.active_tab) {
-            tab.is_dirty = true;
+            if self
+                .file_contents
+                .get(&tab.path)
+                .map(|buf| buf.is_editable())
+                .unwrap_or(false)
+            {
+                tab.is_dirty = true;
+            }
         }
     }
 
@@ -1012,6 +1125,11 @@ impl EditorState {
         if let Some(tab) = self.open_tabs.get(self.active_tab) {
             let path = tab.path.clone();
             if let Some(buf) = self.file_contents.get(&path) {
+                if !buf.is_editable() {
+                    self.status_message =
+                        Some("This file is open in read-only preview mode".into());
+                    return;
+                }
                 let content_str = buf.content();
                 if std::fs::write(&path, &content_str).is_ok() {
                     if let Some(tab) = self.open_tabs.get_mut(self.active_tab) {
@@ -1030,6 +1148,9 @@ impl EditorState {
             if self.open_tabs[i].is_dirty {
                 let path = self.open_tabs[i].path.clone();
                 if let Some(buf) = self.file_contents.get(&path) {
+                    if !buf.is_editable() {
+                        continue;
+                    }
                     let content_str = buf.content();
                     if std::fs::write(&path, &content_str).is_ok() {
                         self.open_tabs[i].is_dirty = false;
@@ -1038,35 +1159,6 @@ impl EditorState {
             }
         }
         self.status_message = Some("All files saved".into());
-    }
-
-    pub fn run_terminal_command(&mut self) {
-        let cmd = self.terminal_input.trim().to_string();
-        if cmd.is_empty() {
-            return;
-        }
-        self.terminal_lines.push(format!("$ {}", cmd));
-        match std::process::Command::new("sh")
-            .arg("-c")
-            .arg(&cmd)
-            .current_dir(&self.root_path)
-            .output()
-        {
-            Ok(output) => {
-                let stdout = String::from_utf8_lossy(&output.stdout);
-                let stderr = String::from_utf8_lossy(&output.stderr);
-                for line in stdout.lines() {
-                    self.terminal_lines.push(line.to_string());
-                }
-                for line in stderr.lines() {
-                    self.terminal_lines.push(format!("ERR: {}", line));
-                }
-            }
-            Err(e) => {
-                self.terminal_lines.push(format!("Error: {}", e));
-            }
-        }
-        self.terminal_input.clear();
     }
 
     pub fn run_search(&mut self) {
@@ -1734,6 +1826,8 @@ mod tests {
             buffer: fission_text_engine::TextBuffer::from_str("a"),
             language: Language::Plain,
             wrap_mode: WrapMode::NoWrap,
+            document_mode: DocumentMode::Normal,
+            backing: DocumentBacking::InMemory,
             cursor_line: 0,
             cursor_col: 0,
             anchor_line: 0,
@@ -1763,6 +1857,8 @@ mod tests {
             buffer: fission_text_engine::TextBuffer::from_str("start"),
             language: Language::Plain,
             wrap_mode: WrapMode::NoWrap,
+            document_mode: DocumentMode::Normal,
+            backing: DocumentBacking::InMemory,
             cursor_line: 0,
             cursor_col: 0,
             anchor_line: 0,
@@ -1785,6 +1881,8 @@ mod tests {
             buffer: fission_text_engine::TextBuffer::from_str("before"),
             language: Language::Plain,
             wrap_mode: WrapMode::NoWrap,
+            document_mode: DocumentMode::Normal,
+            backing: DocumentBacking::InMemory,
             cursor_line: 0,
             cursor_col: 0,
             anchor_line: 0,
@@ -2273,40 +2371,47 @@ mod tests {
     }
 
     #[test]
-    fn test_terminal_runs_command() {
-        let mut state = EditorState::default();
-        state.root_path = std::env::temp_dir();
-        state.terminal_input = "echo hello_from_test".to_string();
-
-        state.run_terminal_command();
-
-        // terminal_input should be cleared
-        assert!(state.terminal_input.is_empty());
-
-        // terminal_lines should contain the command and its output
-        let has_prompt = state
-            .terminal_lines
-            .iter()
-            .any(|l| l.contains("$ echo hello_from_test"));
-        let has_output = state
-            .terminal_lines
-            .iter()
-            .any(|l| l.contains("hello_from_test") && !l.starts_with("$"));
-        assert!(has_prompt, "terminal should show the command prompt");
-        assert!(has_output, "terminal should show command output");
+    fn test_classify_document_mode_for_size() {
+        assert_eq!(classify_document_mode_for_size(1_024), DocumentMode::Normal);
+        assert_eq!(
+            classify_document_mode_for_size(NORMAL_FILE_LIMIT + 1),
+            DocumentMode::Large
+        );
+        assert_eq!(
+            classify_document_mode_for_size(LARGE_FILE_LIMIT + 1),
+            DocumentMode::Huge
+        );
     }
 
     #[test]
-    fn test_terminal_empty_command_noop() {
+    fn test_open_file_uses_huge_preview_mode() {
         let mut state = EditorState::default();
-        state.root_path = std::env::temp_dir();
-        let initial_count = state.terminal_lines.len();
-        state.terminal_input = "   ".to_string();
+        let dir = std::env::temp_dir().join("fission_editor_huge_preview");
+        std::fs::create_dir_all(&dir).ok();
+        let file = dir.join("huge.tsv");
+        let mut payload = String::from("col1\\tcol2\\nvalue\\tvalue\\n");
+        while payload.len() < 8192 {
+            payload.push_str("abcdefghij\\tklmnopqrst\\n");
+        }
+        std::fs::write(&file, payload).ok();
+        let sparse = std::fs::OpenOptions::new().write(true).open(&file).unwrap();
+        sparse.set_len(LARGE_FILE_LIMIT + 4096).unwrap();
 
-        state.run_terminal_command();
+        state.open_file(file.to_string_lossy().to_string());
 
-        // Empty/whitespace command should be a no-op
-        assert_eq!(state.terminal_lines.len(), initial_count);
+        let buf = state
+            .active_buffer()
+            .map(|(_, buf)| buf)
+            .expect("buffer should open");
+        assert_eq!(buf.document_mode, DocumentMode::Huge);
+        assert!(!buf.is_editable());
+        assert!(matches!(buf.backing, DocumentBacking::PreviewFile { .. }));
+        assert!(buf.content().contains("preview truncated"));
+        assert!(state
+            .status_message
+            .as_deref()
+            .unwrap_or_default()
+            .contains("read-only preview"));
     }
 
     #[test]
@@ -3103,6 +3208,8 @@ mod tests {
             buffer: fission_text_engine::TextBuffer::from_str("initial"),
             language: Language::Plain,
             wrap_mode: WrapMode::NoWrap,
+            document_mode: DocumentMode::Normal,
+            backing: DocumentBacking::InMemory,
             cursor_line: 0,
             cursor_col: 0,
             anchor_line: 0,
@@ -3133,6 +3240,8 @@ mod tests {
             buffer: fission_text_engine::TextBuffer::from_str("start"),
             language: Language::Plain,
             wrap_mode: WrapMode::NoWrap,
+            document_mode: DocumentMode::Normal,
+            backing: DocumentBacking::InMemory,
             cursor_line: 0,
             cursor_col: 0,
             anchor_line: 0,
@@ -3757,7 +3866,7 @@ mod tests {
         assert_eq!(state.terminal_height, 120.0);
         assert_eq!(state.sidebar_section, SidebarSection::Explorer);
         assert_eq!(state.bottom_panel_tab, BottomPanelTab::Terminal);
-        assert!(state.terminal_lines.len() >= 2);
+        assert!(state.terminal_session.is_none());
         assert!(state.lsp_handle.is_none());
         assert!(!state.lsp_initialized);
     }

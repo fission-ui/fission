@@ -63,6 +63,11 @@ impl Widget<EditorState> for EditorSurface {
                 if let Some(tab) = s.open_tabs.get(s.active_tab) {
                     let path = tab.path.clone();
                     if let Some(buf) = s.file_contents.get_mut(&path) {
+                        if !buf.is_editable() {
+                            s.status_message =
+                                Some("This file is open in read-only preview mode".into());
+                            return;
+                        }
                         buf.apply_edit(a.range_start..a.range_end, &a.new_text);
                         buf.set_selection_offsets(a.caret, a.anchor);
                     }
