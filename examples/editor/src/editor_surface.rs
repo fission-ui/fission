@@ -16,7 +16,17 @@ pub struct EditorSurface;
 impl Widget<EditorState> for EditorSurface {
     fn build(&self, ctx: &mut BuildCtx<EditorState>, view: &View<EditorState>) -> Node {
         // If there is no active buffer, show the welcome screen.
-        let render_node = match EditorRenderNode::from_state(view.state) {
+        let editor_viewport_width = (view.viewport_size().width
+            - 48.0
+            - if view.state.sidebar_visible {
+                view.state.sidebar_width + 1.0
+            } else {
+                0.0
+            }
+            - 61.0
+            - 24.0)
+            .max(180.0);
+        let render_node = match EditorRenderNode::from_state(view.state, editor_viewport_width) {
             Some(rn) => rn,
             None => return self.build_welcome_screen(ctx, view),
         };

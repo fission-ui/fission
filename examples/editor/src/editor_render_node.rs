@@ -14,6 +14,7 @@
 
 use crate::model::{
     ApplyEditorEdit, EditorState, Language, SetEditorPreedit, UpdateCursorPosition, UpdateScrollY,
+    WrapMode,
 };
 use crate::syntax;
 use fission_core::action::ActionEnvelope;
@@ -41,6 +42,15 @@ pub struct SyntaxSpan {
     pub color: IrColor,
 }
 
+#[derive(Debug, Clone)]
+struct VisualLine {
+    source_line: usize,
+    start_col: usize,
+    end_col: usize,
+    text: String,
+    starts_source_line: bool,
+}
+
 // ---------------------------------------------------------------------------
 // EditorRenderNode
 // ---------------------------------------------------------------------------
@@ -55,6 +65,8 @@ pub struct EditorRenderNode {
     pub content: String,
     /// Language of the file (for syntax highlighting).
     pub language: Language,
+    /// Wrap behavior for the current buffer.
+    pub wrap_mode: WrapMode,
     /// Byte offset of the cursor (caret) within `content`.
     pub cursor_offset: usize,
     /// Byte offset of the selection anchor within `content`.
@@ -69,6 +81,8 @@ pub struct EditorRenderNode {
     pub font_size: f32,
     /// Width of the gutter (line-number column) in logical pixels.
     pub gutter_width: f32,
+    /// Approximate wrap width in columns for soft-wrapped content.
+    pub wrap_columns: usize,
     /// Current vertical scroll offset in logical pixels.
     pub scroll_y: f32,
     /// Stable string used to derive deterministic `NodeId`s across rebuilds.
@@ -81,12 +95,14 @@ impl fmt::Debug for EditorRenderNode {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("EditorRenderNode")
             .field("language", &self.language)
+            .field("wrap_mode", &self.wrap_mode)
             .field("cursor_offset", &self.cursor_offset)
             .field("anchor_offset", &self.anchor_offset)
             .field("preedit_range", &self.preedit_range)
             .field("line_height", &self.line_height)
             .field("font_size", &self.font_size)
             .field("gutter_width", &self.gutter_width)
+            .field("wrap_columns", &self.wrap_columns)
             .field("scroll_y", &self.scroll_y)
             .field("content_len", &self.content.len())
             .field("syntax_lines", &self.syntax_cache.len())
@@ -103,11 +119,14 @@ impl EditorRenderNode {
     ///
     /// Returns `None` if there is no active buffer (the caller should fall back
     /// to the welcome screen).
-    pub fn from_state(state: &EditorState) -> Option<Self> {
+    pub fn from_state(state: &EditorState, viewport_width: f32) -> Option<Self> {
         let (tab, buffer) = state.active_buffer()?;
         let content = buffer.display_content();
         let language = buffer.language;
+        let wrap_mode = buffer.wrap_mode;
         let file_path = tab.path.clone();
+        let font_size = 13.0;
+        let line_height = 20.0;
 
         // --- Compute cursor byte offset from current editing/preedit state ---
         let (cursor_offset, anchor_offset) = buffer.display_offsets();
@@ -150,17 +169,22 @@ impl EditorRenderNode {
         // --- Gutter width: enough room for the widest line number + padding ---
         let digits = format!("{}", line_count).len();
         let gutter_width = digits as f32 * 9.0 + 16.0;
+        let char_width = font_size * 0.6;
+        let available_text_width = (viewport_width - gutter_width - 24.0).max(char_width * 20.0);
+        let wrap_columns = ((available_text_width / char_width).floor() as usize).max(20);
 
         Some(Self {
             content,
             language,
+            wrap_mode,
             cursor_offset,
             anchor_offset,
             preedit_range,
             syntax_cache,
-            line_height: 20.0,
-            font_size: 13.0,
+            line_height,
+            font_size,
             gutter_width,
+            wrap_columns,
             scroll_y: state.scroll_offset_y,
             file_path,
             viewport_height: 800.0,
@@ -174,64 +198,45 @@ impl EditorRenderNode {
 
 impl LowerDyn for EditorRenderNode {
     fn lower_dyn(&self, cx: &mut LoweringContext) -> NodeId {
-        let total_lines = self.content.lines().count().max(1);
-
-        // Render ALL lines — the outer Scroll widget handles viewport
-        // clipping and only paints what's visible.  Virtual scrolling
-        // (rendering only visible lines) requires access to the Scroll
-        // widget's runtime offset which isn't available during lowering.
-        // For files under ~500 lines this is fine; larger files are
-        // already capped by MAX_GUTTER_LINES.
+        let visual_lines = self.visual_lines();
+        let total_visual_lines = visual_lines.len().max(1);
+        let total_lines = self.logical_line_count();
         let first_line = 0;
-        let last_line = total_lines;
-
-        // Collect source lines once.
-        let all_lines: Vec<&str> = self.content.lines().collect();
-
-        // Total content height (used for sizing the outer box so scrollbars
-        // reflect the real document length).
-        let content_height = total_lines as f32 * self.line_height;
-
-        // Pre-compute selection range (in byte offsets) for highlight rendering.
+        let last_line = total_visual_lines;
+        let content_height = total_visual_lines as f32 * self.line_height;
         let sel_start = self.cursor_offset.min(self.anchor_offset);
         let sel_end = self.cursor_offset.max(self.anchor_offset);
         let has_selection = sel_start != sel_end;
-
-        // Convert selection to line/col for per-line highlight rectangles.
         let (sel_start_line, sel_start_col) = offset_to_line_col(&self.content, sel_start);
         let (sel_end_line, sel_end_col) = offset_to_line_col(&self.content, sel_end);
-
-        // We will accumulate row children (one per visible line). Each row
-        // contains a gutter DrawText and a code DrawRichText, laid out in a
-        // horizontal flex.
         let mut row_ids: Vec<NodeId> = Vec::with_capacity(last_line - first_line);
-
         let gutter_digits = format!("{}", total_lines).len();
-        let (cursor_line, cursor_col) = offset_to_line_col(&self.content, self.cursor_offset);
+        let (cursor_row, cursor_col) =
+            self.visual_position_for_offset(&self.content, self.cursor_offset);
         let char_width = self.font_size * 0.6;
 
-        for line_idx in first_line..last_line {
-            // ---- Selection highlight for this line ------------------------------
+        for visual_idx in first_line..last_line {
+            let visual_line = &visual_lines[visual_idx];
+            let line_idx = visual_line.source_line;
             let mut line_children: Vec<NodeId> = Vec::new();
 
             if has_selection && line_idx >= sel_start_line && line_idx <= sel_end_line {
-                let line_text = all_lines.get(line_idx).copied().unwrap_or("");
-                let line_len = line_text.chars().count();
-
                 let highlight_start_col = if line_idx == sel_start_line {
-                    sel_start_col
+                    sel_start_col.max(visual_line.start_col)
                 } else {
-                    0
+                    visual_line.start_col
                 };
                 let highlight_end_col = if line_idx == sel_end_line {
-                    sel_end_col
+                    sel_end_col.min(visual_line.end_col)
                 } else {
-                    line_len
+                    visual_line.end_col
                 };
 
                 if highlight_end_col > highlight_start_col {
-                    let sel_x = self.gutter_width + highlight_start_col as f32 * char_width;
-                    let sel_w = (highlight_end_col - highlight_start_col) as f32 * char_width;
+                    let local_start = highlight_start_col.saturating_sub(visual_line.start_col);
+                    let local_end = highlight_end_col.saturating_sub(visual_line.start_col);
+                    let sel_x = self.gutter_width + local_start as f32 * char_width;
+                    let sel_w = (local_end.saturating_sub(local_start)) as f32 * char_width;
 
                     let sel_paint = NodeBuilder::new(
                         cx.next_node_id(),
@@ -264,8 +269,11 @@ impl LowerDyn for EditorRenderNode {
                 }
             }
 
-            // ---- Gutter line number ------------------------------------------
-            let line_num_text = format!("{:>width$}", line_idx + 1, width = gutter_digits);
+            let line_num_text = if visual_line.starts_source_line {
+                format!("{:>width$}", line_idx + 1, width = gutter_digits)
+            } else {
+                " ".repeat(gutter_digits)
+            };
 
             let gutter_paint_id = NodeBuilder::new(
                 cx.next_node_id(),
@@ -290,7 +298,7 @@ impl LowerDyn for EditorRenderNode {
                         max_width: None,
                         min_height: None,
                         max_height: None,
-                        padding: [0.0, 4.0, 0.0, 4.0], // top, right, bottom, left
+                        padding: [0.0, 4.0, 0.0, 4.0],
                         flex_grow: 0.0,
                         flex_shrink: 0.0,
                         aspect_ratio: None,
@@ -300,8 +308,17 @@ impl LowerDyn for EditorRenderNode {
                 b.build(cx)
             };
 
-            // ---- Code text (syntax-highlighted rich text) --------------------
-            let runs: Vec<TextRun> = if line_idx < self.syntax_cache.len() {
+            let runs: Vec<TextRun> = if self.wraps_softly() {
+                vec![TextRun {
+                    text: visual_line.text.clone(),
+                    style: TextStyle {
+                        font_size: self.font_size,
+                        color: DEFAULT_TEXT,
+                        underline: false,
+                        background_color: None,
+                    },
+                }]
+            } else if line_idx < self.syntax_cache.len() {
                 self.syntax_cache[line_idx]
                     .iter()
                     .map(|span| TextRun {
@@ -315,11 +332,8 @@ impl LowerDyn for EditorRenderNode {
                     })
                     .collect()
             } else {
-                // Fallback: unstyled line (should not happen if syntax_cache is
-                // built correctly, but defensive).
-                let text = all_lines.get(line_idx).copied().unwrap_or("").to_string();
                 vec![TextRun {
-                    text,
+                    text: visual_line.text.clone(),
                     style: TextStyle {
                         font_size: self.font_size,
                         color: DEFAULT_TEXT,
@@ -359,7 +373,6 @@ impl LowerDyn for EditorRenderNode {
                 b.build(cx)
             };
 
-            // ---- Compose gutter + code into a horizontal flex row ------------
             let text_row_id = {
                 let id = cx.next_node_id();
                 let mut b = NodeBuilder::new(
@@ -380,18 +393,14 @@ impl LowerDyn for EditorRenderNode {
                 b.build(cx)
             };
 
-            // If there are selection highlights, wrap in a ZStack so the
-            // highlight is behind the text row.
             let row_id = if line_children.is_empty() {
                 text_row_id
             } else {
                 let id = cx.next_node_id();
                 let mut b = NodeBuilder::new(id, Op::Layout(LayoutOp::ZStack));
-                // Selection highlight first (behind).
                 for child_id in line_children {
                     b.add_child(child_id);
                 }
-                // Text row on top.
                 b.add_child(text_row_id);
                 b.build(cx)
             };
@@ -399,10 +408,8 @@ impl LowerDyn for EditorRenderNode {
             row_ids.push(row_id);
         }
 
-        // ---- Cursor bar (thin vertical rectangle) ----------------------------
-        // Only emit the cursor if it falls within the visible range.
-        let cursor_bar_id = if cursor_line >= first_line && cursor_line < last_line {
-            let cursor_y = (cursor_line - first_line) as f32 * self.line_height;
+        let cursor_bar_id = if cursor_row >= first_line && cursor_row < last_line {
+            let cursor_y = (cursor_row - first_line) as f32 * self.line_height;
             let cursor_x = self.gutter_width + cursor_col as f32 * char_width;
 
             let rect_paint = NodeBuilder::new(
@@ -606,6 +613,102 @@ impl CustomRenderObject for EditorRenderNode {
 }
 
 impl EditorRenderNode {
+    fn logical_line_count(&self) -> usize {
+        self.content.split('\n').count().max(1)
+    }
+
+    fn wraps_softly(&self) -> bool {
+        self.wrap_mode == WrapMode::SoftWrap && self.wrap_columns > 0
+    }
+
+    fn visual_lines(&self) -> Vec<VisualLine> {
+        self.visual_lines_for_content(&self.content)
+    }
+
+    fn visual_lines_for_content(&self, content: &str) -> Vec<VisualLine> {
+        let mut lines = Vec::new();
+        let wrap_columns = self.wrap_columns.max(1);
+
+        for (source_line, line_text) in content.split('\n').enumerate() {
+            let char_count = line_text.chars().count();
+            if !self.wraps_softly() || char_count <= wrap_columns {
+                lines.push(VisualLine {
+                    source_line,
+                    start_col: 0,
+                    end_col: char_count,
+                    text: line_text.to_string(),
+                    starts_source_line: true,
+                });
+                continue;
+            }
+
+            let chars: Vec<char> = line_text.chars().collect();
+            let mut start_col = 0usize;
+            while start_col < char_count {
+                let end_col = (start_col + wrap_columns).min(char_count);
+                let text: String = chars[start_col..end_col].iter().collect();
+                lines.push(VisualLine {
+                    source_line,
+                    start_col,
+                    end_col,
+                    text,
+                    starts_source_line: start_col == 0,
+                });
+                start_col = end_col;
+            }
+        }
+
+        if lines.is_empty() {
+            lines.push(VisualLine {
+                source_line: 0,
+                start_col: 0,
+                end_col: 0,
+                text: String::new(),
+                starts_source_line: true,
+            });
+        }
+
+        lines
+    }
+
+    fn visual_position_for_offset(&self, content: &str, offset: usize) -> (usize, usize) {
+        if !self.wraps_softly() {
+            return offset_to_line_col(content, offset);
+        }
+
+        let (source_line, source_col) = offset_to_line_col(content, offset);
+        let visual_lines = self.visual_lines_for_content(content);
+        let mut fallback = (0usize, 0usize);
+
+        for (row, visual_line) in visual_lines.iter().enumerate() {
+            if visual_line.source_line != source_line {
+                continue;
+            }
+            let segment_len = visual_line.end_col.saturating_sub(visual_line.start_col);
+            let col_in_segment = source_col.saturating_sub(visual_line.start_col);
+            fallback = (row, col_in_segment.min(segment_len));
+            if source_col >= visual_line.start_col && source_col <= visual_line.end_col {
+                return fallback;
+            }
+        }
+
+        fallback
+    }
+
+    fn offset_for_visual_position(&self, content: &str, row: usize, col: usize) -> usize {
+        if !self.wraps_softly() {
+            return line_col_to_offset(content, row, col);
+        }
+
+        let visual_lines = self.visual_lines_for_content(content);
+        let visual_line = visual_lines
+            .get(row)
+            .unwrap_or_else(|| visual_lines.last().expect("visual lines should exist"));
+        let segment_len = visual_line.end_col.saturating_sub(visual_line.start_col);
+        let target_col = visual_line.start_col + col.min(segment_len);
+        line_col_to_offset(content, visual_line.source_line, target_col)
+    }
+
     /// Convert a local point (relative to the node's top-left) to a byte
     /// offset in `self.content`.
     fn point_to_offset(&self, local_point: LayoutPoint) -> usize {
@@ -613,23 +716,24 @@ impl EditorRenderNode {
 
         // Account for vertical scroll offset.
         let adjusted_y = local_point.y + self.scroll_y;
-        let line = (adjusted_y / self.line_height).floor().max(0.0) as usize;
+        let row = (adjusted_y / self.line_height).floor().max(0.0) as usize;
 
         // Horizontal: subtract gutter width, then divide by char width.
         let text_x = (local_point.x - self.gutter_width).max(0.0);
         let col = (text_x / char_width).round() as usize;
 
-        line_col_to_offset(&self.content, line, col)
+        self.offset_for_visual_position(&self.content, row, col)
     }
 
     /// Compute the scroll_y needed to keep a given line visible.
     /// Returns `Some(new_scroll_y)` if the scroll needs to change, `None`
     /// if the line is already in view.
-    fn scroll_y_to_reveal_line(&self, line: usize) -> Option<f32> {
-        let total_lines = self.content.lines().count().max(1);
+    fn scroll_y_to_reveal_offset(&self, content: &str, offset: usize) -> Option<f32> {
+        let total_lines = self.visual_lines_for_content(content).len().max(1);
         let content_height = total_lines as f32 * self.line_height;
         let viewport = self.viewport_height;
 
+        let (line, _) = self.visual_position_for_offset(content, offset);
         let line_top = line as f32 * self.line_height;
         let line_bottom = line_top + self.line_height;
 
@@ -757,17 +861,31 @@ impl EditorRenderNode {
                 }
             }
             KeyCode::Up => {
-                let (line, col) = offset_to_line_col(&content, offset);
-                if line > 0 {
-                    offset = line_col_to_offset(&content, line - 1, col);
+                if self.wraps_softly() {
+                    let (row, col) = self.visual_position_for_offset(content, offset);
+                    if row > 0 {
+                        offset = self.offset_for_visual_position(content, row - 1, col);
+                    } else {
+                        offset = 0;
+                    }
+                } else {
+                    let (line, col) = offset_to_line_col(&content, offset);
+                    if line > 0 {
+                        offset = line_col_to_offset(&content, line - 1, col);
+                    }
                 }
                 if !shift {
                     anchor = offset;
                 }
             }
             KeyCode::Down => {
-                let (line, col) = offset_to_line_col(&content, offset);
-                offset = line_col_to_offset(&content, line + 1, col);
+                if self.wraps_softly() {
+                    let (row, col) = self.visual_position_for_offset(content, offset);
+                    offset = self.offset_for_visual_position(content, row + 1, col);
+                } else {
+                    let (line, col) = offset_to_line_col(&content, offset);
+                    offset = line_col_to_offset(&content, line + 1, col);
+                }
                 if !shift {
                     anchor = offset;
                 }
@@ -814,8 +932,7 @@ impl EditorRenderNode {
                 }),
             ));
 
-            let (cursor_line, _) = offset_to_line_col(&preview, offset);
-            if let Some(new_scroll) = self.scroll_y_to_reveal_line(cursor_line) {
+            if let Some(new_scroll) = self.scroll_y_to_reveal_offset(&preview, offset) {
                 actions.push((node_id, ActionEnvelope::from(UpdateScrollY(new_scroll))));
             }
             return CustomEventResult::consumed_with(actions);
@@ -829,8 +946,7 @@ impl EditorRenderNode {
             }),
         ));
 
-        let (cursor_line, _) = offset_to_line_col(content, offset);
-        if let Some(new_scroll) = self.scroll_y_to_reveal_line(cursor_line) {
+        if let Some(new_scroll) = self.scroll_y_to_reveal_offset(content, offset) {
             actions.push((node_id, ActionEnvelope::from(UpdateScrollY(new_scroll))));
         }
 
@@ -866,8 +982,7 @@ impl EditorRenderNode {
         )];
 
         let preview = apply_preview_edit(self.content.as_str(), start..end, text);
-        let (cursor_line, _) = offset_to_line_col(&preview, caret);
-        if let Some(new_scroll) = self.scroll_y_to_reveal_line(cursor_line) {
+        if let Some(new_scroll) = self.scroll_y_to_reveal_offset(&preview, caret) {
             actions.push((node_id, ActionEnvelope::from(UpdateScrollY(new_scroll))));
         }
 
@@ -876,8 +991,10 @@ impl EditorRenderNode {
 
     fn caret_rect(&self, node_rect: LayoutRect) -> LayoutRect {
         let char_width = self.font_size * 0.6;
-        let (line, col) =
-            offset_to_line_col(&self.content, self.cursor_offset.min(self.content.len()));
+        let (line, col) = self.visual_position_for_offset(
+            &self.content,
+            self.cursor_offset.min(self.content.len()),
+        );
         LayoutRect::new(
             node_rect.origin.x + self.gutter_width + col as f32 * char_width,
             node_rect.origin.y + line as f32 * self.line_height - self.scroll_y,
@@ -1039,3 +1156,59 @@ const EDITOR_BG: IrColor = IrColor {
     b: 30,
     a: 255,
 };
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn render_node(content: &str, wrap_mode: WrapMode, wrap_columns: usize) -> EditorRenderNode {
+        EditorRenderNode {
+            content: content.to_string(),
+            language: Language::Plain,
+            wrap_mode,
+            cursor_offset: 0,
+            anchor_offset: 0,
+            preedit_range: None,
+            syntax_cache: content
+                .split('\n')
+                .map(|line| {
+                    vec![SyntaxSpan {
+                        text: line.to_string(),
+                        color: DEFAULT_TEXT,
+                    }]
+                })
+                .collect(),
+            line_height: 20.0,
+            font_size: 13.0,
+            gutter_width: 24.0,
+            wrap_columns,
+            scroll_y: 0.0,
+            file_path: "test.txt".into(),
+            viewport_height: 240.0,
+        }
+    }
+
+    #[test]
+    fn soft_wrap_splits_long_lines_into_visual_rows() {
+        let node = render_node("abcdefghijkl", WrapMode::SoftWrap, 4);
+        let visual_lines = node.visual_lines();
+        let texts: Vec<_> = visual_lines.iter().map(|line| line.text.as_str()).collect();
+        assert_eq!(texts, vec!["abcd", "efgh", "ijkl"]);
+        assert!(visual_lines[0].starts_source_line);
+        assert!(!visual_lines[1].starts_source_line);
+    }
+
+    #[test]
+    fn soft_wrap_maps_visual_rows_back_to_offsets() {
+        let node = render_node("abcdefghi", WrapMode::SoftWrap, 3);
+        let offset = node.offset_for_visual_position(&node.content, 1, 1);
+        assert_eq!(offset_to_line_col(&node.content, offset), (0, 4));
+    }
+
+    #[test]
+    fn soft_wrap_reports_visual_position_for_offsets() {
+        let node = render_node("abcdefghi", WrapMode::SoftWrap, 3);
+        let offset = line_col_to_offset(&node.content, 0, 7);
+        assert_eq!(node.visual_position_for_offset(&node.content, offset), (2, 1));
+    }
+}

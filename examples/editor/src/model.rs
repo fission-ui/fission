@@ -351,6 +351,7 @@ pub struct TabInfo {
 pub struct FileBuffer {
     pub buffer: fission_text_engine::TextBuffer,
     pub language: Language,
+    pub wrap_mode: WrapMode,
     pub cursor_line: usize,
     pub cursor_col: usize,
     /// Selection anchor line (same as cursor when no selection).
@@ -377,6 +378,12 @@ pub enum Language {
     Plain,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum WrapMode {
+    NoWrap,
+    SoftWrap,
+}
+
 impl Language {
     pub fn from_extension(ext: &str) -> Self {
         match ext {
@@ -397,6 +404,38 @@ impl Language {
             Language::Plain => "Plain Text",
         }
     }
+
+    pub fn default_wrap_mode(&self) -> WrapMode {
+        match self {
+            Language::Markdown => WrapMode::SoftWrap,
+            Language::Rust | Language::Toml | Language::Json | Language::Plain => {
+                WrapMode::NoWrap
+            }
+        }
+    }
+}
+
+pub fn default_wrap_mode_for_path(path: &str, language: Language) -> WrapMode {
+    let filename = Path::new(path)
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or(path)
+        .to_ascii_lowercase();
+
+    if matches!(filename.as_str(), "readme" | "license" | "copying" | "changelog") {
+        return WrapMode::SoftWrap;
+    }
+
+    if filename.ends_with(".txt")
+        || filename.ends_with(".text")
+        || filename.ends_with(".md")
+        || filename.ends_with(".markdown")
+        || filename.ends_with(".mdx")
+    {
+        return WrapMode::SoftWrap;
+    }
+
+    language.default_wrap_mode()
 }
 
 impl FileBuffer {
@@ -878,6 +917,7 @@ impl EditorState {
             .and_then(|e| e.to_str())
             .unwrap_or("");
         let lang = Language::from_extension(ext);
+        let wrap_mode = default_wrap_mode_for_path(&path, lang);
         let title = Path::new(&path)
             .file_name()
             .and_then(|n| n.to_str())
@@ -891,6 +931,7 @@ impl EditorState {
             FileBuffer {
                 buffer,
                 language: lang,
+                wrap_mode,
                 cursor_line: 0,
                 cursor_col: 0,
                 anchor_line: 0,
@@ -1692,6 +1733,7 @@ mod tests {
         let mut buf = FileBuffer {
             buffer: fission_text_engine::TextBuffer::from_str("a"),
             language: Language::Plain,
+            wrap_mode: WrapMode::NoWrap,
             cursor_line: 0,
             cursor_col: 0,
             anchor_line: 0,
@@ -1720,6 +1762,7 @@ mod tests {
         let mut buf = FileBuffer {
             buffer: fission_text_engine::TextBuffer::from_str("start"),
             language: Language::Plain,
+            wrap_mode: WrapMode::NoWrap,
             cursor_line: 0,
             cursor_col: 0,
             anchor_line: 0,
@@ -1741,6 +1784,7 @@ mod tests {
         let mut buf = FileBuffer {
             buffer: fission_text_engine::TextBuffer::from_str("before"),
             language: Language::Plain,
+            wrap_mode: WrapMode::NoWrap,
             cursor_line: 0,
             cursor_col: 0,
             anchor_line: 0,
@@ -2488,6 +2532,30 @@ mod tests {
     }
 
     #[test]
+    fn test_markdown_defaults_to_soft_wrap() {
+        assert_eq!(
+            default_wrap_mode_for_path("README.md", Language::Markdown),
+            WrapMode::SoftWrap
+        );
+    }
+
+    #[test]
+    fn test_readme_without_extension_defaults_to_soft_wrap() {
+        assert_eq!(
+            default_wrap_mode_for_path("README", Language::Plain),
+            WrapMode::SoftWrap
+        );
+    }
+
+    #[test]
+    fn test_rust_defaults_to_no_wrap() {
+        assert_eq!(
+            default_wrap_mode_for_path("main.rs", Language::Rust),
+            WrapMode::NoWrap
+        );
+    }
+
+    #[test]
     fn test_save_all_files() {
         let mut state = EditorState::default();
         state.root_path = std::env::temp_dir();
@@ -3034,6 +3102,7 @@ mod tests {
         let mut buf = FileBuffer {
             buffer: fission_text_engine::TextBuffer::from_str("initial"),
             language: Language::Plain,
+            wrap_mode: WrapMode::NoWrap,
             cursor_line: 0,
             cursor_col: 0,
             anchor_line: 0,
@@ -3063,6 +3132,7 @@ mod tests {
         let mut buf = FileBuffer {
             buffer: fission_text_engine::TextBuffer::from_str("start"),
             language: Language::Plain,
+            wrap_mode: WrapMode::NoWrap,
             cursor_line: 0,
             cursor_col: 0,
             anchor_line: 0,

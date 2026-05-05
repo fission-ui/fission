@@ -449,6 +449,14 @@ fn visible_file_tap_opens_the_file_without_crashing() {
         .screenshot(&format!("{}/21_readme_open.png", d))
         .expect("screenshot after opening file");
     client
+        .simulate_resize(900, 700)
+        .expect("narrow editor resize");
+    client.pump().expect("pump after narrow resize");
+    client.wait(400).expect("wait after narrow resize");
+    client
+        .screenshot(&format!("{}/23_readme_narrow.png", d))
+        .expect("screenshot after narrow resize");
+    client
         .assert_text_not_visible("Open a file from the explorer to begin")
         .expect("tapping a visible file should replace the welcome surface with an editor tab");
     client.assert_text_visible("README.md").unwrap();
