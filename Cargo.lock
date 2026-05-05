@@ -118,6 +118,7 @@ dependencies = [
  "fission-shell-desktop",
  "fission-test-driver",
  "fission-widgets",
+ "image 0.25.9",
  "lazy_static",
  "serde",
 ]
@@ -1552,6 +1553,7 @@ dependencies = [
  "fission-icons",
  "fission-macros",
  "fission-shell-desktop",
+ "fission-test-driver",
  "fission-widgets",
  "lazy_static",
  "serde",
@@ -3154,6 +3156,7 @@ dependencies = [
  "fission-core",
  "fission-macros",
  "fission-shell-desktop",
+ "fission-test-driver",
  "fission-widgets",
  "lazy_static",
  "serde",

@@ -1,4 +1,5 @@
 use fission_test_driver::LiveTestClient;
+use image::GenericImageView;
 use std::net::TcpListener;
 use std::process::{Child, Command};
 
@@ -25,6 +26,16 @@ fn screenshot_dir() -> String {
         .unwrap_or_else(|_| "test_screenshots/animation_live".into());
     std::fs::create_dir_all(&dir).ok();
     dir
+}
+
+fn assert_png_dimensions(path: &str, expected_width: u32, expected_height: u32) {
+    let img = image::open(path).expect("open screenshot");
+    let (width, height) = img.dimensions();
+    assert_eq!(
+        (width, height),
+        (expected_width, expected_height),
+        "unexpected screenshot dimensions for {path}"
+    );
 }
 
 #[test]
@@ -65,9 +76,11 @@ fn animation_gallery_live_transitions_and_resize() {
     client.simulate_resize(1280, 900).expect("simulate resize");
     client.pump().expect("pump after resize");
     client.wait(300).expect("wait after resize");
+    let resized_path = format!("{}/04_resized.png", dir);
     client
-        .screenshot(&format!("{}/04_resized.png", dir))
+        .screenshot(&resized_path)
         .expect("resized screenshot");
+    assert_png_dimensions(&resized_path, 1280, 900);
 
     let tree = client.get_tree().expect("get_tree");
     println!("Animation gallery semantics nodes: {}", tree.len());

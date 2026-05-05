@@ -16,3 +16,4 @@ anyhow = "1.0"
 
 [dev-dependencies]
 fission-test-driver = { path = "../../crates/tools/fission-test-driver" }
+image = "0.25"

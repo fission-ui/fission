@@ -23,3 +23,8 @@ TEST_AUDIT.md
 TEST_STRATEGY.md
 test_output.txt
 .tmp
+/manual_audit/*
+!/manual_audit/README.md
+!/manual_audit/*/
+/manual_audit/*/*
+!/manual_audit/*/findings.md
