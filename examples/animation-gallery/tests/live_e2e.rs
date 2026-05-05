@@ -199,3 +199,33 @@ fn resized_surface_does_not_fall_back_to_a_dark_clear_band() {
     client.quit().expect("quit");
     let _ = child.wait();
 }
+
+#[test]
+#[ignore]
+fn wide_resize_uses_the_available_horizontal_space() {
+    let control_port = reserve_control_port();
+    let mut child = launch_gallery(control_port);
+    let client = LiveTestClient::connect(control_port);
+    client
+        .wait_for_ready(15_000)
+        .expect("gallery did not start");
+    client.wait(1_000).expect("initial wait");
+
+    let dir = screenshot_dir();
+    client.simulate_resize(1280, 900).expect("simulate resize");
+    client.pump().expect("pump after resize");
+    client.wait(300).expect("wait after resize");
+
+    let path = format!("{}/08_wide_space_usage.png", dir);
+    client.screenshot(&path).expect("wide resize screenshot");
+
+    let right_half_pixels = count_non_background_pixels(&path, 860, 170, 1230, 520);
+    assert!(
+        right_half_pixels > 2_500,
+        "wide animation gallery layouts should use the available horizontal space; right-half non-background pixels={}",
+        right_half_pixels
+    );
+
+    client.quit().expect("quit");
+    let _ = child.wait();
+}

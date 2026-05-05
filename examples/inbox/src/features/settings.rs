@@ -894,6 +894,7 @@ impl Widget<InboxState> for SettingsModal {
                                     on_increment: None,
                                     on_decrement: None,
                                     on_change: None,
+                                    ..Default::default()
                                 }
                                 .build(ctx, view),
                             ),

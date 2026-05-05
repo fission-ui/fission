@@ -39,9 +39,13 @@ impl<S: fission_core::AppState> Widget<S> for TimePicker {
             children: vec![
                 NumberInput {
                     value: h as f32,
+                    display_text: Some(format!("{:02}", h)),
                     min: Some(0.0),
                     max: Some(23.0),
                     step: 1.0,
+                    field_width: Some(40.0),
+                    button_size: Some(24.0),
+                    gap: Some(2.0),
                     on_increment: h_inc,
                     on_decrement: h_dec,
                     ..Default::default()
@@ -50,9 +54,13 @@ impl<S: fission_core::AppState> Widget<S> for TimePicker {
                 Text::new(":").into_node(),
                 NumberInput {
                     value: m as f32,
+                    display_text: Some(format!("{:02}", m)),
                     min: Some(0.0),
                     max: Some(59.0),
                     step: 1.0,
+                    field_width: Some(40.0),
+                    button_size: Some(24.0),
+                    gap: Some(2.0),
                     on_increment: m_inc,
                     on_decrement: m_dec,
                     ..Default::default()

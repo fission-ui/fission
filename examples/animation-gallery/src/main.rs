@@ -7,7 +7,7 @@ use fission_core::{
 };
 use fission_macros::Action;
 use fission_shell_desktop::DesktopApp;
-use fission_widgets::Transition;
+use fission_widgets::{Transition, Wrap};
 use lazy_static::lazy_static;
 use serde::{Deserialize, Serialize};
 
@@ -123,8 +123,9 @@ impl Widget<AnimationGalleryState> for AnimationGalleryApp {
         let demos = Column {
             gap: Some(18.0),
             children: vec![
-                Row {
-                    gap: Some(18.0),
+                Wrap {
+                    direction: FlexDirection::Row,
+                    spacing: Some(18.0),
                     children: vec![
                         demo_card(
                             "Opacity",
@@ -162,13 +163,6 @@ impl Widget<AnimationGalleryState> for AnimationGalleryApp {
                             }
                             .build(ctx, view),
                         ),
-                    ],
-                    ..Default::default()
-                }
-                .into_node(),
-                Row {
-                    gap: Some(18.0),
-                    children: vec![
                         demo_card(
                             "Rotation",
                             Transition {
@@ -208,9 +202,8 @@ impl Widget<AnimationGalleryState> for AnimationGalleryApp {
                             custom_pulse_card(custom_active, tokens.primary),
                         ),
                     ],
-                    ..Default::default()
                 }
-                .into_node(),
+                .build(ctx, view),
                 wide_demo_card(
                     "Scroll translation",
                     Scroll {

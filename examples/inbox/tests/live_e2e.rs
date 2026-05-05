@@ -217,3 +217,31 @@ fn settings_modal_layout_has_readable_text_rows() {
     client.quit().expect("quit");
     let _ = child.wait();
 }
+
+#[test]
+#[ignore]
+fn compose_schedule_time_is_zero_padded() {
+    let control_port = reserve_control_port();
+    let mut child = launch_inbox(control_port);
+    let client = LiveTestClient::connect(control_port);
+    client.wait_for_ready(20_000).expect("inbox did not start");
+    client.wait(1_500).expect("wait");
+
+    client.tap_text("Compose").expect("open compose");
+    client.wait(700).expect("wait for compose");
+
+    let d = screenshot_dir();
+    client
+        .screenshot(&format!("{}/07_compose_time_padded.png", d))
+        .expect("compose screenshot");
+
+    client
+        .assert_text_visible("09")
+        .expect("compose time picker should display a zero-padded hour");
+    client
+        .assert_text_visible("00")
+        .expect("compose time picker should display a zero-padded minute");
+
+    client.quit().expect("quit");
+    let _ = child.wait();
+}

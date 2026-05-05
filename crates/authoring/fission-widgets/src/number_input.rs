@@ -8,9 +8,13 @@ use serde::{Deserialize, Serialize};
 pub struct NumberInput {
     pub id: Option<WidgetNodeId>,
     pub value: f32,
+    pub display_text: Option<String>,
     pub min: Option<f32>,
     pub max: Option<f32>,
     pub step: f32,
+    pub field_width: Option<f32>,
+    pub button_size: Option<f32>,
+    pub gap: Option<f32>,
     pub on_increment: Option<ActionEnvelope>,
     pub on_decrement: Option<ActionEnvelope>,
     pub on_change: Option<ActionEnvelope>, // Text input change
@@ -21,9 +25,13 @@ impl Default for NumberInput {
         Self {
             id: None,
             value: 0.0,
+            display_text: None,
             min: None,
             max: None,
             step: 1.0,
+            field_width: None,
+            button_size: None,
+            gap: None,
             on_increment: None,
             on_decrement: None,
             on_change: None,
@@ -34,13 +42,19 @@ impl Default for NumberInput {
 impl<S: fission_core::AppState> Widget<S> for NumberInput {
     fn build(&self, _ctx: &mut BuildCtx<S>, view: &View<S>) -> Node {
         let _tokens = &view.env.theme.tokens;
+        let display_text = self
+            .display_text
+            .clone()
+            .unwrap_or_else(|| format!("{}", self.value));
+        let field_width = self.field_width.unwrap_or(60.0);
+        let button_size = self.button_size.unwrap_or(32.0);
         let input_id = self
             .id
             .as_ref()
             .map(|id| NodeId::derived(id.as_u128(), &[0]));
 
         Row::default()
-            .gap(4.0)
+            .gap(self.gap.unwrap_or(4.0))
             .align_items(fission_ir::op::AlignItems::Center)
             .children(vec![
                 Button {
@@ -51,16 +65,16 @@ impl<S: fission_core::AppState> Widget<S> for NumberInput {
                             .into_node(),
                     )),
                     on_press: self.on_decrement.clone(),
-                    width: Some(32.0),
-                    height: Some(32.0),
+                    width: Some(button_size),
+                    height: Some(button_size),
                     padding: Some([0.0; 4]),
                     ..Default::default()
                 }
                 .into_node(),
                 TextInput {
                     id: input_id,
-                    value: format!("{}", self.value),
-                    width: Some(60.0),
+                    value: display_text,
+                    width: Some(field_width),
                     // TODO: Parse text input back to float for on_change
                     // Needs `on_change` logic similar to slider?
                     // MVP: Just display value.
@@ -75,8 +89,8 @@ impl<S: fission_core::AppState> Widget<S> for NumberInput {
                             .into_node(),
                     )),
                     on_press: self.on_increment.clone(),
-                    width: Some(32.0),
-                    height: Some(32.0),
+                    width: Some(button_size),
+                    height: Some(button_size),
                     padding: Some([0.0; 4]),
                     ..Default::default()
                 }
