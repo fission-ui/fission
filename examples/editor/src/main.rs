@@ -327,6 +327,9 @@ impl Widget<EditorState> for MenuBar {
             ToggleTerminal,
             (|s: &mut EditorState, _, _| {
                 s.terminal_visible = !s.terminal_visible;
+                if s.terminal_visible {
+                    s.bottom_panel_tab = crate::model::BottomPanelTab::Terminal;
+                }
                 s.active_menu = None;
             }) as Handler<EditorState, ToggleTerminal>,
         );

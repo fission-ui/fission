@@ -3,6 +3,7 @@ use fission_core::op::Color;
 use fission_core::ui::{Button, ButtonVariant, Container, Node, Text};
 use fission_core::{BuildCtx, Handler, View, Widget};
 use fission_widgets::{HStack, Spacer, TerminalView, VStack};
+use fission_ir::NodeId;
 
 pub struct TerminalPanel;
 
@@ -52,8 +53,13 @@ impl Widget<EditorState> for TerminalPanel {
                 as Handler<EditorState, crate::model::Noop>,
         );
 
-        let tab = |label: &str, active: bool, action: fission_core::ActionEnvelope| -> Node {
+        let tab = |label: &str,
+                   active: bool,
+                   action: fission_core::ActionEnvelope,
+                   id: &str|
+         -> Node {
             Button {
+                id: Some(NodeId::explicit(id)),
                 variant: ButtonVariant::Ghost,
                 child: Some(Box::new(
                     VStack {
@@ -103,8 +109,18 @@ impl Widget<EditorState> for TerminalPanel {
             HStack {
                 spacing: Some(0.0),
                 children: vec![
-                    tab("TERMINAL", is_terminal, set_terminal),
-                    tab("PROBLEMS", is_problems, set_problems),
+                    tab(
+                        "TERMINAL",
+                        is_terminal,
+                        set_terminal,
+                        "editor_terminal_tab_button",
+                    ),
+                    tab(
+                        "PROBLEMS",
+                        is_problems,
+                        set_problems,
+                        "editor_problems_tab_button",
+                    ),
                     Spacer {
                         flex_grow: 1.0,
                         ..Default::default()
@@ -155,6 +171,14 @@ impl Widget<EditorState> for TerminalPanel {
         } else {
             crate::diagnostics_panel::DiagnosticsPanel.build(ctx, view)
         };
+        let content = Container::new(content)
+            .id(NodeId::explicit(if is_terminal {
+                "editor_terminal_tab_content"
+            } else {
+                "editor_problems_tab_content"
+            }))
+            .flex_grow(1.0)
+            .into_node();
 
         Container::new(
             fission_core::ui::Column {

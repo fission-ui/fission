@@ -3,6 +3,7 @@ use fission_core::diff::diff_ir;
 use fission_core::env::{AnimationStateMap, Env, VideoStateMap, WebStateMap};
 use fission_core::lowering::build_layout_tree;
 use fission_core::registry::AnimationPropertyId;
+use fission_core::ui::custom_render::downcast_render_object;
 use fission_core::{LayoutPoint, ScrollStateMap};
 use fission_diagnostics::prelude as diag;
 use fission_diagnostics::{SnapshotBlob, SnapshotKind, SnapshotProvider};
@@ -519,6 +520,14 @@ impl Pipeline {
         for node in ir.nodes.values() {
             let mut node_is_runtime_dynamic =
                 matches!(node.op, Op::Layout(LayoutOp::Scroll { .. }));
+            if ir
+                .custom_render_objects
+                .get(&node.id)
+                .and_then(downcast_render_object)
+                .is_some_and(|render_object| render_object.is_runtime_dynamic())
+            {
+                node_is_runtime_dynamic = true;
+            }
             if let Some(target) = node
                 .composite
                 .opacity

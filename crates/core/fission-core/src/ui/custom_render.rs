@@ -92,6 +92,13 @@ impl CustomEventResult {
 /// Implementors are stored behind `Arc<dyn CustomRenderObject>` so they must
 /// be `Send + Sync`.  The trait is object-safe.
 pub trait CustomRenderObject: Send + Sync + Debug {
+    /// Whether this render object should be treated as runtime-dynamic by the
+    /// retained pipeline even when the surrounding widget tree is otherwise
+    /// static.
+    fn is_runtime_dynamic(&self) -> bool {
+        false
+    }
+
     /// Whether this custom render object participates in text input / IME.
     fn accepts_text_input(&self) -> bool {
         false

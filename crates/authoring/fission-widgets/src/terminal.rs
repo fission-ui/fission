@@ -641,6 +641,10 @@ impl LowerDyn for TerminalRenderNode {
 }
 
 impl CustomRenderObject for TerminalRenderNode {
+    fn is_runtime_dynamic(&self) -> bool {
+        true
+    }
+
     fn accepts_text_input(&self) -> bool {
         true
     }

@@ -584,3 +584,77 @@ fn editor_find_replace_workflow() {
     let _ = child.wait();
     println!("Find/replace workflow test passed");
 }
+
+#[test]
+#[ignore]
+fn embedded_terminal_executes_and_renders_commands() {
+    let control_port = reserve_control_port();
+    let mut child = launch_editor(control_port);
+    let client = LiveTestClient::connect(control_port);
+    client.wait_for_ready(20_000).expect("editor start");
+    client.wait(2_000).expect("wait");
+    let d = dir();
+
+    if client
+        .get_text()
+        .expect("get text before opening file")
+        .iter()
+        .any(|item| item.text == "Cargo.toml")
+    {
+        client.tap_text("Cargo.toml").expect("open visible file");
+        client.wait(500).expect("wait after opening file");
+        client.pump().expect("pump after opening file");
+    }
+
+    client.press_key("`", 4).expect("hide terminal panel");
+    client.pump().expect("pump after hiding terminal");
+    client.press_key("`", 4).expect("show terminal panel");
+    client.wait(350).expect("wait after showing terminal");
+    client.pump().expect("pump after showing terminal");
+
+    let terminal_tab = client
+        .get_text()
+        .expect("get text")
+        .into_iter()
+        .filter(|item| item.text == "TERMINAL")
+        .max_by(|a, b| a.y.partial_cmp(&b.y).unwrap_or(std::cmp::Ordering::Equal))
+        .expect("bottom panel terminal tab");
+
+    let focus_x = terminal_tab.x + 180.0;
+    let focus_y = terminal_tab.y + 60.0;
+    client
+        .tap(focus_x, focus_y)
+        .expect("focus embedded terminal");
+    client.wait(250).expect("wait after terminal focus");
+
+    client
+        .type_text("printf 'EDITOR_TERM_OK\\n'")
+        .expect("type terminal command");
+    client.press_key("Enter", 0).expect("run terminal command");
+    client.wait(500).expect("wait for terminal output");
+    client.pump().expect("pump terminal output");
+    client
+        .screenshot(&format!("{}/24_terminal_output.png", d))
+        .expect("embedded terminal output screenshot");
+    client
+        .assert_text_visible("EDITOR_TERM_OK")
+        .expect("embedded terminal output should be visible");
+
+    client
+        .type_text("printf $'\\e[?1049hEDITOR ALT SCREEN\\r\\n'; sleep 1; printf $'\\e[?1049l'")
+        .expect("type alt-screen terminal command");
+    client
+        .press_key("Enter", 0)
+        .expect("run alt-screen command");
+    client.wait(350).expect("wait for alt-screen");
+    client.pump().expect("pump alt-screen");
+    client
+        .screenshot(&format!("{}/25_terminal_alt_screen.png", d))
+        .expect("embedded terminal alt-screen screenshot");
+    client
+        .assert_text_visible("EDITOR ALT SCREEN")
+        .expect("embedded terminal should display alternate screen content");
+
+    client.quit().expect("quit");
+    let _ = child.wait();
+}
