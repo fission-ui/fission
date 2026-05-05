@@ -109,6 +109,108 @@ fn request_redraw_throttled(
     }
 }
 
+fn frame_trace_enabled() -> bool {
+    static ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ENABLED.get_or_init(|| {
+        std::env::var("FISSION_FRAME_TRACE")
+            .map(|v| matches!(v.to_ascii_lowercase().as_str(), "1" | "true" | "yes"))
+            .unwrap_or(false)
+    })
+}
+
+#[derive(Default)]
+struct FrameTraceState {
+    enabled: bool,
+    redraw_reasons: Vec<String>,
+}
+
+impl FrameTraceState {
+    fn new(enabled: bool) -> Self {
+        Self {
+            enabled,
+            redraw_reasons: Vec::new(),
+        }
+    }
+
+    fn note_redraw_reason(&mut self, reason: impl Into<String>) {
+        if !self.enabled {
+            return;
+        }
+        let reason = reason.into();
+        if !self.redraw_reasons.iter().any(|existing| existing == &reason) {
+            self.redraw_reasons.push(reason);
+        }
+    }
+
+    fn take_redraw_reasons(&mut self) -> Vec<String> {
+        if !self.enabled {
+            return Vec::new();
+        }
+        std::mem::take(&mut self.redraw_reasons)
+    }
+
+    fn emit(
+        &self,
+        phase: &str,
+        frame: u64,
+        active_animation_keys: &[String],
+        invalidations: InvalidationSet,
+        reasons: &[String],
+        detail: &str,
+    ) {
+        if !self.enabled {
+            return;
+        }
+        let active = if active_animation_keys.is_empty() {
+            "none".to_string()
+        } else {
+            active_animation_keys.join(",")
+        };
+        let reasons = if reasons.is_empty() {
+            "none".to_string()
+        } else {
+            reasons.join(",")
+        };
+        eprintln!(
+            "[frame-trace] phase={} frame={} invalidation={} active=[{}] reasons=[{}] {}",
+            phase,
+            frame,
+            invalidations.labels().join("+"),
+            active,
+            reasons,
+            detail,
+        );
+    }
+}
+
+fn request_redraw_logged(
+    window: &Window,
+    elwt: &EventLoopWindowTarget<TestEvent>,
+    last_redraw_at: &mut Instant,
+    min_frame: Duration,
+    redraw_pending: &mut bool,
+    frame_trace: &mut FrameTraceState,
+    reason: &str,
+) {
+    frame_trace.note_redraw_reason(reason);
+    request_redraw_throttled(window, elwt, last_redraw_at, min_frame, redraw_pending);
+}
+
+fn active_animation_keys(runtime: &Runtime) -> Vec<String> {
+    let mut keys = runtime
+        .runtime_state
+        .animation
+        .active
+        .iter()
+        .map(|((target, property), anim)| {
+            let repeat = if anim.repeat { "repeat" } else { "finite" };
+            format!("{}:{:?}:{}", target.as_u128(), property, repeat)
+        })
+        .collect::<Vec<_>>();
+    keys.sort();
+    keys
+}
+
 fn animation_redraw_interval(
     has_finite_animation: bool,
     has_repeating_animation: bool,
@@ -702,6 +804,7 @@ fn handle_cursor_moved(
     last_redraw_at: &mut Instant,
     min_frame: Duration,
     redraw_pending: &mut bool,
+    frame_trace: &mut FrameTraceState,
     invalidations: &mut InvalidationSet,
 ) {
     if let (Some(ir), Some(layout)) = (&pipeline.prev_ir, &pipeline.last_snapshot) {
@@ -713,9 +816,25 @@ fn handle_cursor_moved(
         invalidations.mark_build();
         if process_pending_effects(runtime, effect_result_tx, event_proxy, app_effect_handler) {
             invalidations.mark_build();
-            request_redraw_throttled(window, elwt, last_redraw_at, min_frame, redraw_pending);
+            request_redraw_logged(
+                window,
+                elwt,
+                last_redraw_at,
+                min_frame,
+                redraw_pending,
+                frame_trace,
+                "pointer_move:effects",
+            );
         }
-        request_redraw_throttled(window, elwt, last_redraw_at, min_frame, redraw_pending);
+        request_redraw_logged(
+            window,
+            elwt,
+            last_redraw_at,
+            min_frame,
+            redraw_pending,
+            frame_trace,
+            "pointer_move",
+        );
     }
 }
 
@@ -741,6 +860,7 @@ fn handle_mouse_button(
     next_text_trace_seq: &mut u64,
     presented_frames: u64,
     last_blink_toggle: &mut Instant,
+    frame_trace: &mut FrameTraceState,
     invalidations: &mut InvalidationSet,
 ) {
     if let (Some(ir), Some(layout)) = (&pipeline.prev_ir, &pipeline.last_snapshot) {
@@ -774,7 +894,19 @@ fn handle_mouse_button(
         if process_pending_effects(runtime, effect_result_tx, event_proxy, app_effect_handler) {
             mark_text_trace_effects(pending_text_traces, trace_seq);
             invalidations.mark_build();
-            request_redraw_throttled(window, elwt, last_redraw_at, min_frame, redraw_pending);
+            request_redraw_logged(
+                window,
+                elwt,
+                last_redraw_at,
+                min_frame,
+                redraw_pending,
+                frame_trace,
+                if is_pressed {
+                    "pointer_down:effects"
+                } else {
+                    "pointer_up:effects"
+                },
+            );
         }
         if is_pressed {
             let target = focused_text_input_id(runtime, pipeline.prev_ir.as_ref());
@@ -785,7 +917,15 @@ fn handle_mouse_button(
             }
             reset_text_input_caret(runtime, pipeline.prev_ir.as_ref(), last_blink_toggle);
         }
-        request_redraw_throttled(window, elwt, last_redraw_at, min_frame, redraw_pending);
+        request_redraw_logged(
+            window,
+            elwt,
+            last_redraw_at,
+            min_frame,
+            redraw_pending,
+            frame_trace,
+            if is_pressed { "pointer_down" } else { "pointer_up" },
+        );
     }
 }
 
@@ -805,6 +945,7 @@ fn handle_scroll(
     last_redraw_at: &mut Instant,
     min_frame: Duration,
     redraw_pending: &mut bool,
+    frame_trace: &mut FrameTraceState,
     invalidations: &mut InvalidationSet,
 ) {
     if let (Some(ir), Some(layout)) = (&pipeline.prev_ir, &pipeline.last_snapshot) {
@@ -817,9 +958,25 @@ fn handle_scroll(
         invalidations.mark_composite();
         if process_pending_effects(runtime, effect_result_tx, event_proxy, app_effect_handler) {
             invalidations.mark_build();
-            request_redraw_throttled(window, elwt, last_redraw_at, min_frame, redraw_pending);
+            request_redraw_logged(
+                window,
+                elwt,
+                last_redraw_at,
+                min_frame,
+                redraw_pending,
+                frame_trace,
+                "scroll:effects",
+            );
         }
-        request_redraw_throttled(window, elwt, last_redraw_at, min_frame, redraw_pending);
+        request_redraw_logged(
+            window,
+            elwt,
+            last_redraw_at,
+            min_frame,
+            redraw_pending,
+            frame_trace,
+            "scroll",
+        );
     }
 }
 
@@ -865,6 +1022,7 @@ fn handle_key_down<S: AppState>(
     presented_frames: u64,
     last_blink_toggle: &mut Instant,
     key_handler: Option<&KeyHandler<S>>,
+    frame_trace: &mut FrameTraceState,
     invalidations: &mut InvalidationSet,
 ) -> bool {
     let ir_and_snap = match (&pipeline.prev_ir, &pipeline.last_snapshot) {
@@ -879,10 +1037,26 @@ fn handle_key_down<S: AppState>(
             if handler(state, &code, modifiers) {
                 if process_pending_effects(runtime, effect_result_tx, event_proxy, app_effect_handler) {
                     invalidations.mark_build();
-                    request_redraw_throttled(window, elwt, last_redraw_at, min_frame, redraw_pending);
+                    request_redraw_logged(
+                        window,
+                        elwt,
+                        last_redraw_at,
+                        min_frame,
+                        redraw_pending,
+                        frame_trace,
+                        "key_handler:effects",
+                    );
                 }
                 invalidations.mark_build();
-                request_redraw_throttled(window, elwt, last_redraw_at, min_frame, redraw_pending);
+                request_redraw_logged(
+                    window,
+                    elwt,
+                    last_redraw_at,
+                    min_frame,
+                    redraw_pending,
+                    frame_trace,
+                    "key_handler",
+                );
                 return true;
             }
         }
@@ -910,10 +1084,26 @@ fn handle_key_down<S: AppState>(
         if process_pending_effects(runtime, effect_result_tx, event_proxy, app_effect_handler) {
             mark_text_trace_effects(pending_text_traces, trace_seq);
             invalidations.mark_build();
-            request_redraw_throttled(window, elwt, last_redraw_at, min_frame, redraw_pending);
+            request_redraw_logged(
+                window,
+                elwt,
+                last_redraw_at,
+                min_frame,
+                redraw_pending,
+                frame_trace,
+                "keyboard:effects",
+            );
         }
         reset_text_input_caret(runtime, pipeline.prev_ir.as_ref(), last_blink_toggle);
-        request_redraw_throttled(window, elwt, last_redraw_at, min_frame, redraw_pending);
+        request_redraw_logged(
+            window,
+            elwt,
+            last_redraw_at,
+            min_frame,
+            redraw_pending,
+            frame_trace,
+            "keyboard",
+        );
     }
 
     false
@@ -1296,6 +1486,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
         let text_trace_enabled = std::env::var("FISSION_TEXT_TRACE")
             .map(|v| matches!(v.to_ascii_lowercase().as_str(), "1" | "true" | "yes"))
             .unwrap_or(false);
+        let mut frame_trace = FrameTraceState::new(frame_trace_enabled());
         let mut presented_frames: u64 = 0;
         let mut next_text_trace_seq: u64 = 0;
         let mut pending_text_traces: VecDeque<PendingTextTrace> = VecDeque::new();
@@ -1350,6 +1541,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                     &effect_result_tx, &event_proxy, app_effect_handler.as_ref(),
                                     &window, elwt,
                                     &mut last_redraw_at, min_frame, &mut redraw_pending,
+                                    &mut frame_trace,
                                     &mut invalidations,
                                 );
                             }
@@ -1364,6 +1556,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                     text_trace_enabled, &mut pending_text_traces,
                                     &mut next_text_trace_seq, presented_frames,
                                     &mut last_blink_toggle,
+                                    &mut frame_trace,
                                     &mut invalidations,
                                 );
                             }
@@ -1378,6 +1571,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                     text_trace_enabled, &mut pending_text_traces,
                                     &mut next_text_trace_seq, presented_frames,
                                     &mut last_blink_toggle,
+                                    &mut frame_trace,
                                     &mut invalidations,
                                 );
                             }
@@ -1393,6 +1587,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                         &mut next_text_trace_seq, presented_frames,
                                         &mut last_blink_toggle,
                                         self.key_handler.as_ref(),
+                                        &mut frame_trace,
                                         &mut invalidations,
                                     );
                             }
@@ -1400,7 +1595,15 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                 // Key-up is currently a no-op in the framework
                                 // (only key-down dispatches actions), but we request
                                 // a redraw so any state changes are rendered.
-                                request_redraw_throttled(&window, elwt, &mut last_redraw_at, min_frame, &mut redraw_pending);
+                                request_redraw_logged(
+                                    &window,
+                                    elwt,
+                                    &mut last_redraw_at,
+                                    min_frame,
+                                    &mut redraw_pending,
+                                    &mut frame_trace,
+                                    "test_key_up",
+                                );
                             }
                             TestEvent::TextInput { text } => {
                                 // Type each character via handle_key_down so custom
@@ -1418,6 +1621,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                         &mut next_text_trace_seq, presented_frames,
                                         &mut last_blink_toggle,
                                         self.key_handler.as_ref(),
+                                        &mut frame_trace,
                                         &mut invalidations,
                                     );
                                 }
@@ -1429,6 +1633,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                     &effect_result_tx, &event_proxy, app_effect_handler.as_ref(),
                                     &window, elwt,
                                     &mut last_redraw_at, min_frame, &mut redraw_pending,
+                                    &mut frame_trace,
                                     &mut invalidations,
                                 );
                             }
@@ -1438,12 +1643,14 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                     pending_resize = Some(window.inner_size());
                                     live_resize.note_resize(Instant::now());
                                     invalidations.mark_composite();
-                                    request_redraw_throttled(
+                                    request_redraw_logged(
                                         &window,
                                         elwt,
                                         &mut last_redraw_at,
                                         resize_frame,
                                         &mut redraw_pending,
+                                        &mut frame_trace,
+                                        "test_resize",
                                     );
                                 }
                             }
@@ -1463,7 +1670,15 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                 if let Some(ref tx) = test_response_tx {
                                     let _ = tx.send(resp);
                                 }
-                                request_redraw_throttled(&window, elwt, &mut last_redraw_at, min_frame, &mut redraw_pending);
+                                request_redraw_logged(
+                                    &window,
+                                    elwt,
+                                    &mut last_redraw_at,
+                                    min_frame,
+                                    &mut redraw_pending,
+                                    &mut frame_trace,
+                                    "test_tap_text",
+                                );
                             }
                             TestEvent::Screenshot { path } => {
                                 pending_screenshot_path = Some(path);
@@ -1569,13 +1784,29 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                         VideoEvent::Ended => {
                                             video_state.status = VideoStatus::Ended;
                                             active_player.last_status = Some(VideoStatus::Ended);
-                                            request_redraw_throttled(&window, elwt, &mut last_redraw_at, min_frame, &mut redraw_pending);
+                                            request_redraw_logged(
+                                                &window,
+                                                elwt,
+                                                &mut last_redraw_at,
+                                                min_frame,
+                                                &mut redraw_pending,
+                                                &mut frame_trace,
+                                                "video_ended",
+                                            );
                                         },
                                         VideoEvent::Error(e) => {
                                             eprintln!("Video playback error for {:?}: {:?}", widget_id, e);
                                             video_state.status = VideoStatus::Error;
                                             active_player.last_status = Some(VideoStatus::Error);
-                                            request_redraw_throttled(&window, elwt, &mut last_redraw_at, min_frame, &mut redraw_pending);
+                                            request_redraw_logged(
+                                                &window,
+                                                elwt,
+                                                &mut last_redraw_at,
+                                                min_frame,
+                                                &mut redraw_pending,
+                                                &mut frame_trace,
+                                                "video_error",
+                                            );
                                         },
                                     }
                                 }
@@ -1640,7 +1871,15 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                 runtime.runtime_state.caret_visible.insert(id, true);
                                 last_blink_toggle = now;
                                 invalidations.mark_build();
-                                request_redraw_throttled(&window, elwt, &mut last_redraw_at, min_frame, &mut redraw_pending);
+                                request_redraw_logged(
+                                    &window,
+                                    elwt,
+                                    &mut last_redraw_at,
+                                    min_frame,
+                                    &mut redraw_pending,
+                                    &mut frame_trace,
+                                    "caret_focus_changed",
+                                );
                             }
                         }
 
@@ -1652,7 +1891,15 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                     runtime.runtime_state.caret_visible.insert(id, !visible);
                                     last_blink_toggle = now;
                                     invalidations.mark_build();
-                                    request_redraw_throttled(&window, elwt, &mut last_redraw_at, min_frame, &mut redraw_pending);
+                                    request_redraw_logged(
+                                        &window,
+                                        elwt,
+                                        &mut last_redraw_at,
+                                        min_frame,
+                                        &mut redraw_pending,
+                                        &mut frame_trace,
+                                        "caret_blink",
+                                    );
                                 }
                             }
                         }
@@ -1672,9 +1919,25 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                             // the continuation reducers may have emitted.
                             if process_pending_effects(&mut runtime, &effect_result_tx, &event_proxy, app_effect_handler.as_ref()) {
                                 invalidations.mark_build();
-                                request_redraw_throttled(&window, elwt, &mut last_redraw_at, min_frame, &mut redraw_pending);
+                                request_redraw_logged(
+                                    &window,
+                                    elwt,
+                                    &mut last_redraw_at,
+                                    min_frame,
+                                    &mut redraw_pending,
+                                    &mut frame_trace,
+                                    "effect_continuation",
+                                );
                             }
-                            request_redraw_throttled(&window, elwt, &mut last_redraw_at, min_frame, &mut redraw_pending);
+                            request_redraw_logged(
+                                &window,
+                                elwt,
+                                &mut last_redraw_at,
+                                min_frame,
+                                &mut redraw_pending,
+                                &mut frame_trace,
+                                "effect_result",
+                            );
                         }
 
                         // Application frame hook (e.g. LSP polling).
@@ -1690,7 +1953,15 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                         };
                         if frame_hook_wants_redraw {
                             invalidations.mark_build();
-                            request_redraw_throttled(&window, elwt, &mut last_redraw_at, min_frame, &mut redraw_pending);
+                            request_redraw_logged(
+                                &window,
+                                elwt,
+                                &mut last_redraw_at,
+                                min_frame,
+                                &mut redraw_pending,
+                                &mut frame_trace,
+                                "frame_hook",
+                            );
                         }
 
                         // When a frame_hook is registered, ensure the event loop
@@ -1704,11 +1975,11 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                         };
 
                         let has_pending_work =
-                            redraw_pending
-                                || effect_results_dispatched
+                            effect_results_dispatched
                                 || frame_hook_wants_redraw
                                 || invalidations.any()
                                 || pending_resize.is_some();
+                        let active_keys = active_animation_keys(&runtime);
 
                         if has_pending_work {
                             let pending_frame = pending_work_redraw_interval(
@@ -1717,12 +1988,46 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                 min_frame,
                                 resize_frame,
                             );
-                            request_redraw_throttled(
+                            let redraw_reason = if pending_resize.is_some() {
+                                "pending_resize"
+                            } else if invalidations.build {
+                                "pending_work:build"
+                            } else if invalidations.layout {
+                                "pending_work:layout"
+                            } else if invalidations.paint {
+                                "pending_work:paint"
+                            } else if invalidations.composite {
+                                "pending_work:composite"
+                            } else if effect_results_dispatched {
+                                "pending_work:effects"
+                            } else if frame_hook_wants_redraw {
+                                "pending_work:frame_hook"
+                            } else {
+                                "pending_work"
+                            };
+                            request_redraw_logged(
                                 &window,
                                 elwt,
                                 &mut last_redraw_at,
                                 pending_frame,
                                 &mut redraw_pending,
+                                &mut frame_trace,
+                                redraw_reason,
+                            );
+                            let reasons = frame_trace.take_redraw_reasons();
+                            frame_trace.emit(
+                                "about_to_wait",
+                                presented_frames + 1,
+                                &active_keys,
+                                invalidations,
+                                &reasons,
+                                &format!(
+                                    "schedule=pending interval_ms={} pending_resize={} redraw_pending={} highest={}",
+                                    pending_frame.as_millis(),
+                                    pending_resize.is_some(),
+                                    redraw_pending,
+                                    invalidations.highest_class(),
+                                ),
                             );
                             let mut wake_at = last_redraw_at + pending_frame;
                             if let Some(blink_at) = blink_wake_at {
@@ -1737,12 +2042,35 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                             }
                             elwt.set_control_flow(ControlFlow::WaitUntil(wake_at));
                         } else if let Some(animation_frame) = animation_frame {
-                            request_redraw_throttled(
+                            request_redraw_logged(
                                 &window,
                                 elwt,
                                 &mut last_redraw_at,
                                 animation_frame,
                                 &mut redraw_pending,
+                                &mut frame_trace,
+                                if has_finite_animation {
+                                    "animation:finite"
+                                } else if has_playing_video {
+                                    "animation:video"
+                                } else {
+                                    "animation:repeat"
+                                },
+                            );
+                            let reasons = frame_trace.take_redraw_reasons();
+                            frame_trace.emit(
+                                "about_to_wait",
+                                presented_frames + 1,
+                                &active_keys,
+                                invalidations,
+                                &reasons,
+                                &format!(
+                                    "schedule=animation interval_ms={} pending_resize={} redraw_pending={} highest={}",
+                                    animation_frame.as_millis(),
+                                    pending_resize.is_some(),
+                                    redraw_pending,
+                                    invalidations.highest_class(),
+                                ),
                             );
                             let mut wake_at = last_redraw_at + animation_frame;
                             if let Some(blink_at) = blink_wake_at {
@@ -1757,6 +2085,15 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                             }
                             elwt.set_control_flow(ControlFlow::WaitUntil(wake_at));
                         } else if let Some(blink_at) = blink_wake_at {
+                            let reasons = frame_trace.take_redraw_reasons();
+                            frame_trace.emit(
+                                "about_to_wait",
+                                presented_frames + 1,
+                                &active_keys,
+                                invalidations,
+                                &reasons,
+                                "schedule=blink_wait pending_resize=false redraw_pending=false highest=none",
+                            );
                             let mut wake_at = blink_at;
                             if let Some(hook_at) = frame_hook_wake_at {
                                 if hook_at < wake_at {
@@ -1765,8 +2102,26 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                             }
                             elwt.set_control_flow(ControlFlow::WaitUntil(wake_at));
                         } else if let Some(hook_at) = frame_hook_wake_at {
+                            let reasons = frame_trace.take_redraw_reasons();
+                            frame_trace.emit(
+                                "about_to_wait",
+                                presented_frames + 1,
+                                &active_keys,
+                                invalidations,
+                                &reasons,
+                                "schedule=hook_wait pending_resize=false redraw_pending=false highest=none",
+                            );
                             elwt.set_control_flow(ControlFlow::WaitUntil(hook_at));
                         } else {
+                            let reasons = frame_trace.take_redraw_reasons();
+                            frame_trace.emit(
+                                "about_to_wait",
+                                presented_frames + 1,
+                                &active_keys,
+                                invalidations,
+                                &reasons,
+                                "schedule=idle pending_resize=false redraw_pending=false highest=none",
+                            );
                             elwt.set_control_flow(ControlFlow::Wait);
                         }
                     }
@@ -1781,12 +2136,14 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                     pending_resize = Some(size);
                                     live_resize.note_resize(Instant::now());
                                     invalidations.mark_composite();
-                                    request_redraw_throttled(
+                                    request_redraw_logged(
                                         &window,
                                         elwt,
                                         &mut last_redraw_at,
                                         resize_frame,
                                         &mut redraw_pending,
+                                        &mut frame_trace,
+                                        "window_resized",
                                     );
                                 }
                             }
@@ -1794,12 +2151,14 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                 pending_resize = Some(window.inner_size());
                                 live_resize.note_resize(Instant::now());
                                 invalidations.mark_composite();
-                                request_redraw_throttled(
+                                request_redraw_logged(
                                     &window,
                                     elwt,
                                     &mut last_redraw_at,
                                     resize_frame,
                                     &mut redraw_pending,
+                                    &mut frame_trace,
+                                    "scale_factor_changed",
                                 );
                             }
                             WindowEvent::RedrawRequested => {
@@ -1809,12 +2168,37 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                 let dt = now.duration_since(last_frame_time);
                                 last_frame_time = now;
                                 let dt_ms = dt.as_millis() as u64;
+                                let pre_tick_active = active_animation_keys(&runtime);
                                 match runtime.tick(dt_ms) {
                                     Ok(tick_result) => {
-                                        invalidations.merge(
+                                        let tick_invalidations =
                                             pipeline.classify_animation_updates(
                                                 &tick_result.changed_animations,
-                                            ),
+                                            );
+                                        invalidations.merge(tick_invalidations);
+                                        let reasons = if tick_result.changed_animations.is_empty() {
+                                            Vec::new()
+                                        } else {
+                                            tick_result
+                                                .changed_animations
+                                                .iter()
+                                                .map(|(target, property)| {
+                                                    format!(
+                                                        "tick:{}:{:?}:{}",
+                                                        target.as_u128(),
+                                                        property,
+                                                        tick_invalidations.highest_class()
+                                                    )
+                                                })
+                                                .collect::<Vec<_>>()
+                                        };
+                                        frame_trace.emit(
+                                            "redraw_requested",
+                                            presented_frames + 1,
+                                            &pre_tick_active,
+                                            tick_invalidations,
+                                            &reasons,
+                                            &format!("dt_ms={}", dt_ms),
                                         );
                                     }
                                     Err(e) => {
@@ -1823,7 +2207,15 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                 }
                                 if process_pending_effects(&mut runtime, &effect_result_tx, &event_proxy, app_effect_handler.as_ref()) {
                                     invalidations.mark_build();
-                                    request_redraw_throttled(&window, elwt, &mut last_redraw_at, min_frame, &mut redraw_pending);
+                                    request_redraw_logged(
+                                        &window,
+                                        elwt,
+                                        &mut last_redraw_at,
+                                        min_frame,
+                                        &mut redraw_pending,
+                                        &mut frame_trace,
+                                        "redraw:effects",
+                                    );
                                 }
                                 let surface_size = pending_resize.unwrap_or_else(|| window.inner_size());
                                 if surface_size.width == 0 || surface_size.height == 0 {
@@ -2136,6 +2528,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                     &effect_result_tx, &event_proxy, app_effect_handler.as_ref(),
                                     &window, elwt,
                                     &mut last_redraw_at, min_frame, &mut redraw_pending,
+                                    &mut frame_trace,
                                     &mut invalidations,
                                 );
                             }
@@ -2155,6 +2548,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                             text_trace_enabled, &mut pending_text_traces,
                                             &mut next_text_trace_seq, presented_frames,
                                             &mut last_blink_toggle,
+                                            &mut frame_trace,
                                             &mut invalidations,
                                         );
                                     }
@@ -2186,6 +2580,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                         &effect_result_tx, &event_proxy, app_effect_handler.as_ref(),
                                         &window, elwt,
                                         &mut last_redraw_at, min_frame, &mut redraw_pending,
+                                        &mut frame_trace,
                                         &mut invalidations,
                                     );
                                 }
@@ -2232,6 +2627,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                             &mut next_text_trace_seq, presented_frames,
                                             &mut last_blink_toggle,
                                             self.key_handler.as_ref(),
+                                            &mut frame_trace,
                                             &mut invalidations,
                                         );
                                     }
@@ -2267,10 +2663,26 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                         if process_pending_effects(&mut runtime, &effect_result_tx, &event_proxy, app_effect_handler.as_ref()) {
                                             mark_text_trace_effects(&mut pending_text_traces, trace_seq);
                                             invalidations.mark_build();
-                                            request_redraw_throttled(&window, elwt, &mut last_redraw_at, min_frame, &mut redraw_pending);
+                                            request_redraw_logged(
+                                                &window,
+                                                elwt,
+                                                &mut last_redraw_at,
+                                                min_frame,
+                                                &mut redraw_pending,
+                                                &mut frame_trace,
+                                                "ime:effects",
+                                            );
                                         }
                                         reset_text_input_caret(&mut runtime, pipeline.prev_ir.as_ref(), &mut last_blink_toggle);
-                                        request_redraw_throttled(&window, elwt, &mut last_redraw_at, min_frame, &mut redraw_pending);
+                                        request_redraw_logged(
+                                            &window,
+                                            elwt,
+                                            &mut last_redraw_at,
+                                            min_frame,
+                                            &mut redraw_pending,
+                                            &mut frame_trace,
+                                            "ime",
+                                        );
                                     }
                                 }
                             }

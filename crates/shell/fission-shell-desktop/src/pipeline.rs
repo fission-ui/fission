@@ -63,6 +63,40 @@ impl InvalidationSet {
     pub fn any(self) -> bool {
         self.build || self.layout || self.paint || self.composite
     }
+
+    pub fn highest_class(self) -> &'static str {
+        if self.build {
+            "build"
+        } else if self.layout {
+            "layout"
+        } else if self.paint {
+            "paint"
+        } else if self.composite {
+            "composite"
+        } else {
+            "none"
+        }
+    }
+
+    pub fn labels(self) -> Vec<&'static str> {
+        let mut labels = Vec::new();
+        if self.build {
+            labels.push("build");
+        }
+        if self.layout {
+            labels.push("layout");
+        }
+        if self.paint {
+            labels.push("paint");
+        }
+        if self.composite {
+            labels.push("composite");
+        }
+        if labels.is_empty() {
+            labels.push("none");
+        }
+        labels
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -759,12 +793,6 @@ fn generate_render_layer_recursive(
         }
     }
 
-    let mut layer = RenderLayer::new(rect);
-    layer.node_id = Some(node_id);
-    if can_cache_scene {
-        layer.style.cache_key = Some(scene_cache_key);
-    }
-
     let composite_opacity = resolve_composite_scalar(
         node.composite.opacity.as_ref(),
         animation_map,
@@ -843,6 +871,11 @@ fn generate_render_layer_recursive(
         Op::Layout(LayoutOp::Transform { transform }) => Some(*transform),
         _ => None,
     };
+    let mut layer = RenderLayer::new(rect);
+    layer.node_id = Some(node_id);
+    if can_cache_scene {
+        layer.style.cache_key = Some(scene_cache_key);
+    }
 
     layer.style.clip = match &node.op {
         Op::Layout(LayoutOp::Scroll { .. }) | Op::Layout(LayoutOp::Clip { .. }) => {
@@ -855,7 +888,6 @@ fn generate_render_layer_recursive(
         layer.style.opacity = composite_opacity.unwrap_or(1.0);
     }
 
-    let needs_dynamic_transform = needs_dynamic_transform || scroll.is_some();
     if let Some(transform) = compose_dynamic_layer_transform(
         &TransformBinding {
             layer_path: layer_path.clone(),
@@ -1392,7 +1424,8 @@ mod tests {
     use super::{scroll_offsets_changed, InvalidationSet, Pipeline};
     use fission_core::env::Env;
     use fission_core::registry::AnimationPropertyId;
-    use fission_ir::{CompositeScalar, CompositeStyle, CoreIR, LayoutOp, NodeId, Op, WidgetNodeId};
+    use fission_ir::op::{Color, Fill};
+    use fission_ir::{CompositeScalar, CompositeStyle, CoreIR, LayoutOp, NodeId, Op, PaintOp, WidgetNodeId};
     use fission_core::ScrollStateMap;
     use std::collections::HashMap;
 
@@ -1460,4 +1493,66 @@ mod tests {
         assert!(invalidation.build);
         assert!(invalidation.layout);
     }
+
+    #[test]
+    fn compositor_bound_translate_animation_is_composite_only() {
+        let mut ir = CoreIR::new();
+        let child = NodeId::derived(11, &[1]);
+        let root = NodeId::derived(11, &[0]);
+        ir.add_node(
+            child,
+            Op::Paint(PaintOp::DrawRect {
+                fill: Some(Fill::Solid(Color {
+                    r: 0,
+                    g: 0,
+                    b: 0,
+                    a: 255,
+                })),
+                stroke: None,
+                corner_radius: 0.0,
+                shadow: None,
+            }),
+            vec![],
+        );
+        ir.add_node_with_composite(
+            root,
+            Op::Layout(LayoutOp::Box {
+                width: Some(120.0),
+                height: Some(64.0),
+                min_width: None,
+                max_width: None,
+                min_height: None,
+                max_height: None,
+                padding: [0.0, 0.0, 0.0, 0.0],
+                flex_grow: 0.0,
+                flex_shrink: 0.0,
+                aspect_ratio: None,
+            }),
+            CompositeStyle {
+                translate_x: Some(
+                    CompositeScalar::new(12.0).animated(WidgetNodeId::explicit("slide")),
+                ),
+                ..Default::default()
+            },
+            vec![child],
+        );
+        ir.set_root(root);
+
+        let mut pipeline = Pipeline::new();
+        pipeline.replace_ir(ir, &Env::default());
+        let invalidation = pipeline.classify_animation_updates(&[(
+            WidgetNodeId::explicit("slide"),
+            AnimationPropertyId::TranslateX,
+        )]);
+        assert_eq!(
+            invalidation,
+            InvalidationSet {
+                build: false,
+                layout: false,
+                paint: false,
+                composite: true,
+            }
+        );
+    }
+
 }
