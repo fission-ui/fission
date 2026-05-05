@@ -10,8 +10,8 @@ use std::sync::Arc;
 
 pub use node_id::NodeId;
 pub use op::{
-    AlignItems, CompositeScalar, CompositeStyle, EmbedKind, FlexDirection, FlexWrap,
-    GridPlacement, GridTrack, JustifyContent, LayoutOp, Op, PaintOp, StructuralOp,
+    AlignItems, CompositeScalar, CompositeStyle, EmbedKind, FlexDirection, FlexWrap, GridPlacement,
+    GridTrack, JustifyContent, LayoutOp, Op, PaintOp, StructuralOp,
 };
 pub use semantics::{ActionEntry, ActionSet, Role, Semantics};
 pub use widget_id::WidgetNodeId;

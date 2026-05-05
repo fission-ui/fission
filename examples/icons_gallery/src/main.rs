@@ -1,10 +1,10 @@
 use fission::op::AlignItems;
-use fission_widgets::{
-    Column, Container, Icon, LazyColumn, Row, Text, BuildCtx, View, Node, Widget,
-};
 use fission_core::op::Color;
 use fission_core::AppState;
 use fission_shell_desktop::DesktopApp;
+use fission_widgets::{
+    BuildCtx, Column, Container, Icon, LazyColumn, Node, Row, Text, View, Widget,
+};
 use lazy_static::lazy_static;
 use std::sync::Arc;
 
@@ -21,7 +21,12 @@ fn build_icon_rows() -> Vec<Node> {
                 Icon::svg(func()).size(24.0).into_node(),
                 Text::new(label)
                     .size(12.0)
-                    .color(Color { r: 80, g: 80, b: 80, a: 255 })
+                    .color(Color {
+                        r: 80,
+                        g: 80,
+                        b: 80,
+                        a: 255,
+                    })
                     .into_node(),
             ],
             ..Default::default()
@@ -34,9 +39,22 @@ fn build_icon_rows() -> Vec<Node> {
             .bg(if idx % 2 == 0 {
                 Color::WHITE
             } else {
-                Color { r: 248, g: 248, b: 248, a: 255 }
+                Color {
+                    r: 248,
+                    g: 248,
+                    b: 248,
+                    a: 255,
+                }
             })
-            .border(Color { r: 230, g: 230, b: 230, a: 255 }, 1.0)
+            .border(
+                Color {
+                    r: 230,
+                    g: 230,
+                    b: 230,
+                    a: 255,
+                },
+                1.0,
+            )
             .into_node();
 
         items.push(item);
@@ -58,8 +76,7 @@ struct IconsApp;
 
 impl Widget<State> for IconsApp {
     fn build(&self, _ctx: &mut BuildCtx<State>, _view: &View<State>) -> Node {
-        let title = Text::new("Material Icons Gallery")
-            .size(32.0);
+        let title = Text::new("Material Icons Gallery").size(32.0);
 
         let total = ICON_ROWS.len();
         let item_height = 56.0;
@@ -77,15 +94,22 @@ impl Widget<State> for IconsApp {
                 flex_grow: 1.0,
                 children: vec![
                     title.into_node(),
-                    Text::new(format!("{} icon variants", total)).size(14.0).into_node(),
+                    Text::new(format!("{} icon variants", total))
+                        .size(14.0)
+                        .into_node(),
                     content,
                 ],
                 ..Default::default()
             }
-            .into_node()
+            .into_node(),
         )
         .padding_all(24.0)
-        .bg(Color { r: 245, g: 245, b: 245, a: 255 })
+        .bg(Color {
+            r: 245,
+            g: 245,
+            b: 245,
+            a: 255,
+        })
         .flex_grow(1.0)
         .into_node()
     }

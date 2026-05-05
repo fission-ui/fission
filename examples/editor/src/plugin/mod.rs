@@ -42,5 +42,5 @@
 //!
 //! Message types are defined in the `messages` module.
 
-pub mod messages;
 pub mod host;
+pub mod messages;

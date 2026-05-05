@@ -1,8 +1,6 @@
 use fission_core::op::{BoxShadow, Color};
 use fission_core::ui::{Container, GestureDetector, Node, ZStack};
-use fission_core::{
-    ActionEnvelope, BuildCtx, View, Widget, WidgetNodeId,
-};
+use fission_core::{ActionEnvelope, BuildCtx, View, Widget, WidgetNodeId};
 use serde::{Deserialize, Serialize};
 
 /// The edge from which a [`Drawer`] slides out.
@@ -139,7 +137,11 @@ impl<S: fission_core::AppState> Widget<S> for Drawer {
             ..Default::default()
         }
         .into_node();
-        ctx.register_portal_with_layer(fission_core::PortalLayer::Modal, Some(self.id), overlay_root);
+        ctx.register_portal_with_layer(
+            fission_core::PortalLayer::Modal,
+            Some(self.id),
+            overlay_root,
+        );
 
         fission_core::ui::widgets::Spacer::default().into_node()
     }

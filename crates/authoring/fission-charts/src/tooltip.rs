@@ -7,10 +7,14 @@ pub struct Tooltip {
 
 impl Tooltip {
     pub fn axis_trigger() -> Self {
-        Self { trigger: "axis".into() }
+        Self {
+            trigger: "axis".into(),
+        }
     }
-    
+
     pub fn item_trigger() -> Self {
-        Self { trigger: "item".into() }
+        Self {
+            trigger: "item".into(),
+        }
     }
 }

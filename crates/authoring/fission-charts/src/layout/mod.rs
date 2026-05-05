@@ -1,14 +1,14 @@
-pub mod scale;
-pub mod math;
-pub mod treemap;
-pub mod force_graph;
-pub mod sankey;
-pub mod wordcloud;
-pub mod map;
-pub mod polar;
 pub mod calendar;
-pub mod time_scale;
+pub mod force_graph;
 pub mod log_scale;
+pub mod map;
+pub mod math;
+pub mod polar;
+pub mod sankey;
+pub mod scale;
+pub mod time_scale;
+pub mod treemap;
+pub mod wordcloud;
 
 use crate::Chart;
 use scale::{CategoryScale, LinearScale, Scale};
@@ -52,9 +52,7 @@ pub fn calculate_scales(chart: &Chart) -> (Scale, Scale) {
 
     let x_scale = if let Some(ax) = &chart.x_axis {
         match ax.axis_type {
-            crate::axis::AxisType::Category => {
-                Scale::Category(CategoryScale::new(ax.data.clone()))
-            }
+            crate::axis::AxisType::Category => Scale::Category(CategoryScale::new(ax.data.clone())),
             _ => Scale::Linear(LinearScale::nice(0.0, 1.0, 5)),
         }
     } else {

@@ -39,7 +39,8 @@ impl PluginHost {
             path: path.into(),
             language: language.into(),
             content: content.into(),
-        }).unwrap();
+        })
+        .unwrap();
         let msg = encode_message(MSG_FILE_OPENED, &payload);
         for plugin in &mut self.plugins {
             plugin.inbox.push_back(msg.clone());
@@ -72,7 +73,8 @@ impl PluginHost {
                 if let Some((msg_type, payload)) = decode_message(&msg_data) {
                     match msg_type {
                         MSG_DIAGNOSTIC_UPDATE => {
-                            if let Ok(update) = serde_json::from_slice::<DiagnosticUpdate>(payload) {
+                            if let Ok(update) = serde_json::from_slice::<DiagnosticUpdate>(payload)
+                            {
                                 events.push(HostEvent::DiagnosticUpdate(update));
                             }
                         }
@@ -88,7 +90,8 @@ impl PluginHost {
                             }
                         }
                         MSG_COMPLETION_RESPONSE => {
-                            if let Ok(resp) = serde_json::from_slice::<CompletionResponse>(payload) {
+                            if let Ok(resp) = serde_json::from_slice::<CompletionResponse>(payload)
+                            {
                                 events.push(HostEvent::CompletionResponse(resp));
                             }
                         }
@@ -102,7 +105,10 @@ impl PluginHost {
 
     /// Get all registered commands from all plugins.
     pub fn all_commands(&self) -> Vec<&CommandRegister> {
-        self.plugins.iter().flat_map(|p| p.commands.iter()).collect()
+        self.plugins
+            .iter()
+            .flat_map(|p| p.commands.iter())
+            .collect()
     }
 }
 
@@ -144,7 +150,8 @@ mod tests {
         // Simulate plugin sending a status update
         let payload = serde_json::to_vec(&StatusUpdate {
             text: "Indexing...".into(),
-        }).unwrap();
+        })
+        .unwrap();
         let msg = encode_message(MSG_STATUS_UPDATE, &payload);
         host.plugins[0].outbox.push_back(msg);
 

@@ -1,6 +1,6 @@
+use chrono::{NaiveDate, NaiveDateTime, NaiveTime};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
-use chrono::{NaiveDate, NaiveDateTime, NaiveTime};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct EmailMessage {
@@ -170,9 +170,7 @@ pub fn seed_mailbox() -> SeededMailbox {
         true,
         false,
         &["Receipts"],
-        &[
-            "Your subscription renewed on Jan 12. Total: $249.00. Invoice attached.",
-        ],
+        &["Your subscription renewed on Jan 12. Total: $249.00. Invoice attached."],
     );
     add_thread(
         "Draft: Partnership proposal",
@@ -181,9 +179,7 @@ pub fn seed_mailbox() -> SeededMailbox {
         true,
         false,
         &["Drafts"],
-        &[
-            "Hi Jordan,\n\nI wanted to follow up on the partnership outline we discussed...",
-        ],
+        &["Hi Jordan,\n\nI wanted to follow up on the partnership outline we discussed..."],
     );
     add_thread(
         "Meeting follow-up",
@@ -192,9 +188,7 @@ pub fn seed_mailbox() -> SeededMailbox {
         true,
         false,
         &["Sent"],
-        &[
-            "Thanks for the time today. Here are the notes and the next steps we agreed on.",
-        ],
+        &["Thanks for the time today. Here are the notes and the next steps we agreed on."],
     );
     add_thread(
         "Travel details: NYC",
@@ -214,9 +208,7 @@ pub fn seed_mailbox() -> SeededMailbox {
         true,
         false,
         &["Updates"],
-        &[
-            "Here is your weekly product roundup. Highlights include new themes and analytics.",
-        ],
+        &["Here is your weekly product roundup. Highlights include new themes and analytics."],
     );
 
     SeededMailbox {

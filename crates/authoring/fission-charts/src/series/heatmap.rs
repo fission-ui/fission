@@ -13,7 +13,7 @@ impl HeatmapSeries {
             data: Vec::new(),
         }
     }
-    
+
     pub fn data(mut self, data: Vec<(usize, usize, f32)>) -> Self {
         self.data = data;
         self

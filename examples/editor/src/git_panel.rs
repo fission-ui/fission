@@ -1,19 +1,46 @@
 use crate::model::{EditorState, OpenFile, RefreshGitStatus};
 use fission_core::op::Color;
-use fission_core::ui::{Button, ButtonContentAlign, ButtonVariant, Container, Node, Scroll, Text, Column};
+use fission_core::ui::{
+    Button, ButtonContentAlign, ButtonVariant, Column, Container, Node, Scroll, Text,
+};
 use fission_core::{ActionEnvelope, BuildCtx, FlexDirection, Handler, View, Widget};
-use fission_widgets::{VStack, HStack, Spacer};
+use fission_widgets::{HStack, Spacer, VStack};
 use serde_json;
 
 pub struct GitPanel;
 
 impl Widget<EditorState> for GitPanel {
     fn build(&self, ctx: &mut BuildCtx<EditorState>, view: &View<EditorState>) -> Node {
-        let text_color = Color { r: 204, g: 204, b: 204, a: 255 };
-        let dim_color = Color { r: 140, g: 140, b: 140, a: 255 };
-        let added_color = Color { r: 80, g: 200, b: 80, a: 255 };
-        let modified_color = Color { r: 220, g: 180, b: 50, a: 255 };
-        let deleted_color = Color { r: 220, g: 80, b: 80, a: 255 };
+        let text_color = Color {
+            r: 204,
+            g: 204,
+            b: 204,
+            a: 255,
+        };
+        let dim_color = Color {
+            r: 140,
+            g: 140,
+            b: 140,
+            a: 255,
+        };
+        let added_color = Color {
+            r: 80,
+            g: 200,
+            b: 80,
+            a: 255,
+        };
+        let modified_color = Color {
+            r: 220,
+            g: 180,
+            b: 50,
+            a: 255,
+        };
+        let deleted_color = Color {
+            r: 220,
+            g: 80,
+            b: 80,
+            a: 255,
+        };
 
         let refresh = ctx.bind(
             RefreshGitStatus,
@@ -21,28 +48,39 @@ impl Widget<EditorState> for GitPanel {
                 as Handler<EditorState, RefreshGitStatus>,
         );
 
-        let open_id = ctx.bind(
-            OpenFile(String::new()),
-            (|s: &mut EditorState, a: OpenFile, _| s.open_file(a.0))
-                as Handler<EditorState, OpenFile>,
-        ).id;
+        let open_id = ctx
+            .bind(
+                OpenFile(String::new()),
+                (|s: &mut EditorState, a: OpenFile, _| s.open_file(a.0))
+                    as Handler<EditorState, OpenFile>,
+            )
+            .id;
 
-        let mut children = vec![
-            HStack {
-                spacing: Some(4.0),
-                children: vec![
-                    Spacer { flex_grow: 1.0, ..Default::default() }.into_node(),
-                    Button {
-                        variant: ButtonVariant::Ghost,
-                        child: Some(Box::new(Text::new("Refresh").size(11.0).color(text_color).into_node())),
-                        on_press: Some(refresh),
-                        height: Some(24.0),
-                        padding: Some([4.0, 4.0, 0.0, 0.0]),
-                        ..Default::default()
-                    }.into_node(),
-                ],
-            }.into_node(),
-        ];
+        let mut children = vec![HStack {
+            spacing: Some(4.0),
+            children: vec![
+                Spacer {
+                    flex_grow: 1.0,
+                    ..Default::default()
+                }
+                .into_node(),
+                Button {
+                    variant: ButtonVariant::Ghost,
+                    child: Some(Box::new(
+                        Text::new("Refresh")
+                            .size(11.0)
+                            .color(text_color)
+                            .into_node(),
+                    )),
+                    on_press: Some(refresh),
+                    height: Some(24.0),
+                    padding: Some([4.0, 4.0, 0.0, 0.0]),
+                    ..Default::default()
+                }
+                .into_node(),
+            ],
+        }
+        .into_node()];
 
         if view.state.git_status_lines.is_empty() {
             children.push(
@@ -80,7 +118,8 @@ impl Widget<EditorState> for GitPanel {
                                         .flex_grow(1.0)
                                         .into_node(),
                                 ],
-                            }.into_node(),
+                            }
+                            .into_node(),
                         )),
                         on_press: Some(ActionEnvelope {
                             id: open_id,
@@ -89,7 +128,8 @@ impl Widget<EditorState> for GitPanel {
                         height: Some(24.0),
                         padding: Some([4.0, 4.0, 0.0, 0.0]),
                         ..Default::default()
-                    }.into_node(),
+                    }
+                    .into_node(),
                 );
             }
 
@@ -97,27 +137,38 @@ impl Widget<EditorState> for GitPanel {
                 Scroll {
                     direction: FlexDirection::Column,
                     child: Some(Box::new(
-                        VStack { spacing: Some(0.0), children: items }.into_node(),
+                        VStack {
+                            spacing: Some(0.0),
+                            children: items,
+                        }
+                        .into_node(),
                     )),
                     show_scrollbar: true,
                     flex_grow: 1.0,
                     flex_shrink: 1.0,
                     ..Default::default()
-                }.into_node(),
+                }
+                .into_node(),
             );
         }
 
         Container::new(
-            Column { 
+            Column {
                 children,
                 gap: Some(8.0),
                 flex_grow: 1.0,
                 justify_content: fission_core::op::JustifyContent::Start,
                 ..Default::default()
-            }.into_node(),
+            }
+            .into_node(),
         )
         .padding_all(8.0)
-        .bg(Color { r: 37, g: 37, b: 38, a: 255 }) // Surface background
+        .bg(Color {
+            r: 37,
+            g: 37,
+            b: 38,
+            a: 255,
+        }) // Surface background
         .flex_grow(1.0)
         .into_node()
     }

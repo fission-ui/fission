@@ -307,7 +307,9 @@ fn create_text_node(id: NodeId, val: &str, multiline: bool) -> CoreIR {
                 is_focus_barrier: false,
                 drag_payload: None,
                 hero_tag: None,
-                focus_index: None, capture_tab: false, auto_indent: false,
+                focus_index: None,
+                capture_tab: false,
+                auto_indent: false,
             }),
             composite: fission_ir::CompositeStyle::default(),
             hash: 0,
@@ -359,7 +361,9 @@ fn create_rich_text_input_tree(
                 is_focus_barrier: false,
                 drag_payload: None,
                 hero_tag: None,
-                focus_index: None, capture_tab: false, auto_indent: false,
+                focus_index: None,
+                capture_tab: false,
+                auto_indent: false,
             }),
             composite: fission_ir::CompositeStyle::default(),
             hash: 0,
@@ -539,7 +543,7 @@ fn test_text_input_copy_paste() {
             &mut text_edit,
             &mut interaction,
             &mut scroll,
-                &mut gesture,
+            &mut gesture,
             &clipboard,
             Some(&measurer),
         );
@@ -561,7 +565,7 @@ fn test_text_input_copy_paste() {
             &mut text_edit,
             &mut interaction,
             &mut scroll,
-                &mut gesture,
+            &mut gesture,
             &clipboard,
             Some(&measurer),
         );
@@ -605,7 +609,7 @@ fn test_emoji_navigation_and_deletion() {
             &mut text_edit,
             &mut interaction,
             &mut scroll,
-                &mut gesture,
+            &mut gesture,
             &clipboard,
             Some(&measurer),
         );
@@ -634,7 +638,7 @@ fn test_emoji_navigation_and_deletion() {
             &mut text_edit,
             &mut interaction,
             &mut scroll,
-                &mut gesture,
+            &mut gesture,
             &clipboard,
             Some(&measurer),
         );
@@ -677,7 +681,7 @@ fn test_word_navigation() {
             &mut text_edit,
             &mut interaction,
             &mut scroll,
-                &mut gesture,
+            &mut gesture,
             &clipboard,
             Some(&measurer),
         );
@@ -698,7 +702,7 @@ fn test_word_navigation() {
             &mut text_edit,
             &mut interaction,
             &mut scroll,
-                &mut gesture,
+            &mut gesture,
             &clipboard,
             Some(&measurer),
         );
@@ -738,7 +742,7 @@ fn test_selection_mechanics() {
             &mut text_edit,
             &mut interaction,
             &mut scroll,
-                &mut gesture,
+            &mut gesture,
             &clipboard,
             Some(&measurer),
         );
@@ -760,7 +764,7 @@ fn test_selection_mechanics() {
             &mut text_edit,
             &mut interaction,
             &mut scroll,
-                &mut gesture,
+            &mut gesture,
             &clipboard,
             Some(&measurer),
         );
@@ -782,7 +786,7 @@ fn test_selection_mechanics() {
             &mut text_edit,
             &mut interaction,
             &mut scroll,
-                &mut gesture,
+            &mut gesture,
             &clipboard,
             Some(&measurer),
         );
@@ -828,7 +832,7 @@ fn test_home_end_navigation() {
             &mut text_edit,
             &mut interaction,
             &mut scroll,
-                &mut gesture,
+            &mut gesture,
             &clipboard,
             Some(&measurer),
         );
@@ -849,7 +853,7 @@ fn test_home_end_navigation() {
             &mut text_edit,
             &mut interaction,
             &mut scroll,
-                &mut gesture,
+            &mut gesture,
             &clipboard,
             Some(&measurer),
         );
@@ -1043,7 +1047,7 @@ fn test_multiline_vertical_navigation_up_down() {
             &mut text_edit,
             &mut interaction,
             &mut scroll,
-                &mut gesture,
+            &mut gesture,
             &clipboard,
             Some(&measurer),
         );
@@ -1069,7 +1073,7 @@ fn test_multiline_vertical_navigation_up_down() {
             &mut text_edit,
             &mut interaction,
             &mut scroll,
-                &mut gesture,
+            &mut gesture,
             &clipboard,
             Some(&measurer),
         );

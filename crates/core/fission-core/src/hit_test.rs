@@ -113,10 +113,8 @@ fn hit_test_recursive(
     if geom.rect.contains(point) {
         if let Some(any_ro) = ir.custom_render_objects.get(&node_id) {
             if let Some(render_obj) = downcast_render_object(any_ro) {
-                let local_point = LayoutPoint::new(
-                    point.x - geom.rect.origin.x,
-                    point.y - geom.rect.origin.y,
-                );
+                let local_point =
+                    LayoutPoint::new(point.x - geom.rect.origin.x, point.y - geom.rect.origin.y);
                 let result = render_obj.hit_test(local_point, geom.rect);
                 if result.hit {
                     return Some(node_id);
@@ -145,9 +143,12 @@ fn hit_test_recursive(
         }
     }
 
-    if current_is_hit { Some(node_id) } else { None }
+    if current_is_hit {
+        Some(node_id)
+    } else {
+        None
+    }
 }
-
 
 pub fn find_next_focus_node(ir: &CoreIR, current: Option<NodeId>, reverse: bool) -> Option<NodeId> {
     // Identify current scope if focused node is provided
@@ -224,8 +225,20 @@ pub fn get_all_focusable_nodes(ir: &CoreIR) -> Vec<NodeId> {
 
 fn sort_focusable_nodes(ir: &CoreIR, mut list: Vec<(NodeId, usize)>) -> Vec<NodeId> {
     list.sort_by(|(id_a, order_a), (id_b, order_b)| {
-        let idx_a = ir.nodes.get(id_a).and_then(|n| if let Op::Semantics(s) = &n.op { s.focus_index } else { None });
-        let idx_b = ir.nodes.get(id_b).and_then(|n| if let Op::Semantics(s) = &n.op { s.focus_index } else { None });
+        let idx_a = ir.nodes.get(id_a).and_then(|n| {
+            if let Op::Semantics(s) = &n.op {
+                s.focus_index
+            } else {
+                None
+            }
+        });
+        let idx_b = ir.nodes.get(id_b).and_then(|n| {
+            if let Op::Semantics(s) = &n.op {
+                s.focus_index
+            } else {
+                None
+            }
+        });
 
         match (idx_a, idx_b) {
             (Some(a), Some(b)) => a.cmp(&b).then(order_a.cmp(order_b)),
@@ -237,7 +250,13 @@ fn sort_focusable_nodes(ir: &CoreIR, mut list: Vec<(NodeId, usize)>) -> Vec<Node
     list.into_iter().map(|(id, _)| id).collect()
 }
 
-fn collect_focusable_nodes(node_id: NodeId, ir: &CoreIR, list: &mut Vec<(NodeId, usize)>, stop_at_barriers: bool, mut order: usize) {
+fn collect_focusable_nodes(
+    node_id: NodeId,
+    ir: &CoreIR,
+    list: &mut Vec<(NodeId, usize)>,
+    stop_at_barriers: bool,
+    mut order: usize,
+) {
     if let Some(node) = ir.nodes.get(&node_id) {
         let mut is_barrier = false;
         if let Op::Semantics(s) = &node.op {
@@ -249,19 +268,22 @@ fn collect_focusable_nodes(node_id: NodeId, ir: &CoreIR, list: &mut Vec<(NodeId,
         }
 
         if stop_at_barriers && is_barrier {
-             return; 
+            return;
         }
 
         let mut children = node.children.clone();
         // Internal sort within branches still useful for tree-order
         children.sort_by_key(|cid| {
-            ir.nodes.get(cid).and_then(|n| {
-                if let Op::Semantics(s) = &n.op {
-                    s.focus_index
-                } else {
-                    None
-                }
-            }).unwrap_or(i32::MAX)
+            ir.nodes
+                .get(cid)
+                .and_then(|n| {
+                    if let Op::Semantics(s) = &n.op {
+                        s.focus_index
+                    } else {
+                        None
+                    }
+                })
+                .unwrap_or(i32::MAX)
         });
 
         for child in children {
@@ -314,7 +336,10 @@ pub fn find_neighbor_focus_node(
             None => continue,
         };
 
-        let (nx, ny) = (rect.x() + rect.width() / 2.0, rect.y() + rect.height() / 2.0);
+        let (nx, ny) = (
+            rect.x() + rect.width() / 2.0,
+            rect.y() + rect.height() / 2.0,
+        );
 
         let is_in_dir = match direction {
             FocusDirection::Up => ny < cy && (nx - cx).abs() < (ny - cy).abs(),

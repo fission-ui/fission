@@ -33,15 +33,60 @@ pub struct StyledSpan {
 // Colour palette (VS Code Dark+ inspired)
 // ---------------------------------------------------------------------------
 
-const KEYWORD: Color = Color { r: 86, g: 156, b: 214, a: 255 };     // blue
-const STRING_LIT: Color = Color { r: 206, g: 145, b: 120, a: 255 };  // brown/orange
-const COMMENT: Color = Color { r: 106, g: 153, b: 85, a: 255 };      // green
-const NUMBER: Color = Color { r: 181, g: 206, b: 168, a: 255 };      // light green
-const TYPE_COLOR: Color = Color { r: 78, g: 201, b: 176, a: 255 };   // teal
-const MACRO_COLOR: Color = Color { r: 220, g: 220, b: 170, a: 255 }; // yellow
-const DEFAULT: Color = Color { r: 212, g: 212, b: 212, a: 255 };
-const ATTRIBUTE_COLOR: Color = Color { r: 156, g: 220, b: 254, a: 255 }; // light blue
-const LIFETIME_COLOR: Color = Color { r: 86, g: 156, b: 214, a: 255 };   // blue
+const KEYWORD: Color = Color {
+    r: 86,
+    g: 156,
+    b: 214,
+    a: 255,
+}; // blue
+const STRING_LIT: Color = Color {
+    r: 206,
+    g: 145,
+    b: 120,
+    a: 255,
+}; // brown/orange
+const COMMENT: Color = Color {
+    r: 106,
+    g: 153,
+    b: 85,
+    a: 255,
+}; // green
+const NUMBER: Color = Color {
+    r: 181,
+    g: 206,
+    b: 168,
+    a: 255,
+}; // light green
+const TYPE_COLOR: Color = Color {
+    r: 78,
+    g: 201,
+    b: 176,
+    a: 255,
+}; // teal
+const MACRO_COLOR: Color = Color {
+    r: 220,
+    g: 220,
+    b: 170,
+    a: 255,
+}; // yellow
+const DEFAULT: Color = Color {
+    r: 212,
+    g: 212,
+    b: 212,
+    a: 255,
+};
+const ATTRIBUTE_COLOR: Color = Color {
+    r: 156,
+    g: 220,
+    b: 254,
+    a: 255,
+}; // light blue
+const LIFETIME_COLOR: Color = Color {
+    r: 86,
+    g: 156,
+    b: 214,
+    a: 255,
+}; // blue
 
 // ---------------------------------------------------------------------------
 // Cached parsers (one per language)
@@ -83,10 +128,12 @@ pub fn highlight_line(line: &str, language: Language) -> Vec<StyledSpan> {
     match language {
         Language::Rust => {
             let doc = highlight_document(line, language);
-            doc.into_iter().next().unwrap_or_else(|| vec![StyledSpan {
-                text: line.to_string(),
-                color: DEFAULT,
-            }])
+            doc.into_iter().next().unwrap_or_else(|| {
+                vec![StyledSpan {
+                    text: line.to_string(),
+                    color: DEFAULT,
+                }]
+            })
         }
         Language::Toml => highlight_toml_line(line),
         _ => vec![StyledSpan {
@@ -215,7 +262,15 @@ fn highlight_rust_document(content: &str) -> Vec<Vec<StyledSpan>> {
 
     // Apply colored ranges to lines, splitting spans as needed
     for &(start_row, start_col, end_row, end_col, color) in &colored_ranges {
-        apply_color_to_range(&mut result, &lines, start_row, start_col, end_row, end_col, color);
+        apply_color_to_range(
+            &mut result,
+            &lines,
+            start_row,
+            start_col,
+            end_row,
+            end_col,
+            color,
+        );
     }
 
     result
@@ -296,10 +351,10 @@ fn node_color(node: TsNode, _source: &str) -> Option<Color> {
 
         // Rust keywords (leaf nodes whose text is the keyword itself)
         "fn" | "let" | "mut" | "pub" | "use" | "mod" | "struct" | "enum" | "impl" | "trait"
-        | "for" | "while" | "loop" | "if" | "else" | "match" | "return" | "break"
-        | "continue" | "const" | "static" | "type" | "where" | "as" | "in" | "ref" | "self"
-        | "Self" | "super" | "crate" | "async" | "await" | "dyn" | "move" | "unsafe"
-        | "extern" | "yield" => Some(KEYWORD),
+        | "for" | "while" | "loop" | "if" | "else" | "match" | "return" | "break" | "continue"
+        | "const" | "static" | "type" | "where" | "as" | "in" | "ref" | "self" | "Self"
+        | "super" | "crate" | "async" | "await" | "dyn" | "move" | "unsafe" | "extern"
+        | "yield" => Some(KEYWORD),
 
         // Identifier-like nodes that tree-sitter may emit as keywords
         "mutable_specifier" => Some(KEYWORD), // `mut`
@@ -544,7 +599,9 @@ mod tests {
     fn rust_string_highlighted() {
         let spans = highlight_line("let x = \"hello\";", Language::Rust);
         assert!(
-            spans.iter().any(|s| s.text.contains("hello") && s.color == STRING_LIT),
+            spans
+                .iter()
+                .any(|s| s.text.contains("hello") && s.color == STRING_LIT),
             "expected string literal span, got: {:?}",
             spans
         );

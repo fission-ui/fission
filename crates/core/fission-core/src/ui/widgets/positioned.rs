@@ -1,7 +1,10 @@
 use crate::lowering::{LoweringContext, NodeBuilder};
 use crate::ui::traits::Lower;
 use crate::ui::Node;
-use fission_ir::{op::{LayoutOp, Op}, NodeId};
+use fission_ir::{
+    op::{LayoutOp, Op},
+    NodeId,
+};
 use serde::{Deserialize, Serialize};
 
 /// Absolutely positions a child within a [`ZStack`](super::ZStack).
@@ -69,14 +72,12 @@ impl Lower for Positioned {
                 height: self.height,
             }),
         );
-        
+
         if let Some(cid) = child_id {
             builder.add_child(cid);
         }
-        
+
         cx.pop_scope();
         builder.build(cx)
     }
 }
-
-

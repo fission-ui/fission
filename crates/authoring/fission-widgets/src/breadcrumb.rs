@@ -1,7 +1,5 @@
 use crate::Icon;
-use fission_core::ui::{
-    Button, ButtonContentAlign, ButtonVariant, Container, Node, Row, Text,
-};
+use fission_core::ui::{Button, ButtonContentAlign, ButtonVariant, Container, Node, Row, Text};
 use fission_core::{ActionEnvelope, BuildCtx, View, Widget};
 use fission_icons::material;
 use serde::{Deserialize, Serialize};

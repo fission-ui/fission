@@ -84,9 +84,17 @@ impl<S: fission_core::AppState> Widget<S> for Popover {
                 }
                 .into_node();
 
-                ctx.register_portal_with_layer(fission_core::PortalLayer::Flyout, Some(self.id), overlay);
+                ctx.register_portal_with_layer(
+                    fission_core::PortalLayer::Flyout,
+                    Some(self.id),
+                    overlay,
+                );
             } else {
-                ctx.register_portal_with_layer(fission_core::PortalLayer::Flyout, Some(self.id), flyout_node);
+                ctx.register_portal_with_layer(
+                    fission_core::PortalLayer::Flyout,
+                    Some(self.id),
+                    flyout_node,
+                );
             }
         }
 

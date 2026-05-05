@@ -1,5 +1,5 @@
-use serde::{Deserialize, Serialize};
 use fission_core::op::Color;
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PictorialBarSeries {
@@ -18,7 +18,7 @@ impl PictorialBarSeries {
             color: Color::BLUE,
         }
     }
-    
+
     pub fn data(mut self, data: Vec<f32>) -> Self {
         self.data = data;
         self

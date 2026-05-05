@@ -108,11 +108,8 @@ impl Lower for Composite {
         self.style.hash(&mut hasher);
         let stable_hash = hasher.finish();
 
-        let mut builder = NodeBuilder::new(
-            id,
-            Op::Structural(StructuralOp::Group { stable_hash }),
-        )
-        .composite(self.style.clone());
+        let mut builder = NodeBuilder::new(id, Op::Structural(StructuralOp::Group { stable_hash }))
+            .composite(self.style.clone());
         builder.add_child(child_id);
         builder.build(cx)
     }

@@ -50,9 +50,7 @@ pub enum PointerEvent {
         button: PointerButton,
     },
     /// The pointer moved (no button state change).
-    Move {
-        point: LayoutPoint,
-    },
+    Move { point: LayoutPoint },
     /// A scroll (mouse wheel or trackpad) gesture.
     Scroll {
         point: LayoutPoint,
@@ -104,10 +102,7 @@ pub enum KeyEvent {
         modifiers: u8,
     },
     /// A key was released.
-    Up {
-        key_code: KeyCode,
-        modifiers: u8,
-    },
+    Up { key_code: KeyCode, modifiers: u8 },
 }
 
 /// Application lifecycle events.
@@ -135,7 +130,10 @@ pub enum GestureEvent {
     /// A pan/drag gesture began.
     PanStart { point: LayoutPoint },
     /// A pan/drag gesture updated.
-    PanUpdate { point: LayoutPoint, delta: LayoutPoint },
+    PanUpdate {
+        point: LayoutPoint,
+        delta: LayoutPoint,
+    },
     /// A pan/drag gesture ended.
     PanEnd { point: LayoutPoint },
     /// The pointer was held down for longer than the long-press threshold.

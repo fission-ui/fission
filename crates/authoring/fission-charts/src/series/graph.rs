@@ -28,7 +28,7 @@ impl GraphSeries {
             edges: Vec::new(),
         }
     }
-    
+
     pub fn nodes(mut self, nodes: Vec<GraphNode>) -> Self {
         self.nodes = nodes;
         self

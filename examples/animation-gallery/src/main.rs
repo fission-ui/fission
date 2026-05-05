@@ -2,8 +2,8 @@ use fission_core::ui::{
     Button, ButtonVariant, Column, Composite, Container, Node, Row, Scroll, Text,
 };
 use fission_core::{
-    op::Color as IrColor, AnimationPropertyId, AnimationRequest,
-    AnimationStartValue, AppState, BuildCtx, FlexDirection, Handler, View, Widget, WidgetNodeId,
+    op::Color as IrColor, AnimationPropertyId, AnimationRequest, AnimationStartValue, AppState,
+    BuildCtx, FlexDirection, Handler, View, Widget, WidgetNodeId,
 };
 use fission_macros::Action;
 use fission_shell_desktop::DesktopApp;
@@ -262,7 +262,7 @@ fn sized_demo_card(title: &str, body: Node, width: f32) -> Node {
             .border(color(120, 120, 140, 70), 1.0)
             .border_radius(16.0)
             .bg(color(250, 250, 252, 255))
-        .into_node(),
+            .into_node(),
     )
     .repaint_boundary(true)
     .into_node();
@@ -284,13 +284,18 @@ fn sized_demo_card(title: &str, body: Node, width: f32) -> Node {
 }
 
 fn sample_block(label: &str, color: IrColor) -> Node {
-    Container::new(Text::new(label).size(18.0).color(IrColor::WHITE).into_node())
-        .width(96.0)
-        .height(64.0)
-        .padding_all(18.0)
-        .border_radius(18.0)
-        .bg(color)
-        .into_node()
+    Container::new(
+        Text::new(label)
+            .size(18.0)
+            .color(IrColor::WHITE)
+            .into_node(),
+    )
+    .width(96.0)
+    .height(64.0)
+    .padding_all(18.0)
+    .border_radius(18.0)
+    .bg(color)
+    .into_node()
 }
 
 fn custom_pulse_card(pulse: f32, active: bool, base: IrColor) -> Node {
@@ -303,13 +308,18 @@ fn custom_pulse_card(pulse: f32, active: bool, base: IrColor) -> Node {
         "Pulse paused".to_string()
     };
 
-    Container::new(Text::new(label).size(16.0).color(IrColor::WHITE).into_node())
-        .width(width)
-        .height(height)
-        .padding_all(14.0)
-        .border_radius(16.0)
-        .bg(color(base.r, brightness, base.b, 255))
-        .into_node()
+    Container::new(
+        Text::new(label)
+            .size(16.0)
+            .color(IrColor::WHITE)
+            .into_node(),
+    )
+    .width(width)
+    .height(height)
+    .padding_all(14.0)
+    .border_radius(16.0)
+    .bg(color(base.r, brightness, base.b, 255))
+    .into_node()
 }
 
 fn scroll_strip(primary: IrColor, alt: IrColor) -> Node {
@@ -317,13 +327,18 @@ fn scroll_strip(primary: IrColor, alt: IrColor) -> Node {
     for i in 0..14 {
         let bg = if i % 2 == 0 { primary } else { alt };
         items.push(
-            Container::new(Text::new(format!("Lane {}", i + 1)).size(14.0).color(IrColor::WHITE).into_node())
-                .width(112.0)
-                .height(52.0)
-                .padding_all(16.0)
-                .border_radius(14.0)
-                .bg(bg)
-                .into_node(),
+            Container::new(
+                Text::new(format!("Lane {}", i + 1))
+                    .size(14.0)
+                    .color(IrColor::WHITE)
+                    .into_node(),
+            )
+            .width(112.0)
+            .height(52.0)
+            .padding_all(16.0)
+            .border_radius(14.0)
+            .bg(bg)
+            .into_node(),
         );
     }
 

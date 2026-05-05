@@ -20,7 +20,7 @@ impl TreemapSeries {
             data: Vec::new(),
         }
     }
-    
+
     pub fn data(mut self, data: Vec<TreemapNode>) -> Self {
         self.data = data;
         self

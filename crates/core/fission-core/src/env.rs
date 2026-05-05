@@ -1,8 +1,8 @@
 use crate::{action::AppState, registry::AnimationPropertyId};
-use fission_text_engine::{EditTransaction, TextBuffer, TextEdit};
 use fission_i18n::{I18nRegistry, Locale};
 use fission_ir::{NodeId, WidgetNodeId};
 use fission_layout::{LayoutPoint, LayoutSize};
+use fission_text_engine::{EditTransaction, TextBuffer, TextEdit};
 use fission_theme::Theme;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -145,8 +145,8 @@ pub struct TextEditStateMap {
 #[derive(Clone, Debug)]
 pub struct TextEditState {
     pub buffer: TextBuffer,
-    pub caret: usize,             // byte index into value
-    pub anchor: usize,            // selection anchor; if equal to caret then no selection
+    pub caret: usize,  // byte index into value
+    pub anchor: usize, // selection anchor; if equal to caret then no selection
     pub history: TextEditHistory,
     pub preedit: Option<TextPreeditState>,
     pub pending_model_sync: bool, // True when edits are newer than the currently lowered semantics value

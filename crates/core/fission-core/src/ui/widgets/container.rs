@@ -32,7 +32,6 @@ pub struct Container {
     pub child: Option<Box<Node>>,
 
     // -- Layout constraints --
-
     /// Fixed width in layout points.
     pub width: Option<f32>,
     /// Fixed height in layout points.
@@ -53,7 +52,6 @@ pub struct Container {
     pub flex_shrink: f32,
 
     // -- Visual style --
-
     /// Background fill colour.
     pub background_color: Option<Color>,
     /// Border stroke colour.
@@ -100,7 +98,7 @@ impl Container {
         self.id = Some(id);
         self
     }
-    
+
     pub fn size(mut self, w: f32, h: f32) -> Self {
         self.width = Some(w);
         self.height = Some(h);
@@ -136,7 +134,7 @@ impl Container {
         self.max_height = Some(h);
         self
     }
-    
+
     pub fn padding_all(mut self, p: f32) -> Self {
         self.padding = [p; 4];
         self
@@ -151,7 +149,7 @@ impl Container {
         self.flex_shrink = shrink;
         self
     }
-    
+
     pub fn bg(mut self, color: Color) -> Self {
         self.background_color = Some(color);
         self
@@ -187,39 +185,52 @@ impl Lower for Container {
 
         // 1. Background Layer (PaintOp -> AbsoluteFill)
         if self.background_color.is_some() || self.border_color.is_some() || self.shadow.is_some() {
-             let paint = NodeBuilder::new(cx.next_node_id(), Op::Paint(PaintOp::DrawRect {
-                 fill: self.background_color.map(|c| Fill::Solid(c)),
-                 stroke: self.border_color.map(|c| Stroke { fill: Fill::Solid(c), width: self.border_width, dash_array: None, line_cap: fission_ir::op::LineCap::Butt, line_join: fission_ir::op::LineJoin::Miter }),
-                 corner_radius: self.border_radius,
-                 shadow: self.shadow,
-             })).build(cx);
-             children_ids.push(paint);
+            let paint = NodeBuilder::new(
+                cx.next_node_id(),
+                Op::Paint(PaintOp::DrawRect {
+                    fill: self.background_color.map(|c| Fill::Solid(c)),
+                    stroke: self.border_color.map(|c| Stroke {
+                        fill: Fill::Solid(c),
+                        width: self.border_width,
+                        dash_array: None,
+                        line_cap: fission_ir::op::LineCap::Butt,
+                        line_join: fission_ir::op::LineJoin::Miter,
+                    }),
+                    corner_radius: self.border_radius,
+                    shadow: self.shadow,
+                }),
+            )
+            .build(cx);
+            children_ids.push(paint);
         }
 
         // 2. Content Layer
         if let Some(child) = &self.child {
             children_ids.push(child.lower(cx));
         }
-        
+
         cx.pop_scope();
 
-        let mut layout = NodeBuilder::new(id, Op::Layout(LayoutOp::Box {
-            width: self.width,
-            height: self.height,
-            min_width: self.min_width,
-            max_width: self.max_width,
-            min_height: self.min_height,
-            max_height: self.max_height,
-            padding: self.padding,
-            flex_grow: self.flex_grow,
-            flex_shrink: self.flex_shrink,
-            aspect_ratio: None,
-        }));
-        
+        let mut layout = NodeBuilder::new(
+            id,
+            Op::Layout(LayoutOp::Box {
+                width: self.width,
+                height: self.height,
+                min_width: self.min_width,
+                max_width: self.max_width,
+                min_height: self.min_height,
+                max_height: self.max_height,
+                padding: self.padding,
+                flex_grow: self.flex_grow,
+                flex_shrink: self.flex_shrink,
+                aspect_ratio: None,
+            }),
+        );
+
         for cid in children_ids {
             layout.add_child(cid);
         }
-        
+
         layout.build(cx)
     }
 }

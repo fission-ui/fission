@@ -114,7 +114,7 @@ impl Text {
         self.min_width = Some(w);
         self
     }
-    
+
     pub fn max_width(mut self, w: f32) -> Self {
         self.max_width = Some(w);
         self
@@ -155,12 +155,11 @@ impl Text {
         self
     }
 
-    
     // Stub for weight until we add font support to IR
     pub fn weight(self, _w: impl std::fmt::Debug) -> Self {
         self
     }
-    
+
     pub fn into_node(self) -> crate::ui::Node {
         crate::ui::Node::Text(self)
     }
@@ -184,8 +183,12 @@ impl Lower for Text {
             cx.next_node_id(),
             Op::Paint(PaintOp::DrawText {
                 text: resolved_text,
-                size: self.font_size.unwrap_or(cx.env.theme.tokens.typography.body_medium_size),
-                color: self.color.unwrap_or(cx.env.theme.tokens.colors.text_primary),
+                size: self
+                    .font_size
+                    .unwrap_or(cx.env.theme.tokens.typography.body_medium_size),
+                color: self
+                    .color
+                    .unwrap_or(cx.env.theme.tokens.colors.text_primary),
                 underline: self.underline,
                 caret_index: None,
             }),
@@ -212,8 +215,7 @@ impl Lower for Text {
 
         if let Some(mut s) = self.semantics.clone() {
             s.multiline = false;
-            let mut semantics_builder =
-                NodeBuilder::new(cx.next_node_id(), Op::Semantics(s));
+            let mut semantics_builder = NodeBuilder::new(cx.next_node_id(), Op::Semantics(s));
             semantics_builder.add_child(layout_node_id);
             return semantics_builder.build(cx);
         }

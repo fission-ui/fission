@@ -148,7 +148,6 @@ pub struct CompletionItem {
 }
 
 pub fn path_to_uri(path: &str) -> String {
-    let abs = std::fs::canonicalize(path)
-        .unwrap_or_else(|_| std::path::PathBuf::from(path));
+    let abs = std::fs::canonicalize(path).unwrap_or_else(|_| std::path::PathBuf::from(path));
     format!("file://{}", abs.to_string_lossy())
 }

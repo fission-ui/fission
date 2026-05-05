@@ -25,7 +25,7 @@ fn test_animation_tick() {
             start_time: 0,
             duration: 1000,
             repeat: false,
-        }
+        },
     );
 
     // Tick 500ms
@@ -137,32 +137,24 @@ fn test_sync_animation_requests_removes_stale_repeating_animation() {
         },
     )]);
 
-    assert!(
-        !runtime
-            .runtime_state
-            .animation
-            .active
-            .contains_key(&(stale_widget, property.clone()))
-    );
-    assert!(
-        !runtime
-            .runtime_state
-            .animation
-            .values
-            .contains_key(&(stale_widget, property.clone()))
-    );
-    assert!(
-        runtime
-            .runtime_state
-            .animation
-            .active
-            .contains_key(&(live_widget, property.clone()))
-    );
-    assert!(
-        runtime
-            .runtime_state
-            .animation
-            .values
-            .contains_key(&(live_widget, property))
-    );
+    assert!(!runtime
+        .runtime_state
+        .animation
+        .active
+        .contains_key(&(stale_widget, property.clone())));
+    assert!(!runtime
+        .runtime_state
+        .animation
+        .values
+        .contains_key(&(stale_widget, property.clone())));
+    assert!(runtime
+        .runtime_state
+        .animation
+        .active
+        .contains_key(&(live_widget, property.clone())));
+    assert!(runtime
+        .runtime_state
+        .animation
+        .values
+        .contains_key(&(live_widget, property)));
 }

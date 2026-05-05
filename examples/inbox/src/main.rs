@@ -1,23 +1,23 @@
-use fission_core::{BuildCtx, View, Widget, WidgetNodeId, Env, Handler};
 use fission_core::ui::{Container, Node, Row};
-use fission_widgets::{
-    SplitView, SplitDirection, Router, Route, Toast, ToastKind, Drawer, DrawerSide, SafeArea,
-    Overlay, Transition, Center
-};
-use fission_shell_desktop::DesktopApp;
+use fission_core::{BuildCtx, Env, Handler, View, Widget, WidgetNodeId};
 use fission_i18n::{Locale, TranslationBundle};
+use fission_shell_desktop::DesktopApp;
 use fission_theme::Theme;
+use fission_widgets::{
+    Center, Drawer, DrawerSide, Overlay, Route, Router, SafeArea, SplitDirection, SplitView, Toast,
+    ToastKind, Transition,
+};
 use std::collections::HashMap;
 use std::sync::Arc;
 
-mod model;
 mod components;
 mod features;
+mod model;
 
+use components::{EmailDetail, EmailList, RightSidebar, Sidebar};
+use features::{BrowserModal, ComposeModal, ContactsModal, SettingsModal};
+use fission_core::{ActionRegistry, ReducerContext, SystemEffect};
 use model::*;
-use components::{Sidebar, EmailList, EmailDetail, RightSidebar};
-use features::{SettingsModal, ContactsModal, ComposeModal, BrowserModal};
-use fission_core::{SystemEffect, ReducerContext, ActionRegistry};
 
 // --- APP ---
 
@@ -43,16 +43,20 @@ impl Widget<InboxState> for InboxApp {
             let node = BrowserModal.build(ctx, view);
             ctx.register_portal(node);
         }
-        
+
         if view.state.show_mobile_menu {
             let drawer_node = Drawer {
                 id: WidgetNodeId::explicit("mobile_drawer"),
                 side: DrawerSide::Left,
                 is_open: view.state.show_mobile_menu,
-                on_dismiss: Some(ctx.bind(SetMobileMenuOpen(false), (|s, a, _| s.show_mobile_menu = a.0) as Handler<InboxState, SetMobileMenuOpen>)),
+                on_dismiss: Some(ctx.bind(
+                    SetMobileMenuOpen(false),
+                    (|s, a, _| s.show_mobile_menu = a.0) as Handler<InboxState, SetMobileMenuOpen>,
+                )),
                 content: Box::new(Sidebar.build(ctx, view)),
                 width: Some(250.0),
-            }.build(ctx, view);
+            }
+            .build(ctx, view);
 
             ctx.register_portal(drawer_node);
         }
@@ -66,16 +70,23 @@ impl Widget<InboxState> for InboxApp {
                     .toast_message
                     .clone()
                     .unwrap_or_else(|| "Action completed successfully".into()),
-                on_close: Some(ctx.bind(ToggleToast(false), (|s, _, _| s.show_toast = false) as Handler<InboxState, ToggleToast>)),
-            }.build(ctx, view);
-            
+                on_close: Some(ctx.bind(
+                    ToggleToast(false),
+                    (|s, _, _| s.show_toast = false) as Handler<InboxState, ToggleToast>,
+                )),
+            }
+            .build(ctx, view);
+
             ctx.register_portal(
                 fission_widgets::Positioned {
-                    left: Some(20.0), bottom: Some(20.0), // Bottom left toast
-                    width: None, height: None,
+                    left: Some(20.0),
+                    bottom: Some(20.0), // Bottom left toast
+                    width: None,
+                    height: None,
                     child: Some(Box::new(toast)),
                     ..Default::default()
-                }.into_node()
+                }
+                .into_node(),
             );
         }
 
@@ -100,29 +111,44 @@ impl Widget<InboxState> for InboxApp {
                                             Route {
                                                 path: "/inbox".into(),
                                                 builder: Arc::new(|c, v, _p| {
-                                                    EmailList { folder: "Inbox".into() }.build(c, v)
+                                                    EmailList {
+                                                        folder: "Inbox".into(),
+                                                    }
+                                                    .build(c, v)
                                                 }),
                                             },
                                             Route {
                                                 path: "/:folder".into(),
                                                 builder: Arc::new(|c, v, p| {
-                                                    let folder = p.get("folder").unwrap_or(&"Inbox".to_string()).clone();
+                                                    let folder = p
+                                                        .get("folder")
+                                                        .unwrap_or(&"Inbox".to_string())
+                                                        .clone();
                                                     EmailList { folder }.build(c, v)
                                                 }),
                                             },
                                             Route {
                                                 path: "/:folder/:id".into(),
                                                 builder: Arc::new(|c, v, p| {
-                                                    let folder = p.get("folder").unwrap_or(&"Inbox".to_string()).clone();
-                                                    let id = p.get("id").unwrap_or(&"0".to_string()).parse().unwrap_or(0);
+                                                    let folder = p
+                                                        .get("folder")
+                                                        .unwrap_or(&"Inbox".to_string())
+                                                        .clone();
+                                                    let id = p
+                                                        .get("id")
+                                                        .unwrap_or(&"0".to_string())
+                                                        .parse()
+                                                        .unwrap_or(0);
                                                     EmailDetail { folder, id }.build(c, v)
                                                 }),
                                             },
                                         ],
                                         not_found: Some(Arc::new(|_c, _v, _| {
-                                            fission_core::ui::Text::new("Folder not found").into_node()
+                                            fission_core::ui::Text::new("Folder not found")
+                                                .into_node()
                                         })),
-                                    }.build(ctx, view)
+                                    }
+                                    .build(ctx, view),
                                 )
                                 .flex_grow(1.0)
                                 .into_node(),
@@ -132,11 +158,14 @@ impl Widget<InboxState> for InboxApp {
                                     .into_node(),
                             ],
                             ..Default::default()
-                        }.into_node()
+                        }
+                        .into_node(),
                     ),
-                }.build(ctx, view)
-            )
-        }.into();
+                }
+                .build(ctx, view),
+            ),
+        }
+        .into();
         let main_content = Container::new(main_content)
             .bg(tokens.colors.background)
             .flex_grow(1.0)
@@ -157,17 +186,28 @@ impl Widget<InboxState> for InboxApp {
                                     fission_widgets::VStack {
                                         spacing: Some(6.0),
                                         children: vec![
-                                            fission_core::ui::Text::new("Tip: press ? for shortcuts").into_node(),
-                                            fission_core::ui::Text::new("You can pin labels and drag to reorder.").size(12.0).into_node(),
+                                            fission_core::ui::Text::new(
+                                                "Tip: press ? for shortcuts",
+                                            )
+                                            .into_node(),
+                                            fission_core::ui::Text::new(
+                                                "You can pin labels and drag to reorder.",
+                                            )
+                                            .size(12.0)
+                                            .into_node(),
                                         ],
-                                    }.into_node()
+                                    }
+                                    .into_node(),
                                 ),
                                 ..Default::default()
-                            }.build(ctx, view)
-                        )
-                    }.build(ctx, view)
+                            }
+                            .build(ctx, view),
+                        ),
+                    }
+                    .build(ctx, view),
                 ),
-            }.build(ctx, view)
+            }
+            .build(ctx, view)
         } else {
             fission_core::ui::widgets::Spacer::default().into_node()
         };
@@ -176,23 +216,42 @@ impl Widget<InboxState> for InboxApp {
             id: None,
             content: Box::new(main_content),
             overlay: Box::new(overlay_tip),
-        }.into()
+        }
+        .into()
     }
 }
 
 // Handlers for Browser Demo
-fn on_open_system_link(_state: &mut InboxState, action: OpenSystemLink, ctx: &mut ReducerContext<InboxState>) {
-    ctx.effects.add(SystemEffect::OpenUrl { url: action.0, in_app: false });
+fn on_open_system_link(
+    _state: &mut InboxState,
+    action: OpenSystemLink,
+    ctx: &mut ReducerContext<InboxState>,
+) {
+    ctx.effects.add(SystemEffect::OpenUrl {
+        url: action.0,
+        in_app: false,
+    });
 }
 
-fn on_open_in_app_link(_state: &mut InboxState, action: OpenInAppLink, ctx: &mut ReducerContext<InboxState>) {
-    ctx.effects.add(SystemEffect::OpenUrl { url: action.0, in_app: true });
+fn on_open_in_app_link(
+    _state: &mut InboxState,
+    action: OpenInAppLink,
+    ctx: &mut ReducerContext<InboxState>,
+) {
+    ctx.effects.add(SystemEffect::OpenUrl {
+        url: action.0,
+        in_app: true,
+    });
 }
 
-fn on_start_auth(_state: &mut InboxState, _action: StartAuth, ctx: &mut ReducerContext<InboxState>) {
-    ctx.effects.add(SystemEffect::Authenticate { 
+fn on_start_auth(
+    _state: &mut InboxState,
+    _action: StartAuth,
+    ctx: &mut ReducerContext<InboxState>,
+) {
+    ctx.effects.add(SystemEffect::Authenticate {
         url: "https://auth.example.com/login".into(),
-        callback_scheme: "fission-inbox://callback".into()
+        callback_scheme: "fission-inbox://callback".into(),
     });
 }
 
@@ -200,7 +259,7 @@ fn on_start_auth(_state: &mut InboxState, _action: StartAuth, ctx: &mut ReducerC
 
 fn create_env() -> Env {
     let mut env = Env::default();
-    
+
     let mut en_messages = HashMap::new();
     en_messages.insert("folder.inbox".into(), "Inbox".into());
     en_messages.insert("folder.starred".into(), "Starred".into());
@@ -233,19 +292,34 @@ fn create_env() -> Env {
     en_messages.insert("empty.caught_up".into(), "You are all caught up.".into());
     en_messages.insert("action.refresh".into(), "Refresh".into());
     en_messages.insert("email.not_found".into(), "Email not found".into());
-    en_messages.insert("alert.external_sender.title".into(), "External Sender".into());
-    en_messages.insert("alert.external_sender.desc".into(), "This email is from outside your organization.".into());
+    en_messages.insert(
+        "alert.external_sender.title".into(),
+        "External Sender".into(),
+    );
+    en_messages.insert(
+        "alert.external_sender.desc".into(),
+        "This email is from outside your organization.".into(),
+    );
     en_messages.insert("email.details".into(), "Details".into());
     en_messages.insert("email.attachments".into(), "Attachments".into());
-    en_messages.insert("email.scanning_attachments".into(), "Scanning attachments...".into());
+    en_messages.insert(
+        "email.scanning_attachments".into(),
+        "Scanning attachments...".into(),
+    );
     en_messages.insert("email.power_tip".into(), "Power user tip".into());
     en_messages.insert("email.history".into(), "History".into());
-    en_messages.insert("email.no_history".into(), "No earlier messages in this thread.".into());
+    en_messages.insert(
+        "email.no_history".into(),
+        "No earlier messages in this thread.".into(),
+    );
     en_messages.insert("email.reply_mode".into(), "Reply mode".into());
     en_messages.insert("email.reply".into(), "Reply".into());
     en_messages.insert("email.reply_all".into(), "Reply all".into());
     en_messages.insert("email.forward".into(), "Forward".into());
-    en_messages.insert("email.reply_placeholder".into(), "Write your reply...".into());
+    en_messages.insert(
+        "email.reply_placeholder".into(),
+        "Write your reply...".into(),
+    );
     en_messages.insert("email.send_reply".into(), "Send reply".into());
     en_messages.insert("quick.new_event".into(), "New event".into());
     en_messages.insert("quick.new_task".into(), "New task".into());
@@ -274,10 +348,19 @@ fn create_env() -> Env {
     en_messages.insert("settings.lang_en".into(), "English".into());
     en_messages.insert("settings.lang_es".into(), "Spanish".into());
     en_messages.insert("settings.inbox_type.label".into(), "Inbox type".into());
-    en_messages.insert("settings.inbox_type.helper".into(), "Choose a default layout".into());
-    en_messages.insert("settings.inbox_type.placeholder".into(), "Select type".into());
+    en_messages.insert(
+        "settings.inbox_type.helper".into(),
+        "Choose a default layout".into(),
+    );
+    en_messages.insert(
+        "settings.inbox_type.placeholder".into(),
+        "Select type".into(),
+    );
     en_messages.insert("settings.inbox_type.default".into(), "Default".into());
-    en_messages.insert("settings.inbox_type.priority".into(), "Priority Inbox".into());
+    en_messages.insert(
+        "settings.inbox_type.priority".into(),
+        "Priority Inbox".into(),
+    );
     en_messages.insert("settings.appearance".into(), "Appearance".into());
     en_messages.insert("settings.theme.label".into(), "Theme".into());
     en_messages.insert("settings.theme.placeholder".into(), "Select Theme".into());
@@ -285,18 +368,30 @@ fn create_env() -> Env {
     en_messages.insert("settings.theme.dark".into(), "Dark".into());
     en_messages.insert("settings.theme.system".into(), "System".into());
     en_messages.insert("settings.theme.active".into(), "Active".into());
-    en_messages.insert("settings.theme.preview_light".into(), "Light preview".into());
+    en_messages.insert(
+        "settings.theme.preview_light".into(),
+        "Light preview".into(),
+    );
     en_messages.insert("settings.theme.preview_dark".into(), "Dark preview".into());
     en_messages.insert("settings.density.label".into(), "Density".into());
     en_messages.insert("settings.density.helper".into(), "Controls spacing".into());
-    en_messages.insert("settings.density.placeholder".into(), "Select Density".into());
+    en_messages.insert(
+        "settings.density.placeholder".into(),
+        "Select Density".into(),
+    );
     en_messages.insert("settings.density.comfortable".into(), "Comfortable".into());
     en_messages.insert("settings.density.compact".into(), "Compact".into());
     en_messages.insert("settings.density.cozy".into(), "Cozy".into());
     en_messages.insert("settings.zoom.label".into(), "Zoom".into());
     en_messages.insert("settings.zoom.helper".into(), "Adjust UI scale".into());
-    en_messages.insert("settings.labels.drop_target".into(), "Drop label here to pin".into());
-    en_messages.insert("settings.labels.helper".into(), "Pin a label for quick access.".into());
+    en_messages.insert(
+        "settings.labels.drop_target".into(),
+        "Drop label here to pin".into(),
+    );
+    en_messages.insert(
+        "settings.labels.helper".into(),
+        "Pin a label for quick access.".into(),
+    );
     en_messages.insert("settings.labels.title".into(), "Label ordering".into());
     en_messages.insert("settings.signature.title".into(), "Signature".into());
     en_messages.insert("settings.signature.save".into(), "Save signature".into());
@@ -305,7 +400,7 @@ fn create_env() -> Env {
     en_messages.insert("settings.labs.offline".into(), "Offline mail".into());
     en_messages.insert("settings.labs.auto_advance".into(), "Auto-advance".into());
     en_messages.insert("settings.tips.show".into(), "Show quick tips".into());
-    
+
     env.i18n.add_bundle(TranslationBundle {
         locale: Locale("en-US".into()),
         messages: en_messages,
@@ -343,34 +438,58 @@ fn create_env() -> Env {
     es_messages.insert("empty.caught_up".into(), "Estás al día.".into());
     es_messages.insert("action.refresh".into(), "Actualizar".into());
     es_messages.insert("email.not_found".into(), "Correo no encontrado".into());
-    es_messages.insert("alert.external_sender.title".into(), "Remitente externo".into());
-    es_messages.insert("alert.external_sender.desc".into(), "Este correo es de fuera de tu organización.".into());
+    es_messages.insert(
+        "alert.external_sender.title".into(),
+        "Remitente externo".into(),
+    );
+    es_messages.insert(
+        "alert.external_sender.desc".into(),
+        "Este correo es de fuera de tu organización.".into(),
+    );
     es_messages.insert("email.details".into(), "Detalles".into());
     es_messages.insert("email.attachments".into(), "Adjuntos".into());
-    es_messages.insert("email.scanning_attachments".into(), "Escaneando adjuntos...".into());
+    es_messages.insert(
+        "email.scanning_attachments".into(),
+        "Escaneando adjuntos...".into(),
+    );
     es_messages.insert("email.power_tip".into(), "Consejo avanzado".into());
     es_messages.insert("email.history".into(), "Historial".into());
-    es_messages.insert("email.no_history".into(), "No hay mensajes anteriores en este hilo.".into());
+    es_messages.insert(
+        "email.no_history".into(),
+        "No hay mensajes anteriores en este hilo.".into(),
+    );
     es_messages.insert("email.reply_mode".into(), "Modo de respuesta".into());
     es_messages.insert("email.reply".into(), "Responder".into());
     es_messages.insert("email.reply_all".into(), "Responder a todos".into());
     es_messages.insert("email.forward".into(), "Reenviar".into());
-    es_messages.insert("email.reply_placeholder".into(), "Escribe tu respuesta...".into());
+    es_messages.insert(
+        "email.reply_placeholder".into(),
+        "Escribe tu respuesta...".into(),
+    );
     es_messages.insert("email.send_reply".into(), "Enviar respuesta".into());
     es_messages.insert("quick.new_event".into(), "Nuevo evento".into());
     es_messages.insert("quick.new_task".into(), "Nueva tarea".into());
     es_messages.insert("quick.add_reminder".into(), "Agregar recordatorio".into());
     es_messages.insert("toast.new_event".into(), "Se creó un nuevo evento".into());
     es_messages.insert("toast.new_task".into(), "Se creó una nueva tarea".into());
-    es_messages.insert("toast.add_reminder".into(), "Se agregó un recordatorio".into());
+    es_messages.insert(
+        "toast.add_reminder".into(),
+        "Se agregó un recordatorio".into(),
+    );
     es_messages.insert("quick.syncing".into(), "Sincronizado".into());
-    es_messages.insert("quick.last_update".into(), "Última actualización hace 2 min".into());
+    es_messages.insert(
+        "quick.last_update".into(),
+        "Última actualización hace 2 min".into(),
+    );
     es_messages.insert("quick.actions".into(), "Acciones rápidas".into());
     es_messages.insert("quick.meet".into(), "Reunión".into());
     es_messages.insert("quick.camera".into(), "Cámara".into());
     es_messages.insert("quick.microphone".into(), "Micrófono".into());
     es_messages.insert("quick.start_meeting".into(), "Iniciar reunión".into());
-    es_messages.insert("quick.mailbox_stats".into(), "Estadísticas del buzón".into());
+    es_messages.insert(
+        "quick.mailbox_stats".into(),
+        "Estadísticas del buzón".into(),
+    );
     es_messages.insert("quick.unread".into(), "No leídos".into());
     es_messages.insert("quick.in_inbox".into(), "En la bandeja".into());
     es_messages.insert("quick.starred".into(), "Destacados".into());
@@ -384,43 +503,88 @@ fn create_env() -> Env {
     es_messages.insert("settings.lang_en".into(), "Inglés".into());
     es_messages.insert("settings.lang_es".into(), "Español".into());
     es_messages.insert("settings.inbox_type.label".into(), "Tipo de bandeja".into());
-    es_messages.insert("settings.inbox_type.helper".into(), "Elige un diseño predeterminado".into());
-    es_messages.insert("settings.inbox_type.placeholder".into(), "Selecciona tipo".into());
-    es_messages.insert("settings.inbox_type.default".into(), "Predeterminado".into());
-    es_messages.insert("settings.inbox_type.priority".into(), "Bandeja prioritaria".into());
+    es_messages.insert(
+        "settings.inbox_type.helper".into(),
+        "Elige un diseño predeterminado".into(),
+    );
+    es_messages.insert(
+        "settings.inbox_type.placeholder".into(),
+        "Selecciona tipo".into(),
+    );
+    es_messages.insert(
+        "settings.inbox_type.default".into(),
+        "Predeterminado".into(),
+    );
+    es_messages.insert(
+        "settings.inbox_type.priority".into(),
+        "Bandeja prioritaria".into(),
+    );
     es_messages.insert("settings.appearance".into(), "Apariencia".into());
     es_messages.insert("settings.theme.label".into(), "Tema".into());
-    es_messages.insert("settings.theme.placeholder".into(), "Seleccionar tema".into());
+    es_messages.insert(
+        "settings.theme.placeholder".into(),
+        "Seleccionar tema".into(),
+    );
     es_messages.insert("settings.theme.light".into(), "Claro".into());
     es_messages.insert("settings.theme.dark".into(), "Oscuro".into());
     es_messages.insert("settings.theme.system".into(), "Sistema".into());
     es_messages.insert("settings.theme.active".into(), "Activo".into());
-    es_messages.insert("settings.theme.preview_light".into(), "Vista previa clara".into());
-    es_messages.insert("settings.theme.preview_dark".into(), "Vista previa oscura".into());
+    es_messages.insert(
+        "settings.theme.preview_light".into(),
+        "Vista previa clara".into(),
+    );
+    es_messages.insert(
+        "settings.theme.preview_dark".into(),
+        "Vista previa oscura".into(),
+    );
     es_messages.insert("settings.density.label".into(), "Densidad".into());
-    es_messages.insert("settings.density.helper".into(), "Controla el espaciado".into());
-    es_messages.insert("settings.density.placeholder".into(), "Seleccionar densidad".into());
+    es_messages.insert(
+        "settings.density.helper".into(),
+        "Controla el espaciado".into(),
+    );
+    es_messages.insert(
+        "settings.density.placeholder".into(),
+        "Seleccionar densidad".into(),
+    );
     es_messages.insert("settings.density.comfortable".into(), "Cómodo".into());
     es_messages.insert("settings.density.compact".into(), "Compacto".into());
     es_messages.insert("settings.density.cozy".into(), "Acogedor".into());
     es_messages.insert("settings.zoom.label".into(), "Zoom".into());
-    es_messages.insert("settings.zoom.helper".into(), "Ajustar escala de la interfaz".into());
-    es_messages.insert("settings.labels.drop_target".into(), "Suelta etiqueta aquí para fijar".into());
-    es_messages.insert("settings.labels.helper".into(), "Fija una etiqueta para acceso rápido.".into());
+    es_messages.insert(
+        "settings.zoom.helper".into(),
+        "Ajustar escala de la interfaz".into(),
+    );
+    es_messages.insert(
+        "settings.labels.drop_target".into(),
+        "Suelta etiqueta aquí para fijar".into(),
+    );
+    es_messages.insert(
+        "settings.labels.helper".into(),
+        "Fija una etiqueta para acceso rápido.".into(),
+    );
     es_messages.insert("settings.labels.title".into(), "Orden de etiquetas".into());
     es_messages.insert("settings.signature.title".into(), "Firma".into());
     es_messages.insert("settings.signature.save".into(), "Guardar firma".into());
     es_messages.insert("settings.labs.title".into(), "Laboratorio".into());
-    es_messages.insert("settings.labs.smart_compose".into(), "Redacción inteligente".into());
+    es_messages.insert(
+        "settings.labs.smart_compose".into(),
+        "Redacción inteligente".into(),
+    );
     es_messages.insert("settings.labs.offline".into(), "Correo sin conexión".into());
-    es_messages.insert("settings.labs.auto_advance".into(), "Avance automático".into());
-    es_messages.insert("settings.tips.show".into(), "Mostrar consejos rápidos".into());
-    
+    es_messages.insert(
+        "settings.labs.auto_advance".into(),
+        "Avance automático".into(),
+    );
+    es_messages.insert(
+        "settings.tips.show".into(),
+        "Mostrar consejos rápidos".into(),
+    );
+
     env.i18n.add_bundle(TranslationBundle {
         locale: Locale("es-ES".into()),
         messages: es_messages,
     });
-    
+
     env
 }
 
@@ -436,15 +600,15 @@ fn main() -> anyhow::Result<()> {
                 Theme::default()
             };
         });
-        
+
     // Register global handlers
     let mut registry = ActionRegistry::new();
     registry.register(on_open_system_link as Handler<InboxState, OpenSystemLink>);
     registry.register(on_open_in_app_link as Handler<InboxState, OpenInAppLink>);
     registry.register(on_start_auth as Handler<InboxState, StartAuth>);
-    
+
     app.absorb_registry(registry);
-        
+
     app.run()
 }
 

@@ -15,7 +15,7 @@ impl CustomSeries {
             render_item: render_item.into(),
         }
     }
-    
+
     pub fn data(mut self, data: Vec<f32>) -> Self {
         self.data = data;
         self

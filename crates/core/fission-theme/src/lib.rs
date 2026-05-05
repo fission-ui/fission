@@ -44,19 +44,69 @@ pub struct ColorTokens {
 impl Default for ColorTokens {
     fn default() -> Self {
         Self {
-            primary: Color { r: 103, g: 85, b: 143, a: 255 }, // Purple 40
+            primary: Color {
+                r: 103,
+                g: 85,
+                b: 143,
+                a: 255,
+            }, // Purple 40
             on_primary: Color::WHITE,
-            secondary: Color { r: 98, g: 91, b: 113, a: 255 },
+            secondary: Color {
+                r: 98,
+                g: 91,
+                b: 113,
+                a: 255,
+            },
             on_secondary: Color::WHITE,
-            surface: Color { r: 255, g: 251, b: 254, a: 255 },
-            on_surface: Color { r: 28, g: 27, b: 31, a: 255 },
-            background: Color { r: 255, g: 251, b: 254, a: 255 },
-            on_background: Color { r: 28, g: 27, b: 31, a: 255 },
-            error: Color { r: 179, g: 38, b: 30, a: 255 },
+            surface: Color {
+                r: 255,
+                g: 251,
+                b: 254,
+                a: 255,
+            },
+            on_surface: Color {
+                r: 28,
+                g: 27,
+                b: 31,
+                a: 255,
+            },
+            background: Color {
+                r: 255,
+                g: 251,
+                b: 254,
+                a: 255,
+            },
+            on_background: Color {
+                r: 28,
+                g: 27,
+                b: 31,
+                a: 255,
+            },
+            error: Color {
+                r: 179,
+                g: 38,
+                b: 30,
+                a: 255,
+            },
             on_error: Color::WHITE,
-            border: Color { r: 188, g: 188, b: 188, a: 255 },
-            text_primary: Color { r: 28, g: 27, b: 31, a: 255 },
-            text_secondary: Color { r: 86, g: 86, b: 86, a: 255 },
+            border: Color {
+                r: 188,
+                g: 188,
+                b: 188,
+                a: 255,
+            },
+            text_primary: Color {
+                r: 28,
+                g: 27,
+                b: 31,
+                a: 255,
+            },
+            text_secondary: Color {
+                r: 86,
+                g: 86,
+                b: 86,
+                a: 255,
+            },
         }
     }
 }
@@ -64,19 +114,84 @@ impl Default for ColorTokens {
 impl ColorTokens {
     pub fn dark() -> Self {
         Self {
-            primary: Color { r: 187, g: 134, b: 252, a: 255 },
-            on_primary: Color { r: 0, g: 0, b: 0, a: 255 },
-            secondary: Color { r: 3, g: 218, b: 197, a: 255 },
-            on_secondary: Color { r: 0, g: 0, b: 0, a: 255 },
-            surface: Color { r: 30, g: 30, b: 30, a: 255 },
-            on_surface: Color { r: 230, g: 230, b: 230, a: 255 },
-            background: Color { r: 18, g: 18, b: 18, a: 255 },
-            on_background: Color { r: 230, g: 230, b: 230, a: 255 },
-            error: Color { r: 207, g: 102, b: 121, a: 255 },
-            on_error: Color { r: 0, g: 0, b: 0, a: 255 },
-            border: Color { r: 60, g: 60, b: 60, a: 255 },
-            text_primary: Color { r: 230, g: 230, b: 230, a: 255 },
-            text_secondary: Color { r: 160, g: 160, b: 160, a: 255 },
+            primary: Color {
+                r: 187,
+                g: 134,
+                b: 252,
+                a: 255,
+            },
+            on_primary: Color {
+                r: 0,
+                g: 0,
+                b: 0,
+                a: 255,
+            },
+            secondary: Color {
+                r: 3,
+                g: 218,
+                b: 197,
+                a: 255,
+            },
+            on_secondary: Color {
+                r: 0,
+                g: 0,
+                b: 0,
+                a: 255,
+            },
+            surface: Color {
+                r: 30,
+                g: 30,
+                b: 30,
+                a: 255,
+            },
+            on_surface: Color {
+                r: 230,
+                g: 230,
+                b: 230,
+                a: 255,
+            },
+            background: Color {
+                r: 18,
+                g: 18,
+                b: 18,
+                a: 255,
+            },
+            on_background: Color {
+                r: 230,
+                g: 230,
+                b: 230,
+                a: 255,
+            },
+            error: Color {
+                r: 207,
+                g: 102,
+                b: 121,
+                a: 255,
+            },
+            on_error: Color {
+                r: 0,
+                g: 0,
+                b: 0,
+                a: 255,
+            },
+            border: Color {
+                r: 60,
+                g: 60,
+                b: 60,
+                a: 255,
+            },
+            text_primary: Color {
+                r: 230,
+                g: 230,
+                b: 230,
+                a: 255,
+            },
+            text_secondary: Color {
+                r: 160,
+                g: 160,
+                b: 160,
+                a: 255,
+            },
         }
     }
 }
@@ -168,12 +283,29 @@ pub struct ElevationTokens {
 
 impl Default for ElevationTokens {
     fn default() -> Self {
-        let black_alpha = |a| Color { r: 0, g: 0, b: 0, a };
+        let black_alpha = |a| Color {
+            r: 0,
+            g: 0,
+            b: 0,
+            a,
+        };
         Self {
             level0: None,
-            level1: Some(BoxShadow { color: black_alpha(40), offset: (0.0, 1.0), blur_radius: 2.0 }),
-            level2: Some(BoxShadow { color: black_alpha(60), offset: (0.0, 2.0), blur_radius: 4.0 }),
-            level3: Some(BoxShadow { color: black_alpha(60), offset: (0.0, 4.0), blur_radius: 8.0 }),
+            level1: Some(BoxShadow {
+                color: black_alpha(40),
+                offset: (0.0, 1.0),
+                blur_radius: 2.0,
+            }),
+            level2: Some(BoxShadow {
+                color: black_alpha(60),
+                offset: (0.0, 2.0),
+                blur_radius: 4.0,
+            }),
+            level3: Some(BoxShadow {
+                color: black_alpha(60),
+                offset: (0.0, 4.0),
+                blur_radius: 8.0,
+            }),
             level4: None,
             level5: None,
         }
@@ -377,10 +509,25 @@ pub struct AlertTheme {
 impl AlertTheme {
     pub fn from_tokens(tokens: &Tokens) -> Self {
         Self {
-            info_bg: Color { r: 230, g: 242, b: 255, a: 255 },
-            warning_bg: Color { r: 255, g: 244, b: 229, a: 255 },
+            info_bg: Color {
+                r: 230,
+                g: 242,
+                b: 255,
+                a: 255,
+            },
+            warning_bg: Color {
+                r: 255,
+                g: 244,
+                b: 229,
+                a: 255,
+            },
             error_bg: tokens.colors.error.with_alpha(30),
-            success_bg: Color { r: 237, g: 247, b: 237, a: 255 },
+            success_bg: Color {
+                r: 237,
+                g: 247,
+                b: 237,
+                a: 255,
+            },
             radius: tokens.radii.medium,
         }
     }
@@ -494,7 +641,12 @@ pub struct TooltipTheme {
 impl TooltipTheme {
     pub fn from_tokens(tokens: &Tokens) -> Self {
         Self {
-            bg_color: Color { r: 50, g: 50, b: 50, a: 255 },
+            bg_color: Color {
+                r: 50,
+                g: 50,
+                b: 50,
+                a: 255,
+            },
             text_color: Color::WHITE,
             radius: tokens.radii.small,
             font_size: 12.0,
@@ -574,8 +726,12 @@ impl Theme {
 ///
 /// Provides Noto Sans Regular (the default) and Inter 24pt Regular.
 pub mod fonts {
-    pub const NOTO_SANS_REGULAR_TTF: &[u8] = include_bytes!("../fonts/Noto_Sans/static/NotoSans-Regular.ttf");
-    pub const INTER_24PT_REGULAR_TTF: &[u8] = include_bytes!("../fonts/Inter/static/Inter_24pt-Regular.ttf");
+    pub const NOTO_SANS_REGULAR_TTF: &[u8] =
+        include_bytes!("../fonts/Noto_Sans/static/NotoSans-Regular.ttf");
+    pub const INTER_24PT_REGULAR_TTF: &[u8] =
+        include_bytes!("../fonts/Inter/static/Inter_24pt-Regular.ttf");
     #[inline]
-    pub fn default_font_bytes() -> &'static [u8] { NOTO_SANS_REGULAR_TTF }
+    pub fn default_font_bytes() -> &'static [u8] {
+        NOTO_SANS_REGULAR_TTF
+    }
 }

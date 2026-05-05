@@ -1,11 +1,20 @@
-use fission_core::{BuildCtx, View, Widget, WidgetNodeId, NodeId, Handler};
-use fission_core::ui::{Button, ButtonContentAlign, ButtonVariant, Checkbox, Container, Node, Row, Text, TextContent};
-use fission_widgets::{VStack, HStack, LazyColumn, Tabs, TabItem, TextInput, Badge, Divider, Icon, SegmentedControl, Pagination, EmptyState, Hero, DropDown, Popover, DateRangePicker, RangeSlider, Wrap, Tag};
-use crate::model::{InboxState, Folder, SelectTab, UpdateSearch, ToggleFilterDropdown, ToggleEmailSelection, ToggleFlag, Navigate, SetFilterMode, SetPage, SetAdvancedFiltersOpen, SetSortOption};
-use fission_icons::material;
-use std::sync::Arc;
-use serde_json;
+use crate::model::{
+    Folder, InboxState, Navigate, SelectTab, SetAdvancedFiltersOpen, SetFilterMode, SetPage,
+    SetSortOption, ToggleEmailSelection, ToggleFilterDropdown, ToggleFlag, UpdateSearch,
+};
+use fission_core::ui::{
+    Button, ButtonContentAlign, ButtonVariant, Checkbox, Container, Node, Row, Text, TextContent,
+};
 use fission_core::ActionEnvelope;
+use fission_core::{BuildCtx, Handler, NodeId, View, Widget, WidgetNodeId};
+use fission_icons::material;
+use fission_widgets::{
+    Badge, DateRangePicker, Divider, DropDown, EmptyState, HStack, Hero, Icon, LazyColumn,
+    Pagination, Popover, RangeSlider, SegmentedControl, TabItem, Tabs, Tag, TextInput, VStack,
+    Wrap,
+};
+use serde_json;
+use std::sync::Arc;
 
 pub struct EmailList {
     pub folder: String,
@@ -36,11 +45,36 @@ impl Widget<InboxState> for EmailList {
 
         let folder = folder_from_route(&self.folder);
         let folder_label = match &folder {
-            Folder::Inbox => view.env.i18n.get(&view.env.locale, "folder.inbox").map(|s| s.to_string()).unwrap_or_else(|| "Inbox".into()),
-            Folder::Starred => view.env.i18n.get(&view.env.locale, "folder.starred").map(|s| s.to_string()).unwrap_or_else(|| "Starred".into()),
-            Folder::Sent => view.env.i18n.get(&view.env.locale, "folder.sent").map(|s| s.to_string()).unwrap_or_else(|| "Sent".into()),
-            Folder::Drafts => view.env.i18n.get(&view.env.locale, "folder.drafts").map(|s| s.to_string()).unwrap_or_else(|| "Drafts".into()),
-            Folder::Trash => view.env.i18n.get(&view.env.locale, "folder.trash").map(|s| s.to_string()).unwrap_or_else(|| "Trash".into()),
+            Folder::Inbox => view
+                .env
+                .i18n
+                .get(&view.env.locale, "folder.inbox")
+                .map(|s| s.to_string())
+                .unwrap_or_else(|| "Inbox".into()),
+            Folder::Starred => view
+                .env
+                .i18n
+                .get(&view.env.locale, "folder.starred")
+                .map(|s| s.to_string())
+                .unwrap_or_else(|| "Starred".into()),
+            Folder::Sent => view
+                .env
+                .i18n
+                .get(&view.env.locale, "folder.sent")
+                .map(|s| s.to_string())
+                .unwrap_or_else(|| "Sent".into()),
+            Folder::Drafts => view
+                .env
+                .i18n
+                .get(&view.env.locale, "folder.drafts")
+                .map(|s| s.to_string())
+                .unwrap_or_else(|| "Drafts".into()),
+            Folder::Trash => view
+                .env
+                .i18n
+                .get(&view.env.locale, "folder.trash")
+                .map(|s| s.to_string())
+                .unwrap_or_else(|| "Trash".into()),
             Folder::Custom(label) => label.clone(),
         };
         let folder_path = match &folder {
@@ -57,56 +91,120 @@ impl Widget<InboxState> for EmailList {
             .iter()
             .filter(|e| e.folders.contains(&folder) && !e.is_read)
             .count();
-        
+
         // Register handlers and get IDs
-        let filter_id = ctx.bind(SetFilterMode(0), (|s: &mut InboxState, a: SetFilterMode, _| s.filter_mode = a.0) as Handler<InboxState, SetFilterMode>).id;
-        let page_id = ctx.bind(SetPage(0), (|s: &mut InboxState, a: SetPage, _| s.page = a.0) as Handler<InboxState, SetPage>).id;
-        let filters_open_id = ctx.bind(SetAdvancedFiltersOpen(false), (|s: &mut InboxState, a: SetAdvancedFiltersOpen, _| s.show_advanced_filters = a.0) as Handler<InboxState, SetAdvancedFiltersOpen>).id;
-        let sort_id = ctx.bind(SetSortOption("Newest".into()), (|s: &mut InboxState, a: SetSortOption, _| s.sort_option = a.0) as Handler<InboxState, SetSortOption>).id;
-        let search_id = ctx.bind(UpdateSearch("".into()), (|s: &mut InboxState, a: UpdateSearch, _| s.search_query = a.0) as Handler<InboxState, UpdateSearch>).id;
-        let select_id = ctx.bind(ToggleEmailSelection(0), (|s: &mut InboxState, a: ToggleEmailSelection, _| {
-            if let Some(pos) = s.selected_emails.iter().position(|id| *id == a.0) {
-                s.selected_emails.remove(pos);
-            } else {
-                s.selected_emails.push(a.0);
-            }
-        }) as Handler<InboxState, ToggleEmailSelection>).id;
-        let flag_id = ctx.bind(ToggleFlag(0), (|s: &mut InboxState, a: ToggleFlag, _| {
-            if let Some(email) = s.emails.iter_mut().find(|e| e.id == a.0) {
-                email.is_flagged = !email.is_flagged;
-                if email.is_flagged {
-                    email.folders.insert(Folder::Starred);
-                } else {
-                    email.folders.remove(&Folder::Starred);
-                }
-            }
-        }) as Handler<InboxState, ToggleFlag>).id;
-        let navigate_id = ctx.bind(Navigate("".into()), (|s: &mut InboxState, a: Navigate, _| {
-            s.navigate_to(a.0);
-            s.show_mobile_menu = false;
-            if let Some(id) = s.selected_email_id {
-                if let Some(email) = s.emails.iter_mut().find(|e| e.id == id) {
-                    email.is_read = true;
-                }
-            }
-        }) as Handler<InboxState, Navigate>).id;
-        let tab_id = ctx.bind(SelectTab(0), (|s: &mut InboxState, a: SelectTab, _| s.active_tab = a.0) as Handler<InboxState, SelectTab>).id;
-        let _menu_toggle = ctx.bind(ToggleFilterDropdown, (|s: &mut InboxState, _: ToggleFilterDropdown, _| s.show_filter_dropdown = !s.show_filter_dropdown) as Handler<InboxState, ToggleFilterDropdown>);
-        
+        let filter_id = ctx
+            .bind(
+                SetFilterMode(0),
+                (|s: &mut InboxState, a: SetFilterMode, _| s.filter_mode = a.0)
+                    as Handler<InboxState, SetFilterMode>,
+            )
+            .id;
+        let page_id = ctx
+            .bind(
+                SetPage(0),
+                (|s: &mut InboxState, a: SetPage, _| s.page = a.0) as Handler<InboxState, SetPage>,
+            )
+            .id;
+        let filters_open_id = ctx
+            .bind(
+                SetAdvancedFiltersOpen(false),
+                (|s: &mut InboxState, a: SetAdvancedFiltersOpen, _| s.show_advanced_filters = a.0)
+                    as Handler<InboxState, SetAdvancedFiltersOpen>,
+            )
+            .id;
+        let sort_id = ctx
+            .bind(
+                SetSortOption("Newest".into()),
+                (|s: &mut InboxState, a: SetSortOption, _| s.sort_option = a.0)
+                    as Handler<InboxState, SetSortOption>,
+            )
+            .id;
+        let search_id = ctx
+            .bind(
+                UpdateSearch("".into()),
+                (|s: &mut InboxState, a: UpdateSearch, _| s.search_query = a.0)
+                    as Handler<InboxState, UpdateSearch>,
+            )
+            .id;
+        let select_id = ctx
+            .bind(
+                ToggleEmailSelection(0),
+                (|s: &mut InboxState, a: ToggleEmailSelection, _| {
+                    if let Some(pos) = s.selected_emails.iter().position(|id| *id == a.0) {
+                        s.selected_emails.remove(pos);
+                    } else {
+                        s.selected_emails.push(a.0);
+                    }
+                }) as Handler<InboxState, ToggleEmailSelection>,
+            )
+            .id;
+        let flag_id = ctx
+            .bind(
+                ToggleFlag(0),
+                (|s: &mut InboxState, a: ToggleFlag, _| {
+                    if let Some(email) = s.emails.iter_mut().find(|e| e.id == a.0) {
+                        email.is_flagged = !email.is_flagged;
+                        if email.is_flagged {
+                            email.folders.insert(Folder::Starred);
+                        } else {
+                            email.folders.remove(&Folder::Starred);
+                        }
+                    }
+                }) as Handler<InboxState, ToggleFlag>,
+            )
+            .id;
+        let navigate_id = ctx
+            .bind(
+                Navigate("".into()),
+                (|s: &mut InboxState, a: Navigate, _| {
+                    s.navigate_to(a.0);
+                    s.show_mobile_menu = false;
+                    if let Some(id) = s.selected_email_id {
+                        if let Some(email) = s.emails.iter_mut().find(|e| e.id == id) {
+                            email.is_read = true;
+                        }
+                    }
+                }) as Handler<InboxState, Navigate>,
+            )
+            .id;
+        let tab_id = ctx
+            .bind(
+                SelectTab(0),
+                (|s: &mut InboxState, a: SelectTab, _| s.active_tab = a.0)
+                    as Handler<InboxState, SelectTab>,
+            )
+            .id;
+        let _menu_toggle = ctx.bind(
+            ToggleFilterDropdown,
+            (|s: &mut InboxState, _: ToggleFilterDropdown, _| {
+                s.show_filter_dropdown = !s.show_filter_dropdown
+            }) as Handler<InboxState, ToggleFilterDropdown>,
+        );
+
         // Header
         list_items.push(
             Row {
                 gap: Some(6.0),
                 children: vec![
                     Text::new(folder_label).size(20.0).into_node(),
-                    Badge { text: format!("{} {}", unread_count, t("badge.new")), ..Default::default() }.build(ctx, view),
+                    Badge {
+                        text: format!("{} {}", unread_count, t("badge.new")),
+                        ..Default::default()
+                    }
+                    .build(ctx, view),
                 ],
                 ..Default::default()
-            }.into_node()
+            }
+            .into_node(),
         );
-        
+
         // Filter + Search row
-        let sort_toggle = if view.state.sort_option == "Newest" { "Oldest" } else { "Newest" };
+        let sort_toggle = if view.state.sort_option == "Newest" {
+            "Oldest"
+        } else {
+            "Newest"
+        };
         let sort_toggle = ActionEnvelope {
             id: sort_id,
             payload: serde_json::to_vec(&SetSortOption(sort_toggle.into())).unwrap(),
@@ -116,9 +214,13 @@ impl Widget<InboxState> for EmailList {
             TextInput {
                 value: view.state.search_query.clone(),
                 placeholder: Some(TextContent::Key("search.placeholder".into())),
-                on_change: Some(ActionEnvelope { id: search_id, payload: Vec::new() }),
+                on_change: Some(ActionEnvelope {
+                    id: search_id,
+                    payload: Vec::new(),
+                }),
                 ..Default::default()
-            }.into_node(),
+            }
+            .into_node(),
         );
 
         // Filter row
@@ -129,26 +231,33 @@ impl Widget<InboxState> for EmailList {
                     SegmentedControl {
                         options: vec!["All".into(), "Unread".into(), "Starred".into()],
                         selected_index: view.state.filter_mode,
-                        on_change: Some(Arc::new(move |idx| {
-                            ActionEnvelope {
-                                id: filter_id,
-                                payload: serde_json::to_vec(&SetFilterMode(idx)).unwrap(),
-                            }
+                        on_change: Some(Arc::new(move |idx| ActionEnvelope {
+                            id: filter_id,
+                            payload: serde_json::to_vec(&SetFilterMode(idx)).unwrap(),
                         })),
-                    }.build(ctx, view),
-                    fission_core::ui::widgets::Spacer { flex_grow: 1.0, ..Default::default() }.into_node(),
+                    }
+                    .build(ctx, view),
+                    fission_core::ui::widgets::Spacer {
+                        flex_grow: 1.0,
+                        ..Default::default()
+                    }
+                    .into_node(),
                     DropDown {
                         selected: Some(view.state.sort_option.clone()),
                         options: vec!["Newest".into(), "Oldest".into(), "Unread".into()],
                         on_toggle: Some(sort_toggle),
                         ..Default::default()
-                    }.build(ctx, view),
+                    }
+                    .build(ctx, view),
                     Popover {
                         id: WidgetNodeId::explicit("advanced_filters"),
                         is_open: view.state.show_advanced_filters,
                         on_toggle: Some(ActionEnvelope {
                             id: filters_open_id,
-                            payload: serde_json::to_vec(&SetAdvancedFiltersOpen(!view.state.show_advanced_filters)).unwrap(),
+                            payload: serde_json::to_vec(&SetAdvancedFiltersOpen(
+                                !view.state.show_advanced_filters,
+                            ))
+                            .unwrap(),
                         }),
                         on_close: Some(ActionEnvelope {
                             id: filters_open_id,
@@ -157,26 +266,38 @@ impl Widget<InboxState> for EmailList {
                         trigger: Box::new(
                             Button {
                                 variant: ButtonVariant::Outline,
-                                child: Some(Box::new(HStack {
-                                    spacing: Some(6.0),
-                                    children: vec![
-                                        Icon::svg(material::content::filter_list::regular()).size(18.0).into_node(),
-                                        Text::new(TextContent::Key("header.filters".into())).into_node(),
-                                    ],
-                                }.into_node())),
+                                child: Some(Box::new(
+                                    HStack {
+                                        spacing: Some(6.0),
+                                        children: vec![
+                                            Icon::svg(material::content::filter_list::regular())
+                                                .size(18.0)
+                                                .into_node(),
+                                            Text::new(TextContent::Key("header.filters".into()))
+                                                .into_node(),
+                                        ],
+                                    }
+                                    .into_node(),
+                                )),
                                 on_press: Some(ActionEnvelope {
                                     id: filters_open_id,
-                                    payload: serde_json::to_vec(&SetAdvancedFiltersOpen(!view.state.show_advanced_filters)).unwrap(),
+                                    payload: serde_json::to_vec(&SetAdvancedFiltersOpen(
+                                        !view.state.show_advanced_filters,
+                                    ))
+                                    .unwrap(),
                                 }),
                                 ..Default::default()
-                            }.into_node()
+                            }
+                            .into_node(),
                         ),
                         content: Box::new(
                             Container::new(
                                 VStack {
                                     spacing: Some(16.0),
                                     children: vec![
-                                        Text::new(TextContent::Key("filter.date_range".into())).size(12.0).into_node(),
+                                        Text::new(TextContent::Key("filter.date_range".into()))
+                                            .size(12.0)
+                                            .into_node(),
                                         DateRangePicker {
                                             id_start: WidgetNodeId::explicit("filter_date_start"),
                                             id_end: WidgetNodeId::explicit("filter_date_end"),
@@ -189,8 +310,11 @@ impl Widget<InboxState> for EmailList {
                                             on_toggle_end: None,
                                             on_close_start: None,
                                             on_close_end: None,
-                                        }.build(ctx, view),
-                                        Text::new(TextContent::Key("filter.size_mb".into())).size(12.0).into_node(),
+                                        }
+                                        .build(ctx, view),
+                                        Text::new(TextContent::Key("filter.size_mb".into()))
+                                            .size(12.0)
+                                            .into_node(),
                                         RangeSlider {
                                             id: None,
                                             start: 5.0,
@@ -198,17 +322,21 @@ impl Widget<InboxState> for EmailList {
                                             min: 0.0,
                                             max: 100.0,
                                             on_change: None,
-                                        }.build(ctx, view),
+                                        }
+                                        .build(ctx, view),
                                     ],
-                                }.into_node()
+                                }
+                                .into_node(),
                             )
                             .padding_all(12.0)
                             .max_width(180.0)
-                            .into_node()
+                            .into_node(),
                         ),
-                    }.build(ctx, view),
-                ]
-            }.build(ctx, view)
+                    }
+                    .build(ctx, view),
+                ],
+            }
+            .build(ctx, view),
         );
 
         list_items.push(
@@ -240,7 +368,8 @@ impl Widget<InboxState> for EmailList {
                         }),
                     },
                 ],
-            }.build(ctx, view)
+            }
+            .build(ctx, view),
         );
 
         let mut emails: Vec<_> = view
@@ -276,18 +405,25 @@ impl Widget<InboxState> for EmailList {
         if emails.is_empty() {
             list_items.push(
                 EmptyState {
-                                icon: Some(Box::new(Icon::svg(material::content::inbox::regular()).size(48.0).color(tokens.colors.text_primary).into_node())),
-                                title: t("empty.no_emails"),
-                                description: Some(t("empty.caught_up")),
-                                action: Some(Box::new(
-                                    Button {
-                                        child: Some(Box::new(Text::new(t("action.refresh")).into_node())),
-                                        on_press: None,
-                                        ..Default::default()
-                                    }.into_node()
-                                )),
-                            }.build(ctx, view)
-                        );
+                    icon: Some(Box::new(
+                        Icon::svg(material::content::inbox::regular())
+                            .size(48.0)
+                            .color(tokens.colors.text_primary)
+                            .into_node(),
+                    )),
+                    title: t("empty.no_emails"),
+                    description: Some(t("empty.caught_up")),
+                    action: Some(Box::new(
+                        Button {
+                            child: Some(Box::new(Text::new(t("action.refresh")).into_node())),
+                            on_press: None,
+                            ..Default::default()
+                        }
+                        .into_node(),
+                    )),
+                }
+                .build(ctx, view),
+            );
         } else {
             let mut email_nodes = Vec::new();
             for (idx, email) in emails[start_idx..end_idx].iter().enumerate() {
@@ -312,96 +448,142 @@ impl Widget<InboxState> for EmailList {
                             checked: is_selected,
                             on_toggle: Some(ActionEnvelope {
                                 id: select_id,
-                                payload: serde_json::to_vec(&ToggleEmailSelection(email.id)).unwrap(),
+                                payload: serde_json::to_vec(&ToggleEmailSelection(email.id))
+                                    .unwrap(),
                             }),
                             ..Default::default()
-                        }.into_node(),
+                        }
+                        .into_node(),
                         Container::new(
                             VStack {
                                 spacing: Some(6.0),
                                 children: vec![
-                                HStack {
-                                    spacing: Some(8.0),
-                                    children: vec![
-                                        Text::new(email.sender.clone()).size(16.0).into_node(),
-                                        fission_core::ui::widgets::Spacer { flex_grow: 1.0, ..Default::default() }.into_node(),
-                                        Text::new(email.last_message().sent_at.format("%b %d").to_string())
+                                    HStack {
+                                        spacing: Some(8.0),
+                                        children: vec![
+                                            Text::new(email.sender.clone()).size(16.0).into_node(),
+                                            fission_core::ui::widgets::Spacer {
+                                                flex_grow: 1.0,
+                                                ..Default::default()
+                                            }
+                                            .into_node(),
+                                            Text::new(
+                                                email
+                                                    .last_message()
+                                                    .sent_at
+                                                    .format("%b %d")
+                                                    .to_string(),
+                                            )
                                             .size(14.0)
                                             .color(tokens.colors.text_secondary)
                                             .into_node(),
-                                        Button {
-                                            variant: ButtonVariant::Ghost,
-                                            child: Some(Box::new(Icon::svg(star_icon).size(18.0).into_node())),
-                                            on_press: Some(ActionEnvelope {
-                                                id: flag_id,
-                                                payload: serde_json::to_vec(&ToggleFlag(email.id)).unwrap(),
-                                            }),
-                                            width: Some(28.0),
-                                            height: Some(28.0),
-                                            padding: Some([4.0, 4.0, 0.0, 0.0]),
-                                            ..Default::default()
-                                        }.into_node(),
-                                    ],
-                                }.build(ctx, view),
-                                Hero {
-                                    tag: format!("email_subject_{}", email.id),
-                                    child: Box::new(Text {
-                                        content: TextContent::Literal(email.subject.clone()),
-                                        font_size: Some(15.0),
-                                        color: Some(subject_color),
-                                        ..Default::default()
-                                    }.into()),
-                                }.build(ctx, view),
-                                Container::new(
-                                    Text {
-                                        content: TextContent::Literal({
-                                            let preview: String = email.preview.chars().take(45).collect();
-                                            if email.preview.chars().count() > 45 {
-                                                format!("{}...", preview)
-                                            } else {
-                                                preview
+                                            Button {
+                                                variant: ButtonVariant::Ghost,
+                                                child: Some(Box::new(
+                                                    Icon::svg(star_icon).size(18.0).into_node(),
+                                                )),
+                                                on_press: Some(ActionEnvelope {
+                                                    id: flag_id,
+                                                    payload: serde_json::to_vec(&ToggleFlag(
+                                                        email.id,
+                                                    ))
+                                                    .unwrap(),
+                                                }),
+                                                width: Some(28.0),
+                                                height: Some(28.0),
+                                                padding: Some([4.0, 4.0, 0.0, 0.0]),
+                                                ..Default::default()
                                             }
-                                        }),
-                                        font_size: Some(13.0),
-                                        color: Some(tokens.colors.text_secondary),
-                                        max_height: Some(16.0),
-                                        ..Default::default()
-                                    }.into()
-                                )
-                                .max_width(280.0)
-                                .flex_shrink(0.0)
-                                .into_node(),
-                                Wrap {
-                                    direction: fission_ir::op::FlexDirection::Row,
-                                    spacing: Some(6.0),
-                                    children: email.labels.iter().map(|label| {
-                                        Tag { label: label.clone(), on_close: None }.build(ctx, view)
-                                    }).collect(),
-                                }.build(ctx, view),
-                                ]
-                            }.build(ctx, view)
+                                            .into_node(),
+                                        ],
+                                    }
+                                    .build(ctx, view),
+                                    Hero {
+                                        tag: format!("email_subject_{}", email.id),
+                                        child: Box::new(
+                                            Text {
+                                                content: TextContent::Literal(
+                                                    email.subject.clone(),
+                                                ),
+                                                font_size: Some(15.0),
+                                                color: Some(subject_color),
+                                                ..Default::default()
+                                            }
+                                            .into(),
+                                        ),
+                                    }
+                                    .build(ctx, view),
+                                    Container::new(
+                                        Text {
+                                            content: TextContent::Literal({
+                                                let preview: String =
+                                                    email.preview.chars().take(45).collect();
+                                                if email.preview.chars().count() > 45 {
+                                                    format!("{}...", preview)
+                                                } else {
+                                                    preview
+                                                }
+                                            }),
+                                            font_size: Some(13.0),
+                                            color: Some(tokens.colors.text_secondary),
+                                            max_height: Some(16.0),
+                                            ..Default::default()
+                                        }
+                                        .into(),
+                                    )
+                                    .max_width(280.0)
+                                    .flex_shrink(0.0)
+                                    .into_node(),
+                                    Wrap {
+                                        direction: fission_ir::op::FlexDirection::Row,
+                                        spacing: Some(6.0),
+                                        children: email
+                                            .labels
+                                            .iter()
+                                            .map(|label| {
+                                                Tag {
+                                                    label: label.clone(),
+                                                    on_close: None,
+                                                }
+                                                .build(ctx, view)
+                                            })
+                                            .collect(),
+                                    }
+                                    .build(ctx, view),
+                                ],
+                            }
+                            .build(ctx, view),
                         )
                         .flex_grow(1.0)
-                        .into_node()
+                        .into_node(),
                     ],
                     ..Default::default()
-                }.into_node();
+                }
+                .into_node();
 
                 let item = VStack {
                     spacing: Some(0.0),
                     children: vec![
                         Container::new(item_content)
                             .padding_all(6.0)
-                            .bg(if is_selected { tokens.colors.primary.with_alpha(20) } else { tokens.colors.surface })
+                            .bg(if is_selected {
+                                tokens.colors.primary.with_alpha(20)
+                            } else {
+                                tokens.colors.surface
+                            })
                             .flex_grow(1.0)
                             .into_node(),
                         if idx + 1 < end_idx - start_idx {
-                            Divider { orientation: fission_widgets::divider::Orientation::Horizontal }.build(ctx, view)
+                            Divider {
+                                orientation: fission_widgets::divider::Orientation::Horizontal,
+                            }
+                            .build(ctx, view)
                         } else {
                             fission_core::ui::widgets::Spacer::default().into_node()
                         },
                     ],
-                }.build(ctx, view);
+                }
+                .build(ctx, view);
 
                 email_nodes.push(
                     Button {
@@ -415,7 +597,7 @@ impl Widget<InboxState> for EmailList {
                         padding: Some([0.0; 4]),
                         ..Default::default()
                     }
-                    .into()
+                    .into(),
                 );
             }
 
@@ -427,28 +609,35 @@ impl Widget<InboxState> for EmailList {
                     id: Some(node_id),
                     children: Arc::new(email_nodes),
                     item_height: 0.0,
-                }.into()
+                }
+                .into(),
             );
         }
-        
+
         // Pagination
         if !view.state.show_compose {
             list_items.push(
-                fission_core::ui::widgets::Spacer { height: Some(20.0), ..Default::default() }.into_node()
+                fission_core::ui::widgets::Spacer {
+                    height: Some(20.0),
+                    ..Default::default()
+                }
+                .into_node(),
             );
             list_items.push(
                 fission_widgets::center::Center {
-                    child: Box::new(Pagination {
-                        current_page,
-                        total_pages,
-                        on_change: Some(Arc::new(move |page| {
-                            ActionEnvelope {
+                    child: Box::new(
+                        Pagination {
+                            current_page,
+                            total_pages,
+                            on_change: Some(Arc::new(move |page| ActionEnvelope {
                                 id: page_id,
                                 payload: serde_json::to_vec(&SetPage(page)).unwrap(),
-                            }
-                        })),
-                    }.build(ctx, view))
-                }.build(ctx, view)
+                            })),
+                        }
+                        .build(ctx, view),
+                    ),
+                }
+                .build(ctx, view),
             );
         }
 
@@ -457,7 +646,7 @@ impl Widget<InboxState> for EmailList {
                 spacing: Some(4.0),
                 children: list_items,
             }
-            .build(ctx, view)
+            .build(ctx, view),
         )
         .padding_all(8.0)
         .flex_grow(1.0)
@@ -494,7 +683,10 @@ mod tests {
         struct Root;
         impl Widget<InboxState> for Root {
             fn build(&self, ctx: &mut BuildCtx<InboxState>, view: &View<InboxState>) -> Node {
-                EmailList { folder: "inbox".into() }.build(ctx, view)
+                EmailList {
+                    folder: "inbox".into(),
+                }
+                .build(ctx, view)
             }
         }
 
@@ -507,12 +699,18 @@ mod tests {
         h.dispatch(SetFilterMode(1))?; // Unread
         h.pump()?;
         let unread_count = count_subject_text_nodes(&h);
-        assert!(unread_count < all_count, "Unread should show fewer items than All");
+        assert!(
+            unread_count < all_count,
+            "Unread should show fewer items than All"
+        );
 
         h.dispatch(SetFilterMode(2))?; // Starred
         h.pump()?;
         let starred_count = count_subject_text_nodes(&h);
-        assert!(starred_count < all_count, "Starred should show fewer items than All");
+        assert!(
+            starred_count < all_count,
+            "Starred should show fewer items than All"
+        );
 
         Ok(())
     }

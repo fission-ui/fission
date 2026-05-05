@@ -1,16 +1,16 @@
-use serde::{Deserialize, Serialize};
-use fission_core::AppState;
-use std::collections::HashSet;
-use super::email::{Folder, Email, seed_mailbox};
+use super::email::{seed_mailbox, Email, Folder};
 use chrono::NaiveDate;
+use fission_core::AppState;
 use fission_i18n::Locale;
+use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct InboxState {
     pub locale: Locale,
     // Router
     pub current_path: String,
-    
+
     // ... (existing) ...
     pub selected_folder: Folder,
     pub selected_email_id: Option<usize>,
@@ -20,12 +20,12 @@ pub struct InboxState {
     pub emails: Vec<Email>,
     pub next_email_id: usize,
     pub next_message_id: usize,
-    
+
     // List View
     pub page: usize,
     pub total_pages: usize,
     pub filter_mode: usize, // 0=All, 1=Unread, 2=Starred
-    
+
     // Compose State
     pub compose_to: String,
     pub compose_subject: String,
@@ -61,17 +61,17 @@ pub struct InboxState {
     pub show_help_popover: bool,
     pub last_drag_label: Option<String>,
     pub show_quick_tip: bool,
-    
+
     // UI State
     pub search_query: String,
     pub show_filter_dropdown: bool,
-    pub active_tab: usize, 
-    pub reply_mode: usize, 
+    pub active_tab: usize,
+    pub reply_mode: usize,
     pub reply_body: String,
     pub notifications_enabled: bool,
     pub details_expanded: bool,
     pub storage_usage: f32,
-    
+
     // Modals
     pub show_settings: bool,
     pub show_contacts: bool,
@@ -81,11 +81,11 @@ pub struct InboxState {
     pub toast_message: Option<String>,
     pub show_browser_demo: bool,
     pub browser_url: String,
-    
+
     // Preferences
     pub theme_mode: String,
     pub density_mode: String,
-    
+
     // Tree View State
     pub expanded_folders: HashSet<String>,
     pub contact_selected_ids: Vec<String>,
@@ -105,11 +105,11 @@ impl Default for InboxState {
             emails: seeded.emails,
             next_email_id: seeded.next_email_id,
             next_message_id: seeded.next_message_id,
-            
+
             page: 1,
             total_pages,
             filter_mode: 0,
-            
+
             compose_to: "".into(),
             compose_subject: "".into(),
             compose_body: "".into(),
@@ -136,7 +136,7 @@ impl Default for InboxState {
             show_help_popover: false,
             last_drag_label: None,
             show_quick_tip: false,
-            
+
             search_query: "".into(),
             show_filter_dropdown: false,
             active_tab: 0,

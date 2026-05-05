@@ -1,5 +1,5 @@
+use super::graph::{GraphEdge, GraphNode};
 use serde::{Deserialize, Serialize};
-use super::graph::{GraphNode, GraphEdge};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SankeySeries {
@@ -16,7 +16,7 @@ impl SankeySeries {
             edges: Vec::new(),
         }
     }
-    
+
     pub fn nodes(mut self, nodes: Vec<GraphNode>) -> Self {
         self.nodes = nodes;
         self

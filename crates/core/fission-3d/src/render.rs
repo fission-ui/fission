@@ -1,7 +1,11 @@
-use wgpu::{
-    DepthStencilState, Device, Extent3d, FragmentState, LoadOp, MultisampleState, Operations, PipelineCompilationOptions, PipelineLayoutDescriptor, PrimitiveState, PrimitiveTopology, Queue, RenderPassColorAttachment, RenderPassDepthStencilAttachment, RenderPipeline, RenderPipelineDescriptor, Texture, TextureDescriptor, TextureDimension, TextureFormat, TextureUsages, TextureView, TextureViewDescriptor, VertexState
-};
 use bytemuck::{Pod, Zeroable};
+use wgpu::{
+    DepthStencilState, Device, Extent3d, FragmentState, LoadOp, MultisampleState, Operations,
+    PipelineCompilationOptions, PipelineLayoutDescriptor, PrimitiveState, PrimitiveTopology, Queue,
+    RenderPassColorAttachment, RenderPassDepthStencilAttachment, RenderPipeline,
+    RenderPipelineDescriptor, Texture, TextureDescriptor, TextureDimension, TextureFormat,
+    TextureUsages, TextureView, TextureViewDescriptor, VertexState,
+};
 
 use crate::{Primitive3D, Scene3D};
 
@@ -100,7 +104,11 @@ impl Scene3DRenderer {
 
         let depth_texture = device.create_texture(&TextureDescriptor {
             label: Some("fission-3d depth"),
-            size: Extent3d { width: width.max(1), height: height.max(1), depth_or_array_layers: 1 },
+            size: Extent3d {
+                width: width.max(1),
+                height: height.max(1),
+                depth_or_array_layers: 1,
+            },
             mip_level_count: 1,
             sample_count: 1,
             dimension: TextureDimension::D2,
@@ -108,7 +116,7 @@ impl Scene3DRenderer {
             usage: TextureUsages::RENDER_ATTACHMENT,
             view_formats: &[],
         });
-        
+
         let depth_view = depth_texture.create_view(&TextureViewDescriptor::default());
 
         Self {
@@ -121,13 +129,19 @@ impl Scene3DRenderer {
     }
 
     pub fn resize(&mut self, device: &Device, width: u32, height: u32) {
-        if self.width == width && self.height == height { return; }
+        if self.width == width && self.height == height {
+            return;
+        }
         self.width = width;
         self.height = height;
 
         self.depth_texture = device.create_texture(&TextureDescriptor {
             label: Some("fission-3d depth"),
-            size: Extent3d { width: width.max(1), height: height.max(1), depth_or_array_layers: 1 },
+            size: Extent3d {
+                width: width.max(1),
+                height: height.max(1),
+                depth_or_array_layers: 1,
+            },
             mip_level_count: 1,
             sample_count: 1,
             dimension: TextureDimension::D2,
@@ -135,94 +149,174 @@ impl Scene3DRenderer {
             usage: TextureUsages::RENDER_ATTACHMENT,
             view_formats: &[],
         });
-        self.depth_view = self.depth_texture.create_view(&TextureViewDescriptor::default());
+        self.depth_view = self
+            .depth_texture
+            .create_view(&TextureViewDescriptor::default());
     }
 
-    pub fn render(
-        &mut self,
-        device: &Device,
-        queue: &Queue,
-        view: &TextureView,
-        scene: &Scene3D,
-    ) {
+    pub fn render(&mut self, device: &Device, queue: &Queue, view: &TextureView, scene: &Scene3D) {
         // Construct mesh for primitives
         let mut vertices: Vec<Vertex> = Vec::new();
         let mut indices: Vec<u32> = Vec::new();
-        
+
         // This is a naive tessellator just for demonstration parity.
         // It maps standard Scene3D primitives into flat TriangleLists.
         for prim in &scene.primitives {
             match prim {
-                Primitive3D::Cube { center, size, color } => {
+                Primitive3D::Cube {
+                    center,
+                    size,
+                    color,
+                } => {
                     let hs = size / 2.0;
                     let (x, y, z) = (center.x, center.y, center.z);
                     let base_idx = vertices.len() as u32;
-                    let c = [color.r as f32 / 255.0, color.g as f32 / 255.0, color.b as f32 / 255.0, color.a as f32 / 255.0];
-                    
-                    let p = [
-                        [x - hs, y - hs, z - hs], [x + hs, y - hs, z - hs],
-                        [x + hs, y + hs, z - hs], [x - hs, y + hs, z - hs],
-                        [x - hs, y - hs, z + hs], [x + hs, y - hs, z + hs],
-                        [x + hs, y + hs, z + hs], [x - hs, y + hs, z + hs],
+                    let c = [
+                        color.r as f32 / 255.0,
+                        color.g as f32 / 255.0,
+                        color.b as f32 / 255.0,
+                        color.a as f32 / 255.0,
                     ];
-                    
-                    for pos in p { vertices.push(Vertex { position: pos, color: c }); }
-                    
+
+                    let p = [
+                        [x - hs, y - hs, z - hs],
+                        [x + hs, y - hs, z - hs],
+                        [x + hs, y + hs, z - hs],
+                        [x - hs, y + hs, z - hs],
+                        [x - hs, y - hs, z + hs],
+                        [x + hs, y - hs, z + hs],
+                        [x + hs, y + hs, z + hs],
+                        [x - hs, y + hs, z + hs],
+                    ];
+
+                    for pos in p {
+                        vertices.push(Vertex {
+                            position: pos,
+                            color: c,
+                        });
+                    }
+
                     // Front
-                    indices.extend_from_slice(&[base_idx, base_idx+1, base_idx+2, base_idx, base_idx+2, base_idx+3]);
+                    indices.extend_from_slice(&[
+                        base_idx,
+                        base_idx + 1,
+                        base_idx + 2,
+                        base_idx,
+                        base_idx + 2,
+                        base_idx + 3,
+                    ]);
                     // Back
-                    indices.extend_from_slice(&[base_idx+5, base_idx+4, base_idx+7, base_idx+5, base_idx+7, base_idx+6]);
+                    indices.extend_from_slice(&[
+                        base_idx + 5,
+                        base_idx + 4,
+                        base_idx + 7,
+                        base_idx + 5,
+                        base_idx + 7,
+                        base_idx + 6,
+                    ]);
                     // Left
-                    indices.extend_from_slice(&[base_idx+4, base_idx, base_idx+3, base_idx+4, base_idx+3, base_idx+7]);
+                    indices.extend_from_slice(&[
+                        base_idx + 4,
+                        base_idx,
+                        base_idx + 3,
+                        base_idx + 4,
+                        base_idx + 3,
+                        base_idx + 7,
+                    ]);
                     // Right
-                    indices.extend_from_slice(&[base_idx+1, base_idx+5, base_idx+6, base_idx+1, base_idx+6, base_idx+2]);
+                    indices.extend_from_slice(&[
+                        base_idx + 1,
+                        base_idx + 5,
+                        base_idx + 6,
+                        base_idx + 1,
+                        base_idx + 6,
+                        base_idx + 2,
+                    ]);
                     // Top
-                    indices.extend_from_slice(&[base_idx+3, base_idx+2, base_idx+6, base_idx+3, base_idx+6, base_idx+7]);
+                    indices.extend_from_slice(&[
+                        base_idx + 3,
+                        base_idx + 2,
+                        base_idx + 6,
+                        base_idx + 3,
+                        base_idx + 6,
+                        base_idx + 7,
+                    ]);
                     // Bottom
-                    indices.extend_from_slice(&[base_idx+4, base_idx+5, base_idx+1, base_idx+4, base_idx+1, base_idx]);
-                },
-                Primitive3D::Sphere { center, radius, color } => {
+                    indices.extend_from_slice(&[
+                        base_idx + 4,
+                        base_idx + 5,
+                        base_idx + 1,
+                        base_idx + 4,
+                        base_idx + 1,
+                        base_idx,
+                    ]);
+                }
+                Primitive3D::Sphere {
+                    center,
+                    radius,
+                    color,
+                } => {
                     let base_idx = vertices.len() as u32;
-                    let c = [color.r as f32 / 255.0, color.g as f32 / 255.0, color.b as f32 / 255.0, color.a as f32 / 255.0];
+                    let c = [
+                        color.r as f32 / 255.0,
+                        color.g as f32 / 255.0,
+                        color.b as f32 / 255.0,
+                        color.a as f32 / 255.0,
+                    ];
                     let segments = 16;
                     let rings = 16;
-                    
+
                     for i in 0..=rings {
                         let v = i as f32 / rings as f32;
                         let phi = v * std::f32::consts::PI;
-                        
+
                         for j in 0..=segments {
                             let u = j as f32 / segments as f32;
                             let theta = u * std::f32::consts::PI * 2.0;
-                            
+
                             let x = center.x + radius * phi.sin() * theta.cos();
                             let y = center.y + radius * phi.cos();
                             let z = center.z + radius * phi.sin() * theta.sin();
-                            
-                            vertices.push(Vertex { position: [x, y, z], color: c });
+
+                            vertices.push(Vertex {
+                                position: [x, y, z],
+                                color: c,
+                            });
                         }
                     }
-                    
+
                     for i in 0..rings {
                         for j in 0..segments {
                             let first = base_idx + (i * (segments + 1)) as u32 + j as u32;
                             let second = first + segments as u32 + 1;
-                            
+
                             indices.push(first);
                             indices.push(second);
                             indices.push(first + 1);
-                            
+
                             indices.push(second);
                             indices.push(second + 1);
                             indices.push(first + 1);
                         }
                     }
-                },
-                Primitive3D::Mesh { vertices: v_in, indices: i_in, color } => {
+                }
+                Primitive3D::Mesh {
+                    vertices: v_in,
+                    indices: i_in,
+                    color,
+                } => {
                     let base_idx = vertices.len() as u32;
-                    let c = [color.r as f32 / 255.0, color.g as f32 / 255.0, color.b as f32 / 255.0, color.a as f32 / 255.0];
+                    let c = [
+                        color.r as f32 / 255.0,
+                        color.g as f32 / 255.0,
+                        color.b as f32 / 255.0,
+                        color.a as f32 / 255.0,
+                    ];
                     for v in v_in {
-                        vertices.push(Vertex { position: [v.x, v.y, v.z], color: c });
+                        vertices.push(Vertex {
+                            position: [v.x, v.y, v.z],
+                            color: c,
+                        });
                     }
                     for idx in i_in {
                         indices.push(base_idx + *idx);
@@ -231,7 +325,9 @@ impl Scene3DRenderer {
             }
         }
 
-        if vertices.is_empty() || indices.is_empty() { return; }
+        if vertices.is_empty() || indices.is_empty() {
+            return;
+        }
 
         use wgpu::util::DeviceExt;
         let v_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -245,8 +341,10 @@ impl Scene3DRenderer {
             usage: wgpu::BufferUsages::INDEX,
         });
 
-        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("fission-3d enc") });
-        
+        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("fission-3d enc"),
+        });
+
         {
             let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("fission-3d pass"),

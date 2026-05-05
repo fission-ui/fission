@@ -1,7 +1,10 @@
 use crate::lowering::{LoweringContext, NodeBuilder};
 use crate::ui::traits::Lower;
 use crate::ui::Node;
-use fission_ir::{op::{FlexDirection, LayoutOp, Op}, NodeId};
+use fission_ir::{
+    op::{FlexDirection, LayoutOp, Op},
+    NodeId,
+};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
@@ -112,7 +115,7 @@ impl Lower for LazyColumn {
             scroll.add_child(content_id);
             return scroll.build(cx);
         }
-        
+
         // Get layout info from previous frame
         let (viewport_width, viewport_height) = if let Some(layout) = cx.layout {
             let viewport = layout.viewport_size;
@@ -120,39 +123,61 @@ impl Lower for LazyColumn {
                 let w = geom.rect.width();
                 let h = geom.rect.height();
                 let w = if w > 0.0 {
-                    if viewport.width > 0.0 { w.min(viewport.width) } else { w }
+                    if viewport.width > 0.0 {
+                        w.min(viewport.width)
+                    } else {
+                        w
+                    }
                 } else {
                     viewport.width
                 };
                 let h = if h > 0.0 {
-                    if viewport.height > 0.0 { h.min(viewport.height) } else { h }
+                    if viewport.height > 0.0 {
+                        h.min(viewport.height)
+                    } else {
+                        h
+                    }
                 } else {
                     viewport.height
                 };
-                (if w > 0.0 { Some(w) } else { None }, if h > 0.0 { h } else { 600.0 })
+                (
+                    if w > 0.0 { Some(w) } else { None },
+                    if h > 0.0 { h } else { 600.0 },
+                )
             } else {
-                (if viewport.width > 0.0 { Some(viewport.width) } else { None }, if viewport.height > 0.0 { viewport.height } else { 600.0 })
+                (
+                    if viewport.width > 0.0 {
+                        Some(viewport.width)
+                    } else {
+                        None
+                    },
+                    if viewport.height > 0.0 {
+                        viewport.height
+                    } else {
+                        600.0
+                    },
+                )
             }
         } else {
             (None, 600.0)
         };
-        
+
         let scroll_offset = cx.runtime_state.scroll.get_offset(scroll_id);
-        
+
         let item_h = self.item_height.max(1.0);
         let total_count = self.children.len();
-        
+
         let start_index = (scroll_offset / item_h as f32).floor() as usize;
         let visible_count = (viewport_height as f32 / item_h as f32).ceil() as usize + 1; // +1 buffer
         let end_index = (start_index + visible_count).min(total_count);
         let start_index = start_index.min(total_count); // Clamp
-        
+
         // Column
         let col_id = cx.next_node_id(); // Reserve ID for column wrapper
-        
+
         // Build children
         let mut column_children = Vec::new();
-        
+
         // Top Spacer
         if start_index > 0 {
             let spacer_height = item_h * start_index as f32;
@@ -176,11 +201,11 @@ impl Lower for LazyColumn {
                 column_children.push(spacer.build(cx));
             }
         }
-        
+
         // Visible Items
         // We do NOT push `col_id` as a shared scope because children need stable IDs regardless of skip.
         // Instead, we derive a unique scope for each child index.
-        
+
         if start_index < end_index {
             let visible = &self.children[start_index..end_index];
             for (offset, child) in visible.iter().enumerate() {
@@ -191,9 +216,9 @@ impl Lower for LazyColumn {
                 cx.pop_scope();
             }
         }
-        
+
         // No pop_scope needed for col_id since we didn't push it.
-        
+
         // Bottom Spacer
         let remaining = total_count.saturating_sub(end_index);
         if remaining > 0 {
@@ -218,9 +243,9 @@ impl Lower for LazyColumn {
                 column_children.push(spacer.build(cx));
             }
         }
-        
+
         let mut col = NodeBuilder::new(
-            col_id, 
+            col_id,
             Op::Layout(LayoutOp::Flex {
                 direction: FlexDirection::Column,
                 wrap: fission_ir::op::FlexWrap::NoWrap,
@@ -253,7 +278,7 @@ impl Lower for LazyColumn {
         );
         content_box.add_child(col_id);
         let content_id = content_box.build(cx);
-        
+
         // Scroll
         let mut scroll = NodeBuilder::new(
             scroll_id,
@@ -269,7 +294,7 @@ impl Lower for LazyColumn {
                 padding: [0.0; 4],
                 flex_grow: 1.0,
                 flex_shrink: 1.0,
-            })
+            }),
         );
         scroll.add_child(content_id);
         scroll.build(cx)

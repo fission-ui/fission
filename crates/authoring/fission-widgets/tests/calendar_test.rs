@@ -1,6 +1,6 @@
-use fission_core::{AppState, BuildCtx, View, Widget, Node};
-use fission_widgets::calendar::Calendar;
 use chrono::NaiveDate;
+use fission_core::{AppState, BuildCtx, Node, View, Widget};
+use fission_widgets::calendar::Calendar;
 use serde::{Deserialize, Serialize};
 
 #[derive(Default, Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -27,7 +27,7 @@ fn test_calendar_build() {
     };
 
     let node = calendar.build(&mut ctx, &view);
-    
+
     // Verify it builds a Container wrapping a VStack
     if let Node::Container(c) = node {
         assert!(c.child.is_some());

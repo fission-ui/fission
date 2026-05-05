@@ -2,10 +2,10 @@ use crate::{
     action::video::{
         VideoPause, VideoPlay, VideoSeek, VideoSetMuted, VideoSetRate, VideoSetVolume, VideoStop,
     },
-    Action, ActionEnvelope, ActionId, AppState, BoxedReducer,
-    ui::Node,
     context::{Effects, ReducerContext},
-    effect::{EffectEnvelope, ActionInput},
+    effect::{ActionInput, EffectEnvelope},
+    ui::Node,
+    Action, ActionEnvelope, ActionId, AppState, BoxedReducer,
 };
 use anyhow::{anyhow, Result};
 use fission_ir::{NodeId, WidgetNodeId};
@@ -38,14 +38,25 @@ impl<S: AppState, A> IntoHandler<S, A> for fn(&mut S, A) {
 }
 
 // Impl for Modern (3-arg)
-impl<S: AppState, A> IntoHandler<S, A> for for<'a, 'b, 'c> fn(&mut S, A, &mut ReducerContext<'a, 'b, 'c, S>) {
+impl<S: AppState, A> IntoHandler<S, A>
+    for for<'a, 'b, 'c> fn(&mut S, A, &mut ReducerContext<'a, 'b, 'c, S>)
+{
     fn call<'a, 'b, 'c>(&self, state: &mut S, action: A, ctx: &mut ReducerContext<'a, 'b, 'c, S>) {
         (self)(state, action, ctx);
     }
 }
 
 // Internal typed reducer storage
-type TypedReducer<S> = Box<dyn for<'a, 'b, 'c> Fn(&mut S, &ActionEnvelope, &mut Effects<'a, S>, &'b ActionInput) -> Result<()> + Send + Sync>;
+type TypedReducer<S> = Box<
+    dyn for<'a, 'b, 'c> Fn(
+            &mut S,
+            &ActionEnvelope,
+            &mut Effects<'a, S>,
+            &'b ActionInput,
+        ) -> Result<()>
+        + Send
+        + Sync,
+>;
 
 /// A per-frame collection of action handlers registered during widget building.
 ///
@@ -69,19 +80,19 @@ impl<S: AppState> ActionRegistry<S> {
         Self::default()
     }
 
-    pub fn register<A: Action, H: IntoHandler<S, A> + Send + Sync + 'static>(&mut self, handler: H) {
+    pub fn register<A: Action, H: IntoHandler<S, A> + Send + Sync + 'static>(
+        &mut self,
+        handler: H,
+    ) {
         let action_id = A::static_id();
 
         let typed_reducer: TypedReducer<S> = Box::new(
             move |state: &mut S, envelope: &ActionEnvelope, effects, input| -> Result<()> {
                 let action: A = serde_json::from_slice(&envelope.payload)
                     .map_err(|e| anyhow!("Failed to deserialize action: {}", e))?;
-                
-                let mut ctx = ReducerContext {
-                    effects,
-                    input,
-                };
-                
+
+                let mut ctx = ReducerContext { effects, input };
+
                 handler.call(state, action, &mut ctx);
                 Ok(())
             },
@@ -106,13 +117,13 @@ impl<S: AppState> ActionRegistry<S> {
                         let concrete_state = state_box.downcast_mut::<S>().ok_or_else(|| {
                             anyhow!("Failed to downcast AppState to concrete type")
                         })?;
-                        
-                        let mut effects_builder = Effects::new_headless(0); 
-                        
+
+                        let mut effects_builder = Effects::new_headless(0);
+
                         typed_reducer(concrete_state, action, &mut effects_builder, input)?;
-                        
+
                         out_effects.extend(effects_builder.out);
-                        
+
                         Ok(())
                     } else {
                         anyhow::bail!("Target AppState for reducer not found in runtime.");
@@ -157,12 +168,24 @@ pub enum AnimationPropertyId {
 }
 
 impl AnimationPropertyId {
-    pub fn opacity() -> Self { Self::Opacity }
-    pub fn translate_x() -> Self { Self::TranslateX }
-    pub fn translate_y() -> Self { Self::TranslateY }
-    pub fn scale() -> Self { Self::Scale }
-    pub fn rotation() -> Self { Self::Rotation }
-    pub fn custom(name: impl Into<String>) -> Self { Self::Custom(Arc::from(name.into())) }
+    pub fn opacity() -> Self {
+        Self::Opacity
+    }
+    pub fn translate_x() -> Self {
+        Self::TranslateX
+    }
+    pub fn translate_y() -> Self {
+        Self::TranslateY
+    }
+    pub fn scale() -> Self {
+        Self::Scale
+    }
+    pub fn rotation() -> Self {
+        Self::Rotation
+    }
+    pub fn custom(name: impl Into<String>) -> Self {
+        Self::Custom(Arc::from(name.into()))
+    }
     pub fn default_value(&self) -> f32 {
         match self {
             Self::Opacity => 1.0,
@@ -306,8 +329,9 @@ impl<S: AppState> BuildCtx<S> {
         }
     }
 
-    pub fn bind<A: Action, H>(&mut self, action: A, handler: H) -> ActionEnvelope 
-    where H: IntoHandler<S, A> + Send + Sync + 'static 
+    pub fn bind<A: Action, H>(&mut self, action: A, handler: H) -> ActionEnvelope
+    where
+        H: IntoHandler<S, A> + Send + Sync + 'static,
     {
         self.registry.register(handler);
 
@@ -349,10 +373,20 @@ impl<S: AppState> BuildCtx<S> {
         self.register_portal_with_layer(PortalLayer::Default, Some(id), node);
     }
 
-    pub fn register_portal_with_layer(&mut self, layer: PortalLayer, id: Option<WidgetNodeId>, node: Node) {
+    pub fn register_portal_with_layer(
+        &mut self,
+        layer: PortalLayer,
+        id: Option<WidgetNodeId>,
+        node: Node,
+    ) {
         let seq = self.portal_seq;
         self.portal_seq = self.portal_seq.wrapping_add(1);
-        self.portals.push(PortalEntry { layer, seq, id, node });
+        self.portals.push(PortalEntry {
+            layer,
+            seq,
+            id,
+            node,
+        });
     }
 
     pub fn take_portals(&mut self) -> Vec<(Option<WidgetNodeId>, Node)> {

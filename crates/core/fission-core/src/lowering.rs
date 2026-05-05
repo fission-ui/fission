@@ -1,9 +1,8 @@
 use crate::env::{Env, RuntimeState};
 use fission_ir::{
-    CompositeStyle, CoreIR, GridPlacement, LayoutOp, NodeId, Op, PaintOp,
-    WidgetNodeId,
+    CompositeStyle, CoreIR, GridPlacement, LayoutOp, NodeId, Op, PaintOp, WidgetNodeId,
 };
-use fission_layout::{LayoutInputNode, TextMeasurer, LayoutSnapshot};
+use fission_layout::{LayoutInputNode, LayoutSnapshot, TextMeasurer};
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -41,7 +40,7 @@ impl<'a> LoweringContext<'a> {
             *seq += 1;
             next_id
         } else {
-            let next_id = NodeId::derived(0x1337_C0DE_0000_0000, &[self.global_seq]); 
+            let next_id = NodeId::derived(0x1337_C0DE_0000_0000, &[self.global_seq]);
             self.global_seq += 1;
             next_id
         }
@@ -173,7 +172,14 @@ pub fn build_layout_tree(ir: &CoreIR, env: &Env) -> Vec<LayoutInputNode> {
                         ..
                     }) = &parent.op
                     {
-                        inherited_box = Some((*width, *height, *min_width, *max_width, *min_height, *max_height));
+                        inherited_box = Some((
+                            *width,
+                            *height,
+                            *min_width,
+                            *max_width,
+                            *min_height,
+                            *max_height,
+                        ));
                     }
                 }
             }
@@ -305,7 +311,14 @@ pub fn build_layout_tree(ir: &CoreIR, env: &Env) -> Vec<LayoutInputNode> {
                     1.0,
                 ),
                 LayoutOp::AbsoluteFill => (LayoutOp::AbsoluteFill, None, None, 1.0, 1.0),
-                LayoutOp::Positioned { top, left, bottom, right, width, height } => (
+                LayoutOp::Positioned {
+                    top,
+                    left,
+                    bottom,
+                    right,
+                    width,
+                    height,
+                } => (
                     LayoutOp::Positioned {
                         top: *top,
                         left: *left,
@@ -320,7 +333,12 @@ pub fn build_layout_tree(ir: &CoreIR, env: &Env) -> Vec<LayoutInputNode> {
                     0.0,
                 ),
                 LayoutOp::ZStack => (LayoutOp::ZStack, None, None, 1.0, 1.0),
-                LayoutOp::Embed { kind, widget_id, width, height } => (
+                LayoutOp::Embed {
+                    kind,
+                    widget_id,
+                    width,
+                    height,
+                } => (
                     LayoutOp::Embed {
                         kind: kind.clone(),
                         widget_id: *widget_id,
@@ -332,13 +350,7 @@ pub fn build_layout_tree(ir: &CoreIR, env: &Env) -> Vec<LayoutInputNode> {
                     1.0,
                     1.0,
                 ),
-                LayoutOp::Align => (
-                    LayoutOp::Align,
-                    None,
-                    None,
-                    0.0,
-                    0.0,
-                ),
+                LayoutOp::Align => (LayoutOp::Align, None, None, 0.0, 0.0),
                 LayoutOp::Transform { transform } => (
                     LayoutOp::Transform {
                         transform: *transform,
@@ -358,20 +370,26 @@ pub fn build_layout_tree(ir: &CoreIR, env: &Env) -> Vec<LayoutInputNode> {
                     0.0,
                     0.0,
                 ),
-                LayoutOp::Clip { path } => (
-                    LayoutOp::Clip {
-                        path: path.clone(),
-                    },
-                    None,
-                    None,
-                    0.0,
-                    0.0,
-                ),
+                LayoutOp::Clip { path } => {
+                    (LayoutOp::Clip { path: path.clone() }, None, None, 0.0, 0.0)
+                }
             },
-            Op::Paint(PaintOp::DrawText { text, size, color, underline, caret_index: _ }) => {
-                let (inherit_width, inherit_height, inherit_min_width, inherit_max_width, inherit_min_height, inherit_max_height) =
-                    inherited_box.unwrap_or((None, None, None, None, None, None));
-                
+            Op::Paint(PaintOp::DrawText {
+                text,
+                size,
+                color,
+                underline,
+                caret_index: _,
+            }) => {
+                let (
+                    inherit_width,
+                    inherit_height,
+                    inherit_min_width,
+                    inherit_max_width,
+                    inherit_min_height,
+                    inherit_max_height,
+                ) = inherited_box.unwrap_or((None, None, None, None, None, None));
+
                 let (measured_w, measured_h): (f32, f32) = if let Some(m) = &env.measurer {
                     m.measure(text, *size, None)
                 } else {
@@ -380,7 +398,12 @@ pub fn build_layout_tree(ir: &CoreIR, env: &Env) -> Vec<LayoutInputNode> {
 
                 rich_text_content = Some(vec![fission_ir::op::TextRun {
                     text: text.clone(),
-                    style: fission_ir::op::TextStyle { font_size: *size, color: *color, underline: *underline, background_color: None },
+                    style: fission_ir::op::TextStyle {
+                        font_size: *size,
+                        color: *color,
+                        underline: *underline,
+                        background_color: None,
+                    },
                 }]);
                 children_to_visit.clear(); // Leaf node for layout
                 (
@@ -402,10 +425,19 @@ pub fn build_layout_tree(ir: &CoreIR, env: &Env) -> Vec<LayoutInputNode> {
                     1.0,
                 )
             }
-            Op::Paint(PaintOp::DrawRichText { runs, caret_index: _ }) => {
-                let (inherit_width, inherit_height, inherit_min_width, inherit_max_width, inherit_min_height, inherit_max_height) =
-                    inherited_box.unwrap_or((None, None, None, None, None, None));
-                
+            Op::Paint(PaintOp::DrawRichText {
+                runs,
+                caret_index: _,
+            }) => {
+                let (
+                    inherit_width,
+                    inherit_height,
+                    inherit_min_width,
+                    inherit_max_width,
+                    inherit_min_height,
+                    inherit_max_height,
+                ) = inherited_box.unwrap_or((None, None, None, None, None, None));
+
                 let (measured_w, measured_h): (f32, f32) = if let Some(m) = &env.measurer {
                     m.measure_rich_text(runs, None)
                 } else {

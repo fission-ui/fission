@@ -1,9 +1,9 @@
 use super::custom_render::CustomRenderObject;
 use super::traits::{Lower, LowerDyn};
 use super::widgets::{
-    Align, Button, Checkbox, Clip, Column, Composite, Container, GestureDetector, FocusScope,
-    Grid, GridItem, Icon, Image, LazyColumn, Overlay, Positioned, Radio, Row, SafeArea, Scroll,
-    Slider, Spacer, Switch, Text, TextInput, Transform, Video, ZStack,
+    Align, Button, Checkbox, Clip, Column, Composite, Container, FocusScope, GestureDetector, Grid,
+    GridItem, Icon, Image, LazyColumn, Overlay, Positioned, Radio, Row, SafeArea, Scroll, Slider,
+    Spacer, Switch, Text, TextInput, Transform, Video, ZStack,
 };
 use crate::lowering::LoweringContext;
 use fission_ir::{NodeId, Op, StructuralOp};
@@ -99,7 +99,11 @@ impl Node {
                     // the lowered subtree so the parent-walk from any hit descendant
                     // finds it regardless of tree depth.
                     cx.ir.custom_render_objects.insert(node_id, erased.clone());
-                    fn register_subtree(ir: &mut fission_ir::CoreIR, node_id: fission_ir::NodeId, erased: &fission_ir::AnyRenderObject) {
+                    fn register_subtree(
+                        ir: &mut fission_ir::CoreIR,
+                        node_id: fission_ir::NodeId,
+                        erased: &fission_ir::AnyRenderObject,
+                    ) {
                         ir.custom_render_objects.insert(node_id, erased.clone());
                         if let Some(children) = ir.nodes.get(&node_id).map(|n| n.children.clone()) {
                             for child_id in children {

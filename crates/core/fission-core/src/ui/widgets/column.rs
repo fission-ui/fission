@@ -1,6 +1,6 @@
 use crate::{Lower, LoweringContext, Node, NodeBuilder};
+use fission_ir::op::{AlignItems, FlexWrap, JustifyContent};
 use fission_ir::{FlexDirection, LayoutOp, NodeId, Op, Semantics};
-use fission_ir::op::{FlexWrap, AlignItems, JustifyContent};
 use serde::{Deserialize, Serialize};
 
 /// A vertical flex container that lays out children in a column.
@@ -94,9 +94,9 @@ impl Column {
 impl Lower for Column {
     fn lower(&self, cx: &mut LoweringContext) -> NodeId {
         let layout_id = self.id.unwrap_or_else(|| cx.next_node_id());
-        
+
         cx.push_scope(layout_id);
-        
+
         let mut builder = NodeBuilder::new(
             layout_id,
             Op::Layout(LayoutOp::Flex {
@@ -113,9 +113,9 @@ impl Lower for Column {
         for child in &self.children {
             builder.add_child(child.lower(cx));
         }
-        
+
         cx.pop_scope();
-        
+
         let layout_id = builder.build(cx);
 
         if let Some(s) = &self.semantics {

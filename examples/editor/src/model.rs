@@ -939,9 +939,9 @@ impl EditorState {
     }
 
     pub fn active_buffer(&self) -> Option<(&TabInfo, &FileBuffer)> {
-        self.open_tabs.get(self.active_tab).and_then(|tab| {
-            self.file_contents.get(&tab.path).map(|buf| (tab, buf))
-        })
+        self.open_tabs
+            .get(self.active_tab)
+            .and_then(|tab| self.file_contents.get(&tab.path).map(|buf| (tab, buf)))
     }
 
     pub fn active_buffer_mut(&mut self) -> Option<(&TabInfo, &mut FileBuffer)> {
@@ -1001,7 +1001,9 @@ impl EditorState {
 
     pub fn run_terminal_command(&mut self) {
         let cmd = self.terminal_input.trim().to_string();
-        if cmd.is_empty() { return; }
+        if cmd.is_empty() {
+            return;
+        }
         self.terminal_lines.push(format!("$ {}", cmd));
         match std::process::Command::new("sh")
             .arg("-c")
@@ -1134,7 +1136,9 @@ impl EditorState {
                 if let Some(buf) = self.file_contents.get_mut(&path) {
                     if let Some(line_start) = buf.line_index.line_start_byte(line) {
                         let start = line_start.saturating_add(col).min(buf.buffer.len_bytes());
-                        let end = start.saturating_add(query.len()).min(buf.buffer.len_bytes());
+                        let end = start
+                            .saturating_add(query.len())
+                            .min(buf.buffer.len_bytes());
                         if start <= end {
                             buf.apply_edit(start..end, &replacement);
                             let caret = start + replacement.len();
@@ -1208,7 +1212,8 @@ impl EditorState {
                 for (line_idx, line) in content_str.lines().enumerate() {
                     let mut start = 0;
                     while let Some(col) = line[start..].find(&query) {
-                        self.find_matches.push((path.clone(), line_idx, start + col));
+                        self.find_matches
+                            .push((path.clone(), line_idx, start + col));
                         start += col + query.len();
                     }
                 }
@@ -1327,13 +1332,10 @@ impl EditorState {
         self.breadcrumb_path.clear();
         if let Some(tab) = self.open_tabs.get(self.active_tab) {
             let tab_path = Path::new(&tab.path);
-            let relative = tab_path
-                .strip_prefix(&self.root_path)
-                .unwrap_or(tab_path);
+            let relative = tab_path.strip_prefix(&self.root_path).unwrap_or(tab_path);
             for component in relative.components() {
-                self.breadcrumb_path.push(
-                    component.as_os_str().to_string_lossy().to_string(),
-                );
+                self.breadcrumb_path
+                    .push(component.as_os_str().to_string_lossy().to_string());
             }
         }
     }
@@ -1512,8 +1514,12 @@ impl EditorState {
     pub fn check_external_changes(&mut self) {
         for tab in &self.open_tabs {
             let path = &tab.path;
-            let Ok(meta) = std::fs::metadata(path) else { continue };
-            let Ok(current_mtime) = meta.modified() else { continue };
+            let Ok(meta) = std::fs::metadata(path) else {
+                continue;
+            };
+            let Ok(current_mtime) = meta.modified() else {
+                continue;
+            };
 
             let changed = match self.file_mtimes.get(path) {
                 Some(stored) => current_mtime != *stored,
@@ -1528,8 +1534,7 @@ impl EditorState {
             self.file_mtimes.insert(path.clone(), current_mtime);
 
             if tab.is_dirty {
-                self.status_message =
-                    Some(format!("File changed on disk: {}", path));
+                self.status_message = Some(format!("File changed on disk: {}", path));
             } else {
                 // Reload content from disk
                 if let Ok(new_content) = std::fs::read_to_string(path) {
@@ -1611,17 +1616,25 @@ pub fn scan_directory(path: &Path, depth: usize) -> Vec<FileEntry> {
 
 #[allow(dead_code)]
 fn search_files_recursive(dir: &Path, query: &str, results: &mut Vec<SearchResult>, depth: usize) {
-    if depth > 3 || results.len() > 100 { return; }
-    let Ok(entries) = std::fs::read_dir(dir) else { return };
+    if depth > 3 || results.len() > 100 {
+        return;
+    }
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
     for entry in entries.filter_map(|e| e.ok()) {
         let name = entry.file_name().to_string_lossy().to_string();
-        if name.starts_with('.') || name == "target" || name == "node_modules" { continue; }
+        if name.starts_with('.') || name == "target" || name == "node_modules" {
+            continue;
+        }
         let path = entry.path();
         if path.is_dir() {
             search_files_recursive(&path, query, results, depth + 1);
         } else if path.is_file() {
             let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-            if !matches!(ext, "rs" | "toml" | "md" | "json" | "txt" | "yaml" | "yml") { continue; }
+            if !matches!(ext, "rs" | "toml" | "md" | "json" | "txt" | "yaml" | "yml") {
+                continue;
+            }
             if let Ok(content) = std::fs::read_to_string(&path) {
                 for (line_idx, line) in content.lines().enumerate() {
                     if let Some(col) = line.find(query) {
@@ -1631,7 +1644,9 @@ fn search_files_recursive(dir: &Path, query: &str, results: &mut Vec<SearchResul
                             col,
                             context: line.trim().to_string(),
                         });
-                        if results.len() > 100 { return; }
+                        if results.len() > 100 {
+                            return;
+                        }
                     }
                 }
             }
@@ -1897,9 +1912,9 @@ mod tests {
         assert_eq!(state.find_matches.len(), 3);
 
         // Verify positions
-        assert_eq!(state.find_matches[0].2, 0);   // col 0
-        assert_eq!(state.find_matches[1].2, 13);  // col 13 ("apple banana apple...")
-        assert_eq!(state.find_matches[2].2, 26);  // col 26
+        assert_eq!(state.find_matches[0].2, 0); // col 0
+        assert_eq!(state.find_matches[1].2, 13); // col 13 ("apple banana apple...")
+        assert_eq!(state.find_matches[2].2, 26); // col 26
 
         cleanup(&path);
     }
@@ -1987,7 +2002,11 @@ mod tests {
         let content = state.file_contents[&path].content();
         assert_eq!(content, "ZZZ bar ZZZ baz ZZZ");
         assert!(state.open_tabs[0].is_dirty);
-        assert!(state.status_message.as_ref().unwrap().contains("Replaced all"));
+        assert!(state
+            .status_message
+            .as_ref()
+            .unwrap()
+            .contains("Replaced all"));
 
         cleanup(&path);
     }
@@ -2062,8 +2081,11 @@ mod tests {
 
         // Status message should indicate "too large"
         let msg = state.status_message.as_ref().expect("status message set");
-        assert!(msg.contains("too large") || msg.contains("Too large"),
-            "expected 'too large' message, got: {}", msg);
+        assert!(
+            msg.contains("too large") || msg.contains("Too large"),
+            "expected 'too large' message, got: {}",
+            msg
+        );
 
         std::fs::remove_file(&path).ok();
     }
@@ -2170,9 +2192,14 @@ mod tests {
         state.open_file(path_str.clone());
 
         // Breadcrumb should contain the dir name and the file name
-        assert!(state.breadcrumb_path.len() >= 2,
-            "breadcrumb should have at least 2 segments, got: {:?}", state.breadcrumb_path);
-        assert!(state.breadcrumb_path.contains(&"test_breadcrumb_dir".to_string()));
+        assert!(
+            state.breadcrumb_path.len() >= 2,
+            "breadcrumb should have at least 2 segments, got: {:?}",
+            state.breadcrumb_path
+        );
+        assert!(state
+            .breadcrumb_path
+            .contains(&"test_breadcrumb_dir".to_string()));
         assert!(state.breadcrumb_path.contains(&"deep.txt".to_string()));
 
         std::fs::remove_file(&file_path).ok();
@@ -2213,8 +2240,14 @@ mod tests {
         assert!(state.terminal_input.is_empty());
 
         // terminal_lines should contain the command and its output
-        let has_prompt = state.terminal_lines.iter().any(|l| l.contains("$ echo hello_from_test"));
-        let has_output = state.terminal_lines.iter().any(|l| l.contains("hello_from_test") && !l.starts_with("$"));
+        let has_prompt = state
+            .terminal_lines
+            .iter()
+            .any(|l| l.contains("$ echo hello_from_test"));
+        let has_output = state
+            .terminal_lines
+            .iter()
+            .any(|l| l.contains("hello_from_test") && !l.starts_with("$"));
         assert!(has_prompt, "terminal should show the command prompt");
         assert!(has_output, "terminal should show command output");
     }
@@ -2320,8 +2353,11 @@ mod tests {
         state.paste();
 
         let content = state.file_contents[&path].content();
-        assert!(content.contains("line INSERTEDtwo"),
-            "paste should insert at cursor position, got: {}", content);
+        assert!(
+            content.contains("line INSERTEDtwo"),
+            "paste should insert at cursor position, got: {}",
+            content
+        );
         assert!(state.open_tabs[0].is_dirty);
 
         cleanup(&path);
@@ -2362,7 +2398,11 @@ mod tests {
 
         // Content should have the line removed
         let content = state.file_contents[&path].content();
-        assert!(!content.contains("line B"), "cut line should be removed, got: {}", content);
+        assert!(
+            !content.contains("line B"),
+            "cut line should be removed, got: {}",
+            content
+        );
         assert!(content.contains("line A"));
         assert!(content.contains("line C"));
         assert!(state.open_tabs[0].is_dirty);
@@ -2471,7 +2511,11 @@ mod tests {
 
         assert!(!state.open_tabs[0].is_dirty);
         assert!(!state.open_tabs[1].is_dirty);
-        assert!(state.status_message.as_ref().unwrap().contains("All files saved"));
+        assert!(state
+            .status_message
+            .as_ref()
+            .unwrap()
+            .contains("All files saved"));
 
         // Verify on disk
         assert_eq!(std::fs::read_to_string(&p1).unwrap(), "one_modified");
@@ -2566,7 +2610,11 @@ mod tests {
 
         assert!(folder_path.exists());
         assert!(folder_path.is_dir());
-        assert!(state.status_message.as_ref().unwrap().contains("Created folder"));
+        assert!(state
+            .status_message
+            .as_ref()
+            .unwrap()
+            .contains("Created folder"));
 
         std::fs::remove_dir_all(&folder_path).ok();
     }
@@ -2583,7 +2631,11 @@ mod tests {
         let entries = scan_directory(&dir, 0);
 
         // Should find at least the two files and one subdir
-        assert!(entries.len() >= 3, "expected >= 3 entries, got {}", entries.len());
+        assert!(
+            entries.len() >= 3,
+            "expected >= 3 entries, got {}",
+            entries.len()
+        );
 
         // Directories should come before files (by the sort in scan_directory)
         let first_dir_idx = entries.iter().position(|e| e.is_dir);
@@ -2705,7 +2757,10 @@ mod tests {
     fn test_multiline_find_matches() {
         let mut state = EditorState::default();
         state.root_path = std::env::temp_dir();
-        let path = temp_file("test_multiline_find.txt", "hello world\nhello rust\ngoodbye hello");
+        let path = temp_file(
+            "test_multiline_find.txt",
+            "hello world\nhello rust\ngoodbye hello",
+        );
         state.open_file(path.clone());
 
         state.find_query = "hello".to_string();
@@ -2807,7 +2862,11 @@ mod tests {
         }
         state.paste();
         let content = state.file_contents[&path].content();
-        assert!(content.contains("line3line3"), "paste at end of file, got: {}", content);
+        assert!(
+            content.contains("line3line3"),
+            "paste at end of file, got: {}",
+            content
+        );
 
         cleanup(&path);
     }
@@ -2952,7 +3011,11 @@ mod tests {
         let content = state.file_contents[&path].content();
         // One "x" replaced with "xx", so total "x" count changes
         let x_count = content.matches("x").count();
-        assert!(x_count >= 3, "at least original minus 1 plus 2, got: {}", x_count);
+        assert!(
+            x_count >= 3,
+            "at least original minus 1 plus 2, got: {}",
+            x_count
+        );
 
         // Replace remaining originals one by one
         state.replace_one();
@@ -2986,7 +3049,10 @@ mod tests {
 
         // The default EditHistory max is 1000, but we pushed 200, so depth == 200.
         // Verify the stack did not grow unboundedly beyond the max.
-        assert!(buf.edit_history.undo_depth() <= 1000, "undo stack should be capped");
+        assert!(
+            buf.edit_history.undo_depth() <= 1000,
+            "undo stack should be capped"
+        );
 
         // Current content should be the last change
         assert_eq!(buf.content(), "change_199");
@@ -3020,7 +3086,11 @@ mod tests {
 
         // Should be at the oldest available state
         let c = buf.content();
-        assert!(c.starts_with("v") || c == "start", "content should be a v-version or start, got: {}", c);
+        assert!(
+            c.starts_with("v") || c == "start",
+            "content should be a v-version or start, got: {}",
+            c
+        );
 
         // Undo once more should be a no-op (stack empty)
         let before = buf.content();
@@ -3066,7 +3136,11 @@ mod tests {
             max
         }
         let depth = max_depth(&entries, 0);
-        assert!(depth <= 4, "scan_directory should stop at depth 4, got depth {}", depth);
+        assert!(
+            depth <= 4,
+            "scan_directory should stop at depth 4, got depth {}",
+            depth
+        );
 
         std::fs::remove_dir_all(&base).ok();
     }
@@ -3085,7 +3159,10 @@ mod tests {
         let names: Vec<&str> = entries.iter().map(|e| e.name.as_str()).collect();
 
         assert!(!names.contains(&"target"), "should skip target directory");
-        assert!(!names.contains(&"node_modules"), "should skip node_modules directory");
+        assert!(
+            !names.contains(&"node_modules"),
+            "should skip node_modules directory"
+        );
         assert!(names.contains(&"src"), "should include src directory");
 
         std::fs::remove_dir_all(&base).ok();
@@ -3121,7 +3198,10 @@ mod tests {
         std::fs::create_dir_all(&base).ok();
 
         let entries = scan_directory(&base, 0);
-        assert!(entries.is_empty(), "empty directory should return empty vec");
+        assert!(
+            entries.is_empty(),
+            "empty directory should return empty vec"
+        );
 
         std::fs::remove_dir_all(&base).ok();
     }
@@ -3129,7 +3209,10 @@ mod tests {
     #[test]
     fn test_scan_directory_nonexistent() {
         let entries = scan_directory(Path::new("/tmp/definitely_does_not_exist_12345"), 0);
-        assert!(entries.is_empty(), "nonexistent directory should return empty vec");
+        assert!(
+            entries.is_empty(),
+            "nonexistent directory should return empty vec"
+        );
     }
 
     // -----------------------------------------------------------------------
@@ -3262,9 +3345,21 @@ mod tests {
     fn test_select_completion_index() {
         let mut state = EditorState::default();
         state.completions = vec![
-            CompletionItem { label: "foo".into(), kind: "function".into(), detail: None },
-            CompletionItem { label: "bar".into(), kind: "variable".into(), detail: None },
-            CompletionItem { label: "baz".into(), kind: "keyword".into(), detail: Some("built-in".into()) },
+            CompletionItem {
+                label: "foo".into(),
+                kind: "function".into(),
+                detail: None,
+            },
+            CompletionItem {
+                label: "bar".into(),
+                kind: "variable".into(),
+                detail: None,
+            },
+            CompletionItem {
+                label: "baz".into(),
+                kind: "keyword".into(),
+                detail: Some("built-in".into()),
+            },
         ];
         state.show_completions = true;
         state.selected_completion = 2;
@@ -3276,9 +3371,11 @@ mod tests {
     fn test_dismiss_completions_hides_panel() {
         let mut state = EditorState::default();
         state.show_completions = true;
-        state.completions = vec![
-            CompletionItem { label: "item".into(), kind: "text".into(), detail: None },
-        ];
+        state.completions = vec![CompletionItem {
+            label: "item".into(),
+            kind: "text".into(),
+            detail: None,
+        }];
 
         state.show_completions = false;
         assert!(!state.show_completions);
@@ -3289,7 +3386,10 @@ mod tests {
     fn test_navigate_diagnostic_moves_cursor() {
         let mut state = EditorState::default();
         state.root_path = std::env::temp_dir();
-        let path = temp_file("test_nav_diag.rs", "fn main() {\n    let x = 1;\n    let y = 2;\n}");
+        let path = temp_file(
+            "test_nav_diag.rs",
+            "fn main() {\n    let x = 1;\n    let y = 2;\n}",
+        );
         state.open_file(path.clone());
 
         state.go_to_line(2);
@@ -3331,7 +3431,10 @@ mod tests {
         let path = temp_file("test_scroll_reset.txt", "content");
         state.open_file(path.clone());
 
-        assert_eq!(state.scroll_offset_y, 0.0, "scroll should reset when opening a file");
+        assert_eq!(
+            state.scroll_offset_y, 0.0,
+            "scroll should reset when opening a file"
+        );
 
         cleanup(&path);
     }
@@ -3354,7 +3457,11 @@ mod tests {
         state.paste();
 
         let content = state.file_contents[&path].content();
-        assert!(content.starts_with("PREFIX "), "should paste at beginning, got: {}", content);
+        assert!(
+            content.starts_with("PREFIX "),
+            "should paste at beginning, got: {}",
+            content
+        );
 
         cleanup(&path);
     }
@@ -3375,8 +3482,12 @@ mod tests {
 
         let buf = state.file_contents.get(&path).unwrap();
         let max_line = buf.content().lines().count().saturating_sub(1);
-        assert!(buf.cursor_line <= max_line,
-            "cursor_line {} should be <= max_line {}", buf.cursor_line, max_line);
+        assert!(
+            buf.cursor_line <= max_line,
+            "cursor_line {} should be <= max_line {}",
+            buf.cursor_line,
+            max_line
+        );
 
         cleanup(&path);
     }
@@ -3499,7 +3610,11 @@ mod tests {
     fn test_save_all_no_tabs_sets_message() {
         let mut state = EditorState::default();
         state.save_all_files();
-        assert!(state.status_message.as_ref().unwrap().contains("All files saved"));
+        assert!(state
+            .status_message
+            .as_ref()
+            .unwrap()
+            .contains("All files saved"));
     }
 
     // -----------------------------------------------------------------------
@@ -3583,7 +3698,10 @@ mod tests {
 
     #[test]
     fn test_uri_to_path() {
-        assert_eq!(uri_to_path("file:///home/user/file.rs"), "/home/user/file.rs");
+        assert_eq!(
+            uri_to_path("file:///home/user/file.rs"),
+            "/home/user/file.rs"
+        );
         assert_eq!(uri_to_path("/already/a/path"), "/already/a/path");
         assert_eq!(uri_to_path("file://relative"), "relative");
     }

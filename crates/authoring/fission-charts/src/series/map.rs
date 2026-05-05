@@ -15,7 +15,7 @@ impl MapSeries {
             data: Vec::new(),
         }
     }
-    
+
     pub fn data(mut self, data: Vec<(&str, f32)>) -> Self {
         self.data = data.into_iter().map(|(l, v)| (l.into(), v)).collect();
         self

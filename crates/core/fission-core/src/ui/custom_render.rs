@@ -163,9 +163,7 @@ pub struct RenderObjectHolder(pub Arc<dyn CustomRenderObject>);
 /// `AnyRenderObject` stored in `CoreIR::custom_render_objects`.
 ///
 /// Returns `None` when the erased value is not a `RenderObjectHolder`.
-pub fn downcast_render_object(
-    any: &AnyRenderObject,
-) -> Option<&Arc<dyn CustomRenderObject>> {
+pub fn downcast_render_object(any: &AnyRenderObject) -> Option<&Arc<dyn CustomRenderObject>> {
     any.downcast_ref::<RenderObjectHolder>()
         .map(|holder| &holder.0)
 }

@@ -67,7 +67,7 @@ impl Default for Scroll {
 impl Lower for Scroll {
     fn lower(&self, cx: &mut LoweringContext) -> NodeId {
         let layout_id = self.id.unwrap_or_else(|| cx.next_node_id());
-        
+
         cx.push_scope(layout_id);
 
         let mut builder = NodeBuilder::new(
@@ -103,7 +103,7 @@ impl Lower for Scroll {
                     flex_grow: 0.0,
                     flex_shrink: 0.0,
                     aspect_ratio: None,
-                })
+                }),
             );
             content_box.add_child(child.lower(cx));
             builder.add_child(content_box.build(cx));

@@ -1,8 +1,6 @@
 use crate::stack::{HStack, VStack};
 use crate::Icon;
-use fission_core::ui::{
-    Button, ButtonContentAlign, ButtonVariant, Container, Node, Text,
-};
+use fission_core::ui::{Button, ButtonContentAlign, ButtonVariant, Container, Node, Text};
 use fission_core::{ActionEnvelope, BuildCtx, View, Widget};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
@@ -50,7 +48,7 @@ impl TreeView {
     ) {
         let is_selected = self.selected_id.as_ref() == Some(&item.id);
         let is_expanded = self.expanded_ids.contains(&item.id);
-        
+
         let theme = &view.env.theme.components.tree_view;
         let tokens = &view.env.theme.tokens;
 

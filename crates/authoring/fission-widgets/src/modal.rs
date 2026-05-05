@@ -220,7 +220,11 @@ impl<S: fission_core::AppState> Widget<S> for Modal {
             ..Default::default()
         }
         .into_node();
-        ctx.register_portal_with_layer(fission_core::PortalLayer::Modal, Some(self.id), positioned_root);
+        ctx.register_portal_with_layer(
+            fission_core::PortalLayer::Modal,
+            Some(self.id),
+            positioned_root,
+        );
 
         fission_core::ui::widgets::spacer::Spacer::default().into_node()
     }

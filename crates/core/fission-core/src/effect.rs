@@ -6,8 +6,8 @@
 //! The platform executor fulfils the effect outside the deterministic core and
 //! dispatches the `on_ok` / `on_err` callback actions back into the pipeline.
 
-use serde::{Deserialize, Serialize};
 use crate::action::ActionEnvelope;
+use serde::{Deserialize, Serialize};
 
 /// An opaque request identifier assigned to each emitted effect.
 ///
@@ -41,36 +41,24 @@ use std::collections::HashMap;
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SystemEffect {
     /// Show a native alert dialog with a title and message.
-    Alert {
-        title: String,
-        message: String,
-    },
+    Alert { title: String, message: String },
     /// Perform an HTTP GET request.
     HttpGet {
         url: String,
         headers: HashMap<String, String>,
     },
     /// Read a file from the local filesystem.
-    FileRead {
-        path: String,
-    },
+    FileRead { path: String },
     /// Cancel a previously issued effect by its request id.
-    Cancel {
-        req_id: u64,
-    },
+    Cancel { req_id: u64 },
     /// Release a platform-managed resource.
-    ReleaseResource {
-        resource_id: u64,
-    },
+    ReleaseResource { resource_id: u64 },
     /// Open a URL in the system browser or an in-app browser sheet.
     ///
     /// When `in_app` is `true`, the URL opens in a Custom Tab /
     /// SFSafariViewController overlay. When `false`, the URL opens in the
     /// external browser app.
-    OpenUrl {
-        url: String,
-        in_app: bool,
-    },
+    OpenUrl { url: String, in_app: bool },
     /// Initiate an OAuth / secure authentication session.
     ///
     /// The platform opens the `url` and listens for a redirect matching
@@ -162,7 +150,12 @@ pub enum ActionInput {
     /// The effect failed with an error message.
     EffectErr { req_id: u64, message: String },
     /// Pointer coordinates and deltas (used by drag/gesture handlers).
-    Pointer { x: f32, y: f32, delta_x: f32, delta_y: f32 },
+    Pointer {
+        x: f32,
+        y: f32,
+        delta_x: f32,
+        delta_y: f32,
+    },
     /// External file drop (e.g. from the OS file manager).
     Drop { paths: Vec<String>, x: f32, y: f32 },
     /// Internal drag-and-drop with an opaque byte payload.
@@ -172,21 +165,29 @@ pub enum ActionInput {
 impl ActionInput {
     pub fn as_bytes(&self) -> Option<&[u8]> {
         match self {
-            ActionInput::EffectOk { payload: EffectPayload::InlineBytes(b), .. } => Some(b),
+            ActionInput::EffectOk {
+                payload: EffectPayload::InlineBytes(b),
+                ..
+            } => Some(b),
             ActionInput::InternalDrop { payload, .. } => Some(payload),
             _ => None,
         }
     }
-    
+
     pub fn as_pointer(&self) -> Option<(f32, f32, f32, f32)> {
         match self {
-            ActionInput::Pointer { x, y, delta_x, delta_y } => Some((*x, *y, *delta_x, *delta_y)),
+            ActionInput::Pointer {
+                x,
+                y,
+                delta_x,
+                delta_y,
+            } => Some((*x, *y, *delta_x, *delta_y)),
             ActionInput::Drop { x, y, .. } => Some((*x, *y, 0.0, 0.0)),
             ActionInput::InternalDrop { x, y, .. } => Some((*x, *y, 0.0, 0.0)),
             _ => None,
         }
     }
-    
+
     pub fn as_drop_paths(&self) -> Option<&[String]> {
         match self {
             ActionInput::Drop { paths, .. } => Some(paths),

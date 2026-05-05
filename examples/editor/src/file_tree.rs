@@ -55,7 +55,9 @@ impl Widget<EditorState> for FileTree {
                     y: 0.0,
                     target: None,
                 },
-                (|s: &mut EditorState, a: ShowContextMenu, rctx: &mut fission_core::ReducerContext<EditorState>| {
+                (|s: &mut EditorState,
+                  a: ShowContextMenu,
+                  rctx: &mut fission_core::ReducerContext<EditorState>| {
                     let (px, py) = match rctx.input {
                         fission_core::ActionInput::Pointer { x, y, .. } => (*x, *y),
                         _ => (a.x, a.y),
@@ -123,29 +125,26 @@ impl Widget<EditorState> for FileTree {
             )
             .id;
 
-        let rename_input_id = ctx
-            .bind(
-                UpdateRenameInput(String::new()),
-                (|s: &mut EditorState, a: UpdateRenameInput, _| {
-                    s.rename_input = a.0;
-                }) as Handler<EditorState, UpdateRenameInput>,
-            );
+        let rename_input_id = ctx.bind(
+            UpdateRenameInput(String::new()),
+            (|s: &mut EditorState, a: UpdateRenameInput, _| {
+                s.rename_input = a.0;
+            }) as Handler<EditorState, UpdateRenameInput>,
+        );
 
-        let confirm_rename_id = ctx
-            .bind(
-                ConfirmRename,
-                (|s: &mut EditorState, _a: ConfirmRename, _| {
-                    s.confirm_rename();
-                }) as Handler<EditorState, ConfirmRename>,
-            );
+        let confirm_rename_id = ctx.bind(
+            ConfirmRename,
+            (|s: &mut EditorState, _a: ConfirmRename, _| {
+                s.confirm_rename();
+            }) as Handler<EditorState, ConfirmRename>,
+        );
 
-        let _cancel_rename_id = ctx
-            .bind(
-                CancelRename,
-                (|s: &mut EditorState, _a: CancelRename, _| {
-                    s.cancel_rename();
-                }) as Handler<EditorState, CancelRename>,
-            );
+        let _cancel_rename_id = ctx.bind(
+            CancelRename,
+            (|s: &mut EditorState, _a: CancelRename, _| {
+                s.cancel_rename();
+            }) as Handler<EditorState, CancelRename>,
+        );
 
         // --- Toolbar row ---
 
@@ -159,11 +158,8 @@ impl Widget<EditorState> for FileTree {
 
         let new_folder_action = ActionEnvelope {
             id: create_folder_id,
-            payload: serde_json::to_vec(&CreateFolder(format!(
-                "{}/new_folder",
-                root_path_str
-            )))
-            .unwrap(),
+            payload: serde_json::to_vec(&CreateFolder(format!("{}/new_folder", root_path_str)))
+                .unwrap(),
         };
 
         let refresh_action = ActionEnvelope {
@@ -177,7 +173,11 @@ impl Widget<EditorState> for FileTree {
             HStack {
                 spacing: Some(2.0),
                 children: vec![
-                    Spacer { flex_grow: 1.0, ..Default::default() }.into_node(),
+                    Spacer {
+                        flex_grow: 1.0,
+                        ..Default::default()
+                    }
+                    .into_node(),
                     Button {
                         variant: ButtonVariant::Ghost,
                         on_press: Some(new_file_action),

@@ -1,6 +1,6 @@
-use fission_core::{AppState, BuildCtx, View, Widget, Node};
-use fission_widgets::dropzone::Dropzone;
 use fission_core::ui::widgets::spacer::Spacer;
+use fission_core::{AppState, BuildCtx, Node, View, Widget};
+use fission_widgets::dropzone::Dropzone;
 use serde::{Deserialize, Serialize};
 
 #[derive(Default, Debug, Clone, Serialize, Deserialize, PartialEq)]

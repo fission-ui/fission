@@ -54,11 +54,7 @@ fn test_nested_scroll_hit_test() {
     // Button C: at 0, 50 relative to B's content (so 0, 150+50 = 200 relative to A's content).
     let mut semantics = fission_ir::Semantics::default();
     semantics.focusable = true;
-    ir.add_node(
-        button_c,
-        Op::Semantics(semantics),
-        vec![],
-    );
+    ir.add_node(button_c, Op::Semantics(semantics), vec![]);
 
     let mut snapshot = LayoutSnapshot::new(LayoutSize::new(800.0, 600.0));
 
@@ -93,7 +89,7 @@ fn test_nested_scroll_hit_test() {
 
     // Scroll A by 120. B (at 150) is now visible at screen y = 150 - 120 = 30.
     runtime.runtime_state.scroll.set_offset(scroll_a, 120.0);
-    
+
     // Scroll B by 40. C (at 200 absolute, so at 50 relative to B) is now visible at screen y = 30 + (50 - 40) = 40.
     runtime.runtime_state.scroll.set_offset(scroll_b, 40.0);
 
@@ -107,6 +103,6 @@ fn test_nested_scroll_hit_test() {
 
     // Expected: logical y relative to A = 40 + 120 = 160. (Hits B at 150..250).
     // logical y relative to B = 160 + 40 = 200. (Hits C at 200..220).
-    
+
     assert_eq!(hit, Some(button_c));
 }

@@ -31,7 +31,11 @@ impl TextMeasurer for SimpleMeasurer {
         (width, line_height)
     }
 
-    fn measure_rich_text(&self, runs: &[fission_ir::op::TextRun], available_width: Option<f32>) -> (f32, f32) {
+    fn measure_rich_text(
+        &self,
+        runs: &[fission_ir::op::TextRun],
+        available_width: Option<f32>,
+    ) -> (f32, f32) {
         let text: String = runs.iter().map(|r| r.text.clone()).collect();
         self.measure(&text, 16.0, available_width)
     }
@@ -66,25 +70,41 @@ fn build_widget_ir(widget: impl Widget<TestState>, env: &Env) -> (CoreIR, NodeId
     (lower.ir, root_id)
 }
 
-fn layout_widget(widget: impl Widget<TestState>, env: &Env) -> (CoreIR, NodeId, fission_layout::LayoutSnapshot) {
+fn layout_widget(
+    widget: impl Widget<TestState>,
+    env: &Env,
+) -> (CoreIR, NodeId, fission_layout::LayoutSnapshot) {
     let (ir, root_id) = build_widget_ir(widget, env);
     let input_nodes = build_layout_tree(&ir, &env);
     let mut engine = LayoutEngine::new().with_measurer(Arc::new(SimpleMeasurer));
     engine.rebuild(&input_nodes).unwrap();
     let snapshot = engine
-        .compute_layout(&input_nodes, root_id, LayoutSize::new(400.0, 300.0), &|_| 0.0)
+        .compute_layout(
+            &input_nodes,
+            root_id,
+            LayoutSize::new(400.0, 300.0),
+            &|_| 0.0,
+        )
         .unwrap();
     (ir, root_id, snapshot)
 }
 
 fn rect_center(rect: fission_layout::LayoutRect) -> (f32, f32) {
-    (rect.x() + rect.width() / 2.0, rect.y() + rect.height() / 2.0)
+    (
+        rect.x() + rect.width() / 2.0,
+        rect.y() + rect.height() / 2.0,
+    )
 }
 
 #[test]
 fn badge_background_uses_theme_secondary() {
     let mut tokens = Tokens::default();
-    tokens.colors.secondary = Color { r: 7, g: 11, b: 13, a: 255 };
+    tokens.colors.secondary = Color {
+        r: 7,
+        g: 11,
+        b: 13,
+        a: 255,
+    };
     let theme = Theme {
         components: ComponentTheme::from_tokens(&tokens),
         tokens,
@@ -92,11 +112,21 @@ fn badge_background_uses_theme_secondary() {
     let mut env = Env::default();
     env.theme = theme;
 
-    let (ir, _root_id) = build_widget_ir(Badge { text: "1".into(), ..Default::default() }, &env);
+    let (ir, _root_id) = build_widget_ir(
+        Badge {
+            text: "1".into(),
+            ..Default::default()
+        },
+        &env,
+    );
 
     let mut found = false;
     for node in ir.nodes.values() {
-        if let Op::Paint(PaintOp::DrawRect { fill: Some(fission_ir::op::Fill::Solid(color)), .. }) = &node.op {
+        if let Op::Paint(PaintOp::DrawRect {
+            fill: Some(fission_ir::op::Fill::Solid(color)),
+            ..
+        }) = &node.op
+        {
             if *color == env.theme.tokens.colors.secondary {
                 found = true;
                 break;
@@ -104,7 +134,10 @@ fn badge_background_uses_theme_secondary() {
         }
     }
 
-    assert!(found, "expected badge background to use theme secondary color");
+    assert!(
+        found,
+        "expected badge background to use theme secondary color"
+    );
 }
 
 #[test]
@@ -119,23 +152,36 @@ fn stepper_circle_text_centered() {
     );
     let parents = parent_map(&ir);
 
-    let circle_id = ir.nodes.iter().find_map(|(id, node)| {
-        if let Op::Layout(LayoutOp::Box { width: Some(w), height: Some(h), .. }) = &node.op {
-            if approx_eq(*w, 24.0) && approx_eq(*h, 24.0) {
-                return Some(*id);
+    let circle_id = ir
+        .nodes
+        .iter()
+        .find_map(|(id, node)| {
+            if let Op::Layout(LayoutOp::Box {
+                width: Some(w),
+                height: Some(h),
+                ..
+            }) = &node.op
+            {
+                if approx_eq(*w, 24.0) && approx_eq(*h, 24.0) {
+                    return Some(*id);
+                }
             }
-        }
-        None
-    }).expect("stepper circle container");
+            None
+        })
+        .expect("stepper circle container");
 
-    let text_paint_id = ir.nodes.iter().find_map(|(id, node)| {
-        if let Op::Paint(PaintOp::DrawText { text, .. }) = &node.op {
-            if text == "1" {
-                return Some(*id);
+    let text_paint_id = ir
+        .nodes
+        .iter()
+        .find_map(|(id, node)| {
+            if let Op::Paint(PaintOp::DrawText { text, .. }) = &node.op {
+                if text == "1" {
+                    return Some(*id);
+                }
             }
-        }
-        None
-    }).expect("stepper circle text paint");
+            None
+        })
+        .expect("stepper circle text paint");
 
     let text_layout_id = parents.get(&text_paint_id).copied().expect("text layout");
     let circle_rect = snapshot.get_node_geometry(circle_id).unwrap().rect;
@@ -144,39 +190,62 @@ fn stepper_circle_text_centered() {
     let (cx, cy) = rect_center(circle_rect);
     let (tx, ty) = rect_center(text_rect);
 
-    assert!(approx_eq(cx, tx) && approx_eq(cy, ty), "stepper text should be centered in circle");
+    assert!(
+        approx_eq(cx, tx) && approx_eq(cy, ty),
+        "stepper text should be centered in circle"
+    );
 }
 
 #[test]
 fn badge_text_centered() {
     let env = Env::default();
-    let (ir, root_id, snapshot) =
-        layout_widget(Badge { text: "1".into(), ..Default::default() }, &env);
+    let (ir, root_id, snapshot) = layout_widget(
+        Badge {
+            text: "1".into(),
+            ..Default::default()
+        },
+        &env,
+    );
     let parents = parent_map(&ir);
 
-    let text_paint_id = ir.nodes.iter().find_map(|(id, node)| {
-        if let Op::Paint(PaintOp::DrawText { text, .. }) = &node.op {
-            if text == "1" {
-                return Some(*id);
+    let text_paint_id = ir
+        .nodes
+        .iter()
+        .find_map(|(id, node)| {
+            if let Op::Paint(PaintOp::DrawText { text, .. }) = &node.op {
+                if text == "1" {
+                    return Some(*id);
+                }
             }
-        }
-        None
-    }).expect("badge text paint");
+            None
+        })
+        .expect("badge text paint");
 
-    let text_layout_id = parents.get(&text_paint_id).copied().expect("badge text layout");
+    let text_layout_id = parents
+        .get(&text_paint_id)
+        .copied()
+        .expect("badge text layout");
     let badge_rect = snapshot.get_node_geometry(root_id).unwrap().rect;
     let text_rect = snapshot.get_node_geometry(text_layout_id).unwrap().rect;
 
     let (bx, by) = rect_center(badge_rect);
     let (tx, ty) = rect_center(text_rect);
 
-    assert!(approx_eq(bx, tx) && approx_eq(by, ty), "badge text should be centered");
+    assert!(
+        approx_eq(bx, tx) && approx_eq(by, ty),
+        "badge text should be centered"
+    );
 }
 
 #[test]
 fn stepper_active_text_uses_on_primary() {
     let mut tokens = Tokens::default();
-    tokens.colors.on_primary = Color { r: 12, g: 34, b: 56, a: 255 };
+    tokens.colors.on_primary = Color {
+        r: 12,
+        g: 34,
+        b: 56,
+        a: 255,
+    };
     let theme = Theme {
         components: ComponentTheme::from_tokens(&tokens),
         tokens,

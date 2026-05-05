@@ -1,6 +1,6 @@
+use fission_core::ui::widgets::image::Image;
 use fission_core::AppState;
 use fission_widgets::hero::Hero;
-use fission_core::ui::widgets::image::Image;
 use serde::{Deserialize, Serialize};
 
 #[derive(Default, Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -14,7 +14,13 @@ impl AppState for TestState {}
 fn test_hero_compilation() {
     let _hero = Hero {
         tag: "avatar".into(),
-        child: Box::new(Image { source: "test.png".into(), ..Default::default() }.into_node()),
+        child: Box::new(
+            Image {
+                source: "test.png".into(),
+                ..Default::default()
+            }
+            .into_node(),
+        ),
     };
     assert!(true);
 }

@@ -1,7 +1,5 @@
 use anyhow::Result;
-use fission_core::{
-    Action, ActionEnvelope, ActionId, AdvanceTo, AppState, Runtime, Tick,
-};
+use fission_core::{Action, ActionEnvelope, ActionId, AdvanceTo, AppState, Runtime, Tick};
 use fission_ir::NodeId;
 use lazy_static::lazy_static;
 use serde::{Deserialize, Serialize};

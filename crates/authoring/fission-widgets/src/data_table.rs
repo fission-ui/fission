@@ -1,9 +1,7 @@
 use crate::stack::{HStack, VStack};
 use crate::Icon;
 use fission_core::op::Color;
-use fission_core::ui::{
-    Button, ButtonVariant, Checkbox, Container, Node, Scroll, Text,
-};
+use fission_core::ui::{Button, ButtonVariant, Checkbox, Container, Node, Scroll, Text};
 use fission_core::{ActionEnvelope, BuildCtx, View, Widget, WidgetNodeId};
 use fission_icons::material;
 use serde::{Deserialize, Serialize};

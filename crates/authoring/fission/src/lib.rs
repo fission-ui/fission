@@ -94,9 +94,8 @@ pub use fission_core::ui::*;
 
 // Core action/state types
 pub use fission_core::{
-    Action, ActionEnvelope, ActionId, AppState,
-    BuildCtx, Handler, View, Widget, WidgetNodeId,
-    PortalLayer,
+    Action, ActionEnvelope, ActionId, AppState, BuildCtx, Handler, PortalLayer, View, Widget,
+    WidgetNodeId,
 };
 
 // Core event types
@@ -113,7 +112,7 @@ pub use fission_ir::NodeId;
 pub use fission_layout::{LayoutPoint, LayoutRect, LayoutSize, LayoutUnit};
 
 // Authoring widgets (HStack, VStack, Spacer, Icon, etc.)
-pub use fission_widgets::{HStack, VStack, Spacer, Icon};
+pub use fission_widgets::{HStack, Icon, Spacer, VStack};
 
 // Desktop shell
 pub use fission_shell_desktop::DesktopApp;
@@ -130,21 +129,20 @@ pub mod prelude {
     pub use fission_widgets::*;
 
     // Actions
-    pub use fission_core::{
-        Action, ActionEnvelope, ActionId, AppState,
-        BuildCtx, Handler, View, Widget, WidgetNodeId,
-        PortalLayer,
-    };
-    pub use fission_core::event::{InputEvent, KeyCode, KeyEvent, PointerButton, PointerEvent};
     pub use fission_core::env::Env;
+    pub use fission_core::event::{InputEvent, KeyCode, KeyEvent, PointerButton, PointerEvent};
     pub use fission_core::op::Color;
+    pub use fission_core::{
+        Action, ActionEnvelope, ActionId, AppState, BuildCtx, Handler, PortalLayer, View, Widget,
+        WidgetNodeId,
+    };
 
     // Layout
     pub use fission_layout::{LayoutPoint, LayoutRect, LayoutSize};
 
     // IR
-    pub use fission_ir::NodeId;
     pub use fission_ir::op as ir_op;
+    pub use fission_ir::NodeId;
 
     // Icons
     pub use fission_icons::material;

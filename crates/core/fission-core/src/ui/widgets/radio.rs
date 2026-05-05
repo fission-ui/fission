@@ -92,68 +92,130 @@ impl Lower for Radio {
 
         // Dot
         let dot_node = if self.checked {
-            let dot = NodeBuilder::new(cx.next_node_id(), Op::Paint(PaintOp::DrawRect {
-                fill: Some(fission_ir::op::Fill::Solid(active_color)),
-                stroke: None,
-                corner_radius: dot_size / 2.0,
-                shadow: None,
-            })).build(cx);
-            let mut dot_box = NodeBuilder::new(cx.next_node_id(), Op::Layout(LayoutOp::Box {
-                width: Some(dot_size), height: Some(dot_size), 
-                min_width: None, max_width: None, min_height: None, max_height: None, padding: [0.0;4],
-                flex_grow: 0.0, flex_shrink: 0.0,
-                aspect_ratio: None,
-            }));
+            let dot = NodeBuilder::new(
+                cx.next_node_id(),
+                Op::Paint(PaintOp::DrawRect {
+                    fill: Some(fission_ir::op::Fill::Solid(active_color)),
+                    stroke: None,
+                    corner_radius: dot_size / 2.0,
+                    shadow: None,
+                }),
+            )
+            .build(cx);
+            let mut dot_box = NodeBuilder::new(
+                cx.next_node_id(),
+                Op::Layout(LayoutOp::Box {
+                    width: Some(dot_size),
+                    height: Some(dot_size),
+                    min_width: None,
+                    max_width: None,
+                    min_height: None,
+                    max_height: None,
+                    padding: [0.0; 4],
+                    flex_grow: 0.0,
+                    flex_shrink: 0.0,
+                    aspect_ratio: None,
+                }),
+            );
             dot_box.add_child(dot);
             let dot_box_id = dot_box.build(cx);
             let mut dot_align = NodeBuilder::new(cx.next_node_id(), Op::Layout(LayoutOp::Align));
             dot_align.add_child(dot_box_id);
             let dot_align_id = dot_align.build(cx);
-            let mut dot_container = NodeBuilder::new(cx.next_node_id(), Op::Layout(LayoutOp::Box {
-                width: Some(size), height: Some(size),
-                min_width: None, max_width: None, min_height: None, max_height: None, padding: [0.0;4],
-                flex_grow: 0.0, flex_shrink: 0.0,
-                aspect_ratio: None,
-            }));
+            let mut dot_container = NodeBuilder::new(
+                cx.next_node_id(),
+                Op::Layout(LayoutOp::Box {
+                    width: Some(size),
+                    height: Some(size),
+                    min_width: None,
+                    max_width: None,
+                    min_height: None,
+                    max_height: None,
+                    padding: [0.0; 4],
+                    flex_grow: 0.0,
+                    flex_shrink: 0.0,
+                    aspect_ratio: None,
+                }),
+            );
             dot_container.add_child(dot_align_id);
             Some(dot_container.build(cx))
-        } else { None };
+        } else {
+            None
+        };
 
         let mut radio_box = NodeBuilder::new(
             cx.next_node_id(),
-            Op::Layout(LayoutOp::Box { width: Some(size), height: Some(size), min_width: None, max_width: None, min_height: None, max_height: None, padding: [0.0; 4], flex_grow: 0.0, flex_shrink: 0.0, aspect_ratio: None }),
+            Op::Layout(LayoutOp::Box {
+                width: Some(size),
+                height: Some(size),
+                min_width: None,
+                max_width: None,
+                min_height: None,
+                max_height: None,
+                padding: [0.0; 4],
+                flex_grow: 0.0,
+                flex_shrink: 0.0,
+                aspect_ratio: None,
+            }),
         );
         radio_box.add_child(outer_node);
-        if let Some(d) = dot_node { radio_box.add_child(d); }
+        if let Some(d) = dot_node {
+            radio_box.add_child(d);
+        }
         let radio_final = radio_box.build(cx);
 
         // Label
         let label_id = if let Some(text) = &self.label {
             let text_id = NodeBuilder::new(
                 cx.next_node_id(),
-                Op::Paint(PaintOp::DrawText { 
-                    text: text.clone(), 
-                    size: tokens.typography.body_medium_size, 
-                    color: text_color, 
-                    underline: false, 
-                    caret_index: None 
+                Op::Paint(PaintOp::DrawText {
+                    text: text.clone(),
+                    size: tokens.typography.body_medium_size,
+                    color: text_color,
+                    underline: false,
+                    caret_index: None,
                 }),
-            ).build(cx);
+            )
+            .build(cx);
             let mut layout = NodeBuilder::new(
                 cx.next_node_id(),
-                Op::Layout(LayoutOp::Box { width: None, height: None, min_width: None, max_width: None, min_height: None, max_height: None, padding: [tokens.spacing.s, 0.0, 0.0, 0.0], flex_grow: 0.0, flex_shrink: 0.0, aspect_ratio: None }), 
+                Op::Layout(LayoutOp::Box {
+                    width: None,
+                    height: None,
+                    min_width: None,
+                    max_width: None,
+                    min_height: None,
+                    max_height: None,
+                    padding: [tokens.spacing.s, 0.0, 0.0, 0.0],
+                    flex_grow: 0.0,
+                    flex_shrink: 0.0,
+                    aspect_ratio: None,
+                }),
             );
             layout.add_child(text_id);
             Some(layout.build(cx))
-        } else { None };
+        } else {
+            None
+        };
 
         let layout_id = cx.next_node_id();
         let mut row = NodeBuilder::new(
             layout_id,
-            Op::Layout(LayoutOp::Flex { direction: fission_ir::FlexDirection::Row, wrap: fission_ir::op::FlexWrap::NoWrap, flex_grow: 0.0, flex_shrink: 1.0, padding: [0.0; 4], gap: Some(8.0), align_items: fission_ir::op::AlignItems::Center, justify_content: fission_ir::op::JustifyContent::Start }),
+            Op::Layout(LayoutOp::Flex {
+                direction: fission_ir::FlexDirection::Row,
+                wrap: fission_ir::op::FlexWrap::NoWrap,
+                flex_grow: 0.0,
+                flex_shrink: 1.0,
+                padding: [0.0; 4],
+                gap: Some(8.0),
+                align_items: fission_ir::op::AlignItems::Center,
+                justify_content: fission_ir::op::JustifyContent::Start,
+            }),
         );
         row.add_child(radio_final);
-        if let Some(l) = label_id { row.add_child(l); }
+        if let Some(l) = label_id {
+            row.add_child(l);
+        }
         row.build(cx);
 
         cx.pop_scope();
@@ -161,7 +223,11 @@ impl Lower for Radio {
         let mut semantics = fission_ir::Semantics {
             role: fission_ir::Role::Checkbox, // Reuse Checkbox for Radio behavior?
             label: self.label.clone(),
-            value: Some(if self.checked { "true".into() } else { "false".into() }),
+            value: Some(if self.checked {
+                "true".into()
+            } else {
+                "false".into()
+            }),
             actions: Default::default(),
             focusable: true,
             multiline: false,
@@ -180,16 +246,18 @@ impl Lower for Radio {
             is_focus_barrier: false,
             drag_payload: None,
             hero_tag: None,
-            focus_index: None, capture_tab: false, auto_indent: false,
+            focus_index: None,
+            capture_tab: false,
+            auto_indent: false,
         };
         if let Some(action) = &self.on_select {
-             semantics.actions.entries.push(fission_ir::ActionEntry { 
-                 trigger: fission_ir::semantics::ActionTrigger::Default,
-                 action_id: action.id.as_u128(), 
-                 payload_data: Some(action.payload.clone()) 
-             });
+            semantics.actions.entries.push(fission_ir::ActionEntry {
+                trigger: fission_ir::semantics::ActionTrigger::Default,
+                action_id: action.id.as_u128(),
+                payload_data: Some(action.payload.clone()),
+            });
         }
-        
+
         let mut sem_node = NodeBuilder::new(id, Op::Semantics(semantics));
         sem_node.add_child(layout_id);
         sem_node.build(cx)

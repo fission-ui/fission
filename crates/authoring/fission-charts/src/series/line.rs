@@ -1,6 +1,6 @@
-use serde::{Deserialize, Serialize};
-use fission_core::op::Color;
 use crate::encode::Encode;
+use fission_core::op::Color;
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LineSeries {
@@ -27,7 +27,7 @@ impl LineSeries {
             stack: None,
         }
     }
-    
+
     pub fn data(mut self, data: Vec<f32>) -> Self {
         self.data = data;
         self
@@ -37,12 +37,12 @@ impl LineSeries {
         self.encode = Some(encode);
         self
     }
-    
+
     pub fn smooth(mut self, smooth: bool) -> Self {
         self.smooth = smooth;
         self
     }
-    
+
     pub fn color(mut self, color: Color) -> Self {
         self.color = color;
         self

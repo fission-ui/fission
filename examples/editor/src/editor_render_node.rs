@@ -21,11 +21,11 @@ use fission_core::event::{InputEvent, KeyCode, KeyEvent, PointerEvent};
 use fission_core::lowering::{LoweringContext, NodeBuilder};
 use fission_core::ui::custom_render::{CustomEventResult, CustomHitResult, CustomRenderObject};
 use fission_core::ui::traits::LowerDyn;
+use fission_core::{LayoutPoint, LayoutRect};
 use fission_ir::op::{
     AlignItems, Color as IrColor, Fill, FlexDirection, LayoutOp, Op, PaintOp, TextRun, TextStyle,
 };
 use fission_ir::NodeId;
-use fission_core::{LayoutPoint, LayoutRect};
 use std::fmt;
 
 // ---------------------------------------------------------------------------
@@ -115,38 +115,37 @@ impl EditorRenderNode {
 
         // --- Build syntax cache ---
         let line_count = content.lines().count().max(1);
-        let syntax_cache: Vec<Vec<SyntaxSpan>> =
-            if line_count > SYNTAX_HIGHLIGHT_LINE_LIMIT {
-                // Large file: plain unstyled text
-                content
-                    .lines()
-                    .map(|l| {
-                        vec![SyntaxSpan {
-                            text: l.to_string(),
-                            color: DEFAULT_TEXT,
-                        }]
-                    })
-                    .collect()
-            } else {
-                let doc_spans = syntax::highlight_document(&content, language);
-                doc_spans
-                    .into_iter()
-                    .map(|spans| {
-                        spans
-                            .into_iter()
-                            .map(|s| SyntaxSpan {
-                                text: s.text,
-                                color: IrColor {
-                                    r: s.color.r,
-                                    g: s.color.g,
-                                    b: s.color.b,
-                                    a: s.color.a,
-                                },
-                            })
-                            .collect()
-                    })
-                    .collect()
-            };
+        let syntax_cache: Vec<Vec<SyntaxSpan>> = if line_count > SYNTAX_HIGHLIGHT_LINE_LIMIT {
+            // Large file: plain unstyled text
+            content
+                .lines()
+                .map(|l| {
+                    vec![SyntaxSpan {
+                        text: l.to_string(),
+                        color: DEFAULT_TEXT,
+                    }]
+                })
+                .collect()
+        } else {
+            let doc_spans = syntax::highlight_document(&content, language);
+            doc_spans
+                .into_iter()
+                .map(|spans| {
+                    spans
+                        .into_iter()
+                        .map(|s| SyntaxSpan {
+                            text: s.text,
+                            color: IrColor {
+                                r: s.color.r,
+                                g: s.color.g,
+                                b: s.color.b,
+                                a: s.color.a,
+                            },
+                        })
+                        .collect()
+                })
+                .collect()
+        };
 
         // --- Gutter width: enough room for the widest line number + padding ---
         let digits = format!("{}", line_count).len();
@@ -318,11 +317,7 @@ impl LowerDyn for EditorRenderNode {
             } else {
                 // Fallback: unstyled line (should not happen if syntax_cache is
                 // built correctly, but defensive).
-                let text = all_lines
-                    .get(line_idx)
-                    .copied()
-                    .unwrap_or("")
-                    .to_string();
+                let text = all_lines.get(line_idx).copied().unwrap_or("").to_string();
                 vec![TextRun {
                     text,
                     style: TextStyle {
@@ -548,10 +543,8 @@ impl CustomRenderObject for EditorRenderNode {
         match event {
             // --- Click to place caret ---
             InputEvent::Pointer(PointerEvent::Down { point, .. }) => {
-                let local_point = LayoutPoint::new(
-                    point.x - node_rect.origin.x,
-                    point.y - node_rect.origin.y,
-                );
+                let local_point =
+                    LayoutPoint::new(point.x - node_rect.origin.x, point.y - node_rect.origin.y);
                 let byte_offset = self.point_to_offset(local_point);
 
                 let mut actions = Vec::new();
@@ -574,9 +567,10 @@ impl CustomRenderObject for EditorRenderNode {
             }
 
             // --- Keyboard input ---
-            InputEvent::Keyboard(KeyEvent::Down { key_code, modifiers }) => {
-                self.handle_key(node_id, key_code, *modifiers)
-            }
+            InputEvent::Keyboard(KeyEvent::Down {
+                key_code,
+                modifiers,
+            }) => self.handle_key(node_id, key_code, *modifiers),
 
             InputEvent::Ime(fission_core::event::ImeEvent::Preedit { text }) => {
                 CustomEventResult::consumed_with(vec![(
@@ -662,12 +656,7 @@ impl EditorRenderNode {
 
     /// Handle a key press, producing a `CustomEventResult` with the
     /// appropriate actions to dispatch.
-    fn handle_key(
-        &self,
-        node_id: NodeId,
-        key_code: &KeyCode,
-        modifiers: u8,
-    ) -> CustomEventResult {
+    fn handle_key(&self, node_id: NodeId, key_code: &KeyCode, modifiers: u8) -> CustomEventResult {
         let shift = (modifiers & 1) != 0;
         let ctrl_or_cmd = (modifiers & 4) != 0 || (modifiers & 8) != 0;
         let content = self.content.as_str();
@@ -827,10 +816,7 @@ impl EditorRenderNode {
 
             let (cursor_line, _) = offset_to_line_col(&preview, offset);
             if let Some(new_scroll) = self.scroll_y_to_reveal_line(cursor_line) {
-                actions.push((
-                    node_id,
-                    ActionEnvelope::from(UpdateScrollY(new_scroll)),
-                ));
+                actions.push((node_id, ActionEnvelope::from(UpdateScrollY(new_scroll))));
             }
             return CustomEventResult::consumed_with(actions);
         }
@@ -845,10 +831,7 @@ impl EditorRenderNode {
 
         let (cursor_line, _) = offset_to_line_col(content, offset);
         if let Some(new_scroll) = self.scroll_y_to_reveal_line(cursor_line) {
-            actions.push((
-                node_id,
-                ActionEnvelope::from(UpdateScrollY(new_scroll)),
-            ));
+            actions.push((node_id, ActionEnvelope::from(UpdateScrollY(new_scroll))));
         }
 
         CustomEventResult::consumed_with(actions)
@@ -893,7 +876,8 @@ impl EditorRenderNode {
 
     fn caret_rect(&self, node_rect: LayoutRect) -> LayoutRect {
         let char_width = self.font_size * 0.6;
-        let (line, col) = offset_to_line_col(&self.content, self.cursor_offset.min(self.content.len()));
+        let (line, col) =
+            offset_to_line_col(&self.content, self.cursor_offset.min(self.content.len()));
         LayoutRect::new(
             node_rect.origin.x + self.gutter_width + col as f32 * char_width,
             node_rect.origin.y + line as f32 * self.line_height - self.scroll_y,

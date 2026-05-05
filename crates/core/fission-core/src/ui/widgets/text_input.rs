@@ -4,7 +4,7 @@ use crate::ui::TextContent;
 use crate::ActionEnvelope;
 use fission_ir::{
     op::{Color as IrColor, LayoutOp, Op, PaintOp},
-    NodeId, Role, Semantics, FlexDirection
+    FlexDirection, NodeId, Role, Semantics,
 };
 use serde::{Deserialize, Serialize};
 use unicode_segmentation::UnicodeSegmentation;
@@ -133,26 +133,31 @@ impl Lower for TextInput {
     fn lower(&self, cx: &mut LoweringContext) -> NodeId {
         let input_id = self.id.unwrap_or_else(|| cx.next_node_id());
         let is_focused = cx.runtime_state.interaction.is_focused(input_id);
-        
+
         let theme = &cx.env.theme.components.text_input;
         let tokens = &cx.env.theme.tokens;
 
         let font_size = theme.font_size;
         let text_color = theme.text_color;
         let selection_color = theme.focus_color;
-        let border_color = if is_focused { theme.focus_color } else { theme.border_color };
+        let border_color = if is_focused {
+            theme.focus_color
+        } else {
+            theme.border_color
+        };
         let border_width = if is_focused { 2.0 } else { theme.border_width };
 
         // Resolve placeholder
         let resolved_placeholder = if let Some(ph) = &self.placeholder {
             match ph {
                 TextContent::Literal(s) => Some(s.clone()),
-                TextContent::Key(key) => Some(cx
-                    .env
-                    .i18n
-                    .get(&cx.env.locale, key)
-                    .map(|s| s.to_string())
-                    .unwrap_or_else(|| format!("MISSING:{}", key))),
+                TextContent::Key(key) => Some(
+                    cx.env
+                        .i18n
+                        .get(&cx.env.locale, key)
+                        .map(|s| s.to_string())
+                        .unwrap_or_else(|| format!("MISSING:{}", key)),
+                ),
             }
         } else {
             None
@@ -162,21 +167,24 @@ impl Lower for TextInput {
         let background_id = if self.borderless {
             None
         } else {
-            Some(NodeBuilder::new(
-                cx.next_node_id(),
-                Op::Paint(PaintOp::DrawRect {
-                    fill: Some(fission_ir::op::Fill::Solid(tokens.colors.background)),
-                    stroke: Some(fission_ir::op::Stroke {
-                        fill: fission_ir::op::Fill::Solid(border_color),
-                        width: border_width,
-                        dash_array: None,
-                        line_cap: fission_ir::op::LineCap::Butt,
-                        line_join: fission_ir::op::LineJoin::Miter,
+            Some(
+                NodeBuilder::new(
+                    cx.next_node_id(),
+                    Op::Paint(PaintOp::DrawRect {
+                        fill: Some(fission_ir::op::Fill::Solid(tokens.colors.background)),
+                        stroke: Some(fission_ir::op::Stroke {
+                            fill: fission_ir::op::Fill::Solid(border_color),
+                            width: border_width,
+                            dash_array: None,
+                            line_cap: fission_ir::op::LineCap::Butt,
+                            line_join: fission_ir::op::LineJoin::Miter,
+                        }),
+                        corner_radius: theme.radius,
+                        shadow: None,
                     }),
-                    corner_radius: theme.radius,
-                    shadow: None,
-                })
-            ).build(cx))
+                )
+                .build(cx),
+            )
         };
 
         // 2. Text Preparation
@@ -195,21 +203,17 @@ impl Lower for TextInput {
             }
             let g_count = combined.graphemes(true).count();
             let masked = obs.repeat(g_count);
-            
+
             // Caret mapping not implemented for masked yet, defaulting to end
             (masked, None, 0, 0)
         } else {
             match session_display {
                 Some((combined, preedit_range)) => {
-                    let (caret, anchor) = session
-                        .map(|st| (st.caret, st.anchor))
-                        .unwrap_or((0, 0));
+                    let (caret, anchor) = session.map(|st| (st.caret, st.anchor)).unwrap_or((0, 0));
                     (combined, preedit_range, caret, anchor)
                 }
                 None => {
-                    let (caret, anchor) = session
-                        .map(|st| (st.caret, st.anchor))
-                        .unwrap_or((0, 0));
+                    let (caret, anchor) = session.map(|st| (st.caret, st.anchor)).unwrap_or((0, 0));
                     (self.value.clone(), None, caret, anchor)
                 }
             }
@@ -218,26 +222,45 @@ impl Lower for TextInput {
         // Construct Runs
         let mut runs = Vec::new();
         if is_focused && caret != anchor {
-            let (s, e) = if caret < anchor { (caret, anchor) } else { (anchor, caret) };
+            let (s, e) = if caret < anchor {
+                (caret, anchor)
+            } else {
+                (anchor, caret)
+            };
             let s = s.min(display_text.len());
             let e = e.min(display_text.len());
 
             if s > 0 {
                 runs.push(fission_ir::op::TextRun {
                     text: display_text[..s].to_string(),
-                    style: fission_ir::op::TextStyle { font_size, color: text_color, underline: false, background_color: None },
+                    style: fission_ir::op::TextStyle {
+                        font_size,
+                        color: text_color,
+                        underline: false,
+                        background_color: None,
+                    },
                 });
             }
             if s < e {
                 runs.push(fission_ir::op::TextRun {
                     text: display_text[s..e].to_string(),
-                    style: fission_ir::op::TextStyle { font_size, color: selection_color, underline: true, background_color: None }, // Visual cue for selection
+                    style: fission_ir::op::TextStyle {
+                        font_size,
+                        color: selection_color,
+                        underline: true,
+                        background_color: None,
+                    }, // Visual cue for selection
                 });
             }
             if e < display_text.len() {
                 runs.push(fission_ir::op::TextRun {
                     text: display_text[e..].to_string(),
-                    style: fission_ir::op::TextStyle { font_size, color: text_color, underline: false, background_color: None },
+                    style: fission_ir::op::TextStyle {
+                        font_size,
+                        color: text_color,
+                        underline: false,
+                        background_color: None,
+                    },
                 });
             }
         } else if let Some(styled) = &self.styled_runs {
@@ -246,7 +269,12 @@ impl Lower for TextInput {
         } else {
             runs.push(fission_ir::op::TextRun {
                 text: display_text.clone(),
-                style: fission_ir::op::TextStyle { font_size, color: text_color, underline: false, background_color: None },
+                style: fission_ir::op::TextStyle {
+                    font_size,
+                    color: text_color,
+                    underline: false,
+                    background_color: None,
+                },
             });
         }
 
@@ -263,7 +291,11 @@ impl Lower for TextInput {
                     let overlap_start = hs.max(run_start_byte);
                     let overlap_end = he.min(run_end_byte);
                     if overlap_start < overlap_end {
-                        cuts.push((overlap_start - run_start_byte, overlap_end - run_start_byte, color));
+                        cuts.push((
+                            overlap_start - run_start_byte,
+                            overlap_end - run_start_byte,
+                            color,
+                        ));
                     }
                 }
 
@@ -300,14 +332,24 @@ impl Lower for TextInput {
         }
 
         if display_text.is_empty() && resolved_placeholder.is_some() {
-             runs = vec![fission_ir::op::TextRun {
+            runs = vec![fission_ir::op::TextRun {
                 text: resolved_placeholder.unwrap(),
-                style: fission_ir::op::TextStyle { font_size, color: theme.placeholder_color, underline: false, background_color: None },
+                style: fission_ir::op::TextStyle {
+                    font_size,
+                    color: theme.placeholder_color,
+                    underline: false,
+                    background_color: None,
+                },
             }];
         }
 
-        let caret_idx = if is_focused && !self.obscure_text { 
-            let show = cx.runtime_state.caret_visible.get(&input_id).copied().unwrap_or(true);
+        let caret_idx = if is_focused && !self.obscure_text {
+            let show = cx
+                .runtime_state
+                .caret_visible
+                .get(&input_id)
+                .copied()
+                .unwrap_or(true);
             if show {
                 Some(
                     preedit_range
@@ -315,26 +357,36 @@ impl Lower for TextInput {
                         .unwrap_or(caret)
                         .min(display_text.len()),
                 )
-            } else { None }
-        } else { None };
+            } else {
+                None
+            }
+        } else {
+            None
+        };
 
         let text_id = NodeBuilder::new(
             cx.next_node_id(),
             Op::Paint(PaintOp::DrawRichText {
                 runs,
                 caret_index: caret_idx,
-            })
-        ).build(cx);
-        
+            }),
+        )
+        .build(cx);
+
         let mut text_box = NodeBuilder::new(
             cx.next_node_id(),
             Op::Layout(LayoutOp::Box {
-                width: None, height: None, min_width: None, max_width: None, min_height: None, max_height: None,
+                width: None,
+                height: None,
+                min_width: None,
+                max_width: None,
+                min_height: None,
+                max_height: None,
                 padding: [0.0; 4],
                 flex_grow: 0.0,
                 flex_shrink: 0.0,
                 aspect_ratio: None,
-            })
+            }),
         );
         text_box.add_child(text_id);
         let text_layout_id = text_box.build(cx);
@@ -344,15 +396,22 @@ impl Lower for TextInput {
         let mut scroll = NodeBuilder::new(
             scroll_id,
             Op::Layout(LayoutOp::Scroll {
-                direction: if self.multiline { FlexDirection::Column } else { FlexDirection::Row },
+                direction: if self.multiline {
+                    FlexDirection::Column
+                } else {
+                    FlexDirection::Row
+                },
                 show_scrollbar: false,
                 width: None, // Let it fill parent padding box
-                height: None, 
-                min_width: None, max_width: None, min_height: None, max_height: None,
+                height: None,
+                min_width: None,
+                max_width: None,
+                min_height: None,
+                max_height: None,
                 padding: [0.0; 4],
                 flex_grow: 1.0,
                 flex_shrink: 1.0,
-            })
+            }),
         );
         scroll.add_child(text_layout_id);
         let scroll_id = scroll.build(cx);
@@ -363,7 +422,11 @@ impl Lower for TextInput {
             wrapper_id,
             Op::Layout(LayoutOp::Box {
                 width: self.width,
-                height: self.height.or(if self.multiline { None } else { Some(theme.height) }),
+                height: self.height.or(if self.multiline {
+                    None
+                } else {
+                    Some(theme.height)
+                }),
                 min_width: None,
                 max_width: None,
                 min_height: None,
@@ -372,13 +435,13 @@ impl Lower for TextInput {
                 flex_grow: if self.width.is_none() { 1.0 } else { 0.0 },
                 flex_shrink: 1.0,
                 aspect_ratio: None,
-            })
+            }),
         );
         if let Some(bg_id) = background_id {
             wrapper.add_child(bg_id); // Fill
         }
-        wrapper.add_child(scroll_id);     // Content
-        
+        wrapper.add_child(scroll_id); // Content
+
         let final_id = wrapper.build(cx);
 
         // 5. Semantics
@@ -386,7 +449,7 @@ impl Lower for TextInput {
             role: Role::TextInput,
             label: None,
             value: Some(self.value.clone()),
-            actions: Default::default(), 
+            actions: Default::default(),
             focusable: true,
             multiline: self.multiline,
             masked: self.obscure_text,
@@ -409,18 +472,18 @@ impl Lower for TextInput {
             auto_indent: self.auto_indent,
         };
         if let Some(env) = &self.on_change {
-             semantics.actions.entries.push(fission_ir::ActionEntry {
-                 trigger: fission_ir::semantics::ActionTrigger::Change,
-                 action_id: env.id.as_u128(),
-                 payload_data: None,
-             });
+            semantics.actions.entries.push(fission_ir::ActionEntry {
+                trigger: fission_ir::semantics::ActionTrigger::Change,
+                action_id: env.id.as_u128(),
+                payload_data: None,
+            });
         }
         if let Some(env) = &self.on_cursor_change {
-             semantics.actions.entries.push(fission_ir::ActionEntry {
-                 trigger: fission_ir::semantics::ActionTrigger::CursorChange,
-                 action_id: env.id.as_u128(),
-                 payload_data: None,
-             });
+            semantics.actions.entries.push(fission_ir::ActionEntry {
+                trigger: fission_ir::semantics::ActionTrigger::CursorChange,
+                action_id: env.id.as_u128(),
+                payload_data: None,
+            });
         }
         let mut semantics_builder = NodeBuilder::new(input_id, Op::Semantics(semantics));
         semantics_builder.add_child(final_id);

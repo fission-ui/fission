@@ -1,9 +1,9 @@
-use crate::{Lower, LoweringContext, NodeBuilder};
 use crate::lowering::wrap_zstack_child;
 use crate::ActionEnvelope;
+use crate::{Lower, LoweringContext, NodeBuilder};
 use fission_ir::{
     op::{Color, Fill, GridTrack, LayoutOp, Op, PaintOp},
-    NodeId, FlexDirection,
+    FlexDirection, NodeId,
 };
 use serde::{Deserialize, Serialize};
 
@@ -68,18 +68,18 @@ impl Lower for Slider {
         let tokens = &cx.env.theme.tokens;
         let thumb_size = 16.0;
         let track_height = 4.0;
-        
+
         let range = (self.max - self.min).max(0.0001);
         let pct = ((self.value - self.min) / range).clamp(0.0, 1.0) * 100.0;
 
         // Visual Structure:
         // Grid [Percent(pct), Fixed(thumb), Auto]
         // Row 1: Height(max(track, thumb))
-        
+
         // Track Background: DrawRect on the main container (centered vertically?)
         // Actually, we want the track to be vertically centered.
         // And Thumb centered.
-        
+
         // Let's make the root a Grid.
         // It has a background PaintOp for the Track line?
         // If we paint on Root, it fills the whole area.
@@ -89,9 +89,9 @@ impl Lower for Slider {
         // Use ZStack.
         // Layer 1: Track (Centered vertically).
         // Layer 2: Thumb Grid.
-        
+
         let layout_id = cx.next_node_id();
-        
+
         // Layer 1: Track
         // A Box with height `track_height`, centered?
         // ZStack stretches children.
@@ -109,24 +109,28 @@ impl Lower for Slider {
                     stroke: None,
                     corner_radius: track_height / 2.0,
                     shadow: None,
-                })
-            ).build(cx);
-            
+                }),
+            )
+            .build(cx);
+
             let mut track_box = NodeBuilder::new(
                 cx.next_node_id(),
                 Op::Layout(LayoutOp::Box {
                     width: None, // Auto width
                     height: Some(track_height),
-                    min_width: None, max_width: None, min_height: None, max_height: None,
+                    min_width: None,
+                    max_width: None,
+                    min_height: None,
+                    max_height: None,
                     padding: [0.0; 4],
                     flex_grow: 0.0,
                     flex_shrink: 0.0,
                     aspect_ratio: None,
-                })
+                }),
             );
             track_box.add_child(track_paint);
             let _track_box_id = track_box.build(cx);
-            
+
             // Center vertically
             let _center_col = NodeBuilder::new(
                 cx.next_node_id(),
@@ -146,35 +150,39 @@ impl Lower for Slider {
             // So we can't center easily using Flex properties exposed currently.
             // Workaround: Use `Grid` 1x1 with `AlignItems: Center`?
             // `fission-layout` Grid mapping doesn't expose alignment yet.
-            
+
             // Workaround 2: Use Padding? We don't know height.
             // Workaround 3: Make the Thumb layer determine height, and Track stretches?
             // No, Track is thin.
-            
+
             // Workaround 4: Paint the track as a `DrawRect` on the ROOT node, but use `stroke` instead of `fill`?
             // Stroke is centered on border? No, stroke is usually inset or centered.
             // If we have `PaintOp::DrawLine`? No.
-            
+
             // Let's assume the Slider height IS the thumb size.
             // We paint the track by `DrawRect` with custom logic? No, standard ops.
-            
+
             // Best approach given constraints:
             // Use `LayoutOp::Box` with top/bottom padding calculated to center the track?
             // `padding_top = (thumb_size - track_height) / 2`.
             let p_y = (thumb_size - track_height) / 2.0;
-            
+
             let mut track_container = NodeBuilder::new(
                 cx.next_node_id(),
                 Op::Layout(LayoutOp::Box {
-                    width: None, height: None, 
-                    min_width: None, max_width: None, min_height: None, max_height: None,
+                    width: None,
+                    height: None,
+                    min_width: None,
+                    max_width: None,
+                    min_height: None,
+                    max_height: None,
                     padding: [0.0, 0.0, p_y, p_y],
                     flex_grow: 0.0,
                     flex_shrink: 0.0,
                     aspect_ratio: None,
-                })
+                }),
             );
-            
+
             let inner_paint = NodeBuilder::new(
                 cx.next_node_id(),
                 Op::Paint(PaintOp::DrawRect {
@@ -182,9 +190,10 @@ impl Lower for Slider {
                     stroke: None,
                     corner_radius: track_height / 2.0,
                     shadow: None,
-                })
-            ).build(cx);
-            
+                }),
+            )
+            .build(cx);
+
             // We need inner box to have height `track_height`.
             // The padding pushes the content in.
             // The inner box fills the remaining height.
@@ -193,14 +202,15 @@ impl Lower for Slider {
             // ZStack constraints are "largest child".
             // If Thumb layer is `thumb_size` height, Root is `thumb_size`.
             // Track container fills Root.
-            
+
             // So yes, Padding approach works if Root height is constrained by Thumb.
-            
+
             // But `inner_paint` needs a layout node to fill?
-            let mut inner_box = NodeBuilder::new(cx.next_node_id(), Op::Layout(LayoutOp::AbsoluteFill)); // Fill the padded area
+            let mut inner_box =
+                NodeBuilder::new(cx.next_node_id(), Op::Layout(LayoutOp::AbsoluteFill)); // Fill the padded area
             inner_box.add_child(inner_paint);
             let inner_id = inner_box.build(cx);
-            
+
             track_container.add_child(inner_id);
             track_container.build(cx)
         };
@@ -214,37 +224,52 @@ impl Lower for Slider {
                     stroke: None,
                     corner_radius: thumb_size / 2.0,
                     shadow: Some(fission_ir::op::BoxShadow {
-                        color: Color { r:0,g:0,b:0,a:50 },
+                        color: Color {
+                            r: 0,
+                            g: 0,
+                            b: 0,
+                            a: 50,
+                        },
                         blur_radius: 2.0,
-                        offset: (0.0, 1.0)
+                        offset: (0.0, 1.0),
                     }),
-                })
-            ).build(cx);
-            
+                }),
+            )
+            .build(cx);
+
             let mut thumb_box = NodeBuilder::new(
                 cx.next_node_id(),
                 Op::Layout(LayoutOp::Box {
                     width: Some(thumb_size),
                     height: Some(thumb_size),
-                    min_width: None, max_width: None, min_height: None, max_height: None,
+                    min_width: None,
+                    max_width: None,
+                    min_height: None,
+                    max_height: None,
                     padding: [0.0; 4],
                     flex_grow: 0.0,
                     flex_shrink: 0.0,
                     aspect_ratio: None,
-                })
+                }),
             );
             thumb_box.add_child(thumb_paint);
             let thumb_id = thumb_box.build(cx);
-            
+
             let mut grid = NodeBuilder::new(
                 cx.next_node_id(),
                 Op::Layout(LayoutOp::Grid {
-                    columns: vec![GridTrack::Percent(pct), GridTrack::Points(thumb_size), GridTrack::Fr(1.0)],
+                    columns: vec![
+                        GridTrack::Percent(pct),
+                        GridTrack::Points(thumb_size),
+                        GridTrack::Fr(1.0),
+                    ],
                     rows: vec![GridTrack::Points(thumb_size)],
-                    column_gap: None, row_gap: None, padding: [0.0; 4]
-                })
+                    column_gap: None,
+                    row_gap: None,
+                    padding: [0.0; 4],
+                }),
             );
-            
+
             // Thumb item at col 2
             let mut item = NodeBuilder::new(
                 cx.next_node_id(),
@@ -253,15 +278,15 @@ impl Lower for Slider {
                     row_end: fission_ir::op::GridPlacement::Auto,
                     col_start: fission_ir::op::GridPlacement::Line(2),
                     col_end: fission_ir::op::GridPlacement::Auto,
-                })
+                }),
             );
             item.add_child(thumb_id);
             let item_id = item.build(cx);
-            
+
             grid.add_child(item_id);
             grid.build(cx)
         };
-        
+
         cx.push_scope(layout_id);
         let track_wrapped = wrap_zstack_child(cx, track_layer);
         let thumb_wrapped = wrap_zstack_child(cx, thumb_layer);
@@ -296,20 +321,21 @@ impl Lower for Slider {
             is_focus_barrier: false,
             drag_payload: None,
             hero_tag: None,
-            focus_index: None, capture_tab: false, auto_indent: false,
+            focus_index: None,
+            capture_tab: false,
+            auto_indent: false,
         };
-        
+
         if let Some(action) = &self.on_change {
-             semantics.actions.entries.push(fission_ir::ActionEntry { 
-                 trigger: fission_ir::semantics::ActionTrigger::Change,
-                 action_id: action.id.as_u128(), 
-                 payload_data: Some(action.payload.clone()) 
-             });
+            semantics.actions.entries.push(fission_ir::ActionEntry {
+                trigger: fission_ir::semantics::ActionTrigger::Change,
+                action_id: action.id.as_u128(),
+                payload_data: Some(action.payload.clone()),
+            });
         }
-        
+
         let mut sem_node = NodeBuilder::new(id, Op::Semantics(semantics));
         sem_node.add_child(layout_id);
         sem_node.build(cx)
     }
 }
-

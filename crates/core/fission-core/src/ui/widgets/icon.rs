@@ -96,22 +96,22 @@ impl Icon {
             stroke: None,
         }
     }
-    
+
     // Deprecated: new -> path
     pub fn new(path: impl Into<String>) -> Self {
         Self::path(path)
     }
-    
+
     pub fn size(mut self, s: f32) -> Self {
         self.size = Some(s);
         self
     }
-    
+
     pub fn color(mut self, c: Color) -> Self {
         self.color = Some(c);
         self
     }
-    
+
     pub fn stroke(mut self, s: Stroke) -> Self {
         self.stroke = Some(s);
         self
@@ -125,7 +125,7 @@ impl Icon {
 impl Lower for Icon {
     fn lower(&self, cx: &mut LoweringContext) -> NodeId {
         let id = self.id.unwrap_or_else(|| cx.next_node_id());
-        
+
         let tokens = &cx.env.theme.tokens;
         let color = self.color.unwrap_or(tokens.colors.text_primary);
         let size = self.size.unwrap_or(24.0);
@@ -134,20 +134,32 @@ impl Lower for Icon {
         let paint_op = match &self.source {
             IconSource::Path(d) => PaintOp::DrawPath {
                 path: d.clone(),
-                fill: if self.stroke.is_some() { None } else { Some(fission_ir::op::Fill::Solid(color)) },
+                fill: if self.stroke.is_some() {
+                    None
+                } else {
+                    Some(fission_ir::op::Fill::Solid(color))
+                },
                 stroke: self.stroke.clone(),
             },
             IconSource::File(f) => {
                 let content = std::fs::read_to_string(f).unwrap_or_default();
                 PaintOp::DrawSvg {
                     content,
-                    fill: if self.stroke.is_some() { None } else { Some(fission_ir::op::Fill::Solid(color)) },
+                    fill: if self.stroke.is_some() {
+                        None
+                    } else {
+                        Some(fission_ir::op::Fill::Solid(color))
+                    },
                     stroke: self.stroke.clone(),
                 }
-            },
+            }
             IconSource::SvgContent(c) => PaintOp::DrawSvg {
                 content: c.clone(),
-                fill: if self.stroke.is_some() { None } else { Some(fission_ir::op::Fill::Solid(color)) },
+                fill: if self.stroke.is_some() {
+                    None
+                } else {
+                    Some(fission_ir::op::Fill::Solid(color))
+                },
                 stroke: self.stroke.clone(),
             },
         };
@@ -159,7 +171,10 @@ impl Lower for Icon {
             Op::Layout(LayoutOp::Box {
                 width: Some(size),
                 height: Some(size),
-                min_width: None, max_width: None, min_height: None, max_height: None,
+                min_width: None,
+                max_width: None,
+                min_height: None,
+                max_height: None,
                 padding: [0.0; 4],
                 flex_grow: 0.0,
                 flex_shrink: 0.0,

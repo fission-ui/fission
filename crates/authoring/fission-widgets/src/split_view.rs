@@ -90,13 +90,14 @@ impl<S: fission_core::AppState> Widget<S> for SplitView {
             line_container = line_container.height(h);
         }
 
-        let mut handle = Container::new(line_container.into_node()).bg(Color {
-            r: 0,
-            g: 0,
-            b: 0,
-            a: 0,
-        }) // Transparent hit area
-        .flex_shrink(0.0);
+        let mut handle = Container::new(line_container.into_node())
+            .bg(Color {
+                r: 0,
+                g: 0,
+                b: 0,
+                a: 0,
+            }) // Transparent hit area
+            .flex_shrink(0.0);
 
         if let Some(w) = width {
             handle = handle.width(w);

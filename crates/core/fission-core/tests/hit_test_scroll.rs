@@ -34,17 +34,9 @@ fn test_scroll_hit_test_logic() {
 
     let mut semantics = fission_ir::Semantics::default();
     semantics.focusable = true;
-    ir.add_node(
-        column_id,
-        Op::Semantics(semantics.clone()),
-        vec![],
-    );
+    ir.add_node(column_id, Op::Semantics(semantics.clone()), vec![]);
 
-    ir.add_node(
-        button_id,
-        Op::Semantics(semantics),
-        vec![],
-    );
+    ir.add_node(button_id, Op::Semantics(semantics), vec![]);
 
     let mut snapshot = LayoutSnapshot::new(LayoutSize::new(100.0, 100.0));
 

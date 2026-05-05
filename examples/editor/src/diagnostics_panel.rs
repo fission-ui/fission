@@ -9,28 +9,67 @@ pub struct DiagnosticsPanel;
 
 impl Widget<EditorState> for DiagnosticsPanel {
     fn build(&self, ctx: &mut BuildCtx<EditorState>, view: &View<EditorState>) -> Node {
-        let text_color = Color { r: 204, g: 204, b: 204, a: 255 };
-        let error_color = Color { r: 244, g: 71, b: 71, a: 255 };
-        let warn_color = Color { r: 255, g: 193, b: 7, a: 255 };
-        let info_color = Color { r: 66, g: 133, b: 244, a: 255 };
-        let dim_color = Color { r: 140, g: 140, b: 140, a: 255 };
+        let text_color = Color {
+            r: 204,
+            g: 204,
+            b: 204,
+            a: 255,
+        };
+        let error_color = Color {
+            r: 244,
+            g: 71,
+            b: 71,
+            a: 255,
+        };
+        let warn_color = Color {
+            r: 255,
+            g: 193,
+            b: 7,
+            a: 255,
+        };
+        let info_color = Color {
+            r: 66,
+            g: 133,
+            b: 244,
+            a: 255,
+        };
+        let dim_color = Color {
+            r: 140,
+            g: 140,
+            b: 140,
+            a: 255,
+        };
 
-        let open_id = ctx.bind(
-            OpenFile(String::new()),
-            (|s: &mut EditorState, a: OpenFile, _| s.open_file(a.0))
-                as Handler<EditorState, OpenFile>,
-        ).id;
+        let open_id = ctx
+            .bind(
+                OpenFile(String::new()),
+                (|s: &mut EditorState, a: OpenFile, _| s.open_file(a.0))
+                    as Handler<EditorState, OpenFile>,
+            )
+            .id;
 
-        let mut all_diags: Vec<(&String, &crate::model::Diagnostic)> = view.state.diagnostics
+        let mut all_diags: Vec<(&String, &crate::model::Diagnostic)> = view
+            .state
+            .diagnostics
             .iter()
             .flat_map(|(path, diags)| diags.iter().map(move |d| (path, d)))
             .collect();
         all_diags.sort_by(|a, b| {
-            let sev_ord = |s: &DiagSeverity| match s { DiagSeverity::Error => 0, DiagSeverity::Warning => 1, DiagSeverity::Info => 2, DiagSeverity::Hint => 3 };
+            let sev_ord = |s: &DiagSeverity| match s {
+                DiagSeverity::Error => 0,
+                DiagSeverity::Warning => 1,
+                DiagSeverity::Info => 2,
+                DiagSeverity::Hint => 3,
+            };
             sev_ord(&a.1.severity).cmp(&sev_ord(&b.1.severity))
         });
 
-        let bg = Color { r: 24, g: 24, b: 24, a: 255 };
+        let bg = Color {
+            r: 24,
+            g: 24,
+            b: 24,
+            a: 255,
+        };
 
         if all_diags.is_empty() {
             return Container::new(
@@ -70,7 +109,8 @@ impl Widget<EditorState> for DiagnosticsPanel {
                                     .color(text_color)
                                     .into_node(),
                             ],
-                        }.into_node(),
+                        }
+                        .into_node(),
                     )),
                     on_press: Some(ActionEnvelope {
                         id: open_id,
@@ -78,7 +118,8 @@ impl Widget<EditorState> for DiagnosticsPanel {
                     }),
                     padding: Some([4.0, 4.0, 0.0, 0.0]),
                     ..Default::default()
-                }.into_node(),
+                }
+                .into_node(),
             );
         }
 
@@ -86,13 +127,18 @@ impl Widget<EditorState> for DiagnosticsPanel {
             Scroll {
                 direction: FlexDirection::Column,
                 child: Some(Box::new(
-                    VStack { spacing: Some(2.0), children: items }.into_node(),
+                    VStack {
+                        spacing: Some(2.0),
+                        children: items,
+                    }
+                    .into_node(),
                 )),
                 show_scrollbar: true,
                 flex_grow: 1.0,
                 flex_shrink: 1.0,
                 ..Default::default()
-            }.into_node(),
+            }
+            .into_node(),
         )
         .bg(bg)
         .padding_all(4.0)

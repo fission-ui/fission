@@ -137,7 +137,7 @@ fn utf8_multibyte_insert() {
 #[test]
 fn utf8_emoji() {
     let buf = TextBuffer::from_str("hi \u{1F600}!"); // hi [grinning face]!
-    // U+1F600 is 4 bytes in UTF-8.
+                                                     // U+1F600 is 4 bytes in UTF-8.
     assert_eq!(buf.len_bytes(), 8); // h(1) i(1) (1) grin(4) !(1)
     assert_eq!(buf.len_chars(), 5);
 }
@@ -192,10 +192,7 @@ fn line_index_empty() {
     assert_eq!(idx.line_count(), 1);
     assert_eq!(idx.line_start_byte(0), Some(0));
     assert_eq!(idx.line_end_byte(0), Some(0));
-    assert_eq!(
-        idx.byte_to_line_col(0),
-        Some(LineCol { line: 0, col: 0 })
-    );
+    assert_eq!(idx.byte_to_line_col(0), Some(LineCol { line: 0, col: 0 }));
 }
 
 #[test]

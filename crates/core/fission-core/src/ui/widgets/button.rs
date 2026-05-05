@@ -131,24 +131,56 @@ impl Button {
 
         let (bg_color, text_color, border_stroke) = if self.disabled {
             (
-                if self.variant == ButtonVariant::Filled { Some(tokens.border) } else { None }, // Grey bg or transparent
+                if self.variant == ButtonVariant::Filled {
+                    Some(tokens.border)
+                } else {
+                    None
+                }, // Grey bg or transparent
                 tokens.text_secondary, // Grey text
-                if self.variant == ButtonVariant::Outline { Some(Stroke { fill: Fill::Solid(tokens.border), width: 1.0, dash_array: None, line_cap: fission_ir::op::LineCap::Butt, line_join: fission_ir::op::LineJoin::Miter }) } else { None },
+                if self.variant == ButtonVariant::Outline {
+                    Some(Stroke {
+                        fill: Fill::Solid(tokens.border),
+                        width: 1.0,
+                        dash_array: None,
+                        line_cap: fission_ir::op::LineCap::Butt,
+                        line_join: fission_ir::op::LineJoin::Miter,
+                    })
+                } else {
+                    None
+                },
             )
         } else {
             match self.variant {
                 ButtonVariant::Filled => (
                     Some(tokens.primary),
                     tokens.on_primary,
-                    if is_focused { default_style.focus_stroke.clone() } else { None },
+                    if is_focused {
+                        default_style.focus_stroke.clone()
+                    } else {
+                        None
+                    },
                 ),
                 ButtonVariant::Outline => (
-                    if is_hovered { Some(tokens.surface) } else { None },
+                    if is_hovered {
+                        Some(tokens.surface)
+                    } else {
+                        None
+                    },
                     tokens.primary,
-                    Some(Stroke { fill: Fill::Solid(tokens.border), width: 1.0, dash_array: None, line_cap: fission_ir::op::LineCap::Butt, line_join: fission_ir::op::LineJoin::Miter }),
+                    Some(Stroke {
+                        fill: Fill::Solid(tokens.border),
+                        width: 1.0,
+                        dash_array: None,
+                        line_cap: fission_ir::op::LineCap::Butt,
+                        line_join: fission_ir::op::LineJoin::Miter,
+                    }),
                 ),
                 ButtonVariant::Ghost => (
-                    if is_hovered { Some(tokens.surface) } else { None },
+                    if is_hovered {
+                        Some(tokens.surface)
+                    } else {
+                        None
+                    },
                     tokens.primary,
                     None,
                 ),
@@ -192,7 +224,7 @@ impl Button {
             .semantics
             .clone()
             .unwrap_or_else(default_button_semantics);
-            
+
         semantics.disabled = self.disabled;
 
         if let Some(action_envelope) = &self.on_press {
@@ -213,7 +245,7 @@ impl Lower for Button {
     fn lower(&self, cx: &mut LoweringContext) -> NodeId {
         let semantics_op = self.build_semantics();
         let outermost_id = self.id.unwrap_or_else(|| cx.next_node_id());
-        
+
         let (layout_node_id, final_id) = if let Some(_) = semantics_op {
             (cx.next_node_id(), outermost_id)
         } else {
@@ -221,7 +253,7 @@ impl Lower for Button {
         };
 
         let resolved_style = self.resolve_style(cx.env, &cx.runtime_state.interaction, final_id);
-        
+
         cx.push_scope(layout_node_id);
 
         let background_id = NodeBuilder::new(
@@ -242,7 +274,11 @@ impl Lower for Button {
                 height: self.height,
                 min_width: None,
                 max_width: None,
-                min_height: if self.height.is_some() { None } else { Some(resolved_style.height) },
+                min_height: if self.height.is_some() {
+                    None
+                } else {
+                    Some(resolved_style.height)
+                },
                 max_height: None,
                 padding: self.padding.unwrap_or([
                     resolved_style.padding_horizontal,
@@ -297,12 +333,11 @@ impl Lower for Button {
             };
             button_builder.add_child(aligned_id);
         }
-        
+
         let button_node_id = button_builder.build(cx);
 
         if let Some(op) = semantics_op {
-            let mut semantics_builder =
-                NodeBuilder::new(final_id, Op::Semantics(op));
+            let mut semantics_builder = NodeBuilder::new(final_id, Op::Semantics(op));
             semantics_builder.add_child(button_node_id);
             let res_id = semantics_builder.build(cx);
             cx.pop_scope();
@@ -337,6 +372,8 @@ fn default_button_semantics() -> Semantics {
         is_focus_barrier: false,
         drag_payload: None,
         hero_tag: None,
-        focus_index: None, capture_tab: false, auto_indent: false,
+        focus_index: None,
+        capture_tab: false,
+        auto_indent: false,
     }
 }

@@ -1,4 +1,4 @@
-use fission_core::{AppState, BuildCtx, View, Widget, Node};
+use fission_core::{AppState, BuildCtx, Node, View, Widget};
 use fission_widgets::empty_state::EmptyState;
 use serde::{Deserialize, Serialize};
 

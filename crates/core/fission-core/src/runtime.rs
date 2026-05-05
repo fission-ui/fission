@@ -1,15 +1,12 @@
 use crate::action::{ActionEnvelope, ActionId, AppState};
 use crate::effect::{ActionInput, EffectEnvelope};
-use crate::env::{
-    ActiveAnimation, RuntimeState, VideoStatus,
-};
+use crate::env::{ActiveAnimation, RuntimeState, VideoStatus};
 use crate::registry::{
     ActionRegistry, AnimationPropertyId, AnimationRequest, AnimationStartValue, VideoRegistration,
 };
 use crate::BoxedReducer;
 use crate::{
-    Clipboard, Clock, CurrentTime, ImeHandler, InputEvent, KeyCode, KeyEvent,
-    PointerEvent,
+    Clipboard, Clock, CurrentTime, ImeHandler, InputEvent, KeyCode, KeyEvent, PointerEvent,
 };
 use anyhow::{anyhow, Result};
 use fission_diagnostics::prelude as diag;
@@ -354,7 +351,7 @@ impl Runtime {
             let mut progress = if anim.duration == 0 {
                 1.0
             } else {
-                elapsed as f32 / anim.duration as f32 
+                elapsed as f32 / anim.duration as f32
             };
 
             if anim.repeat && progress >= 1.0 {
@@ -368,17 +365,20 @@ impl Runtime {
             }
 
             let value = anim.start_value + (anim.end_value - anim.start_value) * progress;
-            
+
             // Only update and mark dirty if the value actually changed
-            let current_val = self.runtime_state.animation.values.get(&(*target, property.clone())).copied();
+            let current_val = self
+                .runtime_state
+                .animation
+                .values
+                .get(&(*target, property.clone()))
+                .copied();
             if current_val != Some(value) {
                 self.runtime_state
                     .animation
                     .values
                     .insert((*target, property.clone()), value);
-                result
-                    .changed_animations
-                    .push((*target, property.clone()));
+                result.changed_animations.push((*target, property.clone()));
             }
         }
 
@@ -404,12 +404,7 @@ impl Runtime {
             }
         }
 
-        let current_value = self
-            .runtime_state
-            .animation
-            .values
-            .get(&key)
-            .copied();
+        let current_value = self.runtime_state.animation.values.get(&key).copied();
         let current_value = current_value.unwrap_or_else(|| request.property.default_value());
 
         // Declarative builds can re-emit the same terminal transition every frame.
@@ -420,10 +415,7 @@ impl Runtime {
             && self.runtime_state.animation.values.contains_key(&key)
             && (current_value - request.to).abs() < 0.001
         {
-            self.runtime_state
-                .animation
-                .values
-                .insert(key, request.to);
+            self.runtime_state.animation.values.insert(key, request.to);
             return;
         }
 
@@ -616,15 +608,25 @@ impl Runtime {
                             let mut walk = ir.nodes.get(&nid).and_then(|n| n.parent);
                             while let Some(pid) = walk {
                                 if let Some(pnode) = ir.nodes.get(&pid) {
-                                    if let fission_ir::Op::Layout(fission_ir::LayoutOp::Scroll { direction, .. }) = &pnode.op {
+                                    if let fission_ir::Op::Layout(fission_ir::LayoutOp::Scroll {
+                                        direction,
+                                        ..
+                                    }) = &pnode.op
+                                    {
                                         let off = self.runtime_state.scroll.get_offset(pid);
                                         match direction {
-                                            fission_ir::FlexDirection::Row => node_rect.origin.x -= off,
-                                            fission_ir::FlexDirection::Column => node_rect.origin.y -= off,
+                                            fission_ir::FlexDirection::Row => {
+                                                node_rect.origin.x -= off
+                                            }
+                                            fission_ir::FlexDirection::Column => {
+                                                node_rect.origin.y -= off
+                                            }
                                         }
                                     }
                                     walk = pnode.parent;
-                                } else { break; }
+                                } else {
+                                    break;
+                                }
                             }
                         }
                         let result = render_obj.handle_event(nid, &event, node_rect);
@@ -1051,8 +1053,7 @@ impl Runtime {
     ) -> Result<()> {
         if let Some(old_id) = old_focus {
             if let Some(any_ro) = ir.custom_render_objects.get(&old_id) {
-                if let Some(render_obj) = crate::ui::custom_render::downcast_render_object(any_ro)
-                {
+                if let Some(render_obj) = crate::ui::custom_render::downcast_render_object(any_ro) {
                     if render_obj.accepts_text_input() {
                         if let Some(ime_handler) = &self.ime_handler {
                             ime_handler.set_ime_allowed(false);

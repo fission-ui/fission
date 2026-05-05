@@ -13,7 +13,6 @@
 /// To run with a live editor:
 ///   1. cargo run -p fission-editor -- .   (in one terminal)
 ///   2. cargo test -p fission-editor --test widget_tests -- --nocapture
-
 use fission_test_driver::LiveTestClient;
 use std::io::Write;
 
@@ -51,7 +50,10 @@ fn cleanup(path: &str) {
 #[test]
 fn file_tree_shows_entries() {
     if !port_available() {
-        eprintln!("Skipping file_tree_shows_entries: editor not running on port {}", CONTROL_PORT);
+        eprintln!(
+            "Skipping file_tree_shows_entries: editor not running on port {}",
+            CONTROL_PORT
+        );
         return;
     }
     let client = LiveTestClient::connect(CONTROL_PORT);
@@ -70,7 +72,9 @@ fn file_tree_shows_entries() {
     let entry_names: Vec<&str> = texts.iter().map(|t| t.text.as_str()).collect();
 
     assert!(
-        entry_names.iter().any(|n| *n == "authoring" || n.contains("authoring")),
+        entry_names
+            .iter()
+            .any(|n| *n == "authoring" || n.contains("authoring")),
         "expected 'authoring' in file tree, found: {:?}",
         &entry_names[..entry_names.len().min(30)]
     );
@@ -80,7 +84,10 @@ fn file_tree_shows_entries() {
 #[test]
 fn tab_bar_renders_after_open() {
     if !port_available() {
-        eprintln!("Skipping tab_bar_renders_after_open: editor not running on port {}", CONTROL_PORT);
+        eprintln!(
+            "Skipping tab_bar_renders_after_open: editor not running on port {}",
+            CONTROL_PORT
+        );
         return;
     }
     let client = LiveTestClient::connect(CONTROL_PORT);
@@ -95,17 +102,24 @@ fn tab_bar_renders_after_open() {
 
     // The semantic tree should have interactive elements
     let tree = client.get_tree().unwrap();
-    let has_clickable = tree.iter().any(|n| n.focusable || n.role == "Button" || n.role == "Tab");
+    let has_clickable = tree
+        .iter()
+        .any(|n| n.focusable || n.role == "Button" || n.role == "Tab");
     assert!(has_clickable, "tab bar should have interactive elements");
 
-    client.screenshot(&format!("{}/tab_bar.png", dir())).unwrap();
+    client
+        .screenshot(&format!("{}/tab_bar.png", dir()))
+        .unwrap();
 }
 
 /// Verify the status bar shows language and position info.
 #[test]
 fn status_bar_shows_info() {
     if !port_available() {
-        eprintln!("Skipping status_bar_shows_info: editor not running on port {}", CONTROL_PORT);
+        eprintln!(
+            "Skipping status_bar_shows_info: editor not running on port {}",
+            CONTROL_PORT
+        );
         return;
     }
     let client = LiveTestClient::connect(CONTROL_PORT);
@@ -127,14 +141,19 @@ fn status_bar_shows_info() {
         println!("Status bar shows Rust: {}", has_lang);
     }
 
-    client.screenshot(&format!("{}/status_bar.png", dir())).unwrap();
+    client
+        .screenshot(&format!("{}/status_bar.png", dir()))
+        .unwrap();
 }
 
 /// Verify the editor surface renders line numbers and content.
 #[test]
 fn editor_surface_renders_content() {
     if !port_available() {
-        eprintln!("Skipping editor_surface_renders_content: editor not running on port {}", CONTROL_PORT);
+        eprintln!(
+            "Skipping editor_surface_renders_content: editor not running on port {}",
+            CONTROL_PORT
+        );
         return;
     }
     let client = LiveTestClient::connect(CONTROL_PORT);
@@ -152,14 +171,19 @@ fn editor_surface_renders_content() {
     let has_line_numbers = texts.iter().any(|t| t.text.trim() == "1");
     println!("Line numbers visible: {}", has_line_numbers);
 
-    client.screenshot(&format!("{}/editor_surface.png", dir())).unwrap();
+    client
+        .screenshot(&format!("{}/editor_surface.png", dir()))
+        .unwrap();
 }
 
 /// Verify that typing in the editor updates the display.
 #[test]
 fn typing_updates_display() {
     if !port_available() {
-        eprintln!("Skipping typing_updates_display: editor not running on port {}", CONTROL_PORT);
+        eprintln!(
+            "Skipping typing_updates_display: editor not running on port {}",
+            CONTROL_PORT
+        );
         return;
     }
     let client = LiveTestClient::connect(CONTROL_PORT);
@@ -179,14 +203,19 @@ fn typing_updates_display() {
     client.press_key("Z", 4).unwrap();
     client.pump().unwrap();
 
-    client.screenshot(&format!("{}/typing_test.png", dir())).unwrap();
+    client
+        .screenshot(&format!("{}/typing_test.png", dir()))
+        .unwrap();
 }
 
 /// Verify the command palette widget renders correctly.
 #[test]
 fn command_palette_widget_renders() {
     if !port_available() {
-        eprintln!("Skipping command_palette_widget_renders: editor not running on port {}", CONTROL_PORT);
+        eprintln!(
+            "Skipping command_palette_widget_renders: editor not running on port {}",
+            CONTROL_PORT
+        );
         return;
     }
     let client = LiveTestClient::connect(CONTROL_PORT);
@@ -205,7 +234,9 @@ fn command_palette_widget_renders() {
     });
     println!("Command palette has content: {}", has_palette_content);
 
-    client.screenshot(&format!("{}/command_palette_widget.png", dir())).unwrap();
+    client
+        .screenshot(&format!("{}/command_palette_widget.png", dir()))
+        .unwrap();
 
     // Dismiss
     client.press_key("Escape", 0).unwrap();
@@ -216,7 +247,10 @@ fn command_palette_widget_renders() {
 #[test]
 fn terminal_panel_widget_renders() {
     if !port_available() {
-        eprintln!("Skipping terminal_panel_widget_renders: editor not running on port {}", CONTROL_PORT);
+        eprintln!(
+            "Skipping terminal_panel_widget_renders: editor not running on port {}",
+            CONTROL_PORT
+        );
         return;
     }
     let client = LiveTestClient::connect(CONTROL_PORT);
@@ -227,14 +261,19 @@ fn terminal_panel_widget_renders() {
     client.assert_text_visible("Ready.").unwrap();
     client.assert_text_visible("TERMINAL").unwrap();
 
-    client.screenshot(&format!("{}/terminal_panel.png", dir())).unwrap();
+    client
+        .screenshot(&format!("{}/terminal_panel.png", dir()))
+        .unwrap();
 }
 
 /// Verify sidebar toggling hides/shows the EXPLORER section.
 #[test]
 fn sidebar_toggle_hides_explorer() {
     if !port_available() {
-        eprintln!("Skipping sidebar_toggle_hides_explorer: editor not running on port {}", CONTROL_PORT);
+        eprintln!(
+            "Skipping sidebar_toggle_hides_explorer: editor not running on port {}",
+            CONTROL_PORT
+        );
         return;
     }
     let client = LiveTestClient::connect(CONTROL_PORT);
@@ -250,21 +289,28 @@ fn sidebar_toggle_hides_explorer() {
     let result = client.assert_text_not_visible("EXPLORER");
     println!("Sidebar hidden check: {:?}", result);
 
-    client.screenshot(&format!("{}/sidebar_hidden.png", dir())).unwrap();
+    client
+        .screenshot(&format!("{}/sidebar_hidden.png", dir()))
+        .unwrap();
 
     // Toggle back on
     client.press_key("B", 4).unwrap();
     client.pump().unwrap();
     client.assert_text_visible("EXPLORER").unwrap();
 
-    client.screenshot(&format!("{}/sidebar_shown.png", dir())).unwrap();
+    client
+        .screenshot(&format!("{}/sidebar_shown.png", dir()))
+        .unwrap();
 }
 
 /// Verify the find bar widget appears and accepts text.
 #[test]
 fn find_bar_widget_interaction() {
     if !port_available() {
-        eprintln!("Skipping find_bar_widget_interaction: editor not running on port {}", CONTROL_PORT);
+        eprintln!(
+            "Skipping find_bar_widget_interaction: editor not running on port {}",
+            CONTROL_PORT
+        );
         return;
     }
     let client = LiveTestClient::connect(CONTROL_PORT);
@@ -277,12 +323,16 @@ fn find_bar_widget_interaction() {
     client.press_key("F", 4).unwrap();
     client.pump().unwrap();
 
-    client.screenshot(&format!("{}/find_bar_open.png", dir())).unwrap();
+    client
+        .screenshot(&format!("{}/find_bar_open.png", dir()))
+        .unwrap();
 
     client.type_text("workspace").unwrap();
     client.pump().unwrap();
 
-    client.screenshot(&format!("{}/find_bar_with_query.png", dir())).unwrap();
+    client
+        .screenshot(&format!("{}/find_bar_with_query.png", dir()))
+        .unwrap();
 
     // Close find bar
     client.press_key("Escape", 0).unwrap();
@@ -293,7 +343,10 @@ fn find_bar_widget_interaction() {
 #[test]
 fn search_panel_widget_renders() {
     if !port_available() {
-        eprintln!("Skipping search_panel_widget_renders: editor not running on port {}", CONTROL_PORT);
+        eprintln!(
+            "Skipping search_panel_widget_renders: editor not running on port {}",
+            CONTROL_PORT
+        );
         return;
     }
     let client = LiveTestClient::connect(CONTROL_PORT);
@@ -324,7 +377,10 @@ fn search_panel_widget_renders() {
 #[test]
 fn git_panel_widget_renders() {
     if !port_available() {
-        eprintln!("Skipping git_panel_widget_renders: editor not running on port {}", CONTROL_PORT);
+        eprintln!(
+            "Skipping git_panel_widget_renders: editor not running on port {}",
+            CONTROL_PORT
+        );
         return;
     }
     let client = LiveTestClient::connect(CONTROL_PORT);
@@ -338,9 +394,9 @@ fn git_panel_widget_renders() {
         client.pump().unwrap();
 
         let texts_after = client.get_text().unwrap();
-        let has_git = texts_after
-            .iter()
-            .any(|t| t.text.contains("GIT") || t.text.contains("Source") || t.text.contains("Changes"));
+        let has_git = texts_after.iter().any(|t| {
+            t.text.contains("GIT") || t.text.contains("Source") || t.text.contains("Changes")
+        });
         println!("Git panel visible: {}", has_git);
 
         client
@@ -355,7 +411,10 @@ fn git_panel_widget_renders() {
 #[test]
 fn layout_integrity_check() {
     if !port_available() {
-        eprintln!("Skipping layout_integrity_check: editor not running on port {}", CONTROL_PORT);
+        eprintln!(
+            "Skipping layout_integrity_check: editor not running on port {}",
+            CONTROL_PORT
+        );
         return;
     }
     let client = LiveTestClient::connect(CONTROL_PORT);
@@ -371,7 +430,10 @@ fn layout_integrity_check() {
         .collect();
 
     for b in &broken {
-        println!("  BROKEN: {}x{} at ({},{}) \"{}\"", b.width, b.height, b.x, b.y, b.text);
+        println!(
+            "  BROKEN: {}x{} at ({},{}) \"{}\"",
+            b.width, b.height, b.x, b.y, b.text
+        );
     }
 
     assert_eq!(
@@ -381,14 +443,19 @@ fn layout_integrity_check() {
         broken.len()
     );
 
-    client.screenshot(&format!("{}/layout_integrity.png", dir())).unwrap();
+    client
+        .screenshot(&format!("{}/layout_integrity.png", dir()))
+        .unwrap();
 }
 
 /// Verify that the semantic tree has expected roles for accessibility.
 #[test]
 fn semantic_tree_has_expected_roles() {
     if !port_available() {
-        eprintln!("Skipping semantic_tree_has_expected_roles: editor not running on port {}", CONTROL_PORT);
+        eprintln!(
+            "Skipping semantic_tree_has_expected_roles: editor not running on port {}",
+            CONTROL_PORT
+        );
         return;
     }
     let client = LiveTestClient::connect(CONTROL_PORT);
@@ -415,7 +482,10 @@ fn semantic_tree_has_expected_roles() {
 #[test]
 fn problems_tab_switch() {
     if !port_available() {
-        eprintln!("Skipping problems_tab_switch: editor not running on port {}", CONTROL_PORT);
+        eprintln!(
+            "Skipping problems_tab_switch: editor not running on port {}",
+            CONTROL_PORT
+        );
         return;
     }
     let client = LiveTestClient::connect(CONTROL_PORT);
@@ -446,7 +516,10 @@ fn problems_tab_switch() {
 #[test]
 fn menu_bar_dropdown() {
     if !port_available() {
-        eprintln!("Skipping menu_bar_dropdown: editor not running on port {}", CONTROL_PORT);
+        eprintln!(
+            "Skipping menu_bar_dropdown: editor not running on port {}",
+            CONTROL_PORT
+        );
         return;
     }
     let client = LiveTestClient::connect(CONTROL_PORT);

@@ -86,8 +86,9 @@ impl<'a, S: AppState> Effects<'a, S> {
         }
     }
 
-    pub fn bind<A: Action, H>(&mut self, action: A, handler: H) -> ActionEnvelope 
-    where H: IntoHandler<S, A> + Send + Sync + 'static 
+    pub fn bind<A: Action, H>(&mut self, action: A, handler: H) -> ActionEnvelope
+    where
+        H: IntoHandler<S, A> + Send + Sync + 'static,
     {
         if let Some(registry) = &mut self.registry {
             registry.register(handler);
@@ -101,7 +102,7 @@ impl<'a, S: AppState> Effects<'a, S> {
     pub fn add(&mut self, effect: SystemEffect) -> u64 {
         let req_id = self.next_req_id;
         self.next_req_id += 1;
-        
+
         self.out.push(EffectEnvelope {
             req_id,
             effect: Effect::System(effect),
@@ -114,7 +115,7 @@ impl<'a, S: AppState> Effects<'a, S> {
     pub fn system_effect(&mut self, effect: SystemEffect) -> EffectBuilder<'_, 'a, S> {
         let req_id = self.next_req_id;
         self.next_req_id += 1;
-        
+
         let index = self.out.len();
         self.out.push(EffectEnvelope {
             req_id,
@@ -122,7 +123,7 @@ impl<'a, S: AppState> Effects<'a, S> {
             on_ok: None,
             on_err: None,
         });
-        
+
         EffectBuilder {
             effects: self,
             index,
@@ -130,16 +131,14 @@ impl<'a, S: AppState> Effects<'a, S> {
     }
 
     pub fn http_get(&mut self, url: impl Into<String>) -> EffectBuilder<'_, 'a, S> {
-        self.system_effect(SystemEffect::HttpGet { 
+        self.system_effect(SystemEffect::HttpGet {
             url: url.into(),
-            headers: HashMap::new() 
+            headers: HashMap::new(),
         })
     }
 
     pub fn file_read(&mut self, path: impl Into<String>) -> EffectBuilder<'_, 'a, S> {
-        self.system_effect(SystemEffect::FileRead { 
-            path: path.into()
-        })
+        self.system_effect(SystemEffect::FileRead { path: path.into() })
     }
 
     pub fn cancel(&mut self, req_id: u64) {

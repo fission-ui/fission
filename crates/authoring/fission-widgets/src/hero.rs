@@ -1,6 +1,4 @@
-use fission_core::{
-    BuildCtx, LowerDyn, LoweringContext, Node, NodeBuilder, NodeId, View, Widget,
-};
+use fission_core::{BuildCtx, LowerDyn, LoweringContext, Node, NodeBuilder, NodeId, View, Widget};
 use fission_ir::{semantics::Role, Op, Semantics};
 use serde::{Deserialize, Serialize};
 
@@ -66,7 +64,9 @@ impl LowerDyn for HeroLowerer {
             is_focus_barrier: false,
             drag_payload: None,
             hero_tag: Some(self.tag.clone()),
-            focus_index: None, capture_tab: false, auto_indent: false,
+            focus_index: None,
+            capture_tab: false,
+            auto_indent: false,
         };
 
         let mut builder = NodeBuilder::new(id, Op::Semantics(semantics));

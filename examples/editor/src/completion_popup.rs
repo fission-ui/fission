@@ -34,19 +34,53 @@ fn kind_icon(kind: &str) -> &'static str {
 /// Pick a color for the kind badge.
 fn kind_color(kind: &str) -> Color {
     match kind {
-        "function" | "method" => Color { r: 220, g: 170, b: 80, a: 255 },   // orange
-        "variable" | "field" => Color { r: 100, g: 180, b: 255, a: 255 },   // blue
-        "keyword" => Color { r: 200, g: 120, b: 220, a: 255 },              // purple
-        "struct" | "class" | "enum" => Color { r: 80, g: 200, b: 170, a: 255 }, // teal
-        "module" => Color { r: 220, g: 220, b: 100, a: 255 },               // yellow
-        _ => Color { r: 180, g: 180, b: 180, a: 255 },                      // grey
+        "function" | "method" => Color {
+            r: 220,
+            g: 170,
+            b: 80,
+            a: 255,
+        }, // orange
+        "variable" | "field" => Color {
+            r: 100,
+            g: 180,
+            b: 255,
+            a: 255,
+        }, // blue
+        "keyword" => Color {
+            r: 200,
+            g: 120,
+            b: 220,
+            a: 255,
+        }, // purple
+        "struct" | "class" | "enum" => Color {
+            r: 80,
+            g: 200,
+            b: 170,
+            a: 255,
+        }, // teal
+        "module" => Color {
+            r: 220,
+            g: 220,
+            b: 100,
+            a: 255,
+        }, // yellow
+        _ => Color {
+            r: 180,
+            g: 180,
+            b: 180,
+            a: 255,
+        }, // grey
     }
 }
 
 impl Widget<EditorState> for CompletionPopup {
     fn build(&self, ctx: &mut BuildCtx<EditorState>, view: &View<EditorState>) -> Node {
         if !view.state.show_completions || view.state.completions.is_empty() {
-            return Spacer { height: Some(0.0), ..Default::default() }.into_node();
+            return Spacer {
+                height: Some(0.0),
+                ..Default::default()
+            }
+            .into_node();
         }
 
         let dismiss = ctx.bind(
@@ -58,37 +92,63 @@ impl Widget<EditorState> for CompletionPopup {
             }) as Handler<EditorState, DismissCompletions>,
         );
 
-        let select_id = ctx.bind(
-            SelectCompletion(0),
-            (|s: &mut EditorState, a: SelectCompletion, _| {
-                let idx = a.0;
-                let label = s.completions.get(idx).map(|item| item.label.clone());
-                if let Some(label) = label {
-                    // Insert the selected completion label into the active buffer
-                    if let Some((_tab, buf)) = s.active_buffer_mut() {
-                        let (caret, _anchor) = buf.current_offsets();
-                        buf.apply_edit(caret..caret, &label);
-                        let next = caret + label.len();
-                        buf.set_selection_offsets(next, next);
+        let select_id = ctx
+            .bind(
+                SelectCompletion(0),
+                (|s: &mut EditorState, a: SelectCompletion, _| {
+                    let idx = a.0;
+                    let label = s.completions.get(idx).map(|item| item.label.clone());
+                    if let Some(label) = label {
+                        // Insert the selected completion label into the active buffer
+                        if let Some((_tab, buf)) = s.active_buffer_mut() {
+                            let (caret, _anchor) = buf.current_offsets();
+                            buf.apply_edit(caret..caret, &label);
+                            let next = caret + label.len();
+                            buf.set_selection_offsets(next, next);
+                        }
+                        s.mark_active_tab_dirty();
+                        if let Some(tab) = s.open_tabs.get(s.active_tab) {
+                            let path = tab.path.clone();
+                            s.notify_buffer_changed(&path);
+                        }
                     }
-                    s.mark_active_tab_dirty();
-                    if let Some(tab) = s.open_tabs.get(s.active_tab) {
-                        let path = tab.path.clone();
-                        s.notify_buffer_changed(&path);
-                    }
-                }
-                s.show_completions = false;
-                s.completions.clear();
-                s.selected_completion = 0;
-            }) as Handler<EditorState, SelectCompletion>,
-        )
-        .id;
+                    s.show_completions = false;
+                    s.completions.clear();
+                    s.selected_completion = 0;
+                }) as Handler<EditorState, SelectCompletion>,
+            )
+            .id;
 
-        let bg = Color { r: 37, g: 37, b: 38, a: 255 };
-        let border_color = Color { r: 69, g: 69, b: 69, a: 255 };
-        let text_color = Color { r: 220, g: 220, b: 220, a: 255 };
-        let detail_color = Color { r: 140, g: 140, b: 140, a: 255 };
-        let selected_bg = Color { r: 4, g: 57, b: 94, a: 255 };
+        let bg = Color {
+            r: 37,
+            g: 37,
+            b: 38,
+            a: 255,
+        };
+        let border_color = Color {
+            r: 69,
+            g: 69,
+            b: 69,
+            a: 255,
+        };
+        let text_color = Color {
+            r: 220,
+            g: 220,
+            b: 220,
+            a: 255,
+        };
+        let detail_color = Color {
+            r: 140,
+            g: 140,
+            b: 140,
+            a: 255,
+        };
+        let selected_bg = Color {
+            r: 4,
+            g: 57,
+            b: 94,
+            a: 255,
+        };
 
         let selected_idx = view.state.selected_completion;
 
@@ -116,7 +176,11 @@ impl Widget<EditorState> for CompletionPopup {
                         .color(text_color)
                         .into_node(),
                     // Spacer between label and detail
-                    Spacer { flex_grow: 1.0, ..Default::default() }.into_node(),
+                    Spacer {
+                        flex_grow: 1.0,
+                        ..Default::default()
+                    }
+                    .into_node(),
                     // Detail (if present), truncated
                     if let Some(detail) = &completion.detail {
                         let truncated: String = detail.chars().take(30).collect();
@@ -125,7 +189,11 @@ impl Widget<EditorState> for CompletionPopup {
                             .color(detail_color)
                             .into_node()
                     } else {
-                        Spacer { width: Some(0.0), ..Default::default() }.into_node()
+                        Spacer {
+                            width: Some(0.0),
+                            ..Default::default()
+                        }
+                        .into_node()
                     },
                 ],
             }
@@ -147,9 +215,7 @@ impl Widget<EditorState> for CompletionPopup {
 
             // Highlight the selected item
             if is_selected {
-                btn_container = Container::new(btn_container)
-                    .bg(selected_bg)
-                    .into_node();
+                btn_container = Container::new(btn_container).bg(selected_bg).into_node();
             }
 
             items.push(btn_container);
@@ -198,7 +264,12 @@ impl Widget<EditorState> for CompletionPopup {
             on_tap: Some(dismiss.clone()),
             child: Box::new(
                 Container::new(Spacer::default().into_node())
-                    .bg(Color { r: 0, g: 0, b: 0, a: 0 })
+                    .bg(Color {
+                        r: 0,
+                        g: 0,
+                        b: 0,
+                        a: 0,
+                    })
                     .flex_grow(1.0)
                     .into_node(),
             ),
@@ -243,6 +314,10 @@ impl Widget<EditorState> for CompletionPopup {
             portal_root,
         );
 
-        Spacer { height: Some(0.0), ..Default::default() }.into_node()
+        Spacer {
+            height: Some(0.0),
+            ..Default::default()
+        }
+        .into_node()
     }
 }

@@ -96,15 +96,18 @@ fn test_button_widget_lower_with_child_and_semantics() {
             draggable: false,
             scrollable_x: false,
             scrollable_y: false,
-                                    min_value: None,
-                                    max_value: None,
-                                    current_value: None,
-                                                            is_focus_scope: false,
-                                                                                    is_focus_barrier: false,
-                                                                                                            drag_payload: None,
-                                                                                                            hero_tag: None,
-                                                                                                            focus_index: None, capture_tab: false, auto_indent: false,
-                                                                                                        }),        ..Default::default()
+            min_value: None,
+            max_value: None,
+            current_value: None,
+            is_focus_scope: false,
+            is_focus_barrier: false,
+            drag_payload: None,
+            hero_tag: None,
+            focus_index: None,
+            capture_tab: false,
+            auto_indent: false,
+        }),
+        ..Default::default()
     };
 
     let env = Env::default();

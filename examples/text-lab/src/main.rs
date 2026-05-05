@@ -1,7 +1,6 @@
 use anyhow::Result;
 use fission_core::{
-    ActionEnvelope, AppState, BuildCtx, Handler, NodeId, ReducerContext, View, Widget,
-    WidgetNodeId,
+    ActionEnvelope, AppState, BuildCtx, Handler, NodeId, ReducerContext, View, Widget, WidgetNodeId,
 };
 use fission_shell_desktop::DesktopApp;
 use fission_widgets::{
@@ -267,11 +266,16 @@ impl Widget<TextLabState> for TextLabApp {
             payload: serde_json::to_vec(&SetShowModal(false)).unwrap(),
         };
 
-        let single_line_input_id =
-            NodeId::derived(WidgetNodeId::explicit("text_lab_single_line").as_u128(), &[]);
-        let body_input_id = NodeId::derived(WidgetNodeId::explicit("text_lab_multiline").as_u128(), &[]);
-        let modal_subject_input_id =
-            NodeId::derived(WidgetNodeId::explicit("text_lab_modal_subject").as_u128(), &[]);
+        let single_line_input_id = NodeId::derived(
+            WidgetNodeId::explicit("text_lab_single_line").as_u128(),
+            &[],
+        );
+        let body_input_id =
+            NodeId::derived(WidgetNodeId::explicit("text_lab_multiline").as_u128(), &[]);
+        let modal_subject_input_id = NodeId::derived(
+            WidgetNodeId::explicit("text_lab_modal_subject").as_u128(),
+            &[],
+        );
         let modal_body_input_id =
             NodeId::derived(WidgetNodeId::explicit("text_lab_modal_body").as_u128(), &[]);
 
@@ -433,88 +437,90 @@ impl Widget<TextLabState> for TextLabApp {
                 FocusScope {
                     id: None,
                     is_barrier: true,
-                    children: vec![
-                        VStack {
-                            spacing: Some(10.0),
-                            children: vec![
-                                FormControl {
-                                    id: None,
-                                    label: Some("To".to_string()),
-                                    required: true,
-                                    error: None,
-                                    helper: None,
-                                    child: Box::new(
-                                        Combobox {
-                                            id: WidgetNodeId::explicit("text_lab_modal_to"),
-                                            value: view.state.modal_to.clone(),
-                                            items: modal_items,
-                                            is_open: !view.state.modal_to.trim().is_empty() && !modal_has_exact,
-                                            width: Some(560.0),
-                                            max_popup_height: Some(180.0),
-                                            on_change: Some(ActionEnvelope {
-                                                id: set_modal_to_id,
-                                                payload: Vec::new(),
-                                            }),
-                                            on_select: Some(Arc::new(move |value| ActionEnvelope {
-                                                id: set_modal_to_id,
-                                                payload: serde_json::to_vec(&SetModalTo(value)).unwrap(),
-                                            })),
-                                            on_toggle: None,
-                                        }
-                                        .build(ctx, view),
-                                    ),
-                                }
-                                .build(ctx, view),
-                                FormControl {
-                                    id: None,
-                                    label: Some("Subject".to_string()),
-                                    required: false,
-                                    error: None,
-                                    helper: None,
-                                    child: Box::new(
-                                        TextInput {
-                                            id: Some(modal_subject_input_id),
-                                            value: view.state.modal_subject.clone(),
-                                            placeholder: Some("Subject".into()),
-                                            on_change: Some(ActionEnvelope {
-                                                id: set_modal_subject_id,
-                                                payload: Vec::new(),
-                                            }),
-                                            width: Some(560.0),
-                                            ..Default::default()
-                                        }
-                                        .into_node(),
-                                    ),
-                                }
-                                .build(ctx, view),
-                                FormControl {
-                                    id: None,
-                                    label: Some("Body".to_string()),
-                                    required: true,
-                                    error: None,
-                                    helper: Some("Exercise multiline and popup interactions here.".to_string()),
-                                    child: Box::new(
-                                        TextInput {
-                                            id: Some(modal_body_input_id),
-                                            value: view.state.modal_body.clone(),
-                                            placeholder: Some("Type a longer message".into()),
-                                            on_change: Some(ActionEnvelope {
-                                                id: set_modal_body_id,
-                                                payload: Vec::new(),
-                                            }),
-                                            multiline: true,
-                                            width: Some(560.0),
-                                            height: Some(180.0),
-                                            ..Default::default()
-                                        }
-                                        .into_node(),
-                                    ),
-                                }
-                                .build(ctx, view),
-                            ],
-                        }
-                        .build(ctx, view),
-                    ],
+                    children: vec![VStack {
+                        spacing: Some(10.0),
+                        children: vec![
+                            FormControl {
+                                id: None,
+                                label: Some("To".to_string()),
+                                required: true,
+                                error: None,
+                                helper: None,
+                                child: Box::new(
+                                    Combobox {
+                                        id: WidgetNodeId::explicit("text_lab_modal_to"),
+                                        value: view.state.modal_to.clone(),
+                                        items: modal_items,
+                                        is_open: !view.state.modal_to.trim().is_empty()
+                                            && !modal_has_exact,
+                                        width: Some(560.0),
+                                        max_popup_height: Some(180.0),
+                                        on_change: Some(ActionEnvelope {
+                                            id: set_modal_to_id,
+                                            payload: Vec::new(),
+                                        }),
+                                        on_select: Some(Arc::new(move |value| ActionEnvelope {
+                                            id: set_modal_to_id,
+                                            payload: serde_json::to_vec(&SetModalTo(value))
+                                                .unwrap(),
+                                        })),
+                                        on_toggle: None,
+                                    }
+                                    .build(ctx, view),
+                                ),
+                            }
+                            .build(ctx, view),
+                            FormControl {
+                                id: None,
+                                label: Some("Subject".to_string()),
+                                required: false,
+                                error: None,
+                                helper: None,
+                                child: Box::new(
+                                    TextInput {
+                                        id: Some(modal_subject_input_id),
+                                        value: view.state.modal_subject.clone(),
+                                        placeholder: Some("Subject".into()),
+                                        on_change: Some(ActionEnvelope {
+                                            id: set_modal_subject_id,
+                                            payload: Vec::new(),
+                                        }),
+                                        width: Some(560.0),
+                                        ..Default::default()
+                                    }
+                                    .into_node(),
+                                ),
+                            }
+                            .build(ctx, view),
+                            FormControl {
+                                id: None,
+                                label: Some("Body".to_string()),
+                                required: true,
+                                error: None,
+                                helper: Some(
+                                    "Exercise multiline and popup interactions here.".to_string(),
+                                ),
+                                child: Box::new(
+                                    TextInput {
+                                        id: Some(modal_body_input_id),
+                                        value: view.state.modal_body.clone(),
+                                        placeholder: Some("Type a longer message".into()),
+                                        on_change: Some(ActionEnvelope {
+                                            id: set_modal_body_id,
+                                            payload: Vec::new(),
+                                        }),
+                                        multiline: true,
+                                        width: Some(560.0),
+                                        height: Some(180.0),
+                                        ..Default::default()
+                                    }
+                                    .into_node(),
+                                ),
+                            }
+                            .build(ctx, view),
+                        ],
+                    }
+                    .build(ctx, view)],
                 }
                 .into_node(),
             ),

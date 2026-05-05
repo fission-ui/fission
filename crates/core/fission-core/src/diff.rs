@@ -81,8 +81,8 @@ fn paint_change_requires_layout(prev: &PaintOp, next: &PaintOp) -> bool {
 #[cfg(test)]
 mod tests {
     use super::diff_ir;
-    use fission_ir::{CompositeScalar, CompositeStyle, CoreIR, LayoutOp, NodeId, Op, PaintOp};
     use fission_ir::op::Fill;
+    use fission_ir::{CompositeScalar, CompositeStyle, CoreIR, LayoutOp, NodeId, Op, PaintOp};
 
     fn rect_ir(id_seed: u128, color: (u8, u8, u8, u8)) -> CoreIR {
         let root = NodeId::derived(id_seed, &[0]);
@@ -190,18 +190,22 @@ mod tests {
             }),
             vec![],
         );
-        prev.add_node(root, Op::Layout(LayoutOp::Box {
-            width: None,
-            height: None,
-            min_width: None,
-            max_width: None,
-            min_height: None,
-            max_height: None,
-            padding: [0.0; 4],
-            flex_grow: 0.0,
-            flex_shrink: 0.0,
-            aspect_ratio: None,
-        }), vec![text]);
+        prev.add_node(
+            root,
+            Op::Layout(LayoutOp::Box {
+                width: None,
+                height: None,
+                min_width: None,
+                max_width: None,
+                min_height: None,
+                max_height: None,
+                padding: [0.0; 4],
+                flex_grow: 0.0,
+                flex_shrink: 0.0,
+                aspect_ratio: None,
+            }),
+            vec![text],
+        );
         prev.set_root(root);
         let mut next = prev.clone();
         if let Some(node) = next.nodes.get_mut(&text) {

@@ -13,7 +13,7 @@ impl WordcloudSeries {
             data: Vec::new(),
         }
     }
-    
+
     pub fn data(mut self, data: Vec<(&str, f32)>) -> Self {
         self.data = data.into_iter().map(|(w, v)| (w.into(), v)).collect();
         self

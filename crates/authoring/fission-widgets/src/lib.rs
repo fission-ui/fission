@@ -228,8 +228,10 @@ impl LowerDyn for CanvasLowerer {
     fn lower_dyn(&self, cx: &mut LoweringContext) -> NodeId {
         let child_ids = (self.painter)(cx);
         let group_id = cx.next_node_id();
-        let mut group =
-            NodeBuilder::new(group_id, Op::Structural(StructuralOp::Group { stable_hash: 0 }));
+        let mut group = NodeBuilder::new(
+            group_id,
+            Op::Structural(StructuralOp::Group { stable_hash: 0 }),
+        );
         for cid in child_ids {
             group.add_child(cid);
         }

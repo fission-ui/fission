@@ -8,7 +8,7 @@ use fission_core::ui::custom_render::CustomRenderObject;
 use fission_core::ui::traits::LowerDyn;
 use fission_core::ui::{Container, CustomNode, Node, Row, Scroll, Text};
 use fission_core::{BuildCtx, FlexDirection, Handler, View, Widget};
-use fission_widgets::{HStack, VStack, Spacer};
+use fission_widgets::{HStack, Spacer, VStack};
 use std::sync::Arc;
 
 pub struct EditorSurface;
@@ -29,7 +29,10 @@ impl Widget<EditorState> for EditorSurface {
 
         // ---- Register reducers for actions dispatched by the render object ---
         ctx.bind(
-            UpdateCursorPosition { caret: 0, anchor: 0 },
+            UpdateCursorPosition {
+                caret: 0,
+                anchor: 0,
+            },
             (|s: &mut EditorState, a: UpdateCursorPosition, _| {
                 if let Some((_tab, buf)) = s.active_buffer_mut() {
                     buf.clear_preedit();
@@ -99,7 +102,10 @@ impl Widget<EditorState> for EditorSurface {
         // scroll together. The render node reports full content height so the
         // scrollbar reflects the real document length.
         let scrollable = Scroll {
-            id: Some(fission_ir::NodeId::explicit(&format!("editor_scroll_{}", path))),
+            id: Some(fission_ir::NodeId::explicit(&format!(
+                "editor_scroll_{}",
+                path
+            ))),
             child: Some(Box::new(editor_area)),
             direction: FlexDirection::Column,
             show_scrollbar: true,
@@ -112,7 +118,12 @@ impl Widget<EditorState> for EditorSurface {
         // ---- Minimap (kept as a separate widget) ----------------------------
         let minimap_separator = Container::new(Spacer::default().into_node())
             .width(1.0)
-            .bg(Color { r: 48, g: 48, b: 49, a: 255 })
+            .bg(Color {
+                r: 48,
+                g: 48,
+                b: 49,
+                a: 255,
+            })
             .flex_shrink(0.0)
             .into_node();
 
@@ -134,7 +145,12 @@ impl Widget<EditorState> for EditorSurface {
         .into_node();
 
         Container::new(editor_column)
-            .bg(Color { r: 30, g: 30, b: 30, a: 255 })
+            .bg(Color {
+                r: 30,
+                g: 30,
+                b: 30,
+                a: 255,
+            })
             .flex_grow(1.0)
             .flex_shrink(1.0)
             .into_node()
@@ -147,21 +163,42 @@ impl EditorSurface {
         ctx: &mut BuildCtx<EditorState>,
         view: &View<EditorState>,
     ) -> Node {
-        let dim = Color { r: 100, g: 100, b: 100, a: 255 };
-        let shortcut_color = Color { r: 130, g: 130, b: 130, a: 255 };
-        let key_color = Color { r: 160, g: 160, b: 160, a: 255 };
-        let heading_color = Color { r: 150, g: 150, b: 150, a: 255 };
+        let dim = Color {
+            r: 100,
+            g: 100,
+            b: 100,
+            a: 255,
+        };
+        let shortcut_color = Color {
+            r: 130,
+            g: 130,
+            b: 130,
+            a: 255,
+        };
+        let key_color = Color {
+            r: 160,
+            g: 160,
+            b: 160,
+            a: 255,
+        };
+        let heading_color = Color {
+            r: 150,
+            g: 150,
+            b: 150,
+            a: 255,
+        };
 
         let shortcut_row = |keys: &str, desc: &str| -> Node {
             HStack {
                 spacing: Some(16.0),
                 children: vec![
-                    Container::new(
-                        Text::new(keys).size(12.0).color(key_color).into_node(),
-                    ).width(140.0).into_node(),
+                    Container::new(Text::new(keys).size(12.0).color(key_color).into_node())
+                        .width(140.0)
+                        .into_node(),
                     Text::new(desc).size(12.0).color(shortcut_color).into_node(),
                 ],
-            }.into_node()
+            }
+            .into_node()
         };
 
         Container::new(
@@ -172,31 +209,56 @@ impl EditorSurface {
                         children: vec![
                             Text::new("Fission Editor")
                                 .size(36.0)
-                                .color(Color { r: 80, g: 80, b: 80, a: 255 })
+                                .color(Color {
+                                    r: 80,
+                                    g: 80,
+                                    b: 80,
+                                    a: 255,
+                                })
                                 .into_node(),
-                            Spacer { height: Some(4.0), ..Default::default() }.into_node(),
+                            Spacer {
+                                height: Some(4.0),
+                                ..Default::default()
+                            }
+                            .into_node(),
                             Text::new("Open a file from the explorer to begin")
                                 .size(14.0)
                                 .color(dim)
                                 .into_node(),
-                            Spacer { height: Some(16.0), ..Default::default() }.into_node(),
+                            Spacer {
+                                height: Some(16.0),
+                                ..Default::default()
+                            }
+                            .into_node(),
                             // Keyboard shortcuts section
                             Text::new("Keyboard Shortcuts")
                                 .size(14.0)
                                 .color(heading_color)
                                 .into_node(),
-                            Spacer { height: Some(4.0), ..Default::default() }.into_node(),
+                            Spacer {
+                                height: Some(4.0),
+                                ..Default::default()
+                            }
+                            .into_node(),
                             shortcut_row("Ctrl+Shift+P", "Command Palette"),
                             shortcut_row("Ctrl+B", "Toggle Sidebar"),
                             shortcut_row("Ctrl+`", "Toggle Terminal"),
                             shortcut_row("Ctrl+S", "Save File"),
-                            Spacer { height: Some(20.0), ..Default::default() }.into_node(),
+                            Spacer {
+                                height: Some(20.0),
+                                ..Default::default()
+                            }
+                            .into_node(),
                             // Recent files section
                             Text::new("Recent Files")
                                 .size(14.0)
                                 .color(heading_color)
                                 .into_node(),
-                            Spacer { height: Some(4.0), ..Default::default() }.into_node(),
+                            Spacer {
+                                height: Some(4.0),
+                                ..Default::default()
+                            }
+                            .into_node(),
                             Text::new("No recent files")
                                 .size(12.0)
                                 .color(dim)
@@ -208,7 +270,12 @@ impl EditorSurface {
             }
             .build(ctx, view),
         )
-        .bg(Color { r: 30, g: 30, b: 30, a: 255 })
+        .bg(Color {
+            r: 30,
+            g: 30,
+            b: 30,
+            a: 255,
+        })
         .flex_grow(1.0)
         .flex_shrink(1.0)
         .into_node()

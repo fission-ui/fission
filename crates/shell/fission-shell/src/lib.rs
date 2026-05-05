@@ -42,4 +42,3 @@ pub enum VideoEvent {
     Ended,
     Error(String),
 }
-
