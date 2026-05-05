@@ -2512,7 +2512,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                                 )
                                                 .expect("failed to render");
                                         } else {
-                                            texture_compositor
+                                            let _compositor_stats = texture_compositor
                                                 .render_layers(
                                                     &device_handle.device,
                                                     &device_handle.queue,
