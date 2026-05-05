@@ -1740,6 +1740,7 @@ dependencies = [
  "fission-i18n",
  "fission-icons",
  "fission-ir",
+ "fission-layout",
  "fission-macros",
  "fission-render",
  "fission-shell-desktop",

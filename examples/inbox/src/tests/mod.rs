@@ -2,11 +2,14 @@ use super::*;
 use anyhow::Result;
 use fission_core::env::RuntimeState;
 use fission_core::event::{InputEvent, KeyCode, KeyEvent, PointerButton, PointerEvent};
-use fission_core::{Action, AnimationPropertyId, BuildCtx, Env, NodeId, WidgetNodeId, LayoutSize};
+use fission_core::lowering::LoweringContext;
+use fission_core::{Action, AnimationPropertyId, BuildCtx, Env, LayoutSize, NodeId, WidgetNodeId};
 use fission_ir::op::{FlexDirection, FlexWrap, GridTrack};
 use fission_ir::semantics::{ActionTrigger, Role};
 use fission_ir::{EmbedKind, LayoutOp, Op, PaintOp};
+use fission_layout::LayoutEngine;
 use fission_render::LayoutRect;
+use fission_shell_desktop::Pipeline;
 use fission_test::prelude::*;
 use std::collections::HashMap;
 
@@ -38,6 +41,71 @@ fn state_contacts() -> InboxState {
     let mut state = InboxState::default();
     state.show_contacts = true;
     state
+}
+
+fn build_lowered_inbox_ir(state: &InboxState) -> (fission_ir::CoreIR, RuntimeState, Env) {
+    let mut ctx = BuildCtx::new();
+    let runtime_state = RuntimeState::default();
+    let env = create_env();
+    let view = View::new(state, &runtime_state, &env, None);
+    let tree = InboxApp.build(&mut ctx, &view);
+    let portals = ctx.take_portals();
+
+    let node_tree = if portals.is_empty() {
+        tree
+    } else {
+        fission_core::ui::Node::Overlay(fission_core::ui::Overlay {
+            id: None,
+            content: Box::new(
+                fission_core::ui::Container::new(tree)
+                    .width(800.0)
+                    .height(600.0)
+                    .into_node(),
+            ),
+            overlay: Box::new(fission_core::ui::Node::ZStack(fission_core::ui::ZStack {
+                id: None,
+                children: portals.into_iter().map(|(_, n)| n).collect(),
+            })),
+        })
+    };
+
+    let mut lower_cx = LoweringContext::new(&env, &runtime_state, None, None);
+    let root_id = node_tree.lower(&mut lower_cx);
+    lower_cx.ir.root = Some(root_id);
+    (lower_cx.ir, runtime_state, env)
+}
+
+fn summarize_render_node(node: &fission_render::RenderNode, depth: usize, out: &mut Vec<String>) {
+    let indent = "  ".repeat(depth);
+    match node {
+        fission_render::RenderNode::Paint(list) => {
+            out.push(format!(
+                "{}Paint ops={} bounds=({}, {}, {}, {})",
+                indent,
+                list.ops.len(),
+                list.bounds.origin.x,
+                list.bounds.origin.y,
+                list.bounds.size.width,
+                list.bounds.size.height
+            ));
+        }
+        fission_render::RenderNode::Layer(layer) => {
+            out.push(format!(
+                "{}Layer node={:?} children={} clip={:?} opacity={} transform={} cache={:?} content_cache={:?}",
+                indent,
+                layer.node_id,
+                layer.children.len(),
+                layer.style.clip,
+                layer.style.opacity,
+                layer.style.transform.is_some(),
+                layer.style.cache_key,
+                layer.style.content_cache_key
+            ));
+            for child in &layer.children {
+                summarize_render_node(child, depth + 1, out);
+            }
+        }
+    }
 }
 
 fn state_compose() -> InboxState {
@@ -755,36 +823,8 @@ fn layout_children_exist_after_navigation() -> Result<()> {
     let mut state = InboxState::default();
     state.current_path = "/inbox/1".into();
 
-    let mut ctx = BuildCtx::new();
-    let runtime_state = RuntimeState::default();
-    let env = Env::default();
-    let view = View::new(&state, &runtime_state, &env, None);
-    let tree = InboxApp.build(&mut ctx, &view);
-    let portals = ctx.take_portals();
-
-    let node_tree = if portals.is_empty() {
-        tree
-    } else {
-        fission_core::ui::Node::Overlay(fission_core::ui::Overlay {
-            id: None,
-            content: Box::new(
-                fission_core::ui::Container::new(tree)
-                    .width(800.0)
-                    .height(600.0)
-                    .into_node(),
-            ),
-            overlay: Box::new(fission_core::ui::Node::ZStack(fission_core::ui::ZStack {
-                id: None,
-                children: portals.into_iter().map(|(_, n)| n).collect(),
-            })),
-        })
-    };
-
-    let mut lower_cx =
-        fission_core::lowering::LoweringContext::new(&env, &runtime_state, None, None);
-    let root_id = node_tree.lower(&mut lower_cx);
-    lower_cx.ir.root = Some(root_id);
-    let input_nodes = fission_core::lowering::build_layout_tree(&lower_cx.ir, &env);
+    let (ir, _runtime_state, env) = build_lowered_inbox_ir(&state);
+    let input_nodes = fission_core::lowering::build_layout_tree(&ir, &env);
 
     let map: HashMap<_, _> = input_nodes.iter().map(|n| (n.id, n)).collect();
     for n in &input_nodes {
@@ -793,7 +833,7 @@ fn layout_children_exist_after_navigation() -> Result<()> {
                 let mut chain = Vec::new();
                 let mut current = Some(n.id);
                 while let Some(id) = current {
-                    if let Some(node) = lower_cx.ir.nodes.get(&id) {
+                    if let Some(node) = ir.nodes.get(&id) {
                         chain.push(format!("{:?} -> {:?}", id, node.op));
                         current = node.parent;
                     } else {
@@ -812,6 +852,41 @@ fn layout_children_exist_after_navigation() -> Result<()> {
         }
     }
 
+    Ok(())
+}
+
+#[test]
+fn inbox_emits_root_texture_compositor_plans() -> Result<()> {
+    let (ir, runtime_state, env) = build_lowered_inbox_ir(&InboxState::default());
+    let mut pipeline = Pipeline::new();
+    let mut layout_engine = LayoutEngine::new();
+    pipeline.replace_ir(ir, &env);
+    pipeline.ensure_layout(
+        LayoutRect::new(0.0, 0.0, 1200.0, 800.0),
+        &mut layout_engine,
+        &runtime_state.scroll,
+    )?;
+    pipeline.prepare_current(
+        LayoutSize::new(1200.0, 800.0),
+        LayoutSize::new(1200.0, 800.0),
+        false,
+        &runtime_state.scroll,
+        &runtime_state.animation,
+        &runtime_state.video,
+        &runtime_state.web,
+    )?;
+
+    let mut summary = Vec::new();
+    if let Some(scene) = pipeline.retained_scene() {
+        for root in &scene.roots {
+            summarize_render_node(root, 0, &mut summary);
+        }
+    }
+    assert!(
+        !pipeline.texture_compositor_plans().is_empty(),
+        "expected inbox root surface to emit retained texture compositor plans\n{}",
+        summary.join("\n")
+    );
     Ok(())
 }
 
@@ -1244,7 +1319,10 @@ fn spinner_animation_present_in_default_inbox() -> Result<()> {
             found += 1;
         }
     }
-    assert_eq!(found, 3, "default inbox should schedule all three spinner dot animations");
+    assert_eq!(
+        found, 3,
+        "default inbox should schedule all three spinner dot animations"
+    );
     Ok(())
 }
 
