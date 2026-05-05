@@ -18,7 +18,6 @@ lazy_static! {
     static ref ROTATION_ID: WidgetNodeId = WidgetNodeId::explicit("animation_gallery.rotation");
     static ref CLIP_ID: WidgetNodeId = WidgetNodeId::explicit("animation_gallery.clip");
     static ref CUSTOM_ID: WidgetNodeId = WidgetNodeId::explicit("animation_gallery.custom");
-    static ref CUSTOM_PULSE: AnimationPropertyId = AnimationPropertyId::custom("pulse");
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -58,8 +57,16 @@ impl Widget<AnimationGalleryState> for AnimationGalleryApp {
 
         if custom_active {
             ctx.anim_for(*CUSTOM_ID).request(AnimationRequest {
-                property: CUSTOM_PULSE.clone(),
-                from: AnimationStartValue::Explicit(0.0),
+                property: AnimationPropertyId::Scale,
+                from: AnimationStartValue::Explicit(0.92),
+                to: 1.08,
+                duration_ms: 1400,
+                delay_ms: 0,
+                repeat: true,
+            });
+            ctx.anim_for(*CUSTOM_ID).request(AnimationRequest {
+                property: AnimationPropertyId::Opacity,
+                from: AnimationStartValue::Explicit(0.72),
                 to: 1.0,
                 duration_ms: 1400,
                 delay_ms: 0,
@@ -67,18 +74,12 @@ impl Widget<AnimationGalleryState> for AnimationGalleryApp {
             });
         }
 
-        let pulse = if custom_active {
-            view.animation_value(*CUSTOM_ID, &CUSTOM_PULSE)
-        } else {
-            0.0
-        };
-
         let title = Column {
             gap: Some(8.0),
             children: vec![
                 Text::new("Animation Gallery").size(28.0).into_node(),
                 Text::new(
-                    "Built-in compositor-driven opacity, translation, scale, rotation, clip, scroll, and a custom build-driven pulse.",
+                    "Built-in compositor-driven opacity, translation, scale, rotation, clip, scroll, and a compositor-driven pulse.",
                 )
                 .size(14.0)
                 .color(tokens.text_secondary)
@@ -204,7 +205,7 @@ impl Widget<AnimationGalleryState> for AnimationGalleryApp {
                         ),
                         demo_card(
                             "Custom pulse",
-                            custom_pulse_card(pulse, custom_active, tokens.primary),
+                            custom_pulse_card(custom_active, tokens.primary),
                         ),
                     ],
                     ..Default::default()
@@ -298,28 +299,29 @@ fn sample_block(label: &str, color: IrColor) -> Node {
     .into_node()
 }
 
-fn custom_pulse_card(pulse: f32, active: bool, base: IrColor) -> Node {
-    let brightness = (180.0 + pulse * 70.0).clamp(0.0, 255.0) as u8;
-    let width = 86.0 + pulse * 28.0;
-    let height = 54.0 + pulse * 18.0;
-    let label = if active {
-        format!("Pulse {:.2}", pulse)
-    } else {
-        "Pulse paused".to_string()
-    };
-
-    Container::new(
+fn custom_pulse_card(active: bool, base: IrColor) -> Node {
+    let label = if active { "Pulse running" } else { "Pulse paused" };
+    let block = Container::new(
         Text::new(label)
             .size(16.0)
             .color(IrColor::WHITE)
             .into_node(),
     )
-    .width(width)
-    .height(height)
+    .width(112.0)
+    .height(72.0)
     .padding_all(14.0)
     .border_radius(16.0)
-    .bg(color(base.r, brightness, base.b, 255))
-    .into_node()
+    .bg(color(base.r, 196, base.b, 255))
+    .into_node();
+
+    if active {
+        Composite::new(block)
+            .animated_scale(*CUSTOM_ID, 1.0)
+            .animated_opacity(*CUSTOM_ID, 1.0)
+            .into_node()
+    } else {
+        Composite::new(block).opacity(0.72).scale(0.92).into_node()
+    }
 }
 
 fn scroll_strip(primary: IrColor, alt: IrColor) -> Node {

@@ -1,8 +1,8 @@
 use anyhow;
 use fission_core::op::PaintOp;
 use fission_core::ui::{
-    Button, Column, CustomNode, Image, Node, Overlay, Row, Scroll, Text, TextContent, TextInput,
-    ZStack,
+    Button, Column, Composite, CustomNode, Image, Node, Overlay, Row, Scroll, Text, TextContent,
+    TextInput, ZStack,
 };
 use fission_core::{
     op::Color as IrColor, AnimationPropertyId, AnimationRequest, AnimationStartValue, AppState,
@@ -18,8 +18,6 @@ use std::sync::Arc;
 lazy_static! {
     static ref STATUS_WIDGET_ID: WidgetNodeId = WidgetNodeId::explicit("status_indicator");
     static ref DEMO_VIDEO_WIDGET_ID: WidgetNodeId = WidgetNodeId::explicit("demo_video");
-    static ref STATUS_PULSE_PROPERTY: AnimationPropertyId =
-        AnimationPropertyId::custom("pulse_intensity");
 }
 
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -68,7 +66,6 @@ fn on_toggle_modal(
 struct CounterVM {
     label: String,
     is_even: bool,
-    anim_val: f32,
     text_value: String,
 }
 
@@ -76,12 +73,9 @@ impl Selector<CounterState> for CounterVM {
     type Output = CounterVM;
 
     fn select(view: &View<CounterState>) -> Self::Output {
-        let anim_val = view.animation_value(*STATUS_WIDGET_ID, &STATUS_PULSE_PROPERTY);
-
         CounterVM {
             label: format!("Count: {}", view.state.value),
             is_even: view.state.value % 2 == 0,
-            anim_val,
             text_value: view.state.text_value.clone(),
         }
     }
@@ -91,80 +85,24 @@ impl Selector<CounterState> for CounterVM {
 struct StatusIndicator {
     id: WidgetNodeId,
     active: bool,
-    anim_val: f32,
 }
 
 impl Widget<CounterState> for StatusIndicator {
     fn build(&self, _ctx: &mut BuildCtx<CounterState>, _view: &View<CounterState>) -> Node {
-        Node::Custom(CustomNode {
-            debug_tag: "StatusIndicator".to_string(),
-            lowerer: Some(Arc::new(StatusIndicatorLowerer {
-                id: self.id,
-                active: self.active,
-                anim_val: self.anim_val,
-            })),
-            render_object: None,
-        })
-    }
-}
-
-#[derive(Debug)]
-struct StatusIndicatorLowerer {
-    id: WidgetNodeId,
-    active: bool,
-    anim_val: f32,
-}
-
-impl LowerDyn for StatusIndicatorLowerer {
-    fn lower_dyn(&self, cx: &mut LoweringContext) -> NodeId {
-        let layout_id = cx.widget_node_id(self.id);
-        let base_color = if self.active {
-            IrColor::GREEN
-        } else {
-            IrColor::RED
-        };
-
-        let r = (base_color.r as f32 * (1.0 - self.anim_val) + 0.0 * self.anim_val) as u8;
-        let g = (base_color.g as f32 * (1.0 - self.anim_val) + 0.0 * self.anim_val) as u8;
-        let b = (base_color.b as f32 * (1.0 - self.anim_val) + 255.0 * self.anim_val) as u8;
-        let color = IrColor { r, g, b, a: 255 };
-
-        let paint_id = NodeBuilder::new(
-            NodeId::derived(layout_id.as_u128(), &[1]),
-            fission_core::Op::Paint(PaintOp::DrawRect {
-                fill: Some(fission_core::op::Fill::Solid(color)),
-                stroke: None,
-                corner_radius: 10.0,
-                shadow: None,
-            }),
-        )
-        .build(cx);
-
-        let mut layout_builder = NodeBuilder::new(
-            layout_id,
-            fission_core::Op::Layout(fission_core::LayoutOp::Box {
-                width: Some(20.0),
-                height: Some(20.0),
-                min_width: None,
-                max_width: None,
-                min_height: None,
-                max_height: None,
-                padding: [0.0; 4],
-                flex_grow: 0.0,
-                flex_shrink: 0.0,
-                aspect_ratio: None,
-            }),
-        );
-        layout_builder.add_child(paint_id);
-        layout_builder.build(cx)
-    }
-
-    fn stable_key(&self) -> u64 {
-        let mut key = self.id.as_u128();
-        if self.active {
-            key ^= 1;
-        }
-        u64::from_le_bytes(key.to_le_bytes()[0..8].try_into().unwrap())
+        let dot = fission_core::ui::Container::new(Spacer::default().into_node())
+            .width(20.0)
+            .height(20.0)
+            .border_radius(10.0)
+            .bg(if self.active {
+                IrColor::GREEN
+            } else {
+                IrColor::RED
+            })
+            .into_node();
+        Composite::new(dot)
+            .animated_scale(self.id, 1.0)
+            .animated_opacity(self.id, if self.active { 1.0 } else { 0.72 })
+            .into_node()
     }
 }
 
@@ -175,9 +113,17 @@ impl Widget<CounterState> for CounterApp {
         let vm = view.select::<CounterVM>();
 
         ctx.anim_for(*STATUS_WIDGET_ID).request(AnimationRequest {
-            property: STATUS_PULSE_PROPERTY.clone(),
+            property: AnimationPropertyId::Scale,
             from: AnimationStartValue::Current,
-            to: if vm.is_even { 1.0 } else { 0.0 },
+            to: if vm.is_even { 1.14 } else { 1.0 },
+            duration_ms: 250,
+            repeat: false,
+            delay_ms: 0,
+        });
+        ctx.anim_for(*STATUS_WIDGET_ID).request(AnimationRequest {
+            property: AnimationPropertyId::Opacity,
+            from: AnimationStartValue::Current,
+            to: if vm.is_even { 1.0 } else { 0.72 },
             duration_ms: 250,
             repeat: false,
             delay_ms: 0,
@@ -304,7 +250,6 @@ impl Widget<CounterState> for CounterApp {
             StatusIndicator {
                 id: *STATUS_WIDGET_ID,
                 active: vm.is_even,
-                anim_val: vm.anim_val,
             }
             .build(ctx, view),
             Button {
