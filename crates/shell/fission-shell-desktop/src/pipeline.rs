@@ -1169,13 +1169,10 @@ fn presentation_transform_matrix(
         return None;
     }
 
-    let sx = render_viewport_size.width / layout_viewport_size.width;
-    let sy = render_viewport_size.height / layout_viewport_size.height;
-    if (sx - 1.0).abs() <= 0.001 && (sy - 1.0).abs() <= 0.001 {
-        None
-    } else {
-        Some(scale_matrix_non_uniform(sx, sy))
-    }
+    // Do not non-uniformly scale the retained UI during live resize.
+    // Text-heavy surfaces look visibly distorted; we keep the last committed
+    // layout anchored in place and rely on throttled relayouts instead.
+    None
 }
 
 fn compose_dynamic_layer_transform(
@@ -1789,12 +1786,6 @@ fn translation_matrix(tx: f32, ty: f32) -> [f32; 16] {
 fn scale_matrix(scale: f32) -> [f32; 16] {
     [
         scale, 0.0, 0.0, 0.0, 0.0, scale, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0,
-    ]
-}
-
-fn scale_matrix_non_uniform(scale_x: f32, scale_y: f32) -> [f32; 16] {
-    [
-        scale_x, 0.0, 0.0, 0.0, 0.0, scale_y, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0,
     ]
 }
 

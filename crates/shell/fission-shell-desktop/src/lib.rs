@@ -249,6 +249,8 @@ fn pending_work_redraw_interval(
 struct LiveResizeController {
     active_until: Option<Instant>,
     settle_delay: Duration,
+    layout_interval: Duration,
+    last_layout_at: Option<Instant>,
 }
 
 impl LiveResizeController {
@@ -256,6 +258,8 @@ impl LiveResizeController {
         Self {
             active_until: None,
             settle_delay,
+            layout_interval: Duration::from_millis(48),
+            last_layout_at: None,
         }
     }
 
@@ -276,15 +280,24 @@ impl LiveResizeController {
         force: bool,
     ) -> bool {
         if !has_layout_snapshot || force {
+            self.last_layout_at = Some(now);
             return true;
         }
 
         let settled = !self.is_live(now);
         if settled {
             self.active_until = None;
+            self.last_layout_at = Some(now);
             true
         } else {
-            false
+            let should_refresh = self
+                .last_layout_at
+                .map(|last| now.saturating_duration_since(last) >= self.layout_interval)
+                .unwrap_or(true);
+            if should_refresh {
+                self.last_layout_at = Some(now);
+            }
+            should_refresh
         }
     }
 }
@@ -3049,6 +3062,18 @@ mod tests {
         resize.note_resize(now);
 
         assert!(resize.should_apply_layout(now + Duration::from_millis(10), true, true));
+    }
+
+    #[test]
+    fn live_resize_refreshes_layout_periodically_while_dragging() {
+        let settle = Duration::from_millis(90);
+        let mut resize = LiveResizeController::new(settle);
+        let now = std::time::Instant::now();
+        resize.note_resize(now);
+
+        assert!(resize.should_apply_layout(now, true, false));
+        assert!(!resize.should_apply_layout(now + Duration::from_millis(20), true, false));
+        assert!(resize.should_apply_layout(now + Duration::from_millis(55), true, false));
     }
 
     #[test]
