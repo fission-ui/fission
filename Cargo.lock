@@ -1284,6 +1284,7 @@ name = "fission-widgets"
 version = "0.1.1"
 dependencies = [
  "anyhow",
+ "arboard",
  "chrono",
  "fission-core",
  "fission-diagnostics",
@@ -3639,9 +3640,11 @@ name = "terminal"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "arboard",
  "fission",
  "fission-core",
  "fission-shell-desktop",
+ "fission-test-driver",
  "fission-theme",
  "fission-widgets",
 ]

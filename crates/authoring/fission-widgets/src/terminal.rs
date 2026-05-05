@@ -1,9 +1,12 @@
 use anyhow::{Context, Result};
+use arboard::Clipboard;
 use fission_core::event::{ImeEvent, InputEvent, KeyCode, KeyEvent, PointerEvent};
 use fission_core::op::Color;
 use fission_core::ui::custom_render::{CustomEventResult, CustomHitResult, CustomRenderObject};
 use fission_core::ui::{CustomNode, Node};
-use fission_core::{AppState, BuildCtx, FlexDirection, LowerDyn, LoweringContext, NodeBuilder, View, Widget};
+use fission_core::{
+    AppState, BuildCtx, FlexDirection, LowerDyn, LoweringContext, NodeBuilder, View, Widget,
+};
 use fission_ir::op::{AlignItems, Fill, LayoutOp, PaintOp, TextRun, TextStyle};
 use fission_ir::{NodeId, Op};
 use fission_layout::{LayoutPoint, LayoutRect};
@@ -13,10 +16,13 @@ use std::io::{Read, Write};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
+use wezterm_surface::{CursorShape, CursorVisibility};
 use wezterm_term::color::{ColorAttribute, ColorPalette};
 use wezterm_term::config::TerminalConfiguration;
-use wezterm_term::input::{KeyCode as TermKeyCode, KeyModifiers};
-use wezterm_surface::{CursorShape, CursorVisibility};
+use wezterm_term::input::{
+    KeyCode as TermKeyCode, KeyModifiers, MouseButton as TermMouseButton, MouseEvent,
+    MouseEventKind,
+};
 use wezterm_term::{Line, Terminal as WezTerminal, TerminalSize};
 
 const DEFAULT_FONT_SIZE: f32 = 13.0;
@@ -67,6 +73,8 @@ struct TerminalSessionInner {
     cols: AtomicUsize,
     rows: AtomicUsize,
     exited: AtomicBool,
+    selection: Mutex<Option<TerminalSelection>>,
+    selection_drag_active: AtomicBool,
 }
 
 impl Drop for TerminalSessionInner {
@@ -204,6 +212,17 @@ struct TerminalSnapshot {
     palette: ColorPalette,
     title: String,
     scrollback_offset: usize,
+    selection: Option<TerminalSelection>,
+    mouse_grabbed: bool,
+    alt_screen_active: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct TerminalSelection {
+    anchor_row: usize,
+    anchor_col: usize,
+    focus_row: usize,
+    focus_col: usize,
 }
 
 #[derive(Debug)]
@@ -224,6 +243,43 @@ struct TerminalRunStyle {
     fg: Color,
     bg: Option<Color>,
     underline: bool,
+}
+
+impl TerminalSelection {
+    fn normalized(self) -> Self {
+        if (self.anchor_row, self.anchor_col) <= (self.focus_row, self.focus_col) {
+            self
+        } else {
+            Self {
+                anchor_row: self.focus_row,
+                anchor_col: self.focus_col,
+                focus_row: self.anchor_row,
+                focus_col: self.anchor_col,
+            }
+        }
+    }
+
+    fn is_empty(self) -> bool {
+        self.anchor_row == self.focus_row && self.anchor_col == self.focus_col
+    }
+
+    fn range_for_row(self, row: usize, cols: usize) -> Option<(usize, usize)> {
+        let normalized = self.normalized();
+        if row < normalized.anchor_row || row > normalized.focus_row {
+            return None;
+        }
+        let start = if row == normalized.anchor_row {
+            normalized.anchor_col.min(cols)
+        } else {
+            0
+        };
+        let end = if row == normalized.focus_row {
+            normalized.focus_col.min(cols)
+        } else {
+            cols
+        };
+        (start < end).then_some((start, end))
+    }
 }
 
 impl TerminalRenderNode {
@@ -257,8 +313,10 @@ impl TerminalRenderNode {
         if self.snapshot.cursor_y >= self.snapshot.rows {
             return None;
         }
-        let x = node_rect.origin.x + self.padding_x + self.snapshot.cursor_x as f32 * self.char_width;
-        let y = node_rect.origin.y + self.padding_y + self.snapshot.cursor_y as f32 * self.line_height;
+        let x =
+            node_rect.origin.x + self.padding_x + self.snapshot.cursor_x as f32 * self.char_width;
+        let y =
+            node_rect.origin.y + self.padding_y + self.snapshot.cursor_y as f32 * self.line_height;
         let (width, height, y_offset) = match self.snapshot.cursor_shape {
             CursorShape::BlinkingUnderline | CursorShape::SteadyUnderline => {
                 (self.char_width.max(4.0), 2.0, self.line_height - 2.0)
@@ -271,6 +329,28 @@ impl TerminalRenderNode {
             }
         };
         Some(LayoutRect::new(x, y + y_offset, width, height))
+    }
+
+    fn point_to_cell(
+        &self,
+        point: LayoutPoint,
+        node_rect: LayoutRect,
+    ) -> (usize, usize, isize, isize) {
+        let local_x = (point.x - node_rect.origin.x - self.padding_x).max(0.0);
+        let local_y = (point.y - node_rect.origin.y - self.padding_y).max(0.0);
+        let col = (local_x / self.char_width).floor().max(0.0) as usize;
+        let row = (local_y / self.line_height).floor().max(0.0) as usize;
+        let col = col.min(self.snapshot.cols.saturating_sub(1));
+        let row = row.min(self.snapshot.rows.saturating_sub(1));
+        let x_pixel_offset = (local_x - col as f32 * self.char_width).round() as isize;
+        let y_pixel_offset = (local_y - row as f32 * self.line_height).round() as isize;
+        (row, col, x_pixel_offset, y_pixel_offset)
+    }
+
+    fn selection_range_for_row(&self, row: usize) -> Option<(usize, usize)> {
+        self.snapshot
+            .selection
+            .and_then(|selection| selection.range_for_row(row, self.snapshot.cols))
     }
 
     fn style_for_cell(&self, attrs: &wezterm_term::CellAttributes) -> TerminalRunStyle {
@@ -358,7 +438,12 @@ impl TerminalRenderNode {
             );
         }
 
-        flush_run(&mut runs, &mut current_style, &mut current_text, self.font_size);
+        flush_run(
+            &mut runs,
+            &mut current_style,
+            &mut current_text,
+            self.font_size,
+        );
         if runs.is_empty() {
             runs.push(TextRun {
                 text: " ".into(),
@@ -376,8 +461,12 @@ impl TerminalRenderNode {
 
 impl LowerDyn for TerminalRenderNode {
     fn lower_dyn(&self, cx: &mut LoweringContext) -> NodeId {
-        let outer_height = self.viewport_height.max(self.line_height * self.snapshot.rows as f32 + self.padding_y * 2.0);
-        let outer_width = self.viewport_width.max(self.char_width * self.snapshot.cols as f32 + self.padding_x * 2.0);
+        let outer_height = self
+            .viewport_height
+            .max(self.line_height * self.snapshot.rows as f32 + self.padding_y * 2.0);
+        let outer_width = self
+            .viewport_width
+            .max(self.char_width * self.snapshot.cols as f32 + self.padding_x * 2.0);
 
         let bg_paint = NodeBuilder::new(
             cx.next_node_id(),
@@ -391,7 +480,8 @@ impl LowerDyn for TerminalRenderNode {
         .build(cx);
 
         let mut row_ids = Vec::with_capacity(self.snapshot.lines.len());
-        for line in &self.snapshot.lines {
+        let text_width = outer_width - self.padding_x * 2.0;
+        for (row_idx, line) in self.snapshot.lines.iter().enumerate() {
             let row_paint = NodeBuilder::new(
                 cx.next_node_id(),
                 Op::Paint(PaintOp::DrawRichText {
@@ -401,12 +491,45 @@ impl LowerDyn for TerminalRenderNode {
             )
             .build(cx);
 
+            let row_layer = if let Some((sel_start, sel_end)) =
+                self.selection_range_for_row(row_idx)
+            {
+                let mut builder = NodeBuilder::new(cx.next_node_id(), Op::Layout(LayoutOp::ZStack));
+                let rect = NodeBuilder::new(
+                    cx.next_node_id(),
+                    Op::Paint(PaintOp::DrawRect {
+                        fill: Some(Fill::Solid(to_ir_color(self.snapshot.palette.selection_bg))),
+                        stroke: None,
+                        corner_radius: 0.0,
+                        shadow: None,
+                    }),
+                )
+                .build(cx);
+                let mut positioned = NodeBuilder::new(
+                    cx.next_node_id(),
+                    Op::Layout(LayoutOp::Positioned {
+                        left: Some(sel_start as f32 * self.char_width),
+                        top: Some(0.0),
+                        right: None,
+                        bottom: None,
+                        width: Some((sel_end.saturating_sub(sel_start)) as f32 * self.char_width),
+                        height: Some(self.line_height),
+                    }),
+                );
+                positioned.add_child(rect);
+                builder.add_child(positioned.build(cx));
+                builder.add_child(row_paint);
+                builder.build(cx)
+            } else {
+                row_paint
+            };
+
             let row_box = {
                 let id = cx.next_node_id();
                 let mut builder = NodeBuilder::new(
                     id,
                     Op::Layout(LayoutOp::Box {
-                        width: Some(outer_width - self.padding_x * 2.0),
+                        width: Some(text_width),
                         height: Some(self.line_height),
                         min_width: None,
                         max_width: None,
@@ -418,7 +541,7 @@ impl LowerDyn for TerminalRenderNode {
                         aspect_ratio: None,
                     }),
                 );
-                builder.add_child(row_paint);
+                builder.add_child(row_layer);
                 builder.build(cx)
             };
             row_ids.push(row_box);
@@ -433,7 +556,12 @@ impl LowerDyn for TerminalRenderNode {
                     wrap: fission_ir::op::FlexWrap::NoWrap,
                     flex_grow: 1.0,
                     flex_shrink: 1.0,
-                    padding: [self.padding_y, self.padding_x, self.padding_y, self.padding_x],
+                    padding: [
+                        self.padding_y,
+                        self.padding_x,
+                        self.padding_y,
+                        self.padding_x,
+                    ],
                     gap: None,
                     align_items: AlignItems::Stretch,
                     justify_content: fission_ir::op::JustifyContent::Start,
@@ -443,33 +571,34 @@ impl LowerDyn for TerminalRenderNode {
             builder.build(cx)
         };
 
-        let cursor_box = self.cursor_rect(LayoutRect::new(0.0, 0.0, outer_width, outer_height))
-        .map(|rect| {
-            let cursor_paint = NodeBuilder::new(
-                cx.next_node_id(),
-                Op::Paint(PaintOp::DrawRect {
-                    fill: Some(Fill::Solid(to_ir_color(self.snapshot.palette.cursor_bg))),
-                    stroke: None,
-                    corner_radius: 0.0,
-                    shadow: None,
-                }),
-            )
-            .build(cx);
-            let id = cx.next_node_id();
-            let mut builder = NodeBuilder::new(
-                id,
-                Op::Layout(LayoutOp::Positioned {
-                    left: Some(rect.origin.x),
-                    top: Some(rect.origin.y),
-                    right: None,
-                    bottom: None,
-                    width: Some(rect.size.width),
-                    height: Some(rect.size.height),
-                }),
-            );
-            builder.add_child(cursor_paint);
-            builder.build(cx)
-        });
+        let cursor_box = self
+            .cursor_rect(LayoutRect::new(0.0, 0.0, outer_width, outer_height))
+            .map(|rect| {
+                let cursor_paint = NodeBuilder::new(
+                    cx.next_node_id(),
+                    Op::Paint(PaintOp::DrawRect {
+                        fill: Some(Fill::Solid(to_ir_color(self.snapshot.palette.cursor_bg))),
+                        stroke: None,
+                        corner_radius: 0.0,
+                        shadow: None,
+                    }),
+                )
+                .build(cx);
+                let id = cx.next_node_id();
+                let mut builder = NodeBuilder::new(
+                    id,
+                    Op::Layout(LayoutOp::Positioned {
+                        left: Some(rect.origin.x),
+                        top: Some(rect.origin.y),
+                        right: None,
+                        bottom: None,
+                        width: Some(rect.size.width),
+                        height: Some(rect.size.height),
+                    }),
+                );
+                builder.add_child(cursor_paint);
+                builder.build(cx)
+            });
 
         let layered = {
             let id = cx.next_node_id();
@@ -524,25 +653,131 @@ impl CustomRenderObject for TerminalRenderNode {
         &self,
         _node_id: NodeId,
         event: &InputEvent,
-        _node_rect: LayoutRect,
+        node_rect: LayoutRect,
     ) -> CustomEventResult {
         match event {
-            InputEvent::Pointer(PointerEvent::Down { .. }) => {
+            InputEvent::Pointer(PointerEvent::Down { point, button }) => {
                 self.session.set_focused(true);
-                CustomEventResult::consumed()
-            }
-            InputEvent::Pointer(PointerEvent::Scroll { delta, .. }) => {
-                let lines = if delta.y.abs() < 1.0 {
-                    0
+                let (row, col, x_pixel_offset, y_pixel_offset) =
+                    self.point_to_cell(*point, node_rect);
+                if self.snapshot.mouse_grabbed
+                    || *button != fission_core::event::PointerButton::Primary
+                {
+                    let _ = self.session.send_mouse_event(
+                        row,
+                        col,
+                        MouseEventKind::Press,
+                        map_pointer_button(button),
+                        0,
+                        x_pixel_offset,
+                        y_pixel_offset,
+                    );
                 } else {
-                    (delta.y / self.line_height).round() as i32
-                };
-                let lines = if lines == 0 { delta.y.signum() as i32 } else { lines };
-                self.session.scroll_scrollback(lines);
+                    self.session.begin_selection(row, col);
+                }
                 CustomEventResult::consumed()
             }
-            InputEvent::Keyboard(KeyEvent::Down { key_code, modifiers }) => {
-                if self.session.send_key(map_key_code(key_code), *modifiers).is_ok() {
+            InputEvent::Pointer(PointerEvent::Move { point }) => {
+                let (row, col, x_pixel_offset, y_pixel_offset) =
+                    self.point_to_cell(*point, node_rect);
+                if self.snapshot.mouse_grabbed {
+                    let _ = self.session.send_mouse_event(
+                        row,
+                        col,
+                        MouseEventKind::Move,
+                        TermMouseButton::None,
+                        0,
+                        x_pixel_offset,
+                        y_pixel_offset,
+                    );
+                } else if self.session.is_selecting() {
+                    self.session.update_selection(row, col);
+                }
+                CustomEventResult::consumed()
+            }
+            InputEvent::Pointer(PointerEvent::Up { point, button }) => {
+                let (row, col, x_pixel_offset, y_pixel_offset) =
+                    self.point_to_cell(*point, node_rect);
+                if self.snapshot.mouse_grabbed
+                    || *button != fission_core::event::PointerButton::Primary
+                {
+                    let _ = self.session.send_mouse_event(
+                        row,
+                        col,
+                        MouseEventKind::Release,
+                        map_pointer_button(button),
+                        0,
+                        x_pixel_offset,
+                        y_pixel_offset,
+                    );
+                } else {
+                    self.session.finish_selection(row, col);
+                }
+                CustomEventResult::consumed()
+            }
+            InputEvent::Pointer(PointerEvent::Scroll { point, delta }) => {
+                let lines = if delta.y.abs() < 1.0 {
+                    1
+                } else {
+                    delta.y.abs().round() as usize
+                };
+                if self.snapshot.mouse_grabbed || self.snapshot.alt_screen_active {
+                    let (row, col, x_pixel_offset, y_pixel_offset) =
+                        self.point_to_cell(*point, node_rect);
+                    let button = if delta.y >= 0.0 {
+                        TermMouseButton::WheelDown(lines)
+                    } else {
+                        TermMouseButton::WheelUp(lines)
+                    };
+                    let _ = self.session.send_mouse_event(
+                        row,
+                        col,
+                        MouseEventKind::Press,
+                        button,
+                        0,
+                        x_pixel_offset,
+                        y_pixel_offset,
+                    );
+                } else {
+                    let signed_lines = if delta.y.abs() < 1.0 {
+                        delta.y.signum() as i32
+                    } else {
+                        (delta.y / self.line_height).round() as i32
+                    };
+                    self.session.scroll_scrollback(signed_lines);
+                }
+                CustomEventResult::consumed()
+            }
+            InputEvent::Keyboard(KeyEvent::Down {
+                key_code,
+                modifiers,
+            }) => {
+                if is_primary_shortcut(*modifiers) {
+                    match key_code {
+                        KeyCode::Char('c') | KeyCode::Char('C') => {
+                            if self
+                                .session
+                                .copy_selection_to_clipboard()
+                                .ok()
+                                .flatten()
+                                .is_some()
+                            {
+                                return CustomEventResult::consumed();
+                            }
+                        }
+                        KeyCode::Char('v') | KeyCode::Char('V') => {
+                            if self.session.paste_clipboard().is_ok() {
+                                return CustomEventResult::consumed();
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+                if self
+                    .session
+                    .send_key(map_key_code(key_code), *modifiers)
+                    .is_ok()
+                {
                     return CustomEventResult::consumed();
                 }
                 CustomEventResult::ignored()
@@ -640,6 +875,8 @@ impl TerminalSession {
                 cols: AtomicUsize::new(initial_size.cols as usize),
                 rows: AtomicUsize::new(initial_size.rows as usize),
                 exited: AtomicBool::new(false),
+                selection: Mutex::new(None),
+                selection_drag_active: AtomicBool::new(false),
             }),
         });
 
@@ -649,7 +886,10 @@ impl TerminalSession {
             loop {
                 match reader.read(&mut buf) {
                     Ok(0) => {
-                        session_for_thread.inner.exited.store(true, Ordering::Relaxed);
+                        session_for_thread
+                            .inner
+                            .exited
+                            .store(true, Ordering::Relaxed);
                         session_for_thread.mark_dirty();
                         break;
                     }
@@ -661,7 +901,10 @@ impl TerminalSession {
                     }
                     Err(err) if err.kind() == std::io::ErrorKind::Interrupted => continue,
                     Err(_) => {
-                        session_for_thread.inner.exited.store(true, Ordering::Relaxed);
+                        session_for_thread
+                            .inner
+                            .exited
+                            .store(true, Ordering::Relaxed);
                         session_for_thread.mark_dirty();
                         break;
                     }
@@ -692,25 +935,136 @@ impl TerminalSession {
         self.mark_dirty();
     }
 
+    pub fn is_selecting(&self) -> bool {
+        self.inner.selection_drag_active.load(Ordering::Relaxed)
+    }
+
+    pub fn begin_selection(&self, row: usize, col: usize) {
+        if let Ok(mut selection) = self.inner.selection.lock() {
+            *selection = Some(TerminalSelection {
+                anchor_row: row,
+                anchor_col: col,
+                focus_row: row,
+                focus_col: col,
+            });
+        }
+        self.inner
+            .selection_drag_active
+            .store(true, Ordering::Relaxed);
+        self.mark_dirty();
+    }
+
+    pub fn update_selection(&self, row: usize, col: usize) {
+        if let Ok(mut selection) = self.inner.selection.lock() {
+            if let Some(selection) = selection.as_mut() {
+                selection.focus_row = row;
+                selection.focus_col = col;
+                self.mark_dirty();
+            }
+        }
+    }
+
+    pub fn finish_selection(&self, row: usize, col: usize) {
+        self.inner
+            .selection_drag_active
+            .store(false, Ordering::Relaxed);
+        self.update_selection(row, col);
+    }
+
+    pub fn clear_selection(&self) {
+        if let Ok(mut selection) = self.inner.selection.lock() {
+            *selection = None;
+        }
+        self.inner
+            .selection_drag_active
+            .store(false, Ordering::Relaxed);
+        self.mark_dirty();
+    }
+
     pub fn send_text(&self, text: &str) -> Result<()> {
         if text.is_empty() {
             return Ok(());
         }
-        let mut writer = self
-            .writer_lock()
-            .context("terminal writer unavailable")?;
+        self.clear_selection();
+        self.inner.scrollback_offset.store(0, Ordering::Relaxed);
+        let mut writer = self.writer_lock().context("terminal writer unavailable")?;
         writer.write_all(text.as_bytes())?;
         writer.flush()?;
         Ok(())
     }
 
     pub fn send_key(&self, key: TermKeyCode, modifiers: u8) -> Result<()> {
+        self.inner.scrollback_offset.store(0, Ordering::Relaxed);
         let mut terminal = self
             .inner
             .terminal
             .lock()
             .map_err(|_| anyhow::anyhow!("terminal state poisoned"))?;
         terminal.key_down(key, map_modifiers(modifiers))?;
+        Ok(())
+    }
+
+    pub fn paste_clipboard(&self) -> Result<()> {
+        let mut clipboard = Clipboard::new().context("terminal clipboard unavailable")?;
+        let text = clipboard.get_text().unwrap_or_default();
+        if text.is_empty() {
+            return Ok(());
+        }
+        self.clear_selection();
+        self.inner.scrollback_offset.store(0, Ordering::Relaxed);
+        let mut terminal = self
+            .inner
+            .terminal
+            .lock()
+            .map_err(|_| anyhow::anyhow!("terminal state poisoned"))?;
+        terminal.send_paste(&text)?;
+        self.mark_dirty();
+        Ok(())
+    }
+
+    pub fn copy_selection_to_clipboard(&self) -> Result<Option<String>> {
+        let snapshot = self.snapshot();
+        let Some(selection) = snapshot.selection else {
+            return Ok(None);
+        };
+        if selection.is_empty() {
+            return Ok(None);
+        }
+        let text = extract_selection_text(&snapshot, selection);
+        if text.is_empty() {
+            return Ok(None);
+        }
+        let mut clipboard = Clipboard::new().context("terminal clipboard unavailable")?;
+        clipboard.set_text(text.clone())?;
+        Ok(Some(text))
+    }
+
+    pub fn send_mouse_event(
+        &self,
+        row: usize,
+        col: usize,
+        kind: MouseEventKind,
+        button: TermMouseButton,
+        modifiers: u8,
+        x_pixel_offset: isize,
+        y_pixel_offset: isize,
+    ) -> Result<()> {
+        self.inner.scrollback_offset.store(0, Ordering::Relaxed);
+        let mut terminal = self
+            .inner
+            .terminal
+            .lock()
+            .map_err(|_| anyhow::anyhow!("terminal state poisoned"))?;
+        terminal.mouse_event(MouseEvent {
+            kind,
+            x: col,
+            y: row as i64,
+            x_pixel_offset,
+            y_pixel_offset,
+            button,
+            modifiers: map_modifiers(modifiers),
+        })?;
+        self.mark_dirty();
         Ok(())
     }
 
@@ -721,7 +1075,9 @@ impl TerminalSession {
                 Err(_) => return,
             };
             let screen = terminal.screen();
-            let max = screen.scrollback_rows().saturating_sub(screen.physical_rows);
+            let max = screen
+                .scrollback_rows()
+                .saturating_sub(screen.physical_rows);
             (max, self.inner.scrollback_offset.load(Ordering::Relaxed))
         };
 
@@ -809,6 +1165,14 @@ impl TerminalSession {
             palette: terminal.get_config().color_palette(),
             title: terminal.get_title().to_string(),
             scrollback_offset,
+            selection: self
+                .inner
+                .selection
+                .lock()
+                .ok()
+                .and_then(|selection| *selection),
+            mouse_grabbed: terminal.is_mouse_grabbed(),
+            alt_screen_active: terminal.is_alt_screen_active(),
         }
     }
 
@@ -816,9 +1180,7 @@ impl TerminalSession {
         self.snapshot().title
     }
 
-    fn writer_lock(
-        &self,
-    ) -> Result<std::sync::MutexGuard<'_, Box<dyn Write + Send>>> {
+    fn writer_lock(&self) -> Result<std::sync::MutexGuard<'_, Box<dyn Write + Send>>> {
         self.inner
             .writer
             .lock()
@@ -832,15 +1194,28 @@ fn map_modifiers(modifiers: u8) -> KeyModifiers {
         mapped |= KeyModifiers::SHIFT;
     }
     if (modifiers & 2) != 0 {
-        mapped |= KeyModifiers::CTRL;
+        mapped |= KeyModifiers::ALT;
     }
     if (modifiers & 4) != 0 {
-        mapped |= KeyModifiers::ALT;
+        mapped |= KeyModifiers::CTRL;
     }
     if (modifiers & 8) != 0 {
         mapped |= KeyModifiers::SUPER;
     }
     mapped
+}
+
+fn is_primary_shortcut(modifiers: u8) -> bool {
+    (modifiers & 4) != 0 || (modifiers & 8) != 0
+}
+
+fn map_pointer_button(button: &fission_core::event::PointerButton) -> TermMouseButton {
+    match button {
+        fission_core::event::PointerButton::Primary => TermMouseButton::Left,
+        fission_core::event::PointerButton::Secondary => TermMouseButton::Right,
+        fission_core::event::PointerButton::Middle => TermMouseButton::Middle,
+        fission_core::event::PointerButton::Other(_) => TermMouseButton::None,
+    }
 }
 
 fn map_key_code(key: &KeyCode) -> TermKeyCode {
@@ -858,6 +1233,61 @@ fn map_key_code(key: &KeyCode) -> TermKeyCode {
         KeyCode::End => TermKeyCode::End,
         KeyCode::Char(ch) => TermKeyCode::Char(*ch),
     }
+}
+
+fn extract_selection_text(snapshot: &TerminalSnapshot, selection: TerminalSelection) -> String {
+    let selection = selection.normalized();
+    let mut parts = Vec::new();
+    for row in selection.anchor_row..=selection.focus_row {
+        let Some(line) = snapshot.lines.get(row) else {
+            continue;
+        };
+        let Some((start_col, end_col)) = selection.range_for_row(row, snapshot.cols) else {
+            continue;
+        };
+        let plain = plain_line_text(line, snapshot.cols);
+        let chars: Vec<char> = plain.chars().collect();
+        if start_col >= chars.len() {
+            parts.push(String::new());
+        } else {
+            parts.push(chars[start_col..end_col.min(chars.len())].iter().collect());
+        }
+    }
+    parts.join("\n")
+}
+
+fn plain_line_text(line: &Line, cols: usize) -> String {
+    let mut text = String::with_capacity(cols);
+    let mut cursor_col = 0usize;
+    for cell in line.visible_cells() {
+        let cell_index = cell.cell_index();
+        while cursor_col < cell_index {
+            text.push(' ');
+            cursor_col += 1;
+        }
+        if cell.attrs().invisible() {
+            for _ in 0..cell.width().max(1) {
+                text.push(' ');
+                cursor_col += 1;
+            }
+            continue;
+        }
+        let cell_text = cell.str();
+        if cell_text.is_empty() {
+            text.push(' ');
+            cursor_col += 1;
+        } else {
+            text.push_str(cell_text);
+            cursor_col += cell.width().max(1);
+            for _ in 1..cell.width().max(1) {
+                text.push(' ');
+            }
+        }
+    }
+    while text.chars().count() < cols {
+        text.push(' ');
+    }
+    text
 }
 
 fn to_ir_color(color: wezterm_term::color::SrgbaTuple) -> Color {
@@ -913,4 +1343,65 @@ fn flush_run(
             background_color: style.bg,
         },
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use wezterm_term::{Cell, Line};
+
+    #[test]
+    fn selection_range_is_normalized_per_row() {
+        let selection = TerminalSelection {
+            anchor_row: 2,
+            anchor_col: 8,
+            focus_row: 0,
+            focus_col: 3,
+        };
+        assert_eq!(selection.range_for_row(0, 20), Some((3, 20)));
+        assert_eq!(selection.range_for_row(1, 20), Some((0, 20)));
+        assert_eq!(selection.range_for_row(2, 20), Some((0, 8)));
+    }
+
+    #[test]
+    fn extract_selection_text_spans_multiple_rows() {
+        let mut line0 = Line::with_width(24, 0);
+        line0.set_cell(
+            0,
+            Cell::new_grapheme("alpha".into(), Default::default(), None),
+            0,
+        );
+        let mut line1 = Line::with_width(24, 0);
+        line1.set_cell(
+            0,
+            Cell::new_grapheme("beta".into(), Default::default(), None),
+            0,
+        );
+        let snapshot = TerminalSnapshot {
+            lines: vec![line0, line1],
+            cols: 24,
+            rows: 2,
+            cursor_x: 0,
+            cursor_y: 0,
+            cursor_shape: CursorShape::SteadyBar,
+            cursor_visible: false,
+            palette: ColorPalette::default(),
+            title: String::new(),
+            scrollback_offset: 0,
+            selection: None,
+            mouse_grabbed: false,
+            alt_screen_active: false,
+        };
+        let text = extract_selection_text(
+            &snapshot,
+            TerminalSelection {
+                anchor_row: 0,
+                anchor_col: 1,
+                focus_row: 1,
+                focus_col: 2,
+            },
+        );
+        assert!(text.starts_with("lpha"));
+        assert!(text.ends_with("be"));
+    }
 }

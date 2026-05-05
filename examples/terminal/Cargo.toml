@@ -10,3 +10,7 @@ fission-core = { path = "../../crates/core/fission-core" }
 fission-widgets = { path = "../../crates/authoring/fission-widgets" }
 fission-theme = { path = "../../crates/core/fission-theme" }
 anyhow = "1.0"
+
+[dev-dependencies]
+arboard = "3.4"
+fission-test-driver = { path = "../../crates/tools/fission-test-driver" }

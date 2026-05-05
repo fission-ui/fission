@@ -163,6 +163,38 @@ fn dispatch_command(
             TestResponse::Ok {}
         }
 
+        // ── Drag = MouseMove + MouseDown + interpolated MouseMove + MouseUp ──
+        TestCommand::Drag {
+            start_x,
+            start_y,
+            end_x,
+            end_y,
+            steps,
+        } => {
+            let steps = steps.max(1);
+            let _ = proxy.send_event(TestEvent::MouseMove {
+                x: start_x,
+                y: start_y,
+            });
+            let _ = proxy.send_event(TestEvent::MouseDown {
+                x: start_x,
+                y: start_y,
+                button: 0,
+            });
+            for step in 1..=steps {
+                let t = step as f32 / steps as f32;
+                let x = start_x + (end_x - start_x) * t;
+                let y = start_y + (end_y - start_y) * t;
+                let _ = proxy.send_event(TestEvent::MouseMove { x, y });
+            }
+            let _ = proxy.send_event(TestEvent::MouseUp {
+                x: end_x,
+                y: end_y,
+                button: 0,
+            });
+            TestResponse::Ok {}
+        }
+
         // ── TapText: needs IR access, so delegate to main loop ──────────
         TestCommand::TapText { text } => {
             let _ = proxy.send_event(TestEvent::TapText { text });
