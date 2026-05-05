@@ -1,34 +1,31 @@
+#![allow(unexpected_cfgs)]
+
 use anyhow::Result;
 use std::collections::{HashMap, VecDeque};
-use std::num::NonZeroU32;
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use winit::{
     dpi::PhysicalPosition,
-    event::{ElementState, Event, Ime, KeyEvent, MouseButton, MouseScrollDelta, WindowEvent},
+    event::{Event, Ime, MouseButton, MouseScrollDelta, WindowEvent},
     event_loop::{ControlFlow, EventLoopBuilder, EventLoopProxy, EventLoopWindowTarget},
-    keyboard::PhysicalKey,
     window::{Window, WindowBuilder},
 };
 
-use fission_core::env::{VideoState, VideoStateMap, VideoStatus};
-use fission_core::lowering::{build_layout_tree, LoweringContext};
+use fission_core::env::VideoStatus;
+use fission_core::lowering::LoweringContext;
 use fission_core::{
-    Action, ActionId, AppState, BuildCtx, Clock, Env, ImeHandler, InputEvent, KeyCode,
-    KeyEvent as FissionKeyEvent, Lower, Node, PointerButton, PointerEvent, Runtime, ScrollStateMap,
-    View, Widget,
+    ActionId, AppState, BuildCtx, Env, ImeHandler, InputEvent, KeyCode,
+    KeyEvent as FissionKeyEvent, PointerButton, PointerEvent, Runtime, View, Widget,
 };
 use fission_core::{ActionInput, Effect, EffectPayload, SystemEffect};
 use fission_diagnostics::prelude as diag;
-use fission_ir::{op::Color as IrColor, CoreIR, FlexDirection, NodeId, Op, PaintOp, WidgetNodeId};
+use fission_ir::{CoreIR, NodeId, Op, WidgetNodeId};
 use fission_layout::{LayoutEngine, LayoutSize};
-use fission_render::{
-    Color as RenderColor, DisplayList, LayoutPoint, LayoutRect, LayoutUnit, Renderer,
-};
+use fission_render::{LayoutPoint, LayoutRect};
 use fission_render_vello::parley::FontContext;
 use fission_render_vello::{RetainedSceneCache, VelloRenderer, VelloTextMeasurer};
-use fission_shell::{Platform, VideoBackend, VideoEvent, VideoPlayer};
+use fission_shell::{VideoBackend, VideoEvent, VideoPlayer};
 use fission_theme::fonts;
 use fontique::{Blob, Collection, CollectionOptions, FontInfoOverride, SourceCache};
 
@@ -38,7 +35,7 @@ use fission_test_driver::TestEvent;
 use pollster::block_on;
 use vello::util::{RenderContext, RenderSurface};
 use vello::wgpu;
-use vello::{AaConfig, AaSupport, Renderer as VelloSceneRenderer, RendererOptions, Scene};
+use vello::{AaSupport, Renderer as VelloSceneRenderer, RendererOptions, Scene};
 
 mod pipeline;
 pub use pipeline::{InvalidationSet, Pipeline};
@@ -1440,7 +1437,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                     simulated_viewport = Some((width, height));
                                     pending_resize = Some(window.inner_size());
                                     live_resize.note_resize(Instant::now());
-                                    invalidations.mark_layout();
+                                    invalidations.mark_composite();
                                     request_redraw_throttled(
                                         &window,
                                         elwt,
@@ -1783,7 +1780,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                 if size.width > 0 && size.height > 0 {
                                     pending_resize = Some(size);
                                     live_resize.note_resize(Instant::now());
-                                    invalidations.mark_layout();
+                                    invalidations.mark_composite();
                                     request_redraw_throttled(
                                         &window,
                                         elwt,
@@ -1796,7 +1793,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                             WindowEvent::ScaleFactorChanged { .. } => {
                                 pending_resize = Some(window.inner_size());
                                 live_resize.note_resize(Instant::now());
-                                invalidations.mark_layout();
+                                invalidations.mark_composite();
                                 request_redraw_throttled(
                                     &window,
                                     elwt,
@@ -2013,6 +2010,8 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                         width: pending_layout_viewport.0,
                                         height: pending_layout_viewport.1,
                                     },
+                                    viewport,
+                                    pending_resize.is_some() && !apply_resize_layout,
                                     &mut renderer_wrapper,
                                     &runtime.runtime_state.scroll,
                                     &runtime.runtime_state.animation,

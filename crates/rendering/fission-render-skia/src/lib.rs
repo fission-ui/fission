@@ -2,7 +2,8 @@ use anyhow::Result;
 use fission_layout::TextMeasurer;
 use fission_theme::fonts;
 use fission_render::{
-    BoxShadow, Color as RenderColor, DisplayList, DisplayOp, Fill, ImageFit, Renderer, Stroke,
+    BoxShadow, Color as RenderColor, DisplayList, DisplayOp, Fill, ImageFit, RenderScene,
+    Renderer, Stroke,
 };
 use skia_safe::wrapper::NativeTransmutableWrapper;
 use skia_safe::{
@@ -109,9 +110,10 @@ impl TextMeasurer for SkiaTextMeasurer {
 }
 
 impl<'r> Renderer for SkiaRenderer<'r> {
-    fn render(&mut self, display_list: &DisplayList) -> Result<()> {
+    fn render_scene(&mut self, scene: &RenderScene) -> Result<()> {
         self.canvas.clear(SkColor::WHITE);
-        self.render_ops(display_list)
+        let display_list = scene.flatten();
+        self.render_ops(&display_list)
     }
 }
 

@@ -167,6 +167,128 @@ impl DisplayList {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum LayerClip {
+    Rect(LayoutRect),
+    RoundedRect { rect: LayoutRect, radius: LayoutUnit },
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct LayerStyle {
+    pub clip: Option<LayerClip>,
+    pub opacity: f32,
+    pub transform: Option<[LayoutUnit; 16]>,
+    pub cache_key: Option<u64>,
+}
+
+impl Default for LayerStyle {
+    fn default() -> Self {
+        Self {
+            clip: None,
+            opacity: 1.0,
+            transform: None,
+            cache_key: None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum RenderNode {
+    Layer(RenderLayer),
+    Paint(DisplayList),
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RenderLayer {
+    pub node_id: Option<NodeId>,
+    pub bounds: LayoutRect,
+    pub style: LayerStyle,
+    pub children: Vec<RenderNode>,
+}
+
+impl RenderLayer {
+    pub fn new(bounds: LayoutRect) -> Self {
+        Self {
+            node_id: None,
+            bounds,
+            style: LayerStyle::default(),
+            children: Vec::new(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RenderScene {
+    pub bounds: LayoutRect,
+    pub roots: Vec<RenderNode>,
+}
+
+impl RenderScene {
+    pub fn new(bounds: LayoutRect) -> Self {
+        Self {
+            bounds,
+            roots: Vec::new(),
+        }
+    }
+
+    pub fn from_display_list(display_list: DisplayList) -> Self {
+        Self {
+            bounds: display_list.bounds,
+            roots: vec![RenderNode::Paint(display_list)],
+        }
+    }
+
+    pub fn flatten(&self) -> DisplayList {
+        let mut list = DisplayList::new(self.bounds);
+        for root in &self.roots {
+            flatten_render_node(root, &mut list.ops);
+        }
+        list
+    }
+}
+
+fn flatten_render_node(node: &RenderNode, out: &mut Vec<DisplayOp>) {
+    match node {
+        RenderNode::Paint(list) => out.extend(list.ops.clone()),
+        RenderNode::Layer(layer) => {
+            let needs_save = layer.style.clip.is_some()
+                || layer.style.transform.is_some()
+                || (layer.style.opacity - 1.0).abs() > 0.001;
+            if needs_save {
+                out.push(DisplayOp::Save);
+            }
+            if let Some(clip) = &layer.style.clip {
+                match clip {
+                    LayerClip::Rect(rect) => out.push(DisplayOp::ClipRect(*rect)),
+                    LayerClip::RoundedRect { rect, radius } => out.push(DisplayOp::ClipRoundedRect {
+                        rect: *rect,
+                        radius: *radius,
+                    }),
+                }
+            }
+            if (layer.style.opacity - 1.0).abs() > 0.001 {
+                out.push(DisplayOp::OpacityLayer {
+                    alpha: layer.style.opacity,
+                    bounds: layer.bounds,
+                });
+            }
+            if let Some(transform) = layer.style.transform {
+                out.push(DisplayOp::Transform(transform));
+            }
+            for child in &layer.children {
+                flatten_render_node(child, out);
+            }
+            if needs_save {
+                out.push(DisplayOp::Restore);
+            }
+        }
+    }
+}
+
 pub trait Renderer {
-    fn render(&mut self, display_list: &DisplayList) -> anyhow::Result<()>;
+    fn render_scene(&mut self, scene: &RenderScene) -> anyhow::Result<()>;
+
+    fn render(&mut self, display_list: &DisplayList) -> anyhow::Result<()> {
+        self.render_scene(&RenderScene::from_display_list(display_list.clone()))
+    }
 }

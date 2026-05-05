@@ -9,10 +9,10 @@ use fission_diagnostics::{SnapshotBlob, SnapshotKind, SnapshotProvider};
 use fission_ir::{CompositeScalar, CoreIR, EmbedKind, FlexDirection, LayoutOp, NodeId, Op, WidgetNodeId};
 use fission_layout::{LayoutEngine, LayoutInputNode, LayoutRect, LayoutSnapshot, LayoutSize};
 use fission_render::{
-    BoxShadow, Color as RenderColor, DisplayList, DisplayOp, Fill, Renderer, Stroke,
+    BoxShadow, Color as RenderColor, DisplayList, DisplayOp, Fill, LayerClip,
+    RenderLayer, RenderNode, RenderScene, Renderer, Stroke,
 };
 use fission_shell::VideoSurfaceFrame;
-use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::hash::{Hash, Hasher};
 use std::time::Instant;
@@ -68,19 +68,21 @@ impl InvalidationSet {
 #[derive(Debug, Clone)]
 struct BoundaryCacheEntry {
     hash: u64,
-    ops: Vec<DisplayOp>,
+    layer: RenderLayer,
 }
 
 #[derive(Debug, Clone)]
 struct OpacityBinding {
-    op_index: usize,
+    layer_path: Vec<usize>,
     scalar: CompositeScalar,
 }
 
 #[derive(Debug, Clone)]
 struct TransformBinding {
-    op_index: usize,
+    layer_path: Vec<usize>,
     rect: LayoutRect,
+    layout_transform: Option<[f32; 16]>,
+    scroll: Option<ScrollTransform>,
     translate_x: Option<CompositeScalar>,
     translate_y: Option<CompositeScalar>,
     scale: Option<CompositeScalar>,
@@ -88,8 +90,7 @@ struct TransformBinding {
 }
 
 #[derive(Debug, Clone)]
-struct ScrollBinding {
-    op_index: usize,
+struct ScrollTransform {
     node_id: NodeId,
     direction: FlexDirection,
 }
@@ -98,21 +99,20 @@ struct ScrollBinding {
 struct RetainedDynamicOps {
     opacity: Vec<OpacityBinding>,
     transform: Vec<TransformBinding>,
-    scroll: Vec<ScrollBinding>,
 }
 
 pub struct Pipeline {
     pub prev_ir: Option<CoreIR>,
     pub last_snapshot: Option<LayoutSnapshot>,
-    pub paint_cache: HashMap<NodeId, (u64, Vec<DisplayOp>)>,
-    pub boundary_cache: HashMap<NodeId, BoundaryCacheEntry>,
+    pub paint_cache: HashMap<NodeId, (u64, DisplayList)>,
+    boundary_cache: HashMap<NodeId, BoundaryCacheEntry>,
     pub last_scroll_offsets: HashMap<NodeId, u32>,
     pub video_surfaces: Vec<VideoSurfaceFrame>,
     pub scene_3d_surfaces: Vec<(WidgetNodeId, LayoutRect, Vec<u8>)>,
     pub last_viewport: Option<LayoutRect>,
     pub layout_invariant_violation_count: u32,
     pub layout_full_rebuild_count: u32,
-    retained_display_list: Option<DisplayList>,
+    retained_scene: Option<RenderScene>,
     retained_dynamic_ops: RetainedDynamicOps,
     layout_input_nodes: Vec<LayoutInputNode>,
     pending_layout_dirty: HashSet<NodeId>,
@@ -142,7 +142,7 @@ impl Pipeline {
             last_viewport: None,
             layout_invariant_violation_count: 0,
             layout_full_rebuild_count: 0,
-            retained_display_list: None,
+            retained_scene: None,
             retained_dynamic_ops: RetainedDynamicOps::default(),
             layout_input_nodes: Vec::new(),
             pending_layout_dirty: HashSet::new(),
@@ -268,14 +268,21 @@ impl Pipeline {
 
     pub fn render_current(
         &mut self,
-        viewport_size: LayoutSize,
+        render_viewport_size: LayoutSize,
+        layout_viewport_size: LayoutSize,
+        resize_preview: bool,
         renderer: &mut dyn Renderer,
         scroll_map: &ScrollStateMap,
         animation_map: &AnimationStateMap,
         video_map: &VideoStateMap,
         _web_map: &WebStateMap,
     ) -> Result<PipelineStats> {
-        let viewport = LayoutRect::new(0.0, 0.0, viewport_size.width, viewport_size.height);
+        let render_viewport = LayoutRect::new(
+            0.0,
+            0.0,
+            render_viewport_size.width,
+            render_viewport_size.height,
+        );
         let mut stats = PipelineStats {
             dirty_nodes: self.pending_layout_dirty.len(),
             layout_updates: 0,
@@ -306,18 +313,14 @@ impl Pipeline {
         }
         stats.video_surfaces = self.video_surfaces.len();
 
-        if self.retained_display_list.is_none() {
+        if self.retained_scene.is_none() {
             if render_trace_enabled() {
-                eprintln!("[pipeline] rebuilding retained display list");
+                eprintln!("[pipeline] rebuilding retained render scene");
             }
-            let mut display_list = DisplayList {
-                ops: Vec::new(),
-                bounds: viewport,
-            };
-
             if let Some(root) = ir.root {
                 let mut visited = HashSet::new();
-                display_list.ops = generate_display_list_recursive(
+                let mut bindings = RetainedDynamicOps::default();
+                let content_root = generate_render_layer_recursive(
                     root,
                     ir,
                     snapshot,
@@ -328,28 +331,35 @@ impl Pipeline {
                     &self.runtime_dynamic_subtrees,
                     &mut stats.paint_misses,
                     &mut stats.paint_hits,
-                    LayoutPoint::ZERO,
                     true,
                     &mut visited,
+                    &mut bindings,
+                    vec![0, 0],
                 );
-                self.retained_dynamic_ops = collect_retained_dynamic_ops(
-                    root,
-                    ir,
-                    snapshot,
-                    scroll_map,
-                    animation_map,
-                    &self.runtime_dynamic_subtrees,
-                );
-            }
+                if let Some(content_root) = content_root {
+                    let mut presentation_root = RenderLayer::new(render_viewport);
+                    presentation_root.style.clip = Some(LayerClip::Rect(render_viewport));
+                    presentation_root.children.push(RenderNode::Layer(content_root));
 
-            self.retained_display_list = Some(display_list);
+                    let mut scene = RenderScene::new(render_viewport);
+                    scene.roots.push(RenderNode::Layer(presentation_root));
+                    self.retained_scene = Some(scene);
+                    self.retained_dynamic_ops = bindings;
+                }
+            }
         }
 
-        self.patch_retained_display_list(scroll_map, animation_map);
-        let display_list = self
-            .retained_display_list
+        self.patch_retained_scene(
+            render_viewport_size,
+            layout_viewport_size,
+            resize_preview,
+            scroll_map,
+            animation_map,
+        );
+        let scene = self
+            .retained_scene
             .as_ref()
-            .expect("retained display list missing before render");
+            .expect("retained render scene missing before render");
 
         diag::emit(
             diag::DiagCategory::Layout,
@@ -357,7 +367,7 @@ impl Pipeline {
             diag::DiagEventKind::PaintSummary {
                 segments_reused: stats.paint_hits as u32,
                 segments_regenerated: stats.paint_misses as u32,
-                paint_ops_total: display_list.ops.len() as u32,
+                paint_ops_total: count_render_paint_ops(scene) as u32,
             },
         );
 
@@ -367,7 +377,7 @@ impl Pipeline {
             .map(|(id, offset)| (*id, offset.to_bits()))
             .collect();
 
-        renderer.render(display_list)?;
+        renderer.render_scene(scene)?;
         Ok(stats)
     }
 
@@ -387,6 +397,8 @@ impl Pipeline {
         let layout_updates = self.ensure_layout(viewport, layout_engine, scroll_map)?;
         let mut stats = self.render_current(
             viewport_size,
+            viewport_size,
+            false,
             renderer,
             scroll_map,
             &AnimationStateMap::default(),
@@ -522,222 +534,236 @@ impl Pipeline {
                 "[pipeline] clear_render_caches layout_full={} dirty_layout={} retained_was_present={}",
                 self.pending_layout_full,
                 self.pending_layout_dirty.len(),
-                self.retained_display_list.is_some()
+                self.retained_scene.is_some()
             );
         }
         self.paint_cache.clear();
         self.boundary_cache.clear();
-        self.retained_display_list = None;
+        self.retained_scene = None;
         self.retained_dynamic_ops = RetainedDynamicOps::default();
     }
 
-    fn patch_retained_display_list(
+    fn patch_retained_scene(
         &mut self,
+        render_viewport_size: LayoutSize,
+        layout_viewport_size: LayoutSize,
+        resize_preview: bool,
         scroll_map: &ScrollStateMap,
         animation_map: &AnimationStateMap,
     ) {
-        let Some(display_list) = self.retained_display_list.as_mut() else {
+        let Some(scene) = self.retained_scene.as_mut() else {
             return;
         };
 
+        scene.bounds = LayoutRect::new(
+            0.0,
+            0.0,
+            render_viewport_size.width,
+            render_viewport_size.height,
+        );
+        let scene_bounds = scene.bounds;
+        if let Some(presentation_layer) = layer_mut_at_path(scene, &[0]) {
+            presentation_layer.bounds = scene_bounds;
+            presentation_layer.style.clip = Some(LayerClip::Rect(scene_bounds));
+            presentation_layer.style.transform = presentation_transform_matrix(
+                render_viewport_size,
+                layout_viewport_size,
+                resize_preview,
+            );
+        }
+
         for binding in &self.retained_dynamic_ops.opacity {
-            let alpha = resolve_scalar_value(&binding.scalar, animation_map, AnimationPropertyId::Opacity);
-            if let Some(DisplayOp::OpacityLayer { alpha: current, .. }) =
-                display_list.ops.get_mut(binding.op_index)
-            {
-                *current = alpha;
+            let alpha =
+                resolve_scalar_value(&binding.scalar, animation_map, AnimationPropertyId::Opacity);
+            if let Some(layer) = layer_mut_at_path(scene, &binding.layer_path) {
+                layer.style.opacity = alpha;
             }
         }
 
         for binding in &self.retained_dynamic_ops.transform {
-            let translate_x = binding
-                .translate_x
-                .as_ref()
-                .map(|scalar| resolve_scalar_value(scalar, animation_map, AnimationPropertyId::TranslateX))
-                .unwrap_or(0.0);
-            let translate_y = binding
-                .translate_y
-                .as_ref()
-                .map(|scalar| resolve_scalar_value(scalar, animation_map, AnimationPropertyId::TranslateY))
-                .unwrap_or(0.0);
-            let scale = binding
-                .scale
-                .as_ref()
-                .map(|scalar| resolve_scalar_value(scalar, animation_map, AnimationPropertyId::Scale))
-                .unwrap_or(1.0);
-            let rotation = binding
-                .rotation
-                .as_ref()
-                .map(|scalar| resolve_scalar_value(scalar, animation_map, AnimationPropertyId::Rotation))
-                .unwrap_or(0.0);
-
-            if let Some(DisplayOp::Transform(matrix)) = display_list.ops.get_mut(binding.op_index) {
-                *matrix = composite_transform_matrix(
-                    binding.rect,
-                    translate_x,
-                    translate_y,
-                    scale,
-                    rotation,
-                );
-            }
-        }
-
-        for binding in &self.retained_dynamic_ops.scroll {
-            let offset = scroll_map.get_offset(binding.node_id);
-            let translation = match binding.direction {
-                FlexDirection::Row => LayoutPoint::new(-offset, 0.0),
-                FlexDirection::Column => LayoutPoint::new(0.0, -offset),
-            };
-            if let Some(DisplayOp::Translate(current)) = display_list.ops.get_mut(binding.op_index) {
-                *current = translation;
+            if let Some(layer) = layer_mut_at_path(scene, &binding.layer_path) {
+                layer.style.transform =
+                    compose_dynamic_layer_transform(binding, scroll_map, animation_map);
             }
         }
     }
-
 }
 
-fn generate_display_list_recursive(
+fn layer_mut_at_path<'a>(scene: &'a mut RenderScene, path: &[usize]) -> Option<&'a mut RenderLayer> {
+    let (root_index, tail) = path.split_first()?;
+    let node = scene.roots.get_mut(*root_index)?;
+    layer_mut_in_node(node, tail)
+}
+
+fn layer_mut_in_node<'a>(node: &'a mut RenderNode, path: &[usize]) -> Option<&'a mut RenderLayer> {
+    match node {
+        RenderNode::Layer(layer) => {
+            if path.is_empty() {
+                return Some(layer);
+            }
+            let (child_index, tail) = path.split_first()?;
+            let child = layer.children.get_mut(*child_index)?;
+            layer_mut_in_node(child, tail)
+        }
+        RenderNode::Paint(_) => None,
+    }
+}
+
+fn count_render_paint_ops(scene: &RenderScene) -> usize {
+    scene.roots.iter().map(count_render_node_paint_ops).sum()
+}
+
+fn count_render_node_paint_ops(node: &RenderNode) -> usize {
+    match node {
+        RenderNode::Paint(list) => list.ops.len(),
+        RenderNode::Layer(layer) => layer.children.iter().map(count_render_node_paint_ops).sum(),
+    }
+}
+
+fn presentation_transform_matrix(
+    render_viewport_size: LayoutSize,
+    layout_viewport_size: LayoutSize,
+    resize_preview: bool,
+) -> Option<[f32; 16]> {
+    if !resize_preview
+        || render_viewport_size.width <= 0.0
+        || render_viewport_size.height <= 0.0
+        || layout_viewport_size.width <= 0.0
+        || layout_viewport_size.height <= 0.0
+    {
+        return None;
+    }
+
+    let sx = render_viewport_size.width / layout_viewport_size.width;
+    let sy = render_viewport_size.height / layout_viewport_size.height;
+    if (sx - 1.0).abs() <= 0.001 && (sy - 1.0).abs() <= 0.001 {
+        None
+    } else {
+        Some(scale_matrix_non_uniform(sx, sy))
+    }
+}
+
+fn compose_dynamic_layer_transform(
+    binding: &TransformBinding,
+    scroll_map: &ScrollStateMap,
+    animation_map: &AnimationStateMap,
+) -> Option<[f32; 16]> {
+    let mut matrix: Option<[f32; 16]> = None;
+
+    if let Some(scroll) = &binding.scroll {
+        let offset = scroll_map.get_offset(scroll.node_id);
+        let scroll_matrix = match scroll.direction {
+            FlexDirection::Row => translation_matrix(-offset, 0.0),
+            FlexDirection::Column => translation_matrix(0.0, -offset),
+        };
+        matrix = append_transform(matrix, scroll_matrix);
+    }
+
+    if let Some(layout_transform) = binding.layout_transform {
+        matrix = append_transform(matrix, layout_transform);
+    }
+
+    let translate_x = binding
+        .translate_x
+        .as_ref()
+        .map(|scalar| resolve_scalar_value(scalar, animation_map, AnimationPropertyId::TranslateX))
+        .unwrap_or(0.0);
+    let translate_y = binding
+        .translate_y
+        .as_ref()
+        .map(|scalar| resolve_scalar_value(scalar, animation_map, AnimationPropertyId::TranslateY))
+        .unwrap_or(0.0);
+    let scale = binding
+        .scale
+        .as_ref()
+        .map(|scalar| resolve_scalar_value(scalar, animation_map, AnimationPropertyId::Scale))
+        .unwrap_or(1.0);
+    let rotation = binding
+        .rotation
+        .as_ref()
+        .map(|scalar| resolve_scalar_value(scalar, animation_map, AnimationPropertyId::Rotation))
+        .unwrap_or(0.0);
+
+    let has_composite_transform = translate_x.abs() > 0.001
+        || translate_y.abs() > 0.001
+        || (scale - 1.0).abs() > 0.001
+        || rotation.abs() > 0.001;
+    if has_composite_transform {
+        matrix = append_transform(
+            matrix,
+            composite_transform_matrix(
+                binding.rect,
+                translate_x,
+                translate_y,
+                scale,
+                rotation,
+            ),
+        );
+    }
+
+    matrix.filter(|value| !is_identity_matrix(value))
+}
+
+fn append_transform(current: Option<[f32; 16]>, next: [f32; 16]) -> Option<[f32; 16]> {
+    Some(match current {
+        Some(existing) => multiply_matrix(existing, next),
+        None => next,
+    })
+}
+
+fn generate_render_layer_recursive(
     node_id: NodeId,
     ir: &CoreIR,
     snapshot: &LayoutSnapshot,
     scroll_map: &ScrollStateMap,
     animation_map: &AnimationStateMap,
-    paint_cache: &mut HashMap<NodeId, (u64, Vec<DisplayOp>)>,
+    paint_cache: &mut HashMap<NodeId, (u64, DisplayList)>,
     boundary_cache: &mut HashMap<NodeId, BoundaryCacheEntry>,
     runtime_dynamic_subtrees: &HashMap<NodeId, bool>,
     miss_count: &mut usize,
     hit_count: &mut usize,
-    accumulated_offset: LayoutPoint,
     scene_cache_allowed: bool,
     visited: &mut HashSet<NodeId>,
-) -> Vec<DisplayOp> {
+    bindings: &mut RetainedDynamicOps,
+    layer_path: Vec<usize>,
+) -> Option<RenderLayer> {
     if !visited.insert(node_id) {
-        return Vec::new();
+        return None;
     }
-
-    generate_display_list_segment(
-        node_id,
-        ir,
-        snapshot,
-        scroll_map,
-        animation_map,
-        paint_cache,
-        boundary_cache,
-        runtime_dynamic_subtrees,
-        miss_count,
-        hit_count,
-        accumulated_offset,
-        scene_cache_allowed,
-        visited,
-    )
-}
-
-fn generate_display_list_segment(
-    node_id: NodeId,
-    ir: &CoreIR,
-    snapshot: &LayoutSnapshot,
-    scroll_map: &ScrollStateMap,
-    animation_map: &AnimationStateMap,
-    paint_cache: &mut HashMap<NodeId, (u64, Vec<DisplayOp>)>,
-    boundary_cache: &mut HashMap<NodeId, BoundaryCacheEntry>,
-    runtime_dynamic_subtrees: &HashMap<NodeId, bool>,
-    miss_count: &mut usize,
-    hit_count: &mut usize,
-    accumulated_offset: LayoutPoint,
-    scene_cache_allowed: bool,
-    visited: &mut HashSet<NodeId>,
-) -> Vec<DisplayOp> {
 
     let (Some(node), Some(geom)) = (ir.nodes.get(&node_id), snapshot.nodes.get(&node_id)) else {
-        return Vec::new();
+        return None;
     };
 
-    let translated_rect = translate_rect(geom.rect, accumulated_offset);
-    // Treat every runtime-static subtree as a retained paint boundary.
-    //
-    // Explicit repaint boundaries still matter semantically, but for CPU cost
-    // we cannot afford to walk and rebuild large static branches on every
-    // compositor-only animation tick. If a subtree has no runtime dynamics
-    // (scroll offset, compositor animation target, etc.), its display ops are
-    // stable for a given resolved layout rect and can be reused directly.
+    let rect = geom.rect;
     let can_use_boundary_cache = !runtime_dynamic_subtrees
         .get(&node_id)
         .copied()
         .unwrap_or(false);
 
-    let scene_cache_key = boundary_hash(node, translated_rect);
+    let scene_cache_key = boundary_hash(node, rect);
     let can_cache_scene = scene_cache_allowed && can_use_boundary_cache && node.parent.is_some();
     if can_cache_scene {
         if let Some(entry) = boundary_cache.get(&node_id) {
             if entry.hash == scene_cache_key {
                 *hit_count += 1;
-                if entry.ops.is_empty() {
-                    return Vec::new();
-                }
-                return vec![DisplayOp::CachedScene {
-                    cache_key: scene_cache_key,
-                    bounds: translated_rect,
-                    list: Box::new(DisplayList {
-                        ops: entry.ops.clone(),
-                        bounds: translated_rect,
-                    }),
-                }];
+                return Some(entry.layer.clone());
             }
         }
-
-        let raw_ops = generate_display_list_segment(
-            node_id,
-            ir,
-            snapshot,
-            scroll_map,
-            animation_map,
-            paint_cache,
-            boundary_cache,
-            runtime_dynamic_subtrees,
-            miss_count,
-            hit_count,
-            accumulated_offset,
-            false,
-            visited,
-        );
-        if raw_ops.is_empty() {
-            boundary_cache.insert(
-                node_id,
-                BoundaryCacheEntry {
-                    hash: scene_cache_key,
-                    ops: raw_ops,
-                },
-            );
-            return Vec::new();
-        }
-        boundary_cache.insert(
-            node_id,
-            BoundaryCacheEntry {
-                hash: scene_cache_key,
-                ops: raw_ops.clone(),
-            },
-        );
-        return vec![DisplayOp::CachedScene {
-            cache_key: scene_cache_key,
-            bounds: translated_rect,
-            list: Box::new(DisplayList {
-                ops: raw_ops,
-                bounds: translated_rect,
-            }),
-        }];
     } else if can_use_boundary_cache {
         if let Some(entry) = boundary_cache.get(&node_id) {
             if entry.hash == scene_cache_key {
                 *hit_count += 1;
-                return entry.ops.clone();
+                return Some(entry.layer.clone());
             }
         }
     }
 
-    let mut segment = Vec::new();
-    let mut child_offset = accumulated_offset;
-    let mut pushed_state = false;
-    let mut clip_already_applied = false;
+    let mut layer = RenderLayer::new(rect);
+    layer.node_id = Some(node_id);
+    if can_cache_scene {
+        layer.style.cache_key = Some(scene_cache_key);
+    }
 
     let composite_opacity = resolve_composite_scalar(
         node.composite.opacity.as_ref(),
@@ -767,7 +793,7 @@ fn generate_display_list_segment(
     )
     .unwrap_or(0.0);
 
-    let has_composite_transform = composite_tx.unwrap_or(0.0).abs() > 0.001
+    let _has_composite_transform = composite_tx.unwrap_or(0.0).abs() > 0.001
         || composite_ty.unwrap_or(0.0).abs() > 0.001
         || (composite_scale - 1.0).abs() > 0.001
         || composite_rotation.abs() > 0.001;
@@ -805,95 +831,102 @@ fn generate_display_list_segment(
             .and_then(|value| value.animation_target)
             .is_some();
     let emit_opacity_layer = has_opacity_layer || needs_dynamic_opacity;
-    let emit_composite_transform = has_composite_transform || needs_dynamic_transform;
     let has_runtime_clip = node.composite.clip_to_bounds;
+    let scroll = match &node.op {
+        Op::Layout(LayoutOp::Scroll { direction, .. }) => Some(ScrollTransform {
+            node_id,
+            direction: *direction,
+        }),
+        _ => None,
+    };
+    let layout_transform = match &node.op {
+        Op::Layout(LayoutOp::Transform { transform }) => Some(*transform),
+        _ => None,
+    };
 
-    match &node.op {
-        Op::Layout(LayoutOp::Scroll { direction, .. }) => {
-            let offset = scroll_map.get_offset(node_id);
-            segment.push(DisplayOp::Save);
-            segment.push(DisplayOp::ClipRect(translated_rect));
-            clip_already_applied = true;
-            match direction {
-                fission_ir::FlexDirection::Row => {
-                    segment.push(DisplayOp::Translate(LayoutPoint::new(-offset, 0.0)));
-                    child_offset = LayoutPoint::new(accumulated_offset.x - offset, accumulated_offset.y);
-                }
-                fission_ir::FlexDirection::Column => {
-                    segment.push(DisplayOp::Translate(LayoutPoint::new(0.0, -offset)));
-                    child_offset = LayoutPoint::new(accumulated_offset.x, accumulated_offset.y - offset);
-                }
-            }
-            pushed_state = true;
+    layer.style.clip = match &node.op {
+        Op::Layout(LayoutOp::Scroll { .. }) | Op::Layout(LayoutOp::Clip { .. }) => {
+            Some(LayerClip::Rect(rect))
         }
-        Op::Layout(LayoutOp::Clip { .. }) => {
-            segment.push(DisplayOp::Save);
-            segment.push(DisplayOp::ClipRect(translated_rect));
-            clip_already_applied = true;
-            pushed_state = true;
-        }
-        Op::Layout(LayoutOp::Transform { transform }) => {
-            segment.push(DisplayOp::Save);
-            segment.push(DisplayOp::Transform(*transform));
-            pushed_state = true;
-        }
-        _ => {
-            if has_runtime_clip || emit_opacity_layer || emit_composite_transform {
-                segment.push(DisplayOp::Save);
-                pushed_state = true;
-            }
-            if has_runtime_clip {
-                segment.push(DisplayOp::ClipRect(translated_rect));
-                clip_already_applied = true;
-            }
-        }
-    }
-
-    if has_runtime_clip && !clip_already_applied {
-        if !pushed_state {
-            segment.push(DisplayOp::Save);
-            pushed_state = true;
-        }
-        segment.push(DisplayOp::ClipRect(translated_rect));
-    }
-
+        _ if has_runtime_clip => Some(LayerClip::Rect(rect)),
+        _ => None,
+    };
     if emit_opacity_layer {
-        segment.push(DisplayOp::OpacityLayer {
-            alpha: composite_opacity.unwrap_or(1.0),
-            bounds: translated_rect,
-        });
+        layer.style.opacity = composite_opacity.unwrap_or(1.0);
     }
 
-    if emit_composite_transform {
-        segment.push(DisplayOp::Transform(composite_transform_matrix(
-            translated_rect,
-            composite_tx.unwrap_or(0.0),
-            composite_ty.unwrap_or(0.0),
-            composite_scale,
-            composite_rotation,
-        )));
+    let needs_dynamic_transform = needs_dynamic_transform || scroll.is_some();
+    if let Some(transform) = compose_dynamic_layer_transform(
+        &TransformBinding {
+            layer_path: layer_path.clone(),
+            rect,
+            layout_transform,
+            scroll: scroll.clone(),
+            translate_x: node.composite.translate_x.clone(),
+            translate_y: node.composite.translate_y.clone(),
+            scale: node.composite.scale.clone(),
+            rotation: node.composite.rotation.clone(),
+        },
+        scroll_map,
+        animation_map,
+    ) {
+        layer.style.transform = Some(transform);
     }
 
     let local_hash = local_paint_hash(node);
-    if let Some((cached_hash, cached_ops)) = paint_cache.get(&node_id) {
+    let local_paint = if let Some((cached_hash, cached_ops)) = paint_cache.get(&node_id) {
         if *cached_hash == local_hash {
             *hit_count += 1;
-            segment.extend(cached_ops.clone());
+            Some(cached_ops.clone())
         } else {
             *miss_count += 1;
-            let ops = build_local_paint_ops(node_id, node, translated_rect);
-            paint_cache.insert(node_id, (local_hash, ops.clone()));
-            segment.extend(ops);
+            let ops = build_local_paint_list(node_id, node, rect);
+            if let Some(ops) = ops.clone() {
+                paint_cache.insert(node_id, (local_hash, ops));
+            } else {
+                paint_cache.remove(&node_id);
+            }
+            ops
         }
     } else {
         *miss_count += 1;
-        let ops = build_local_paint_ops(node_id, node, translated_rect);
-        paint_cache.insert(node_id, (local_hash, ops.clone()));
-        segment.extend(ops);
+        let ops = build_local_paint_list(node_id, node, rect);
+        if let Some(ops) = ops.clone() {
+            paint_cache.insert(node_id, (local_hash, ops));
+        }
+        ops
+    };
+
+    if let Some(local_paint) = local_paint {
+        layer.children.push(RenderNode::Paint(local_paint));
+    }
+
+    if needs_dynamic_opacity {
+        if let Some(scalar) = node.composite.opacity.as_ref() {
+            bindings.opacity.push(OpacityBinding {
+                layer_path: layer_path.clone(),
+                scalar: scalar.clone(),
+            });
+        }
+    }
+    if needs_dynamic_transform {
+        bindings.transform.push(TransformBinding {
+            layer_path: layer_path.clone(),
+            rect,
+            layout_transform,
+            scroll,
+            translate_x: node.composite.translate_x.clone(),
+            translate_y: node.composite.translate_y.clone(),
+            scale: node.composite.scale.clone(),
+            rotation: node.composite.rotation.clone(),
+        });
     }
 
     for child in &node.children {
-        segment.extend(generate_display_list_recursive(
+        let child_index = layer.children.len();
+        let mut child_path = layer_path.clone();
+        child_path.push(child_index);
+        if let Some(child_layer) = generate_render_layer_recursive(
             *child,
             ir,
             snapshot,
@@ -904,14 +937,13 @@ fn generate_display_list_segment(
             runtime_dynamic_subtrees,
             miss_count,
             hit_count,
-            child_offset,
             scene_cache_allowed,
             visited,
-        ));
-    }
-
-    if pushed_state {
-        segment.push(DisplayOp::Restore);
+            bindings,
+            child_path,
+        ) {
+            layer.children.push(RenderNode::Layer(child_layer));
+        }
     }
 
     if can_use_boundary_cache {
@@ -919,254 +951,12 @@ fn generate_display_list_segment(
             node_id,
             BoundaryCacheEntry {
                 hash: scene_cache_key,
-                ops: segment.clone(),
+                layer: layer.clone(),
             },
         );
     }
 
-    segment
-}
-
-fn collect_retained_dynamic_ops(
-    root: NodeId,
-    ir: &CoreIR,
-    snapshot: &LayoutSnapshot,
-    scroll_map: &ScrollStateMap,
-    animation_map: &AnimationStateMap,
-    runtime_dynamic_subtrees: &HashMap<NodeId, bool>,
-) -> RetainedDynamicOps {
-    let mut bindings = RetainedDynamicOps::default();
-    let mut visited = HashSet::new();
-    let mut op_index = 0usize;
-    collect_retained_dynamic_ops_recursive(
-        root,
-        ir,
-        snapshot,
-        scroll_map,
-        animation_map,
-        runtime_dynamic_subtrees,
-        LayoutPoint::ZERO,
-        true,
-        &mut op_index,
-        &mut bindings,
-        &mut visited,
-    );
-    bindings
-}
-
-fn collect_retained_dynamic_ops_recursive(
-    node_id: NodeId,
-    ir: &CoreIR,
-    snapshot: &LayoutSnapshot,
-    scroll_map: &ScrollStateMap,
-    animation_map: &AnimationStateMap,
-    runtime_dynamic_subtrees: &HashMap<NodeId, bool>,
-    accumulated_offset: LayoutPoint,
-    scene_cache_allowed: bool,
-    op_index: &mut usize,
-    bindings: &mut RetainedDynamicOps,
-    visited: &mut HashSet<NodeId>,
-) {
-    if !visited.insert(node_id) {
-        return;
-    }
-
-    let (Some(node), Some(geom)) = (ir.nodes.get(&node_id), snapshot.nodes.get(&node_id)) else {
-        return;
-    };
-
-    let translated_rect = translate_rect(geom.rect, accumulated_offset);
-    let mut child_offset = accumulated_offset;
-    let mut pushed_state = false;
-    let mut clip_already_applied = false;
-    let can_use_boundary_cache = !runtime_dynamic_subtrees
-        .get(&node_id)
-        .copied()
-        .unwrap_or(false);
-    let can_cache_scene = scene_cache_allowed && can_use_boundary_cache && node.parent.is_some();
-    if can_cache_scene {
-        *op_index += 1; // CachedScene
-        return;
-    }
-
-    let composite_opacity = resolve_composite_scalar(
-        node.composite.opacity.as_ref(),
-        animation_map,
-        AnimationPropertyId::Opacity,
-    );
-    let composite_tx = resolve_composite_scalar(
-        node.composite.translate_x.as_ref(),
-        animation_map,
-        AnimationPropertyId::TranslateX,
-    );
-    let composite_ty = resolve_composite_scalar(
-        node.composite.translate_y.as_ref(),
-        animation_map,
-        AnimationPropertyId::TranslateY,
-    );
-    let composite_scale = resolve_composite_scalar(
-        node.composite.scale.as_ref(),
-        animation_map,
-        AnimationPropertyId::Scale,
-    )
-    .unwrap_or(1.0);
-    let composite_rotation = resolve_composite_scalar(
-        node.composite.rotation.as_ref(),
-        animation_map,
-        AnimationPropertyId::Rotation,
-    )
-    .unwrap_or(0.0);
-
-    let has_composite_transform = composite_tx.unwrap_or(0.0).abs() > 0.001
-        || composite_ty.unwrap_or(0.0).abs() > 0.001
-        || (composite_scale - 1.0).abs() > 0.001
-        || composite_rotation.abs() > 0.001;
-    let has_opacity_layer = composite_opacity
-        .map(|value| (value - 1.0).abs() > 0.001)
-        .unwrap_or(false);
-    let needs_dynamic_opacity = node
-        .composite
-        .opacity
-        .as_ref()
-        .and_then(|value| value.animation_target)
-        .is_some();
-    let needs_dynamic_transform = node
-        .composite
-        .translate_x
-        .as_ref()
-        .and_then(|value| value.animation_target)
-        .is_some()
-        || node
-            .composite
-            .translate_y
-            .as_ref()
-            .and_then(|value| value.animation_target)
-            .is_some()
-        || node
-            .composite
-            .scale
-            .as_ref()
-            .and_then(|value| value.animation_target)
-            .is_some()
-        || node
-            .composite
-            .rotation
-            .as_ref()
-            .and_then(|value| value.animation_target)
-            .is_some();
-    let emit_opacity_layer = has_opacity_layer || needs_dynamic_opacity;
-    let emit_composite_transform = has_composite_transform || needs_dynamic_transform;
-    let has_runtime_clip = node.composite.clip_to_bounds;
-
-    match &node.op {
-        Op::Layout(LayoutOp::Scroll { direction, .. }) => {
-            let offset = scroll_map.get_offset(node_id);
-            *op_index += 1; // Save
-            *op_index += 1; // ClipRect
-            clip_already_applied = true;
-            bindings.scroll.push(ScrollBinding {
-                op_index: *op_index,
-                node_id,
-                direction: *direction,
-            });
-            *op_index += 1; // Translate
-            child_offset = match direction {
-                FlexDirection::Row => LayoutPoint::new(accumulated_offset.x - offset, accumulated_offset.y),
-                FlexDirection::Column => LayoutPoint::new(accumulated_offset.x, accumulated_offset.y - offset),
-            };
-            pushed_state = true;
-        }
-        Op::Layout(LayoutOp::Clip { .. }) => {
-            *op_index += 1; // Save
-            *op_index += 1; // ClipRect
-            clip_already_applied = true;
-            pushed_state = true;
-        }
-        Op::Layout(LayoutOp::Transform { .. }) => {
-            *op_index += 1; // Save
-            *op_index += 1; // Transform
-            pushed_state = true;
-        }
-        _ => {
-            if has_runtime_clip || emit_opacity_layer || emit_composite_transform {
-                *op_index += 1; // Save
-                pushed_state = true;
-            }
-            if has_runtime_clip {
-                *op_index += 1; // ClipRect
-                clip_already_applied = true;
-            }
-        }
-    }
-
-    if has_runtime_clip && !clip_already_applied {
-        if !pushed_state {
-            *op_index += 1; // Save
-            pushed_state = true;
-        }
-        *op_index += 1; // ClipRect
-    }
-
-    if emit_opacity_layer {
-        if let Some(scalar) = node.composite.opacity.as_ref() {
-            if scalar.animation_target.is_some() {
-                bindings.opacity.push(OpacityBinding {
-                    op_index: *op_index,
-                    scalar: scalar.clone(),
-                });
-            }
-        }
-        *op_index += 1; // OpacityLayer
-    }
-
-    if emit_composite_transform {
-        if needs_dynamic_transform {
-            bindings.transform.push(TransformBinding {
-                op_index: *op_index,
-                rect: translated_rect,
-                translate_x: node.composite.translate_x.clone(),
-                translate_y: node.composite.translate_y.clone(),
-                scale: node.composite.scale.clone(),
-                rotation: node.composite.rotation.clone(),
-            });
-        }
-        *op_index += 1; // Transform
-    }
-
-    *op_index += local_paint_op_count(node);
-
-    for child in &node.children {
-        collect_retained_dynamic_ops_recursive(
-            *child,
-            ir,
-            snapshot,
-            scroll_map,
-            animation_map,
-            runtime_dynamic_subtrees,
-            child_offset,
-            scene_cache_allowed,
-            op_index,
-            bindings,
-            visited,
-        );
-    }
-
-    if pushed_state {
-        *op_index += 1; // Restore
-    }
-}
-
-fn local_paint_op_count(node: &fission_ir::CoreNode) -> usize {
-    match &node.op {
-        Op::Paint(
-            fission_ir::PaintOp::DrawRect { .. }
-            | fission_ir::PaintOp::DrawText { .. }
-            | fission_ir::PaintOp::DrawRichText { .. }
-            | fission_ir::PaintOp::DrawPath { .. }
-            | fission_ir::PaintOp::DrawSvg { .. },
-        ) => 1,
-        _ => 0,
-    }
+    Some(layer)
 }
 
 fn push_video_surface(
@@ -1287,12 +1077,12 @@ fn boundary_hash(node: &fission_ir::CoreNode, rect: LayoutRect) -> u64 {
     hasher.finish()
 }
 
-fn build_local_paint_ops(
+fn build_local_paint_list(
     node_id: NodeId,
     node: &fission_ir::CoreNode,
     rect: LayoutRect,
-) -> Vec<DisplayOp> {
-    let mut ops = Vec::new();
+) -> Option<DisplayList> {
+    let mut list = DisplayList::new(rect);
     match &node.op {
         Op::Paint(fission_ir::PaintOp::DrawRect {
             fill,
@@ -1300,7 +1090,7 @@ fn build_local_paint_ops(
             corner_radius,
             shadow,
         }) => {
-            ops.push(DisplayOp::DrawRect {
+            list.push(DisplayOp::DrawRect {
                 rect,
                 fill: fill.as_ref().map(map_fill),
                 stroke: stroke.as_ref().map(map_stroke),
@@ -1326,7 +1116,7 @@ fn build_local_paint_ops(
             underline,
             caret_index,
         }) => {
-            ops.push(DisplayOp::DrawText {
+            list.push(DisplayOp::DrawText {
                 text: text.clone(),
                 position: rect.origin,
                 size: *size,
@@ -1366,7 +1156,7 @@ fn build_local_paint_ops(
                 })
                 .collect();
 
-            ops.push(DisplayOp::DrawRichText {
+            list.push(DisplayOp::DrawRichText {
                 runs: render_runs,
                 position: rect.origin,
                 bounds: rect,
@@ -1375,7 +1165,7 @@ fn build_local_paint_ops(
             });
         }
         Op::Paint(fission_ir::PaintOp::DrawPath { path, fill, stroke }) => {
-            ops.push(DisplayOp::DrawPath {
+            list.push(DisplayOp::DrawPath {
                 path: path.clone(),
                 fill: fill.as_ref().map(map_fill),
                 stroke: stroke.as_ref().map(map_stroke),
@@ -1384,7 +1174,7 @@ fn build_local_paint_ops(
             });
         }
         Op::Paint(fission_ir::PaintOp::DrawSvg { content, fill, stroke }) => {
-            ops.push(DisplayOp::DrawSvg {
+            list.push(DisplayOp::DrawSvg {
                 content: content.clone(),
                 fill: fill.as_ref().map(map_fill),
                 stroke: stroke.as_ref().map(map_stroke),
@@ -1394,7 +1184,11 @@ fn build_local_paint_ops(
         }
         _ => {}
     }
-    ops
+    if list.ops.is_empty() {
+        None
+    } else {
+        Some(list)
+    }
 }
 
 fn resolve_composite_scalar(
@@ -1460,6 +1254,15 @@ fn scale_matrix(scale: f32) -> [f32; 16] {
     ]
 }
 
+fn scale_matrix_non_uniform(scale_x: f32, scale_y: f32) -> [f32; 16] {
+    [
+        scale_x, 0.0, 0.0, 0.0,
+        0.0, scale_y, 0.0, 0.0,
+        0.0, 0.0, 1.0, 0.0,
+        0.0, 0.0, 0.0, 1.0,
+    ]
+}
+
 fn rotation_z_matrix(radians: f32) -> [f32; 16] {
     let sin = radians.sin();
     let cos = radians.cos();
@@ -1485,6 +1288,20 @@ fn multiply_matrix(a: [f32; 16], b: [f32; 16]) -> [f32; 16] {
     out
 }
 
+fn is_identity_matrix(matrix: &[f32; 16]) -> bool {
+    const IDENTITY: [f32; 16] = [
+        1.0, 0.0, 0.0, 0.0,
+        0.0, 1.0, 0.0, 0.0,
+        0.0, 0.0, 1.0, 0.0,
+        0.0, 0.0, 0.0, 1.0,
+    ];
+    matrix
+        .iter()
+        .zip(IDENTITY.iter())
+        .all(|(lhs, rhs)| (*lhs - *rhs).abs() <= 0.000_1)
+}
+
+#[cfg(test)]
 fn scroll_offsets_changed(prev: &HashMap<NodeId, u32>, scroll_map: &ScrollStateMap) -> bool {
     if prev.len() != scroll_map.offsets.len() {
         return true;

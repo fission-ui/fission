@@ -3,10 +3,13 @@ pub use text::VelloTextMeasurer;
 pub use parley;
 
 use anyhow::Result;
-use fission_render::{DisplayList, DisplayOp, Renderer, Color as RenderColor, TextStyle as RenderTextStyle};
-use vello::kurbo::{Affine, Rect, RoundedRect, Stroke, BezPath};
+use fission_render::{
+    Color as RenderColor, DisplayList, DisplayOp, LayerClip, RenderLayer, RenderNode,
+    RenderScene, Renderer, TextStyle as RenderTextStyle,
+};
+use vello::kurbo::{Affine, Rect, RoundedRect, BezPath};
 // Minimal imports from peniko
-use vello::peniko::{Color, Fill, Mix, Blob, ImageData, ImageFormat, ImageAlphaType, ImageBrush, ImageSampler, Brush, ColorStops};
+use vello::peniko::{Color, Fill, Mix, Blob, ImageData, ImageFormat, ImageAlphaType, ImageBrush, ImageSampler, Brush};
 
 fn map_color(c: &fission_render::Color) -> Color {
     Color::from_rgba8(c.r, c.g, c.b, c.a).into()
@@ -64,12 +67,8 @@ use std::collections::{HashMap, VecDeque};
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use lazy_static::lazy_static;
-use parley::{FontContext, LayoutContext};
 use parley::layout::PositionedLayoutItem;
-use std::borrow::Cow;
-use parley::style::{FontStack, StyleProperty};
 use crate::text::ParleyBrush;
-use std::fs;
 
 lazy_static! {
     static ref IMAGE_CACHE: Mutex<HashMap<String, Arc<ImageData>>> = Mutex::new(HashMap::new());
@@ -116,8 +115,8 @@ fn parse_svg_entry(content: &str) -> SvgCacheEntry {
     
     // Use regex-like manual parsing for robustness
     let path_regex = "d=\"";
-    let rect_regex = "<rect";
-    let poly_regex = "<polygon";
+    let _rect_regex = "<rect";
+    let _poly_regex = "<polygon";
 
     // Re-implemented parsing using tag-based split for more reliability
     for tag in content.split('<').skip(1) {
@@ -582,10 +581,8 @@ impl<'a> VelloRenderer<'a> {
                 self.scene.fill(Fill::NonZero, self.current_transform, Color::BLACK, None, &caret_rect);
             }
     }
-}
 
-impl<'a> Renderer for VelloRenderer<'a> {
-    fn render(&mut self, list: &DisplayList) -> Result<()> {
+    fn render_paint_list(&mut self, list: &DisplayList) -> Result<()> {
         for op in &list.ops {
             match op {
                 DisplayOp::Save => {
@@ -622,7 +619,7 @@ impl<'a> Renderer for VelloRenderer<'a> {
                                 self.scene_cache,
                                 1.0,
                             );
-                            cached_renderer.render(list)?;
+                            cached_renderer.render_paint_list(list)?;
                         }
                         self.scene_cache.insert(*cache_key, cached_scene);
                     }
@@ -637,7 +634,8 @@ impl<'a> Renderer for VelloRenderer<'a> {
                         (rect.origin.x + rect.size.width) as f64,
                         (rect.origin.y + rect.size.height) as f64,
                     );
-                    self.scene.push_layer(Mix::Normal, 1.0, self.current_transform, &r);
+                    self.scene
+                        .push_layer(Mix::Normal, 1.0, self.current_transform, &r);
                     self.current_layer_count += 1;
                 }
                 DisplayOp::ClipRoundedRect { rect, radius } => {
@@ -648,7 +646,8 @@ impl<'a> Renderer for VelloRenderer<'a> {
                         (rect.origin.y + rect.size.height) as f64,
                     );
                     let shape = RoundedRect::from_rect(r, *radius as f64);
-                    self.scene.push_layer(Mix::Normal, 1.0, self.current_transform, &shape);
+                    self.scene
+                        .push_layer(Mix::Normal, 1.0, self.current_transform, &shape);
                     self.current_layer_count += 1;
                 }
                 DisplayOp::OpacityLayer { alpha, bounds } => {
@@ -676,10 +675,9 @@ impl<'a> Renderer for VelloRenderer<'a> {
                         (rect.origin.x + rect.size.width) as f64,
                         (rect.origin.y + rect.size.height) as f64,
                     );
-                    
+
                     let shape = RoundedRect::from_rect(rect, *corner_radius as f64);
 
-                    // Draw Shadow (if present)
                     if let Some(shadow) = shadow {
                         let shadow_origin_x = rect.x0 + shadow.offset.0 as f64;
                         let shadow_origin_y = rect.y0 + shadow.offset.1 as f64;
@@ -689,27 +687,68 @@ impl<'a> Renderer for VelloRenderer<'a> {
                             shadow_origin_x + rect.width(),
                             shadow_origin_y + rect.height(),
                         );
-                        let shadow_shape = RoundedRect::from_rect(shadow_rect, *corner_radius as f64);
-                        let shadow_color = Color::from_rgba8(shadow.color.r, shadow.color.g, shadow.color.b, shadow.color.a);
-                        
-                        // TODO: Implement blur support. Vello doesn't have a direct blur generic yet.
-                        // For now, we render a hard shadow which is better than nothing.
-                        self.scene.fill(Fill::NonZero, self.current_transform, shadow_color, None, &shadow_shape);
+                        let shadow_shape =
+                            RoundedRect::from_rect(shadow_rect, *corner_radius as f64);
+                        let shadow_color = Color::from_rgba8(
+                            shadow.color.r,
+                            shadow.color.g,
+                            shadow.color.b,
+                            shadow.color.a,
+                        );
+
+                        self.scene.fill(
+                            Fill::NonZero,
+                            self.current_transform,
+                            shadow_color,
+                            None,
+                            &shadow_shape,
+                        );
                     }
 
                     if let Some(f) = fill {
                         let brush = map_fill_to_brush(f);
-                        self.scene.fill(Fill::NonZero, self.current_transform, &brush, None, &shape);
+                        self.scene
+                            .fill(Fill::NonZero, self.current_transform, &brush, None, &shape);
                     }
                     if let Some(s) = stroke {
                         let (stroke_style, brush) = map_stroke(s);
-                        self.scene.stroke(&stroke_style, self.current_transform, &brush, None, &shape);
+                        self.scene.stroke(
+                            &stroke_style,
+                            self.current_transform,
+                            &brush,
+                            None,
+                            &shape,
+                        );
                     }
                 }
-                DisplayOp::DrawText { text, size, color, underline, position, bounds, caret_index, .. } => {
-                    self.render_text(text, *size, *color, *underline, *position, *bounds, *caret_index, &[]);
+                DisplayOp::DrawText {
+                    text,
+                    size,
+                    color,
+                    underline,
+                    position,
+                    bounds,
+                    caret_index,
+                    ..
+                } => {
+                    self.render_text(
+                        text,
+                        *size,
+                        *color,
+                        *underline,
+                        *position,
+                        *bounds,
+                        *caret_index,
+                        &[],
+                    );
                 }
-                DisplayOp::DrawRichText { runs, position, bounds, caret_index, .. } => {
+                DisplayOp::DrawRichText {
+                    runs,
+                    position,
+                    bounds,
+                    caret_index,
+                    ..
+                } => {
                     if let Some(first) = runs.first() {
                         if runs.iter().all(|run| run.style == first.style) {
                             let mut full_text = String::new();
@@ -742,10 +781,27 @@ impl<'a> Renderer for VelloRenderer<'a> {
                     let (base_size, base_color) = if let Some(first) = runs.first() {
                         (first.style.font_size, first.style.color)
                     } else {
-                        (14.0, RenderColor { r: 0, g: 0, b: 0, a: 255 })
+                        (
+                            14.0,
+                            RenderColor {
+                                r: 0,
+                                g: 0,
+                                b: 0,
+                                a: 255,
+                            },
+                        )
                     };
-                    
-                    self.render_text(&full_text, base_size, base_color, false, *position, *bounds, *caret_index, &styles);
+
+                    self.render_text(
+                        &full_text,
+                        base_size,
+                        base_color,
+                        false,
+                        *position,
+                        *bounds,
+                        *caret_index,
+                        &styles,
+                    );
                 }
                 DisplayOp::DrawImage { source, rect, fit, .. } => {
                     if let Some(image_data) = self.get_image(source) {
@@ -787,12 +843,9 @@ impl<'a> Renderer for VelloRenderer<'a> {
                                     rect.origin.y as f64 + (rect_h - h) / 2.0,
                                 )
                             }
-                            fission_render::ImageFit::None => (
-                                1.0,
-                                1.0,
-                                rect.origin.x as f64,
-                                rect.origin.y as f64,
-                            ),
+                            fission_render::ImageFit::None => {
+                                (1.0, 1.0, rect.origin.x as f64, rect.origin.y as f64)
+                            }
                         };
 
                         let transform = self.current_transform
@@ -805,23 +858,36 @@ impl<'a> Renderer for VelloRenderer<'a> {
                         self.scene.draw_image(brush, transform);
                     }
                 }
-                DisplayOp::DrawPath { path, fill, stroke, bounds, .. } => {
+                DisplayOp::DrawPath {
+                    path,
+                    fill,
+                    stroke,
+                    bounds,
+                    ..
+                } => {
                     if let Ok(bez_path) = BezPath::from_svg(path) {
-                        let transform = self.current_transform * Affine::translate((bounds.origin.x as f64, bounds.origin.y as f64));
-                        
+                        let transform = self.current_transform
+                            * Affine::translate((bounds.origin.x as f64, bounds.origin.y as f64));
+
                         if let Some(f) = fill {
                             let brush = map_fill_to_brush(f);
-                            self.scene.fill(Fill::NonZero, transform, &brush, None, &bez_path);
+                            self.scene
+                                .fill(Fill::NonZero, transform, &brush, None, &bez_path);
                         }
                         if let Some(s) = stroke {
                             let (stroke_style, brush) = map_stroke(s);
-                            self.scene.stroke(&stroke_style, transform, &brush, None, &bez_path);
+                            self.scene
+                                .stroke(&stroke_style, transform, &brush, None, &bez_path);
                         }
-                    } else {
-                        // eprintln!("Failed to parse SVG path: {}", path);
                     }
                 }
-                DisplayOp::DrawSvg { content, fill, stroke, bounds, .. } => {
+                DisplayOp::DrawSvg {
+                    content,
+                    fill,
+                    stroke,
+                    bounds,
+                    ..
+                } => {
                     let entry = svg_cache_entry(content);
                     let (vb_x, vb_y, vb_w, vb_h) = entry
                         .view_box
@@ -868,8 +934,109 @@ impl<'a> Renderer for VelloRenderer<'a> {
                         }
                     }
                 }
-                _ => {}
+                DisplayOp::DrawSurface { .. } => {}
             }
+        }
+        Ok(())
+    }
+
+    fn render_node(&mut self, node: &RenderNode) -> Result<()> {
+        match node {
+            RenderNode::Paint(list) => self.render_paint_list(list),
+            RenderNode::Layer(layer) => self.render_layer(layer),
+        }
+    }
+
+    fn render_layer(&mut self, layer: &RenderLayer) -> Result<()> {
+        if let Some(cache_key) = layer.style.cache_key {
+            if !self.scene_cache.contains(cache_key) {
+                let mut cached_scene = Scene::new();
+                {
+                    let mut cached_renderer = VelloRenderer::new(
+                        &mut cached_scene,
+                        Arc::clone(&self.measurer),
+                        self.scene_cache,
+                        1.0,
+                    );
+                    cached_renderer.render_layer_uncached(layer)?;
+                }
+                self.scene_cache.insert(cache_key, cached_scene);
+            }
+            if let Some(cached_scene) = self.scene_cache.get(cache_key) {
+                self.scene.append(cached_scene, Some(self.current_transform));
+            }
+            return Ok(());
+        }
+
+        self.render_layer_uncached(layer)
+    }
+
+    fn render_layer_uncached(&mut self, layer: &RenderLayer) -> Result<()> {
+        let saved_transform = self.current_transform;
+        let saved_layer_count = self.current_layer_count;
+
+        if let Some(clip) = &layer.style.clip {
+            match clip {
+                LayerClip::Rect(rect) => {
+                    let r = Rect::new(
+                        rect.origin.x as f64,
+                        rect.origin.y as f64,
+                        (rect.origin.x + rect.size.width) as f64,
+                        (rect.origin.y + rect.size.height) as f64,
+                    );
+                    self.scene
+                        .push_layer(Mix::Normal, 1.0, self.current_transform, &r);
+                    self.current_layer_count += 1;
+                }
+                LayerClip::RoundedRect { rect, radius } => {
+                    let r = Rect::new(
+                        rect.origin.x as f64,
+                        rect.origin.y as f64,
+                        (rect.origin.x + rect.size.width) as f64,
+                        (rect.origin.y + rect.size.height) as f64,
+                    );
+                    let shape = RoundedRect::from_rect(r, *radius as f64);
+                    self.scene
+                        .push_layer(Mix::Normal, 1.0, self.current_transform, &shape);
+                    self.current_layer_count += 1;
+                }
+            }
+        }
+
+        if (layer.style.opacity - 1.0).abs() > 0.001 {
+            let r = Rect::new(
+                layer.bounds.origin.x as f64,
+                layer.bounds.origin.y as f64,
+                (layer.bounds.origin.x + layer.bounds.size.width) as f64,
+                (layer.bounds.origin.y + layer.bounds.size.height) as f64,
+            );
+            self.scene
+                .push_layer(Mix::Normal, layer.style.opacity, self.current_transform, &r);
+            self.current_layer_count += 1;
+        }
+
+        if let Some(transform) = layer.style.transform {
+            let affine = Self::affine_from_mat4(&transform);
+            self.current_transform = self.current_transform * affine;
+        }
+
+        for child in &layer.children {
+            self.render_node(child)?;
+        }
+
+        while self.current_layer_count > saved_layer_count {
+            self.scene.pop_layer();
+            self.current_layer_count -= 1;
+        }
+        self.current_transform = saved_transform;
+        Ok(())
+    }
+}
+
+impl<'a> Renderer for VelloRenderer<'a> {
+    fn render_scene(&mut self, scene: &RenderScene) -> Result<()> {
+        for root in &scene.roots {
+            self.render_node(root)?;
         }
         Ok(())
     }
