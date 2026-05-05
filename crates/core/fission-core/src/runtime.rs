@@ -449,6 +449,22 @@ impl Runtime {
         self.runtime_state.animation.active.insert(key, anim);
     }
 
+    pub fn sync_animation_requests(&mut self, requests: &[(WidgetNodeId, AnimationRequest)]) {
+        let requested: HashSet<(WidgetNodeId, AnimationPropertyId)> = requests
+            .iter()
+            .map(|(target, request)| (*target, request.property.clone()))
+            .collect();
+
+        self.runtime_state
+            .animation
+            .active
+            .retain(|key, _| requested.contains(key));
+        self.runtime_state
+            .animation
+            .values
+            .retain(|key, _| requested.contains(key));
+    }
+
     pub fn sync_video_nodes(&mut self, registrations: &[VideoRegistration]) {
         let mut seen: HashSet<WidgetNodeId> = HashSet::new();
 

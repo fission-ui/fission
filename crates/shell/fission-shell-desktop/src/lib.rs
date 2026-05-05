@@ -1942,6 +1942,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
 
                                     runtime.clear_reducers();
                                     runtime.absorb_registry(registry);
+                                    runtime.sync_animation_requests(&anims);
                                     for (target, req) in anims {
                                         runtime.enqueue_animation(target, req);
                                     }

@@ -94,3 +94,75 @@ fn test_enqueue_animation_skips_noop_terminal_transition() {
         Some(1.0)
     );
 }
+
+#[test]
+fn test_sync_animation_requests_removes_stale_repeating_animation() {
+    let mut runtime = Runtime::default();
+    let stale_widget = WidgetNodeId::explicit("stale_anim");
+    let live_widget = WidgetNodeId::explicit("live_anim");
+    let property = AnimationPropertyId::opacity();
+
+    runtime.enqueue_animation(
+        stale_widget,
+        AnimationRequest {
+            property: property.clone(),
+            from: AnimationStartValue::Explicit(0.0),
+            to: 1.0,
+            duration_ms: 600,
+            repeat: true,
+            delay_ms: 0,
+        },
+    );
+    runtime.enqueue_animation(
+        live_widget,
+        AnimationRequest {
+            property: property.clone(),
+            from: AnimationStartValue::Explicit(0.0),
+            to: 1.0,
+            duration_ms: 600,
+            repeat: true,
+            delay_ms: 0,
+        },
+    );
+
+    runtime.sync_animation_requests(&[(
+        live_widget,
+        AnimationRequest {
+            property: property.clone(),
+            from: AnimationStartValue::Explicit(0.0),
+            to: 1.0,
+            duration_ms: 600,
+            repeat: true,
+            delay_ms: 0,
+        },
+    )]);
+
+    assert!(
+        !runtime
+            .runtime_state
+            .animation
+            .active
+            .contains_key(&(stale_widget, property.clone()))
+    );
+    assert!(
+        !runtime
+            .runtime_state
+            .animation
+            .values
+            .contains_key(&(stale_widget, property.clone()))
+    );
+    assert!(
+        runtime
+            .runtime_state
+            .animation
+            .active
+            .contains_key(&(live_widget, property.clone()))
+    );
+    assert!(
+        runtime
+            .runtime_state
+            .animation
+            .values
+            .contains_key(&(live_widget, property))
+    );
+}
