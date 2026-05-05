@@ -491,6 +491,38 @@ fn ctrl_f_opens_find_bar_on_open_file() {
     let _ = child.wait();
 }
 
+#[test]
+#[ignore]
+fn cargo_lock_opens_with_visible_content_near_the_top() {
+    let control_port = reserve_control_port();
+    let mut child = launch_editor(control_port);
+    let client = LiveTestClient::connect(control_port);
+    client.wait_for_ready(20_000).expect("editor start");
+    client.wait(2_000).expect("wait");
+    let d = dir();
+
+    client.tap_text("Cargo.lock").expect("open Cargo.lock");
+    client.wait(1_200).expect("wait after opening Cargo.lock");
+    client.pump().expect("pump after opening Cargo.lock");
+    client
+        .screenshot(&format!("{}/26_cargo_lock_open.png", d))
+        .expect("Cargo.lock screenshot");
+
+    let texts = client.get_text().expect("get visible text");
+    let visible_line = texts
+        .iter()
+        .find(|item| item.text == "version = 4")
+        .expect("expected top Cargo.lock content line to be present");
+    assert!(
+        visible_line.y < 160.0,
+        "Cargo.lock content should render near the top of the editor, found y={}",
+        visible_line.y
+    );
+
+    client.quit().expect("quit");
+    let _ = child.wait();
+}
+
 /// Separate test: open multiple files and verify tab switching behaviour.
 #[test]
 #[ignore]

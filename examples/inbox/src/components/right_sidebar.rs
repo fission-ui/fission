@@ -117,7 +117,7 @@ impl Widget<InboxState> for RightSidebar {
                                                     Spinner {
                                                         id: WidgetNodeId::explicit("sync_spinner"),
                                                         color: Some(tokens.colors.primary),
-                                                        animated: true,
+                                                        animated: false,
                                                     }
                                                     .build(ctx, view),
                                                     Skeleton {
@@ -125,7 +125,7 @@ impl Widget<InboxState> for RightSidebar {
                                                         width: Some(20.0),
                                                         height: Some(4.0),
                                                         circle: false,
-                                                        animated: true,
+                                                        animated: false,
                                                     }
                                                     .build(ctx, view),
                                                 ],

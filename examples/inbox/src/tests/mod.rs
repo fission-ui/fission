@@ -1309,7 +1309,7 @@ fn circular_progress_draw_path_present() -> Result<()> {
 }
 
 #[test]
-fn spinner_animation_present_in_default_inbox() -> Result<()> {
+fn spinner_animation_disabled_in_default_inbox() -> Result<()> {
     let h = pump_state(state_default())?;
     let base = WidgetNodeId::explicit("sync_spinner");
     let mut found = 0;
@@ -1319,20 +1319,17 @@ fn spinner_animation_present_in_default_inbox() -> Result<()> {
             found += 1;
         }
     }
-    assert_eq!(
-        found, 3,
-        "default inbox should schedule all three spinner dot animations"
-    );
+    assert_eq!(found, 0, "default inbox should not schedule spinner animations");
     Ok(())
 }
 
 #[test]
-fn skeleton_animation_present_in_default_inbox() -> Result<()> {
+fn skeleton_animation_disabled_in_default_inbox() -> Result<()> {
     let h = pump_state(state_default())?;
     let id = WidgetNodeId::explicit("sync_skeleton");
     assert!(
-        runtime_has_animation(&h, id, AnimationPropertyId::Opacity),
-        "default inbox should schedule skeleton opacity animation"
+        !runtime_has_animation(&h, id, AnimationPropertyId::Opacity),
+        "default inbox should not schedule skeleton opacity animation"
     );
     Ok(())
 }

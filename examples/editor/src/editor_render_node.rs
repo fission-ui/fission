@@ -95,7 +95,11 @@ pub struct EditorRenderNode {
     pub file_path: String,
     /// Viewport height in logical pixels (from the last layout pass).
     pub viewport_height: f32,
+    /// Viewport width in logical pixels (used to clip no-wrap rendering).
+    pub viewport_width: f32,
 }
+
+const VISIBLE_LINE_OVERSCAN: usize = 4;
 
 impl fmt::Debug for EditorRenderNode {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -114,6 +118,7 @@ impl fmt::Debug for EditorRenderNode {
             .field("scroll_y", &self.scroll_y)
             .field("content_len", &self.content.len())
             .field("syntax_lines", &self.syntax_cache.len())
+            .field("viewport_width", &self.viewport_width)
             .finish()
     }
 }
@@ -207,6 +212,7 @@ impl EditorRenderNode {
             scroll_y: state.scroll_offset_y,
             file_path,
             viewport_height: 800.0,
+            viewport_width,
         })
     }
 }
@@ -220,8 +226,7 @@ impl LowerDyn for EditorRenderNode {
         let visual_lines = self.visual_lines();
         let total_visual_lines = visual_lines.len().max(1);
         let total_lines = self.logical_line_count();
-        let first_line = 0;
-        let last_line = total_visual_lines;
+        let (first_line, last_line) = self.visible_visual_line_range(total_visual_lines);
         let content_height = total_visual_lines as f32 * self.line_height;
         let sel_start = self.cursor_offset.min(self.anchor_offset);
         let sel_end = self.cursor_offset.max(self.anchor_offset);
@@ -428,7 +433,7 @@ impl LowerDyn for EditorRenderNode {
         }
 
         let cursor_bar_id = if cursor_row >= first_line && cursor_row < last_line {
-            let cursor_y = (cursor_row - first_line) as f32 * self.line_height;
+            let cursor_y = cursor_row as f32 * self.line_height;
             let cursor_x = self.gutter_width + cursor_col as f32 * char_width;
 
             let rect_paint = NodeBuilder::new(
@@ -483,6 +488,22 @@ impl LowerDyn for EditorRenderNode {
             b.add_children(row_ids);
             b.build(cx)
         };
+        let column_id = {
+            let id = cx.next_node_id();
+            let mut b = NodeBuilder::new(
+                id,
+                Op::Layout(LayoutOp::Positioned {
+                    left: Some(0.0),
+                    top: Some(first_line as f32 * self.line_height),
+                    right: None,
+                    bottom: None,
+                    width: None,
+                    height: Some((last_line.saturating_sub(first_line)) as f32 * self.line_height),
+                }),
+            );
+            b.add_child(column_id);
+            b.build(cx)
+        };
 
         // ---- Outer ZStack: column of rows + cursor overlay -------------------
         // We use a ZStack so the cursor can be absolutely positioned on top of
@@ -517,7 +538,7 @@ impl LowerDyn for EditorRenderNode {
             let mut b = NodeBuilder::new(
                 id,
                 Op::Layout(LayoutOp::Box {
-                    width: None,
+                    width: Some(self.viewport_width.max(self.gutter_width + char_width * 4.0)),
                     height: Some(content_height),
                     min_width: None,
                     max_width: None,
@@ -534,7 +555,14 @@ impl LowerDyn for EditorRenderNode {
             b.build(cx)
         };
 
-        outer_id
+        let clip_id = {
+            let id = cx.next_node_id();
+            let mut b = NodeBuilder::new(id, Op::Layout(LayoutOp::Clip { path: None }));
+            b.add_child(outer_id);
+            b.build(cx)
+        };
+
+        clip_id
     }
 
     fn stable_key(&self) -> u64 {
@@ -641,6 +669,16 @@ impl EditorRenderNode {
 
     fn wraps_softly(&self) -> bool {
         self.wrap_mode == WrapMode::SoftWrap && self.wrap_columns > 0
+    }
+
+    fn visible_visual_line_range(&self, total_visual_lines: usize) -> (usize, usize) {
+        let total_visual_lines = total_visual_lines.max(1);
+        let raw_first = (self.scroll_y.max(0.0) / self.line_height.max(1.0)).floor() as usize;
+        let first_line = raw_first.min(total_visual_lines.saturating_sub(1));
+        let visible_rows = (self.viewport_height / self.line_height.max(1.0)).ceil() as usize;
+        let last_line = (first_line + visible_rows.max(1) + VISIBLE_LINE_OVERSCAN)
+            .min(total_visual_lines);
+        (first_line, last_line.max(first_line + 1))
     }
 
     fn visual_lines(&self) -> Vec<VisualLine> {
@@ -1243,6 +1281,7 @@ mod tests {
             scroll_y: 0.0,
             file_path: "test.txt".into(),
             viewport_height: 240.0,
+            viewport_width: 320.0,
         }
     }
 
@@ -1271,5 +1310,31 @@ mod tests {
             node.visual_position_for_offset(&node.content, offset),
             (2, 1)
         );
+    }
+
+    #[test]
+    fn visible_visual_line_range_tracks_scroll_offset() {
+        let mut node = render_node(
+            &(0..200)
+                .map(|i| format!("line-{i}"))
+                .collect::<Vec<_>>()
+                .join("\n"),
+            WrapMode::NoWrap,
+            0,
+        );
+        node.viewport_height = 100.0;
+        node.scroll_y = 400.0;
+        let (first, last) = node.visible_visual_line_range(node.visual_lines().len());
+        assert_eq!(first, 20);
+        assert!(last <= 29, "expected a bounded visible window, got {first}..{last}");
+    }
+
+    #[test]
+    fn visible_visual_line_range_always_includes_at_least_one_row() {
+        let mut node = render_node("a\nb\nc", WrapMode::NoWrap, 0);
+        node.viewport_height = 0.0;
+        node.scroll_y = 10_000.0;
+        let (first, last) = node.visible_visual_line_range(node.visual_lines().len());
+        assert_eq!((first, last), (2, 3));
     }
 }
