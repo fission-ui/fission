@@ -3,7 +3,7 @@ use fission_macros::Action;
 use fission_widgets::TerminalSession;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
-use std::io::{Read, Seek, SeekFrom};
+use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
@@ -168,6 +168,9 @@ fn completion_kind_str(kind: Option<u32>) -> String {
 const NORMAL_FILE_LIMIT: u64 = 8 * 1024 * 1024;
 const LARGE_FILE_LIMIT: u64 = 64 * 1024 * 1024;
 const HUGE_FILE_PREVIEW_BYTES: usize = 1_048_576;
+const HUGE_FILE_SCAN_BYTES: usize = 64 * 1024;
+const HUGE_LINE_CHECKPOINT_STRIDE: usize = 2_048;
+const HUGE_WINDOW_CONTEXT_LINES: usize = 48;
 
 // --- State ---
 
@@ -404,9 +407,24 @@ pub struct FileWindow {
     pub start_byte: u64,
     pub end_byte: u64,
     pub size_bytes: u64,
+    pub start_line: usize,
+    pub end_line: usize,
     pub content: String,
     pub has_more_before: bool,
     pub has_more_after: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LineCheckpoint {
+    pub line: usize,
+    pub byte_offset: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WindowPatch {
+    pub start_byte: u64,
+    pub end_byte: u64,
+    pub content: String,
 }
 
 #[derive(Debug)]
@@ -414,7 +432,8 @@ pub struct FileWindowSource {
     path: String,
     size_bytes: u64,
     window_bytes: usize,
-    current_start: u64,
+    checkpoints: Vec<LineCheckpoint>,
+    patches: Vec<WindowPatch>,
 }
 
 impl Language {
@@ -482,47 +501,325 @@ pub fn classify_document_mode_for_size(size_bytes: u64) -> DocumentMode {
     }
 }
 
+fn logical_line_count(text: &str) -> usize {
+    text.split('\n').count().max(1)
+}
+
+fn copy_range(
+    source: &mut std::fs::File,
+    output: &mut std::fs::File,
+    start: u64,
+    end: u64,
+) -> std::io::Result<()> {
+    if end <= start {
+        return Ok(());
+    }
+    source.seek(SeekFrom::Start(start))?;
+    let mut remaining = end - start;
+    let mut buf = vec![0u8; HUGE_FILE_SCAN_BYTES];
+    while remaining > 0 {
+        let chunk = buf.len().min(remaining as usize);
+        let read = source.read(&mut buf[..chunk])?;
+        if read == 0 {
+            break;
+        }
+        output.write_all(&buf[..read])?;
+        remaining = remaining.saturating_sub(read as u64);
+    }
+    Ok(())
+}
+
 impl FileWindowSource {
     pub fn new(path: String, size_bytes: u64) -> Self {
         Self {
             path,
             size_bytes,
             window_bytes: HUGE_FILE_PREVIEW_BYTES,
-            current_start: 0,
+            checkpoints: vec![LineCheckpoint {
+                line: 0,
+                byte_offset: 0,
+            }],
+            patches: Vec::new(),
         }
     }
 
     pub fn current_window(&mut self) -> std::io::Result<FileWindow> {
-        self.load_window_at(self.current_start)
+        self.load_window_for_line(0)
     }
 
-    pub fn advance_forward(&mut self) -> std::io::Result<FileWindow> {
-        let step = (self.window_bytes as u64).saturating_sub((self.window_bytes / 6) as u64);
-        let requested = self.current_start.saturating_add(step).min(self.size_bytes);
-        self.load_window_at(requested)
+    pub fn has_patches(&self) -> bool {
+        !self.patches.is_empty()
     }
 
-    pub fn advance_backward(&mut self) -> std::io::Result<FileWindow> {
-        let step = (self.window_bytes as u64).saturating_sub((self.window_bytes / 6) as u64);
-        let requested = self.current_start.saturating_sub(step);
-        self.load_window_at(requested)
+    pub fn load_window_for_line(&mut self, line: usize) -> std::io::Result<FileWindow> {
+        let (start_byte, start_line) = self.byte_offset_for_line_start(line)?;
+        self.load_window_from_aligned_start(start_byte, start_line)
     }
 
-    fn load_window_at(&mut self, requested_start: u64) -> std::io::Result<FileWindow> {
-        let mut file = std::fs::File::open(&self.path)?;
-        let mut actual_start = requested_start.min(self.size_bytes);
+    pub fn advance_forward_from(&mut self, window: &FileWindow) -> std::io::Result<FileWindow> {
+        if self.has_patches() {
+            let requested = window
+                .end_byte
+                .saturating_sub((self.window_bytes / 6) as u64)
+                .min(self.size_bytes);
+            return self.load_window_at_byte(requested);
+        }
+        let target_line = window.end_line.saturating_sub(HUGE_WINDOW_CONTEXT_LINES);
+        self.load_window_for_line(target_line)
+    }
 
-        if actual_start > 0 {
-            let lookback = actual_start.min(4096);
-            file.seek(SeekFrom::Start(actual_start - lookback))?;
-            let mut prefix = vec![0u8; lookback as usize];
-            let read = file.read(&mut prefix)?;
-            prefix.truncate(read);
-            if let Some(last_newline) = prefix.iter().rposition(|byte| *byte == b'\n') {
-                actual_start = actual_start - lookback + last_newline as u64 + 1;
-            }
+    pub fn advance_backward_from(&mut self, window: &FileWindow) -> std::io::Result<FileWindow> {
+        if self.has_patches() {
+            let requested = window
+                .start_byte
+                .saturating_sub((self.window_bytes / 2) as u64);
+            return self.load_window_at_byte(requested);
+        }
+        let target_line = window.start_line.saturating_sub(HUGE_WINDOW_CONTEXT_LINES);
+        self.load_window_for_line(target_line)
+    }
+
+    pub fn commit_window_patch(
+        &mut self,
+        start_byte: u64,
+        end_byte: u64,
+        content: &str,
+    ) -> std::io::Result<()> {
+        let base = self.read_base_range(start_byte, end_byte)?;
+        self.patches
+            .retain(|patch| patch.end_byte <= start_byte || patch.start_byte >= end_byte);
+        if base != content {
+            self.patches.push(WindowPatch {
+                start_byte,
+                end_byte,
+                content: content.to_string(),
+            });
+            self.patches.sort_by_key(|patch| patch.start_byte);
+        }
+        self.checkpoints.clear();
+        self.checkpoints.push(LineCheckpoint {
+            line: 0,
+            byte_offset: 0,
+        });
+        Ok(())
+    }
+
+    pub fn save_with_patches(&mut self) -> std::io::Result<()> {
+        if self.patches.is_empty() {
+            return Ok(());
         }
 
+        let tmp_path = format!("{}.fission-save", self.path);
+        let mut source = std::fs::File::open(&self.path)?;
+        let mut output = std::fs::File::create(&tmp_path)?;
+        let mut cursor = 0u64;
+        let mut patches = self.patches.clone();
+        patches.sort_by_key(|patch| patch.start_byte);
+
+        for patch in &patches {
+            if patch.start_byte > cursor {
+                copy_range(&mut source, &mut output, cursor, patch.start_byte)?;
+            }
+            output.write_all(patch.content.as_bytes())?;
+            cursor = patch.end_byte.max(cursor);
+        }
+
+        if cursor < self.size_bytes {
+            copy_range(&mut source, &mut output, cursor, self.size_bytes)?;
+        }
+        output.flush()?;
+        std::fs::rename(&tmp_path, &self.path)?;
+        self.size_bytes = std::fs::metadata(&self.path)?.len();
+        self.patches.clear();
+        self.checkpoints.clear();
+        self.checkpoints.push(LineCheckpoint {
+            line: 0,
+            byte_offset: 0,
+        });
+        Ok(())
+    }
+
+    fn load_window_at_byte(&mut self, requested_start: u64) -> std::io::Result<FileWindow> {
+        let aligned_start = self.align_start_to_line_boundary(requested_start)?;
+        let start_line = self.line_for_byte_offset(aligned_start)?;
+        self.load_window_from_aligned_start(aligned_start, start_line)
+    }
+
+    fn load_window_from_aligned_start(
+        &mut self,
+        mut actual_start: u64,
+        mut start_line: usize,
+    ) -> std::io::Result<FileWindow> {
+        loop {
+            let expanded_start = self
+                .patches
+                .iter()
+                .filter(|patch| patch.start_byte < actual_start && patch.end_byte > actual_start)
+                .map(|patch| patch.start_byte)
+                .min();
+            if let Some(expanded_start) = expanded_start {
+                actual_start = expanded_start;
+                start_line = self.line_for_byte_offset(actual_start)?;
+                continue;
+            }
+            break;
+        }
+
+        let mut actual_end = self.compute_window_end(actual_start)?;
+        loop {
+            let expanded_end = self
+                .patches
+                .iter()
+                .filter(|patch| patch.start_byte < actual_end && patch.end_byte > actual_end)
+                .map(|patch| patch.end_byte)
+                .max();
+            let Some(expanded_end) = expanded_end else {
+                break;
+            };
+            actual_end = self.extend_end_to_line_boundary(expanded_end.min(self.size_bytes))?;
+        }
+
+        let base = self.read_base_range(actual_start, actual_end)?;
+        let content = self.apply_patches(actual_start, actual_end, &base);
+        let line_count = logical_line_count(&content);
+        self.seed_base_checkpoint(start_line, actual_start);
+        Ok(FileWindow {
+            start_byte: actual_start,
+            end_byte: actual_end,
+            size_bytes: self.size_bytes,
+            start_line,
+            end_line: start_line + line_count,
+            content,
+            has_more_before: actual_start > 0,
+            has_more_after: actual_end < self.size_bytes,
+        })
+    }
+
+    fn seed_base_checkpoint(&mut self, line: usize, byte_offset: u64) {
+        if self
+            .checkpoints
+            .iter()
+            .any(|checkpoint| checkpoint.line == line && checkpoint.byte_offset == byte_offset)
+        {
+            return;
+        }
+        self.checkpoints.push(LineCheckpoint { line, byte_offset });
+        self.checkpoints
+            .sort_by_key(|checkpoint| checkpoint.byte_offset);
+    }
+
+    fn byte_offset_for_line_start(&mut self, target_line: usize) -> std::io::Result<(u64, usize)> {
+        let checkpoint_idx = self
+            .checkpoints
+            .iter()
+            .enumerate()
+            .rev()
+            .find(|(_, checkpoint)| checkpoint.line <= target_line)
+            .map(|(idx, _)| idx)
+            .unwrap_or(0);
+        let checkpoint = self.checkpoints[checkpoint_idx].clone();
+        if checkpoint.line == target_line {
+            return Ok((checkpoint.byte_offset, checkpoint.line));
+        }
+
+        let mut file = std::fs::File::open(&self.path)?;
+        file.seek(SeekFrom::Start(checkpoint.byte_offset))?;
+        let mut line = checkpoint.line;
+        let mut byte_offset = checkpoint.byte_offset;
+        let mut last_checkpoint_line = checkpoint.line;
+        let mut buf = vec![0u8; HUGE_FILE_SCAN_BYTES];
+
+        loop {
+            let read = file.read(&mut buf)?;
+            if read == 0 {
+                break;
+            }
+            for (idx, byte) in buf[..read].iter().enumerate() {
+                if *byte != b'\n' {
+                    continue;
+                }
+                line += 1;
+                let next_line_byte = byte_offset + idx as u64 + 1;
+                if line == target_line {
+                    self.seed_base_checkpoint(line, next_line_byte);
+                    return Ok((next_line_byte, line));
+                }
+                if line.saturating_sub(last_checkpoint_line) >= HUGE_LINE_CHECKPOINT_STRIDE {
+                    self.seed_base_checkpoint(line, next_line_byte);
+                    last_checkpoint_line = line;
+                }
+            }
+            byte_offset += read as u64;
+        }
+
+        Ok((self.size_bytes, line))
+    }
+
+    fn line_for_byte_offset(&mut self, target_byte: u64) -> std::io::Result<usize> {
+        let checkpoint_idx = self
+            .checkpoints
+            .iter()
+            .enumerate()
+            .rev()
+            .find(|(_, checkpoint)| checkpoint.byte_offset <= target_byte)
+            .map(|(idx, _)| idx)
+            .unwrap_or(0);
+        let checkpoint = self.checkpoints[checkpoint_idx].clone();
+        if checkpoint.byte_offset == target_byte {
+            return Ok(checkpoint.line);
+        }
+
+        let mut file = std::fs::File::open(&self.path)?;
+        file.seek(SeekFrom::Start(checkpoint.byte_offset))?;
+        let mut line = checkpoint.line;
+        let mut byte_offset = checkpoint.byte_offset;
+        let mut last_checkpoint_line = checkpoint.line;
+        let mut remaining = target_byte.saturating_sub(checkpoint.byte_offset);
+        let mut buf = vec![0u8; HUGE_FILE_SCAN_BYTES];
+
+        while remaining > 0 {
+            let chunk_len = buf.len().min(remaining as usize);
+            let read = file.read(&mut buf[..chunk_len])?;
+            if read == 0 {
+                break;
+            }
+            for (idx, byte) in buf[..read].iter().enumerate() {
+                if *byte != b'\n' {
+                    continue;
+                }
+                line += 1;
+                let next_line_byte = byte_offset + idx as u64 + 1;
+                if line.saturating_sub(last_checkpoint_line) >= HUGE_LINE_CHECKPOINT_STRIDE {
+                    self.seed_base_checkpoint(line, next_line_byte);
+                    last_checkpoint_line = line;
+                }
+            }
+            byte_offset += read as u64;
+            remaining = target_byte.saturating_sub(byte_offset);
+        }
+
+        Ok(line)
+    }
+
+    fn align_start_to_line_boundary(&self, requested_start: u64) -> std::io::Result<u64> {
+        let mut file = std::fs::File::open(&self.path)?;
+        let mut actual_start = requested_start.min(self.size_bytes);
+        if actual_start == 0 {
+            return Ok(0);
+        }
+        let lookback = actual_start.min(4096);
+        file.seek(SeekFrom::Start(actual_start - lookback))?;
+        let mut prefix = vec![0u8; lookback as usize];
+        let read = file.read(&mut prefix)?;
+        prefix.truncate(read);
+        if let Some(last_newline) = prefix.iter().rposition(|byte| *byte == b'\n') {
+            actual_start = actual_start - lookback + last_newline as u64 + 1;
+        }
+        Ok(actual_start)
+    }
+
+    fn compute_window_end(&self, actual_start: u64) -> std::io::Result<u64> {
+        let mut file = std::fs::File::open(&self.path)?;
         file.seek(SeekFrom::Start(actual_start))?;
         let mut buf = vec![0u8; self.window_bytes];
         let read = file.read(&mut buf)?;
@@ -530,30 +827,87 @@ impl FileWindowSource {
         if let Some(first_nul) = buf.iter().position(|byte| *byte == 0) {
             buf.truncate(first_nul);
         }
-
         let mut actual_end = actual_start + buf.len() as u64;
         if actual_end < self.size_bytes {
             if let Some(last_newline) = buf.iter().rposition(|byte| *byte == b'\n') {
-                buf.truncate(last_newline + 1);
-                actual_end = actual_start + buf.len() as u64;
+                actual_end = actual_start + last_newline as u64 + 1;
             }
         }
+        Ok(actual_end.min(self.size_bytes))
+    }
 
-        self.current_start = actual_start;
-        Ok(FileWindow {
-            start_byte: actual_start,
-            end_byte: actual_end.min(self.size_bytes),
-            size_bytes: self.size_bytes,
-            content: String::from_utf8_lossy(&buf).into_owned(),
-            has_more_before: actual_start > 0,
-            has_more_after: actual_end < self.size_bytes,
-        })
+    fn extend_end_to_line_boundary(&self, requested_end: u64) -> std::io::Result<u64> {
+        if requested_end >= self.size_bytes {
+            return Ok(self.size_bytes);
+        }
+        let mut file = std::fs::File::open(&self.path)?;
+        let mut end = requested_end;
+        file.seek(SeekFrom::Start(end))?;
+        let mut buf = vec![0u8; 4096];
+        loop {
+            let read = file.read(&mut buf)?;
+            if read == 0 {
+                return Ok(self.size_bytes);
+            }
+            if let Some(newline) = buf[..read].iter().position(|byte| *byte == b'\n') {
+                return Ok((end + newline as u64 + 1).min(self.size_bytes));
+            }
+            end = (end + read as u64).min(self.size_bytes);
+            if end >= self.size_bytes {
+                return Ok(self.size_bytes);
+            }
+        }
+    }
+
+    fn read_base_range(&self, start: u64, end: u64) -> std::io::Result<String> {
+        if end <= start {
+            return Ok(String::new());
+        }
+        let mut file = std::fs::File::open(&self.path)?;
+        file.seek(SeekFrom::Start(start))?;
+        let mut buf = vec![0u8; (end - start) as usize];
+        let read = file.read(&mut buf)?;
+        buf.truncate(read);
+        if let Some(first_nul) = buf.iter().position(|byte| *byte == 0) {
+            buf.truncate(first_nul);
+        }
+        Ok(String::from_utf8_lossy(&buf).into_owned())
+    }
+
+    fn apply_patches(&self, start: u64, end: u64, base: &str) -> String {
+        if self.patches.is_empty() {
+            return base.to_string();
+        }
+        let mut content = String::new();
+        let mut cursor = start;
+        for patch in self
+            .patches
+            .iter()
+            .filter(|patch| patch.start_byte < end && patch.end_byte > start)
+        {
+            if patch.start_byte > cursor {
+                let rel_start = (cursor - start) as usize;
+                let rel_end = (patch.start_byte.min(end) - start) as usize;
+                content.push_str(&base[rel_start..rel_end]);
+            }
+            content.push_str(&patch.content);
+            cursor = cursor.max(patch.end_byte.min(end));
+        }
+        if cursor < end {
+            let rel_start = (cursor - start) as usize;
+            content.push_str(&base[rel_start..]);
+        }
+        content
     }
 }
 
 impl FileBuffer {
     pub fn is_editable(&self) -> bool {
-        matches!(self.backing, DocumentBacking::InMemory)
+        true
+    }
+
+    pub fn supports_lsp_sync(&self) -> bool {
+        !matches!(self.document_mode, DocumentMode::Huge)
     }
 
     pub fn mode_label(&self) -> &'static str {
@@ -566,6 +920,18 @@ impl FileBuffer {
 
     fn rebuild_line_index(&mut self) {
         self.line_index = fission_text_engine::LineIndex::build(self.buffer.text());
+    }
+
+    fn sync_window_backing_from_buffer(&mut self) {
+        let new_content = self.content();
+        if let DocumentBacking::FileWindow { source, window } = &mut self.backing {
+            if let Ok(mut source) = source.lock() {
+                let _ =
+                    source.commit_window_patch(window.start_byte, window.end_byte, &new_content);
+            }
+            window.content = new_content.clone();
+            window.end_line = window.start_line + logical_line_count(&new_content);
+        }
     }
 
     /// Materialize the rope into a `String` (for backward compatibility with
@@ -677,9 +1043,6 @@ impl FileBuffer {
     }
 
     pub fn apply_edit(&mut self, range: std::ops::Range<usize>, new_text: &str) {
-        if !self.is_editable() {
-            return;
-        }
         let (caret, anchor) = self.current_offsets();
         self.clear_preedit();
         self.edit_history
@@ -689,12 +1052,10 @@ impl FileBuffer {
             caret.min(self.buffer.len_bytes()),
             anchor.min(self.buffer.len_bytes()),
         );
+        self.sync_window_backing_from_buffer();
     }
 
     pub fn apply_transaction(&mut self, txn: &fission_text_engine::EditTransaction) {
-        if !self.is_editable() {
-            return;
-        }
         let (caret, anchor) = self.current_offsets();
         self.clear_preedit();
         self.edit_history.apply(txn, &mut self.buffer);
@@ -703,14 +1064,12 @@ impl FileBuffer {
             caret.min(self.buffer.len_bytes()),
             anchor.min(self.buffer.len_bytes()),
         );
+        self.sync_window_backing_from_buffer();
     }
 
     /// Replace the entire document through a single undoable transaction.
     #[allow(dead_code)]
     pub fn replace_document(&mut self, new_text: &str) {
-        if !self.is_editable() {
-            return;
-        }
         let (caret, anchor) = self.current_offsets();
         self.clear_preedit();
         let len = self.buffer.len_bytes();
@@ -721,6 +1080,7 @@ impl FileBuffer {
             caret.min(self.buffer.len_bytes()),
             anchor.min(self.buffer.len_bytes()),
         );
+        self.sync_window_backing_from_buffer();
     }
 
     /// Replace the buffer from an external source and clear undo/redo state.
@@ -739,9 +1099,6 @@ impl FileBuffer {
 
     /// Undo the last change.
     pub fn undo(&mut self) {
-        if !self.is_editable() {
-            return;
-        }
         self.clear_preedit();
         let (caret, anchor) = self.current_offsets();
         if self.edit_history.undo(&mut self.buffer) {
@@ -750,14 +1107,12 @@ impl FileBuffer {
                 caret.min(self.buffer.len_bytes()),
                 anchor.min(self.buffer.len_bytes()),
             );
+            self.sync_window_backing_from_buffer();
         }
     }
 
     /// Redo the last undone change.
     pub fn redo(&mut self) {
-        if !self.is_editable() {
-            return;
-        }
         self.clear_preedit();
         let (caret, anchor) = self.current_offsets();
         if self.edit_history.redo(&mut self.buffer) {
@@ -766,6 +1121,7 @@ impl FileBuffer {
                 caret.min(self.buffer.len_bytes()),
                 anchor.min(self.buffer.len_bytes()),
             );
+            self.sync_window_backing_from_buffer();
         }
     }
 }
@@ -1064,6 +1420,8 @@ impl EditorState {
                         start_byte: 0,
                         end_byte: 0,
                         size_bytes: file_size,
+                        start_line: 0,
+                        end_line: 0,
                         content: String::new(),
                         has_more_before: false,
                         has_more_after: false,
@@ -1131,19 +1489,19 @@ impl EditorState {
                 "Opened large file ({:.1} MB)",
                 file_size as f64 / 1_000_000.0
             )),
-            DocumentMode::Huge => {
-                self.file_contents
-                    .get(&path)
-                    .and_then(|buf| match &buf.backing {
-                        DocumentBacking::FileWindow { window, .. } => Some(format!(
-                            "Opened huge file in windowed read-only mode ({:.1} MB, bytes {}..{})",
-                            file_size as f64 / 1_000_000.0,
-                            window.start_byte,
-                            window.end_byte
-                        )),
-                        DocumentBacking::InMemory => None,
-                    })
-            }
+            DocumentMode::Huge => self.file_contents.get(&path).and_then(|buf| {
+                match &buf.backing {
+                    DocumentBacking::FileWindow { window, .. } => Some(format!(
+                        "Opened huge file in windowed mode ({:.1} MB, lines {}..{}, bytes {}..{})",
+                        file_size as f64 / 1_000_000.0,
+                        window.start_line,
+                        window.end_line,
+                        window.start_byte,
+                        window.end_byte
+                    )),
+                    DocumentBacking::InMemory => None,
+                }
+            }),
         };
     }
 
@@ -1183,17 +1541,20 @@ impl EditorState {
         let Some(buf) = self.file_contents.get_mut(&path) else {
             return;
         };
-        let (source, current_start, current_end) = match &buf.backing {
-            DocumentBacking::FileWindow { source, window } => {
-                (source.clone(), window.start_byte, window.end_byte)
-            }
+        let (source, current_start, current_end, current_window) = match &buf.backing {
+            DocumentBacking::FileWindow { source, window } => (
+                source.clone(),
+                window.start_byte,
+                window.end_byte,
+                window.clone(),
+            ),
             DocumentBacking::InMemory => return,
         };
         let next_window = source.lock().ok().and_then(|mut src| {
             if forward {
-                src.advance_forward().ok()
+                src.advance_forward_from(&current_window).ok()
             } else {
-                src.advance_backward().ok()
+                src.advance_backward_from(&current_window).ok()
             }
         });
         let Some(next_window) = next_window else {
@@ -1213,8 +1574,12 @@ impl EditorState {
         if moved {
             self.scroll_offset_y = 0.0;
             self.status_message = Some(format!(
-                "Huge file window {}..{} of {}",
-                next_window.start_byte, next_window.end_byte, next_window.size_bytes
+                "Huge file window lines {}..{} (bytes {}..{} of {})",
+                next_window.start_line,
+                next_window.end_line,
+                next_window.start_byte,
+                next_window.end_byte,
+                next_window.size_bytes
             ));
         }
     }
@@ -1222,7 +1587,7 @@ impl EditorState {
     pub fn notify_buffer_changed(&self, path: &str) {
         if let Some(ref handle) = self.lsp_handle {
             if let Some(buf) = self.file_contents.get(path) {
-                if !buf.is_editable() {
+                if !buf.supports_lsp_sync() {
                     return;
                 }
                 let content = buf.content();
@@ -1233,35 +1598,56 @@ impl EditorState {
 
     pub fn mark_active_tab_dirty(&mut self) {
         if let Some(tab) = self.open_tabs.get_mut(self.active_tab) {
-            if self
-                .file_contents
-                .get(&tab.path)
-                .map(|buf| buf.is_editable())
-                .unwrap_or(false)
-            {
-                tab.is_dirty = true;
-            }
+            tab.is_dirty = true;
         }
     }
 
     pub fn save_active_file(&mut self) {
         if let Some(tab) = self.open_tabs.get(self.active_tab) {
             let path = tab.path.clone();
-            if let Some(buf) = self.file_contents.get(&path) {
-                if !buf.is_editable() {
-                    self.status_message =
-                        Some("This file is open in read-only preview mode".into());
-                    return;
-                }
-                let content_str = buf.content();
-                if std::fs::write(&path, &content_str).is_ok() {
-                    if let Some(tab) = self.open_tabs.get_mut(self.active_tab) {
-                        tab.is_dirty = false;
+            let huge_reload = self
+                .file_contents
+                .get(&path)
+                .and_then(|buf| match &buf.backing {
+                    DocumentBacking::FileWindow { source, window } => {
+                        Some((source.clone(), window.start_line))
                     }
-                    self.status_message = Some(format!("Saved {}", path));
-                } else {
-                    self.status_message = Some(format!("Failed to save {}", path));
+                    DocumentBacking::InMemory => None,
+                });
+
+            let save_ok = if let Some((source, _)) = &huge_reload {
+                source
+                    .lock()
+                    .ok()
+                    .and_then(|mut src| src.save_with_patches().ok())
+                    .is_some()
+            } else if let Some(buf) = self.file_contents.get(&path) {
+                std::fs::write(&path, buf.content()).is_ok()
+            } else {
+                false
+            };
+
+            if save_ok {
+                if let Some((source, start_line)) = huge_reload {
+                    let reloaded = source
+                        .lock()
+                        .ok()
+                        .and_then(|mut src| src.load_window_for_line(start_line).ok());
+                    if let Some(reloaded) = reloaded {
+                        if let Some(buf) = self.file_contents.get_mut(&path) {
+                            if let DocumentBacking::FileWindow { window, .. } = &mut buf.backing {
+                                *window = reloaded.clone();
+                            }
+                            buf.sync_content(&reloaded.content);
+                        }
+                    }
                 }
+                if let Some(tab) = self.open_tabs.get_mut(self.active_tab) {
+                    tab.is_dirty = false;
+                }
+                self.status_message = Some(format!("Saved {}", path));
+            } else {
+                self.status_message = Some(format!("Failed to save {}", path));
             }
         }
     }
@@ -1270,14 +1656,43 @@ impl EditorState {
         for i in 0..self.open_tabs.len() {
             if self.open_tabs[i].is_dirty {
                 let path = self.open_tabs[i].path.clone();
-                if let Some(buf) = self.file_contents.get(&path) {
-                    if !buf.is_editable() {
-                        continue;
+                let huge_reload =
+                    self.file_contents
+                        .get(&path)
+                        .and_then(|buf| match &buf.backing {
+                            DocumentBacking::FileWindow { source, window } => {
+                                Some((source.clone(), window.start_line))
+                            }
+                            DocumentBacking::InMemory => None,
+                        });
+                let save_ok = if let Some((source, _)) = &huge_reload {
+                    source
+                        .lock()
+                        .ok()
+                        .and_then(|mut src| src.save_with_patches().ok())
+                        .is_some()
+                } else if let Some(buf) = self.file_contents.get(&path) {
+                    std::fs::write(&path, buf.content()).is_ok()
+                } else {
+                    false
+                };
+                if save_ok {
+                    if let Some((source, start_line)) = huge_reload {
+                        let reloaded = source
+                            .lock()
+                            .ok()
+                            .and_then(|mut src| src.load_window_for_line(start_line).ok());
+                        if let Some(reloaded) = reloaded {
+                            if let Some(buf) = self.file_contents.get_mut(&path) {
+                                if let DocumentBacking::FileWindow { window, .. } = &mut buf.backing
+                                {
+                                    *window = reloaded.clone();
+                                }
+                                buf.sync_content(&reloaded.content);
+                            }
+                        }
                     }
-                    let content_str = buf.content();
-                    if std::fs::write(&path, &content_str).is_ok() {
-                        self.open_tabs[i].is_dirty = false;
-                    }
+                    self.open_tabs[i].is_dirty = false;
                 }
             }
         }
@@ -2527,13 +2942,13 @@ mod tests {
             .map(|(_, buf)| buf)
             .expect("buffer should open");
         assert_eq!(buf.document_mode, DocumentMode::Huge);
-        assert!(!buf.is_editable());
+        assert!(buf.is_editable());
         assert!(matches!(buf.backing, DocumentBacking::FileWindow { .. }));
         assert!(state
             .status_message
             .as_deref()
             .unwrap_or_default()
-            .contains("windowed read-only"));
+            .contains("windowed mode"));
     }
 
     #[test]
@@ -2544,14 +2959,21 @@ mod tests {
         let file = dir.join("huge.log");
         let mut payload = String::new();
         payload.push_str("WINDOW-000\n");
-        for idx in 1..5000 {
-            payload.push_str(&format!("WINDOW-{idx:04}\n"));
+        for idx in 1..80_000 {
+            payload.push_str(&format!("WINDOW-{idx:05} :: lorem ipsum dolor sit amet\n"));
         }
         std::fs::write(&file, &payload).unwrap();
         let sparse = std::fs::OpenOptions::new().write(true).open(&file).unwrap();
         sparse.set_len(LARGE_FILE_LIMIT + 4096).unwrap();
 
         state.open_file(file.to_string_lossy().to_string());
+        let initial_window = state
+            .active_buffer()
+            .and_then(|(_, buf)| match &buf.backing {
+                DocumentBacking::FileWindow { window, .. } => Some(window.clone()),
+                DocumentBacking::InMemory => None,
+            })
+            .expect("initial huge window metadata");
         let initial = state
             .active_buffer()
             .map(|(_, buf)| buf.content())
@@ -2559,6 +2981,13 @@ mod tests {
         assert!(initial.contains("WINDOW-000"));
 
         state.shift_active_file_window(true);
+        let moved_window = state
+            .active_buffer()
+            .and_then(|(_, buf)| match &buf.backing {
+                DocumentBacking::FileWindow { window, .. } => Some(window.clone()),
+                DocumentBacking::InMemory => None,
+            })
+            .expect("shifted huge window metadata");
         let moved = state
             .active_buffer()
             .map(|(_, buf)| buf.content())
@@ -2577,13 +3006,65 @@ mod tests {
         );
 
         state.shift_active_file_window(false);
-        let restored = state
+        let restored_window = state
             .active_buffer()
-            .map(|(_, buf)| buf.content())
-            .expect("restored huge window content");
-        assert_eq!(
-            initial, restored,
-            "backward shift should return to the original window"
+            .and_then(|(_, buf)| match &buf.backing {
+                DocumentBacking::FileWindow { window, .. } => Some(window.clone()),
+                DocumentBacking::InMemory => None,
+            })
+            .expect("restored huge window metadata");
+        assert!(
+            restored_window.start_line <= moved_window.start_line,
+            "backward shift should move the window earlier in the file"
+        );
+        assert!(
+            restored_window.start_byte <= moved_window.start_byte,
+            "backward shift should move the byte window earlier in the file"
+        );
+        assert!(
+            restored_window.start_line <= initial_window.end_line,
+            "backward shift should land near the previous viewport window"
+        );
+    }
+
+    #[test]
+    fn test_huge_window_edits_save_via_overlay_journal() {
+        let mut state = EditorState::default();
+        let dir = std::env::temp_dir().join("fission_editor_huge_window_save");
+        std::fs::create_dir_all(&dir).ok();
+        let file = dir.join("huge.txt");
+        let mut payload = String::new();
+        payload.push_str("HEADER\n");
+        for idx in 0..6000 {
+            payload.push_str(&format!("ROW-{idx:04}\n"));
+        }
+        std::fs::write(&file, &payload).unwrap();
+        let sparse = std::fs::OpenOptions::new().write(true).open(&file).unwrap();
+        sparse.set_len(LARGE_FILE_LIMIT + 4096).unwrap();
+
+        state.open_file(file.to_string_lossy().to_string());
+        {
+            let (_, buf) = state.active_buffer_mut().expect("active huge buffer");
+            let original = buf.content();
+            let replace_end = original.find('\n').unwrap_or(original.len());
+            buf.apply_edit(0..replace_end, "PATCHED-HEADER");
+            assert!(buf.content().starts_with("PATCHED-HEADER"));
+        }
+        state.mark_active_tab_dirty();
+        state.save_active_file();
+
+        let saved = std::fs::read_to_string(&file).unwrap();
+        assert!(
+            saved.starts_with("PATCHED-HEADER"),
+            "overlay-journal save should rewrite the underlying huge file stream"
+        );
+        assert!(
+            state
+                .status_message
+                .as_deref()
+                .unwrap_or_default()
+                .contains("Saved"),
+            "saving the huge file should report success"
         );
     }
 

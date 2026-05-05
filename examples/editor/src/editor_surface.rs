@@ -65,8 +65,7 @@ impl Widget<EditorState> for EditorSurface {
                     let path = tab.path.clone();
                     if let Some(buf) = s.file_contents.get_mut(&path) {
                         if !buf.is_editable() {
-                            s.status_message =
-                                Some("This file is open in read-only preview mode".into());
+                            s.status_message = Some("This document is not editable".into());
                             return;
                         }
                         buf.apply_edit(a.range_start..a.range_end, &a.new_text);
