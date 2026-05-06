@@ -97,6 +97,31 @@ fn inbox_initial_render() {
 
 #[test]
 #[ignore]
+fn inbox_initial_list_keeps_last_preview_above_pagination() {
+    let control_port = reserve_control_port();
+    let mut child = launch_inbox(control_port);
+    let client = LiveTestClient::connect(control_port);
+    client.wait_for_ready(20_000).expect("inbox did not start");
+    client.wait(2_000).expect("wait for render");
+
+    let texts = client.get_text().expect("get_text");
+    let preview = texts
+        .iter()
+        .find(|item| item.text.contains("Your subscription renewed"))
+        .expect("billing preview should be visible on the first page");
+    assert!(
+        preview.y + preview.height < 520.0,
+        "last visible preview row should remain clear of the pagination footer, got y={} h={}",
+        preview.y,
+        preview.height
+    );
+
+    client.quit().expect("quit");
+    let _ = child.wait();
+}
+
+#[test]
+#[ignore]
 fn inbox_scroll_and_interact() {
     let control_port = reserve_control_port();
     let mut child = launch_inbox(control_port);

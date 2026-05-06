@@ -100,7 +100,7 @@ impl Widget<InboxState> for RightSidebar {
         Container::new(
             fission_core::ui::Scroll {
                 direction: fission_ir::op::FlexDirection::Column,
-                show_scrollbar: false,
+                show_scrollbar: true,
                 flex_grow: 1.0,
                 flex_shrink: 1.0,
                 child: Some(Box::new(

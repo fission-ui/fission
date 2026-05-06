@@ -41,9 +41,10 @@ impl Widget<InboxState> for EmailList {
                 .map(|s| s.to_string())
                 .unwrap_or_else(|| key.to_string())
         };
-        let mut list_items = vec![];
+        let mut chrome_items = vec![];
 
         let folder = folder_from_route(&self.folder);
+        let compact_rows = view.viewport_size().height < 680.0 || view.viewport_size().width < 980.0;
         let folder_label = match &folder {
             Folder::Inbox => view
                 .env
@@ -183,7 +184,7 @@ impl Widget<InboxState> for EmailList {
         );
 
         // Header
-        list_items.push(
+        chrome_items.push(
             Row {
                 gap: Some(6.0),
                 children: vec![
@@ -210,7 +211,7 @@ impl Widget<InboxState> for EmailList {
             payload: serde_json::to_vec(&SetSortOption(sort_toggle.into())).unwrap(),
         };
         // Search row
-        list_items.push(
+        chrome_items.push(
             TextInput {
                 value: view.state.search_query.clone(),
                 placeholder: Some(TextContent::Key("search.placeholder".into())),
@@ -224,7 +225,7 @@ impl Widget<InboxState> for EmailList {
         );
 
         // Filter row
-        list_items.push(
+        chrome_items.push(
             HStack {
                 spacing: Some(8.0),
                 children: vec![
@@ -339,7 +340,7 @@ impl Widget<InboxState> for EmailList {
             .build(ctx, view),
         );
 
-        list_items.push(
+        chrome_items.push(
             Tabs {
                 active_index: view.state.active_tab,
                 items: vec![
@@ -396,34 +397,33 @@ impl Widget<InboxState> for EmailList {
             _ => emails.sort_by_key(|e| std::cmp::Reverse(e.last_message().sent_at)),
         }
 
-        let page_size = 8usize;
+        let list_height_budget = (view.viewport_size().height - 220.0).max(280.0);
+        let page_size = ((list_height_budget / 120.0).floor() as usize).clamp(3, 8);
         let total_pages = ((emails.len() + page_size - 1) / page_size).max(1);
         let current_page = view.state.page.max(1).min(total_pages);
         let start_idx = (current_page - 1) * page_size;
         let end_idx = (start_idx + page_size).min(emails.len());
 
-        if emails.is_empty() {
-            list_items.push(
-                EmptyState {
-                    icon: Some(Box::new(
-                        Icon::svg(material::content::inbox::regular())
-                            .size(48.0)
-                            .color(tokens.colors.text_primary)
-                            .into_node(),
-                    )),
-                    title: t("empty.no_emails"),
-                    description: Some(t("empty.caught_up")),
-                    action: Some(Box::new(
-                        Button {
-                            child: Some(Box::new(Text::new(t("action.refresh")).into_node())),
-                            on_press: None,
-                            ..Default::default()
-                        }
+        let list_body = if emails.is_empty() {
+            EmptyState {
+                icon: Some(Box::new(
+                    Icon::svg(material::content::inbox::regular())
+                        .size(48.0)
+                        .color(tokens.colors.text_primary)
                         .into_node(),
-                    )),
-                }
-                .build(ctx, view),
-            );
+                )),
+                title: t("empty.no_emails"),
+                description: Some(t("empty.caught_up")),
+                action: Some(Box::new(
+                    Button {
+                        child: Some(Box::new(Text::new(t("action.refresh")).into_node())),
+                        on_press: None,
+                        ..Default::default()
+                    }
+                    .into_node(),
+                )),
+            }
+            .build(ctx, view)
         } else {
             let mut email_nodes = Vec::new();
             for (idx, email) in emails[start_idx..end_idx].iter().enumerate() {
@@ -456,7 +456,7 @@ impl Widget<InboxState> for EmailList {
                         .into_node(),
                         Container::new(
                             VStack {
-                                spacing: Some(6.0),
+                                spacing: Some(4.0),
                                 children: vec![
                                     HStack {
                                         spacing: Some(8.0),
@@ -531,25 +531,29 @@ impl Widget<InboxState> for EmailList {
                                         }
                                         .into(),
                                     )
-                                    .max_width(280.0)
-                                    .flex_shrink(0.0)
+                                    .flex_grow(1.0)
+                                    .flex_shrink(1.0)
                                     .into_node(),
-                                    Wrap {
-                                        direction: fission_ir::op::FlexDirection::Row,
-                                        spacing: Some(6.0),
-                                        children: email
-                                            .labels
-                                            .iter()
-                                            .map(|label| {
-                                                Tag {
-                                                    label: label.clone(),
-                                                    on_close: None,
-                                                }
-                                                .build(ctx, view)
-                                            })
-                                            .collect(),
-                                    }
-                                    .build(ctx, view),
+                                    if compact_rows || email.labels.is_empty() {
+                                        fission_core::ui::widgets::Spacer::default().into_node()
+                                    } else {
+                                        Wrap {
+                                            direction: fission_ir::op::FlexDirection::Row,
+                                            spacing: Some(6.0),
+                                            children: email
+                                                .labels
+                                                .iter()
+                                                .map(|label| {
+                                                    Tag {
+                                                        label: label.clone(),
+                                                        on_close: None,
+                                                    }
+                                                    .build(ctx, view)
+                                                })
+                                                .collect(),
+                                        }
+                                        .build(ctx, view)
+                                    },
                                 ],
                             }
                             .build(ctx, view),
@@ -565,7 +569,7 @@ impl Widget<InboxState> for EmailList {
                     spacing: Some(0.0),
                     children: vec![
                         Container::new(item_content)
-                            .padding_all(6.0)
+                            .padding_all(4.0)
                             .bg(if is_selected {
                                 tokens.colors.primary.with_alpha(20)
                             } else {
@@ -604,47 +608,61 @@ impl Widget<InboxState> for EmailList {
             let lazy_id = WidgetNodeId::explicit("email_list");
             let node_id = NodeId::derived(lazy_id.as_u128(), &[current_page as u32]);
 
-            list_items.push(
+            Container::new(
                 LazyColumn {
                     id: Some(node_id),
                     children: Arc::new(email_nodes),
                     item_height: 0.0,
                 }
                 .into(),
-            );
-        }
+            )
+            .flex_grow(1.0)
+            .min_height(0.0)
+            .into_node()
+        };
 
-        // Pagination
-        if !view.state.show_compose {
-            list_items.push(
-                fission_core::ui::widgets::Spacer {
-                    height: Some(20.0),
-                    ..Default::default()
-                }
-                .into_node(),
-            );
-            list_items.push(
-                fission_widgets::center::Center {
-                    child: Box::new(
-                        Pagination {
-                            current_page,
-                            total_pages,
-                            on_change: Some(Arc::new(move |page| ActionEnvelope {
-                                id: page_id,
-                                payload: serde_json::to_vec(&SetPage(page)).unwrap(),
-                            })),
-                        }
-                        .build(ctx, view),
-                    ),
-                }
-                .build(ctx, view),
-            );
-        }
+        let footer = if !view.state.show_compose {
+            VStack {
+                spacing: Some(8.0),
+                children: vec![
+                    fission_core::ui::widgets::Spacer {
+                        height: Some(8.0),
+                        ..Default::default()
+                    }
+                    .into_node(),
+                    fission_widgets::center::Center {
+                        child: Box::new(
+                            Pagination {
+                                current_page,
+                                total_pages,
+                                on_change: Some(Arc::new(move |page| ActionEnvelope {
+                                    id: page_id,
+                                    payload: serde_json::to_vec(&SetPage(page)).unwrap(),
+                                })),
+                            }
+                            .build(ctx, view),
+                        ),
+                    }
+                    .build(ctx, view),
+                ],
+            }
+            .build(ctx, view)
+        } else {
+            fission_core::ui::widgets::Spacer::default().into_node()
+        };
 
         Container::new(
             VStack {
-                spacing: Some(4.0),
-                children: list_items,
+                spacing: Some(8.0),
+                children: vec![
+                    VStack {
+                        spacing: Some(4.0),
+                        children: chrome_items,
+                    }
+                    .build(ctx, view),
+                    Container::new(list_body).flex_grow(1.0).min_height(0.0).into_node(),
+                    footer,
+                ],
             }
             .build(ctx, view),
         )
