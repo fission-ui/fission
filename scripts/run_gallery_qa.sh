@@ -74,7 +74,7 @@ shot "04_boxplot"
 
 # --- 5. Switch to 3D Scene ---
 echo "5. Open 3D Scene"
-cmd '{"cmd":"TapText","text":"Scene3D"}'
+cmd '{"cmd":"TapText","text":"3D Scene"}'
 cmd '{"cmd":"Pump"}'
 sleep 0.5
 shot "05_scene3d"

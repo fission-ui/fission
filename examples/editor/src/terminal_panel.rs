@@ -4,6 +4,7 @@ use fission_core::ui::{Button, ButtonVariant, Container, Node, Text};
 use fission_core::{BuildCtx, Handler, View, Widget};
 use fission_ir::NodeId;
 use fission_widgets::{HStack, Spacer, TerminalView, VStack};
+use std::path::Path;
 
 pub struct TerminalPanel;
 
@@ -103,7 +104,7 @@ impl Widget<EditorState> for TerminalPanel {
             .state
             .terminal_session
             .as_ref()
-            .map(|session| session.title())
+            .map(|session| format_terminal_title(&session.title()))
             .filter(|title| !title.trim().is_empty())
             .unwrap_or_else(|| "Terminal".into());
 
@@ -156,7 +157,7 @@ impl Widget<EditorState> for TerminalPanel {
         let terminal_height = (view
             .state
             .terminal_height
-            .min((view.viewport_size().height * 0.45).max(120.0))
+            .min((view.viewport_size().height * 0.33).max(96.0))
             - 28.0)
             .max(72.0);
 
@@ -202,10 +203,39 @@ impl Widget<EditorState> for TerminalPanel {
         .height(
             view.state
                 .terminal_height
-                .min((view.viewport_size().height * 0.45).max(120.0)),
+                .min((view.viewport_size().height * 0.33).max(96.0)),
         )
         .bg(BG)
         .flex_shrink(0.0)
         .into_node()
+    }
+}
+
+fn format_terminal_title(title: &str) -> String {
+    let trimmed = title.trim();
+    if trimmed.is_empty() {
+        return "Terminal".into();
+    }
+
+    let path = Path::new(trimmed);
+    if let Some(name) = path.file_name().and_then(|value| value.to_str()) {
+        if let Some(parent) = path
+            .parent()
+            .and_then(|value| value.file_name())
+            .and_then(|value| value.to_str())
+        {
+            return format!(".../{parent}/{name}");
+        }
+        return name.to_string();
+    }
+
+    let chars: Vec<char> = trimmed.chars().collect();
+    if chars.len() <= 28 {
+        trimmed.to_string()
+    } else {
+        format!(
+            "...{}",
+            chars[chars.len() - 25..].iter().collect::<String>()
+        )
     }
 }

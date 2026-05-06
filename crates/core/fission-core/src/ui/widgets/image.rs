@@ -6,6 +6,19 @@ use fission_ir::{
 };
 use serde::{Deserialize, Serialize};
 
+fn resolve_svg_content(source: &str) -> Option<String> {
+    let trimmed = source.trim_start();
+    if trimmed.starts_with("<svg") {
+        return Some(source.to_string());
+    }
+
+    if source.to_ascii_lowercase().ends_with(".svg") {
+        return std::fs::read_to_string(source).ok();
+    }
+
+    None
+}
+
 /// A raster image widget.
 ///
 /// Displays an image from a URL or asset path. The `fit` property controls
@@ -45,14 +58,19 @@ impl Image {
 impl Lower for Image {
     fn lower(&self, cx: &mut LoweringContext) -> NodeId {
         let layout_id = self.id.unwrap_or_else(|| cx.next_node_id());
-        let paint_id = NodeBuilder::new(
-            cx.next_node_id(),
-            Op::Paint(PaintOp::DrawImage {
+        let paint_op = if let Some(content) = resolve_svg_content(&self.source) {
+            PaintOp::DrawSvg {
+                content,
+                fill: None,
+                stroke: None,
+            }
+        } else {
+            PaintOp::DrawImage {
                 source: self.source.clone(),
                 fit: self.fit.unwrap_or(ImageFit::Contain),
-            }),
-        )
-        .build(cx);
+            }
+        };
+        let paint_id = NodeBuilder::new(cx.next_node_id(), Op::Paint(paint_op)).build(cx);
 
         let mut layout_builder = NodeBuilder::new(
             layout_id,

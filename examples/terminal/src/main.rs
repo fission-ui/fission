@@ -5,7 +5,7 @@ use fission_shell_desktop::DesktopApp;
 use fission_widgets::{
     HStack, Spacer, TerminalLaunchConfig, TerminalSession, TerminalView, VStack,
 };
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 const WINDOW_BG: Color = Color {
@@ -71,7 +71,7 @@ impl Widget<TerminalExampleState> for TerminalExampleApp {
             .state
             .session
             .as_ref()
-            .map(|session| session.title())
+            .map(|session| format_terminal_title(&session.title()))
             .filter(|title| !title.trim().is_empty())
             .unwrap_or_else(|| "Shell".into());
 
@@ -161,6 +161,35 @@ fn dot(color: Color) -> Node {
     .bg(color)
     .border_radius(999.0)
     .into_node()
+}
+
+fn format_terminal_title(title: &str) -> String {
+    let trimmed = title.trim();
+    if trimmed.is_empty() {
+        return "Shell".into();
+    }
+
+    let path = Path::new(trimmed);
+    if let Some(name) = path.file_name().and_then(|value| value.to_str()) {
+        if let Some(parent) = path
+            .parent()
+            .and_then(|value| value.file_name())
+            .and_then(|value| value.to_str())
+        {
+            return format!(".../{parent}/{name}");
+        }
+        return name.to_string();
+    }
+
+    let chars: Vec<char> = trimmed.chars().collect();
+    if chars.len() <= 28 {
+        trimmed.to_string()
+    } else {
+        format!(
+            "...{}",
+            chars[chars.len() - 25..].iter().collect::<String>()
+        )
+    }
 }
 
 fn main() -> anyhow::Result<()> {

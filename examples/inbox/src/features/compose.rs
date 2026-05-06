@@ -20,6 +20,7 @@ impl Widget<InboxState> for ComposeModal {
     fn build(&self, ctx: &mut BuildCtx<InboxState>, view: &View<InboxState>) -> Node {
         let viewport_width = view.viewport_size().width.max(0.0);
         let modal_width = (viewport_width - 48.0).clamp(320.0, 760.0);
+        let field_width = (modal_width - 56.0).max(240.0);
 
         // Register Handlers
         let to_id = ctx
@@ -188,7 +189,7 @@ impl Widget<InboxState> for ComposeModal {
                             value: view.state.compose_to.clone(),
                             items: suggestions,
                             is_open: !query.is_empty() && !has_exact_match,
-                            width: None,
+                            width: Some(field_width),
                             max_popup_height: Some(180.0),
                             on_change: Some(ActionEnvelope {
                                 id: to_id,

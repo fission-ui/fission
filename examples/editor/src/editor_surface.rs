@@ -9,8 +9,8 @@ use fission_core::ui::custom_render::CustomRenderObject;
 use fission_core::ui::traits::LowerDyn;
 use fission_core::ui::{Container, CustomNode, Node, Row, Scroll, Text};
 use fission_core::{BuildCtx, FlexDirection, Handler, View, Widget};
-use fission_widgets::{HStack, Spacer, VStack};
 use fission_ir::NodeId as IrNodeId;
+use fission_widgets::{HStack, Spacer, VStack};
 use std::sync::Arc;
 
 pub struct EditorSurface;
@@ -32,7 +32,7 @@ impl Widget<EditorState> for EditorSurface {
         let terminal_height = if view.state.terminal_visible {
             view.state
                 .terminal_height
-                .min((view.viewport_size().height * 0.45).max(120.0))
+                .min((view.viewport_size().height * 0.33).max(96.0))
         } else {
             0.0
         };
@@ -62,10 +62,7 @@ impl Widget<EditorState> for EditorSurface {
             - 61.0
             - 24.0)
             .max(180.0);
-        let active_path = view
-            .state
-            .active_buffer()
-            .map(|(tab, _)| tab.path.clone());
+        let active_path = view.state.active_buffer().map(|(tab, _)| tab.path.clone());
         let editor_scroll_id = active_path
             .as_ref()
             .map(|path| IrNodeId::explicit(&format!("editor_scroll_{}", path)));
@@ -84,6 +81,7 @@ impl Widget<EditorState> for EditorSurface {
 
         let path = render_node.file_path.clone();
         let content_height = render_node.content_height();
+        let editor_canvas_height = content_height.max(editor_viewport_height);
 
         // ---- Register reducers for actions dispatched by the render object ---
         ctx.bind(
@@ -162,8 +160,8 @@ impl Widget<EditorState> for EditorSurface {
 
         // Wrap the custom node in a Container that fills available space.
         let editor_area = Container::new(editor_custom)
-            .height(content_height)
-            .min_height(content_height)
+            .height(editor_canvas_height)
+            .min_height(editor_canvas_height)
             .flex_grow(0.0)
             .flex_shrink(0.0)
             .into_node();

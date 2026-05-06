@@ -46,6 +46,8 @@ impl Widget<InboxState> for EmailList {
         let folder = folder_from_route(&self.folder);
         let compact_rows =
             view.viewport_size().height < 680.0 || view.viewport_size().width < 980.0;
+        let short_viewport = view.viewport_size().height < 640.0;
+        let filters_width = (view.viewport_size().width * 0.34).clamp(240.0, 320.0);
         let folder_label = match &folder {
             Folder::Inbox => view
                 .env
@@ -295,10 +297,11 @@ impl Widget<InboxState> for EmailList {
                         content: Box::new(
                             Container::new(
                                 VStack {
-                                    spacing: Some(16.0),
+                                    spacing: Some(14.0),
                                     children: vec![
                                         Text::new(TextContent::Key("filter.date_range".into()))
                                             .size(12.0)
+                                            .color(tokens.colors.text_secondary)
                                             .into_node(),
                                         DateRangePicker {
                                             id_start: WidgetNodeId::explicit("filter_date_start"),
@@ -316,6 +319,7 @@ impl Widget<InboxState> for EmailList {
                                         .build(ctx, view),
                                         Text::new(TextContent::Key("filter.size_mb".into()))
                                             .size(12.0)
+                                            .color(tokens.colors.text_secondary)
                                             .into_node(),
                                         RangeSlider {
                                             id: None,
@@ -330,8 +334,23 @@ impl Widget<InboxState> for EmailList {
                                 }
                                 .into_node(),
                             )
-                            .padding_all(12.0)
-                            .max_width(180.0)
+                            .width(filters_width)
+                            .padding_all(14.0)
+                            .bg(tokens.colors.surface)
+                            .border(tokens.colors.border, 1.0)
+                            .border_radius(tokens.radii.medium)
+                            .shadow(tokens.elevations.level2.unwrap_or(
+                                fission_core::op::BoxShadow {
+                                    color: fission_core::op::Color {
+                                        r: 0,
+                                        g: 0,
+                                        b: 0,
+                                        a: 40,
+                                    },
+                                    blur_radius: 10.0,
+                                    offset: (0.0, 4.0),
+                                },
+                            ))
                             .into_node(),
                         ),
                     }
@@ -398,7 +417,13 @@ impl Widget<InboxState> for EmailList {
             _ => emails.sort_by_key(|e| std::cmp::Reverse(e.last_message().sent_at)),
         }
 
-        let page_size = if compact_rows { 4 } else { 5 };
+        let page_size = if short_viewport {
+            3
+        } else if compact_rows {
+            4
+        } else {
+            5
+        };
         let total_pages = ((emails.len() + page_size - 1) / page_size).max(1);
         let current_page = view.state.page.max(1).min(total_pages);
         let start_idx = (current_page - 1) * page_size;
@@ -628,10 +653,10 @@ impl Widget<InboxState> for EmailList {
 
         let footer = if !view.state.show_compose {
             VStack {
-                spacing: Some(8.0),
+                spacing: Some(4.0),
                 children: vec![
                     fission_core::ui::widgets::Spacer {
-                        height: Some(8.0),
+                        height: Some(4.0),
                         ..Default::default()
                     }
                     .into_node(),
@@ -690,11 +715,7 @@ mod tests {
 
     fn visible_subject_texts(h: &TestHarness<InboxState>) -> HashSet<String> {
         let state = h.runtime.get_app_state::<InboxState>().unwrap();
-        let subjects: HashSet<String> = state
-            .emails
-            .iter()
-            .map(|e| e.subject.clone())
-            .collect();
+        let subjects: HashSet<String> = state.emails.iter().map(|e| e.subject.clone()).collect();
         let ir = h.last_ir.as_ref().unwrap();
         ir.nodes
             .values()
@@ -732,7 +753,10 @@ mod tests {
         h.pump()?;
 
         let all_subjects = visible_subject_texts(&h);
-        assert!(!all_subjects.is_empty(), "expected some subjects in All mode");
+        assert!(
+            !all_subjects.is_empty(),
+            "expected some subjects in All mode"
+        );
 
         h.dispatch(SetFilterMode(1))?; // Unread
         h.pump()?;

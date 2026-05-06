@@ -890,19 +890,41 @@ impl Widget<EditorState> for ContextMenu {
         );
 
         let new_file_ctx = ctx.bind(
-            ShowContextStatus("New File (placeholder)".into()),
-            (|s: &mut EditorState, a: ShowContextStatus, _| {
+            CreateFile(String::new()),
+            (|s: &mut EditorState, _: CreateFile, _| {
                 s.context_menu_visible = false;
-                s.status_message = Some(a.0);
-            }) as Handler<EditorState, ShowContextStatus>,
+                if let Some(target) = s.context_menu_target.clone() {
+                    let dir = if std::path::Path::new(&target).is_dir() {
+                        target
+                    } else {
+                        std::path::Path::new(&target)
+                            .parent()
+                            .map(|p| p.to_string_lossy().to_string())
+                            .unwrap_or_else(|| s.root_path.to_string_lossy().to_string())
+                    };
+                    s.create_file(format!("{}/untitled.rs", dir));
+                }
+                s.context_menu_target = None;
+            }) as Handler<EditorState, CreateFile>,
         );
 
         let new_folder_ctx = ctx.bind(
-            ShowContextStatus("New Folder (placeholder)".into()),
-            (|s: &mut EditorState, a: ShowContextStatus, _| {
+            CreateFolder(String::new()),
+            (|s: &mut EditorState, _: CreateFolder, _| {
                 s.context_menu_visible = false;
-                s.status_message = Some(a.0);
-            }) as Handler<EditorState, ShowContextStatus>,
+                if let Some(target) = s.context_menu_target.clone() {
+                    let dir = if std::path::Path::new(&target).is_dir() {
+                        target
+                    } else {
+                        std::path::Path::new(&target)
+                            .parent()
+                            .map(|p| p.to_string_lossy().to_string())
+                            .unwrap_or_else(|| s.root_path.to_string_lossy().to_string())
+                    };
+                    s.create_folder(format!("{}/new_folder", dir));
+                }
+                s.context_menu_target = None;
+            }) as Handler<EditorState, CreateFolder>,
         );
 
         let rename_action = ctx.bind(
@@ -1391,6 +1413,41 @@ fn main() -> anyhow::Result<()> {
                         return true;
                     }
                     return false;
+                }
+
+                if state.renaming_path.is_some() && !ctrl {
+                    let should_replace_rename_text = state
+                        .renaming_path
+                        .as_ref()
+                        .and_then(|path| std::path::Path::new(path).file_name())
+                        .and_then(|value| value.to_str())
+                        .map(|name| state.rename_input == name)
+                        .unwrap_or(false);
+                    match key {
+                        fission_core::KeyCode::Backspace => {
+                            if should_replace_rename_text {
+                                state.rename_input.clear();
+                            } else {
+                                state.rename_input.pop();
+                            }
+                            return true;
+                        }
+                        fission_core::KeyCode::Space => {
+                            if should_replace_rename_text {
+                                state.rename_input.clear();
+                            }
+                            state.rename_input.push(' ');
+                            return true;
+                        }
+                        fission_core::KeyCode::Char(ch) => {
+                            if should_replace_rename_text {
+                                state.rename_input.clear();
+                            }
+                            state.rename_input.push(*ch);
+                            return true;
+                        }
+                        _ => {}
+                    }
                 }
 
                 // Escape dismisses menus / context menus / find bar / command palette / rename

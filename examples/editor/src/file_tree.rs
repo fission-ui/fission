@@ -1,6 +1,6 @@
 use crate::model::{
-    CancelRename, ConfirmRename, CreateFile, CreateFolder, EditorState, FileEntry, OpenFile,
-    RefreshTree, SelectTreeNode, ShowContextMenu, ToggleTreeNode, UpdateRenameInput,
+    CancelRename, CreateFile, CreateFolder, EditorState, FileEntry, OpenFile, RefreshTree,
+    SelectTreeNode, ShowContextMenu, ToggleTreeNode, UpdateRenameInput,
 };
 use fission_core::op::Color;
 use fission_core::ui::{
@@ -132,13 +132,6 @@ impl Widget<EditorState> for FileTree {
             }) as Handler<EditorState, UpdateRenameInput>,
         );
 
-        let confirm_rename_id = ctx.bind(
-            ConfirmRename,
-            (|s: &mut EditorState, _a: ConfirmRename, _| {
-                s.confirm_rename();
-            }) as Handler<EditorState, ConfirmRename>,
-        );
-
         let _cancel_rename_id = ctx.bind(
             CancelRename,
             (|s: &mut EditorState, _a: CancelRename, _| {
@@ -244,7 +237,6 @@ impl Widget<EditorState> for FileTree {
                 select_id,
                 context_menu_id,
                 &rename_input_id,
-                &confirm_rename_id,
             );
         }
 
@@ -290,7 +282,6 @@ fn build_tree_rows(
     select_id: fission_core::ActionId,
     context_menu_id: fission_core::ActionId,
     rename_input_action: &ActionEnvelope,
-    confirm_rename_action: &ActionEnvelope,
 ) {
     let tokens = &view.env.theme.tokens;
     let is_expanded = view.state.tree_expanded.contains(&entry.path);
@@ -423,18 +414,7 @@ fn build_tree_rows(
     .into_node();
 
     let row = if is_renaming {
-        // When renaming, wrap in a Button that confirms rename on press
-        let confirm_btn = Button {
-            variant: ButtonVariant::Ghost,
-            content_align: ButtonContentAlign::Start,
-            on_press: Some(confirm_rename_action.clone()),
-            child: Some(Box::new(row_content)),
-            height: Some(24.0),
-            padding: Some([0.0; 4]),
-            ..Default::default()
-        }
-        .into_node();
-        confirm_btn
+        Container::new(row_content).height(24.0).into_node()
     } else {
         // Wrap in a Button for tap handling, then wrap that in GestureDetector for long-press
         let button_row = Button {
@@ -471,7 +451,6 @@ fn build_tree_rows(
                 select_id,
                 context_menu_id,
                 rename_input_action,
-                confirm_rename_action,
             );
         }
     }

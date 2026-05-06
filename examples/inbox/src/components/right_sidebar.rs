@@ -2,9 +2,7 @@ use crate::model::{
     Folder, InboxState, SetCalendarSelected, SetMeetCameraOn, SetMeetMicOn, ShowToast,
 };
 use chrono::{Datelike, Local};
-use fission_core::ui::{
-    Button, ButtonVariant, Container, Node, Row, Switch, Text, TextContent,
-};
+use fission_core::ui::{Button, ButtonVariant, Container, Node, Row, Switch, Text, TextContent};
 use fission_core::{BuildCtx, Handler, View, Widget, WidgetNodeId};
 use fission_icons::material;
 use fission_widgets::{
@@ -25,7 +23,8 @@ impl Widget<InboxState> for RightSidebar {
                 .unwrap_or_else(|| key.to_string())
         };
         let today = Local::now().date_naive();
-        let compact_sidebar = view.viewport_size().height < 940.0;
+        let compact_sidebar = view.viewport_size().height < 980.0;
+        let ultra_compact_sidebar = view.viewport_size().height < 900.0;
 
         let meet_camera_id = ctx
             .bind(
@@ -94,13 +93,37 @@ impl Widget<InboxState> for RightSidebar {
                 },
             ],
             width: None,
-            max_height: Some(200.0),
+            max_height: Some(if ultra_compact_sidebar {
+                120.0
+            } else if compact_sidebar {
+                144.0
+            } else {
+                200.0
+            }),
         }
         .build(ctx, view);
 
-        let sidebar_spacing = if compact_sidebar { 12.0 } else { 16.0 };
-        let calendar_cell_size = if compact_sidebar { 30.0 } else { 32.0 };
-        let calendar_padding = if compact_sidebar { 10.0 } else { 12.0 };
+        let sidebar_spacing = if ultra_compact_sidebar {
+            10.0
+        } else if compact_sidebar {
+            12.0
+        } else {
+            16.0
+        };
+        let calendar_cell_size = if ultra_compact_sidebar {
+            26.0
+        } else if compact_sidebar {
+            30.0
+        } else {
+            32.0
+        };
+        let calendar_padding = if ultra_compact_sidebar {
+            8.0
+        } else if compact_sidebar {
+            10.0
+        } else {
+            12.0
+        };
 
         Container::new(
             fission_core::ui::Scroll {
@@ -312,18 +335,32 @@ impl Widget<InboxState> for RightSidebar {
                                             .size(16.0)
                                             .into_node(),
                                             HStack {
-                                                spacing: Some(16.0),
+                                                spacing: Some(if ultra_compact_sidebar {
+                                                    12.0
+                                                } else {
+                                                    16.0
+                                                }),
                                                 children: vec![
                                                     fission_widgets::CircularProgress {
                                                         value: Some(0.65),
-                                                        size: 40.0,
+                                                        size: if ultra_compact_sidebar {
+                                                            34.0
+                                                        } else {
+                                                            40.0
+                                                        },
                                                         ..Default::default()
                                                     }
                                                     .build(ctx, view),
                                                     VStack {
                                                         spacing: Some(2.0),
                                                         children: vec![
-                                                            Text::new("65%").size(16.0).into_node(),
+                                                            Text::new("65%")
+                                                                .size(if ultra_compact_sidebar {
+                                                                    14.0
+                                                                } else {
+                                                                    16.0
+                                                                })
+                                                                .into_node(),
                                                             Text::new(t("quick.unread"))
                                                                 .size(12.0)
                                                                 .color(tokens.colors.text_secondary)
@@ -336,7 +373,11 @@ impl Widget<InboxState> for RightSidebar {
                                             .into_node(),
                                             if compact_sidebar {
                                                 HStack {
-                                                    spacing: Some(24.0),
+                                                    spacing: Some(if ultra_compact_sidebar {
+                                                        16.0
+                                                    } else {
+                                                        24.0
+                                                    }),
                                                     children: vec![
                                                         VStack {
                                                             spacing: Some(2.0),
@@ -347,7 +388,9 @@ impl Widget<InboxState> for RightSidebar {
                                                                 Text::new(t("quick.unread"))
                                                                     .size(12.0)
                                                                     .color(
-                                                                        tokens.colors.text_secondary,
+                                                                        tokens
+                                                                            .colors
+                                                                            .text_secondary,
                                                                     )
                                                                     .into_node(),
                                                             ],
@@ -356,13 +399,17 @@ impl Widget<InboxState> for RightSidebar {
                                                         VStack {
                                                             spacing: Some(2.0),
                                                             children: vec![
-                                                                Text::new(starred_total.to_string())
-                                                                    .size(15.0)
-                                                                    .into_node(),
+                                                                Text::new(
+                                                                    starred_total.to_string(),
+                                                                )
+                                                                .size(15.0)
+                                                                .into_node(),
                                                                 Text::new(t("quick.starred"))
                                                                     .size(12.0)
                                                                     .color(
-                                                                        tokens.colors.text_secondary,
+                                                                        tokens
+                                                                            .colors
+                                                                            .text_secondary,
                                                                     )
                                                                     .into_node(),
                                                             ],
@@ -384,13 +431,17 @@ impl Widget<InboxState> for RightSidebar {
                                                                 Text::new(t("quick.unread"))
                                                                     .size(12.0)
                                                                     .color(
-                                                                        tokens.colors.text_secondary,
+                                                                        tokens
+                                                                            .colors
+                                                                            .text_secondary,
                                                                     )
                                                                     .into_node(),
                                                                 Text::new(t("quick.in_inbox"))
                                                                     .size(12.0)
                                                                     .color(
-                                                                        tokens.colors.text_secondary,
+                                                                        tokens
+                                                                            .colors
+                                                                            .text_secondary,
                                                                     )
                                                                     .into_node(),
                                                             ],
@@ -399,19 +450,25 @@ impl Widget<InboxState> for RightSidebar {
                                                         VStack {
                                                             spacing: Some(2.0),
                                                             children: vec![
-                                                                Text::new(starred_total.to_string())
-                                                                    .size(18.0)
-                                                                    .into_node(),
+                                                                Text::new(
+                                                                    starred_total.to_string(),
+                                                                )
+                                                                .size(18.0)
+                                                                .into_node(),
                                                                 Text::new(t("quick.starred"))
                                                                     .size(12.0)
                                                                     .color(
-                                                                        tokens.colors.text_secondary,
+                                                                        tokens
+                                                                            .colors
+                                                                            .text_secondary,
                                                                     )
                                                                     .into_node(),
                                                                 Text::new(t("quick.all_folders"))
                                                                     .size(12.0)
                                                                     .color(
-                                                                        tokens.colors.text_secondary,
+                                                                        tokens
+                                                                            .colors
+                                                                            .text_secondary,
                                                                     )
                                                                     .into_node(),
                                                             ],

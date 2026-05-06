@@ -301,7 +301,7 @@ impl Default for EditorState {
             terminal_session: None,
             status_message: None,
             sidebar_width: 240.0,
-            terminal_height: 120.0,
+            terminal_height: 96.0,
             diagnostics: HashMap::new(),
             completions: Vec::new(),
             show_completions: false,
@@ -1940,11 +1940,14 @@ impl EditorState {
     pub fn create_file(&mut self, path: String) {
         if let Some(parent) = Path::new(&path).parent() {
             let _ = std::fs::create_dir_all(parent);
+            self.tree_expanded
+                .insert(parent.to_string_lossy().to_string());
         }
         match std::fs::write(&path, "") {
             Ok(_) => {
                 self.status_message = Some(format!("Created {}", path));
                 self.tree_cache_dirty = true;
+                self.tree_selected = Some(path.clone());
                 self.open_file(path);
             }
             Err(e) => {
@@ -1960,6 +1963,12 @@ impl EditorState {
             Ok(_) => {
                 self.status_message = Some(format!("Created folder {}", path));
                 self.tree_cache_dirty = true;
+                self.tree_selected = Some(path.clone());
+                if let Some(parent) = Path::new(&path).parent() {
+                    self.tree_expanded
+                        .insert(parent.to_string_lossy().to_string());
+                }
+                self.start_rename(path);
             }
             Err(e) => {
                 self.status_message = Some(format!("Failed to create folder: {}", e));
@@ -2090,6 +2099,9 @@ impl EditorState {
                     // Update tree expanded set
                     if self.tree_expanded.remove(&old_path) {
                         self.tree_expanded.insert(new_path_str.clone());
+                    }
+                    if self.tree_selected.as_deref() == Some(&old_path) {
+                        self.tree_selected = Some(new_path_str.clone());
                     }
                     self.tree_cache_dirty = true;
                     self.update_breadcrumb();
@@ -4547,7 +4559,7 @@ mod tests {
         assert!(state.breadcrumb_path.is_empty());
         assert_eq!(state.scroll_offset_y, 0.0);
         assert_eq!(state.sidebar_width, 240.0);
-        assert_eq!(state.terminal_height, 120.0);
+        assert_eq!(state.terminal_height, 96.0);
         assert_eq!(state.sidebar_section, SidebarSection::Explorer);
         assert_eq!(state.bottom_panel_tab, BottomPanelTab::Terminal);
         assert!(state.terminal_session.is_none());
