@@ -25,6 +25,7 @@ impl Widget<InboxState> for RightSidebar {
                 .unwrap_or_else(|| key.to_string())
         };
         let today = Local::now().date_naive();
+        let compact_sidebar = view.viewport_size().height < 940.0;
 
         let meet_camera_id = ctx
             .bind(
@@ -168,6 +169,8 @@ impl Widget<InboxState> for RightSidebar {
                                     }
                                 })),
                                 on_navigate: None,
+                                cell_size: Some(32.0),
+                                padding: Some(12.0),
                             }
                             .build(ctx, view),
                             Card {
@@ -326,32 +329,71 @@ impl Widget<InboxState> for RightSidebar {
                                                 ],
                                             }
                                             .into_node(),
-                                            HStack {
-                                                spacing: Some(8.0),
-                                                children: vec![
-                                                    Container::new(
-                                                        Stat {
-                                                            label: t("quick.unread"),
-                                                            value: unread_total.to_string(),
-                                                            help_text: Some(t("quick.in_inbox")),
+                                            if compact_sidebar {
+                                                HStack {
+                                                    spacing: Some(16.0),
+                                                    children: vec![
+                                                        VStack {
+                                                            spacing: Some(2.0),
+                                                            children: vec![
+                                                                Text::new(unread_total.to_string())
+                                                                    .size(15.0)
+                                                                    .into_node(),
+                                                                Text::new(t("quick.unread"))
+                                                                    .size(12.0)
+                                                                    .color(
+                                                                        tokens.colors.text_secondary,
+                                                                    )
+                                                                    .into_node(),
+                                                            ],
                                                         }
-                                                        .build(ctx, view),
-                                                    )
-                                                    .flex_grow(1.0)
-                                                    .into_node(),
-                                                    Container::new(
-                                                        Stat {
-                                                            label: t("quick.starred"),
-                                                            value: starred_total.to_string(),
-                                                            help_text: Some(t("quick.all_folders")),
+                                                        .into_node(),
+                                                        VStack {
+                                                            spacing: Some(2.0),
+                                                            children: vec![
+                                                                Text::new(starred_total.to_string())
+                                                                    .size(15.0)
+                                                                    .into_node(),
+                                                                Text::new(t("quick.starred"))
+                                                                    .size(12.0)
+                                                                    .color(
+                                                                        tokens.colors.text_secondary,
+                                                                    )
+                                                                    .into_node(),
+                                                            ],
                                                         }
-                                                        .build(ctx, view),
-                                                    )
-                                                    .flex_grow(1.0)
-                                                    .into_node(),
-                                                ],
-                                            }
-                                            .into_node(),
+                                                        .into_node(),
+                                                    ],
+                                                }
+                                                .into_node()
+                                            } else {
+                                                HStack {
+                                                    spacing: Some(8.0),
+                                                    children: vec![
+                                                        Container::new(
+                                                            Stat {
+                                                                label: t("quick.unread"),
+                                                                value: unread_total.to_string(),
+                                                                help_text: Some(t("quick.in_inbox")),
+                                                            }
+                                                            .build(ctx, view),
+                                                        )
+                                                        .flex_grow(1.0)
+                                                        .into_node(),
+                                                        Container::new(
+                                                            Stat {
+                                                                label: t("quick.starred"),
+                                                                value: starred_total.to_string(),
+                                                                help_text: Some(t("quick.all_folders")),
+                                                            }
+                                                            .build(ctx, view),
+                                                        )
+                                                        .flex_grow(1.0)
+                                                        .into_node(),
+                                                    ],
+                                                }
+                                                .into_node()
+                                            },
                                         ],
                                     }
                                     .into_node(),

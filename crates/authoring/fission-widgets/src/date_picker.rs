@@ -86,6 +86,8 @@ impl<S: fission_core::AppState> Widget<S> for DatePicker {
                     selected_date: self.value,
                     on_select: self.on_change.clone(), // When selected, close? logic handles that
                     on_navigate: None, // TODO: Wiring navigation state requires DatePicker to own month state?
+                    cell_size: None,
+                    padding: None,
                                        // Yes, DatePicker needs `view_month` state separate from `value`.
                                        // For MVP, we navigate relative to `value` or `today`.
                                        // Calendar needs `on_navigate` to update `view_month`.

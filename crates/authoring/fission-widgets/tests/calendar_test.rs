@@ -24,6 +24,8 @@ fn test_calendar_build() {
         selected_date: None,
         on_select: None,
         on_navigate: None,
+        cell_size: None,
+        padding: None,
     };
 
     let node = calendar.build(&mut ctx, &view);
