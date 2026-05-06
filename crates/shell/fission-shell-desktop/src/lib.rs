@@ -5,6 +5,8 @@ use std::collections::{HashMap, VecDeque};
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
+#[cfg(target_os = "android")]
+use winit::platform::android::{activity::AndroidApp, EventLoopBuilderExtAndroid};
 #[cfg(target_os = "macos")]
 use winit::platform::macos::{ActivationPolicy, EventLoopBuilderExtMacOS};
 use winit::{
@@ -1516,7 +1518,22 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
         self.runtime.absorb_persistent_registry(registry);
     }
 
-    pub fn run(mut self) -> Result<()> {
+    pub fn run(self) -> Result<()> {
+        self.run_inner(
+            #[cfg(target_os = "android")]
+            None,
+        )
+    }
+
+    #[cfg(target_os = "android")]
+    pub fn run_with_android_app(self, android_app: AndroidApp) -> Result<()> {
+        self.run_inner(Some(android_app))
+    }
+
+    fn run_inner(
+        mut self,
+        #[cfg(target_os = "android")] android_app: Option<AndroidApp>,
+    ) -> Result<()> {
         diag::emit(
             diag::DiagCategory::Frame,
             diag::DiagLevel::Info,
@@ -1528,6 +1545,10 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
         // This allows the test control server to inject events via EventLoopProxy.
         let background_test_mode = std::env::var_os("FISSION_BACKGROUND_TEST").is_some();
         let mut event_loop_builder = EventLoopBuilder::<TestEvent>::with_user_event();
+        #[cfg(target_os = "android")]
+        if let Some(app) = android_app {
+            event_loop_builder.with_android_app(app);
+        }
         #[cfg(target_os = "macos")]
         if background_test_mode {
             event_loop_builder.with_activation_policy(ActivationPolicy::Accessory);

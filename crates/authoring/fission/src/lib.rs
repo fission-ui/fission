@@ -152,6 +152,7 @@ pub mod prelude {
 
     // Shell
     pub use fission_shell_desktop::DesktopApp;
+    pub use fission_shell_mobile::MobileApp;
 
     // Serde (commonly needed for actions)
     pub use serde::{Deserialize, Serialize};

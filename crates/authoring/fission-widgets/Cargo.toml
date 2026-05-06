@@ -19,10 +19,12 @@ anyhow = "1.0"
 serde_json = "1.0"
 fission-diagnostics = { path = "../../tools/fission-diagnostics", version = "0.1.1" }
 chrono = { version = "0.4", default-features = false, features = ["alloc", "clock", "serde"] }
+
+[dev-dependencies]
+fission-layout = { path = "../../core/fission-layout", version = "0.1.1" }
+
+[target.'cfg(not(any(target_os = "ios", target_os = "android", target_arch = "wasm32")))'.dependencies]
 arboard = "3.4"
 portable-pty = "0.9"
 wezterm-term = { git = "https://github.com/wezterm/wezterm", package = "wezterm-term" }
 wezterm-surface = { git = "https://github.com/wezterm/wezterm", package = "wezterm-surface" }
-
-[dev-dependencies]
-fission-layout = { path = "../../core/fission-layout", version = "0.1.1" }

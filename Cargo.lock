@@ -1095,6 +1095,7 @@ dependencies = [
  "fission-macros",
  "fission-render",
  "fission-shell-desktop",
+ "fission-shell-mobile",
  "fission-test-driver",
  "fission-theme",
  "fission-widgets",
@@ -1328,7 +1329,11 @@ dependencies = [
 name = "fission-shell-mobile"
 version = "0.1.1"
 dependencies = [
+ "anyhow",
+ "fission-core",
  "fission-shell",
+ "fission-shell-desktop",
+ "winit",
 ]
 
 [[package]]
@@ -2361,6 +2366,18 @@ checksum = "1fa76a2c86f704bdb222d66965fb3d63269ce38518b83cb0575fca855ebb6316"
 dependencies = [
  "adler2",
  "simd-adler32",
+]
+
+[[package]]
+name = "mobile-smoke"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "fission-core",
+ "fission-macros",
+ "fission-shell-mobile",
+ "lazy_static",
+ "serde",
 ]
 
 [[package]]

@@ -140,7 +140,9 @@ pub use hero::Hero;
 pub mod web_view;
 pub use web_view::WebView;
 
+#[cfg(not(any(target_os = "ios", target_os = "android", target_arch = "wasm32")))]
 pub mod terminal;
+#[cfg(not(any(target_os = "ios", target_os = "android", target_arch = "wasm32")))]
 pub use terminal::{TerminalLaunchConfig, TerminalSession, TerminalView};
 
 pub mod draggable;

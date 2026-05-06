@@ -8,5 +8,9 @@ description = "Shell Mobile"
 
 [dependencies]
 fission-shell = { path = "../fission-shell", version = "0.1.1" }
+fission-shell-desktop = { path = "../fission-shell-desktop", version = "0.1.1" }
+fission-core = { path = "../../core/fission-core", version = "0.1.1" }
+anyhow = "1.0"
+winit = { version = "0.29.15", features = ["android-native-activity"] }
 
 [dev-dependencies]

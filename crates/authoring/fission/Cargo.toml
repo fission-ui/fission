@@ -16,6 +16,7 @@ fission-widgets = { path = "../fission-widgets", version = "0.1.1" }
 fission-macros = { path = "../fission-macros", version = "0.1.1" }
 fission-icons = { path = "../fission-icons", version = "0.1.1" }
 fission-shell-desktop = { path = "../../shell/fission-shell-desktop", version = "0.1.1" }
+fission-shell-mobile = { path = "../../shell/fission-shell-mobile", version = "0.1.1" }
 fission-render = { path = "../../rendering/fission-render", version = "0.1.1" }
 fission-diagnostics = { path = "../../tools/fission-diagnostics", version = "0.1.1" }
 fission-test-driver = { path = "../../tools/fission-test-driver", version = "0.1.1" }
