@@ -100,7 +100,7 @@ pub struct EditorRenderNode {
 }
 
 const VISIBLE_LINE_OVERSCAN: usize = 4;
-const FULL_RENDER_VISUAL_LINE_LIMIT: usize = 20_000;
+const FULL_RENDER_VISUAL_LINE_LIMIT: usize = 512;
 
 impl fmt::Debug for EditorRenderNode {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -137,6 +137,7 @@ impl EditorRenderNode {
         state: &EditorState,
         viewport_width: f32,
         viewport_height: f32,
+        scroll_y: f32,
     ) -> Option<Self> {
         let (tab, buffer) = state.active_buffer()?;
         let content = buffer.display_content();
@@ -214,7 +215,7 @@ impl EditorRenderNode {
             font_size,
             gutter_width,
             wrap_columns,
-            scroll_y: state.scroll_offset_y,
+            scroll_y,
             file_path,
             viewport_height: viewport_height.max(line_height),
             viewport_width,

@@ -82,6 +82,24 @@ fn cleanup_temp_file(path: &str) {
     std::fs::remove_file(path).ok();
 }
 
+fn sampled_nonblack_pixels(path: &str) -> usize {
+    let img = image::open(path).expect("open screenshot").to_rgba8();
+    let width = img.width().max(1);
+    let height = img.height().max(1);
+    let step_x = (width / 24).max(1);
+    let step_y = (height / 24).max(1);
+    let mut non_black = 0usize;
+    for y in (0..height).step_by(step_y as usize) {
+        for x in (0..width).step_by(step_x as usize) {
+            let px = img.get_pixel(x, y);
+            if px[0] > 8 || px[1] > 8 || px[2] > 8 {
+                non_black += 1;
+            }
+        }
+    }
+    non_black
+}
+
 #[test]
 #[ignore]
 fn editor_full_workflow() {
@@ -483,9 +501,29 @@ fn cargo_lock_opens_with_visible_content_near_the_top() {
     client.wait(2_000).expect("wait");
     let d = dir();
 
+    let wait_for_text = |needle: &str| {
+        for _ in 0..20 {
+            if client.assert_text_visible(needle).is_ok() {
+                return;
+            }
+            client.wait(250).expect("wait for visible text");
+            client.pump().expect("pump while waiting for visible text");
+        }
+        client
+            .assert_text_visible(needle)
+            .expect("expected text to become visible");
+    };
+
     client.tap_text("Cargo.lock").expect("open Cargo.lock");
-    client.wait(1_200).expect("wait after opening Cargo.lock");
-    client.pump().expect("pump after opening Cargo.lock");
+    wait_for_text("version = 4");
+    let texts_after_open = client.get_text().expect("get visible text after open");
+    assert!(
+        !texts_after_open
+            .iter()
+            .any(|item| item.text == "Fission Editor"
+                || item.text == "Open a file from the explorer to begin"),
+        "welcome-screen text should not remain reachable after opening Cargo.lock"
+    );
     client
         .screenshot(&format!("{}/26_cargo_lock_open.png", d))
         .expect("Cargo.lock screenshot");
@@ -501,14 +539,13 @@ fn cargo_lock_opens_with_visible_content_near_the_top() {
         visible_line.y
     );
 
-    for _ in 0..5 {
+    for _ in 0..2 {
         client
             .scroll(520.0, 320.0, 0.0, 520.0)
             .expect("scroll Cargo.lock");
         client.wait(250).expect("wait after Cargo.lock scroll");
     }
-    client.wait(400).expect("settle after scrolling Cargo.lock");
-    client.pump().expect("pump after scrolling Cargo.lock");
+    wait_for_text("aligned-vec");
     client
         .screenshot(&format!("{}/27_cargo_lock_scrolled.png", d))
         .expect("Cargo.lock scrolled screenshot");
@@ -516,6 +553,46 @@ fn cargo_lock_opens_with_visible_content_near_the_top() {
     client
         .assert_text_visible("aligned-vec")
         .expect("expected content well past the initial viewport to become visible");
+
+    client.quit().expect("quit");
+    let _ = child.wait();
+}
+
+#[test]
+#[ignore]
+fn cargo_lock_resize_keeps_a_visible_frame() {
+    let control_port = reserve_control_port();
+    let mut child = launch_editor(control_port);
+    let client = LiveTestClient::connect(control_port);
+    client.wait_for_ready(20_000).expect("editor start");
+    client.wait(2_000).expect("wait");
+    let d = dir();
+
+    client.tap_text("Cargo.lock").expect("open Cargo.lock");
+    for _ in 0..20 {
+        if client.assert_text_visible("version = 4").is_ok() {
+            break;
+        }
+        client.wait(250).expect("wait for Cargo.lock");
+        client.pump().expect("pump while waiting for Cargo.lock");
+    }
+    client
+        .simulate_resize(900, 700)
+        .expect("resize editor with Cargo.lock open");
+    client.pump().expect("pump after resize");
+    client.wait(500).expect("wait after resize");
+    client.pump().expect("second pump after resize");
+
+    let path = format!("{}/28_cargo_lock_resized.png", d);
+    client
+        .screenshot(&path)
+        .expect("Cargo.lock resized screenshot");
+
+    let non_black = sampled_nonblack_pixels(&path);
+    assert!(
+        non_black > 80,
+        "resized Cargo.lock frame should not be blank; sampled non-black pixels={non_black}"
+    );
 
     client.quit().expect("quit");
     let _ = child.wait();
@@ -668,8 +745,13 @@ fn embedded_terminal_executes_and_renders_commands() {
     client
         .press_key("Enter", 0)
         .expect("run alt-screen command");
-    client.wait(350).expect("wait for alt-screen");
-    client.pump().expect("pump alt-screen");
+    for _ in 0..6 {
+        client.wait(200).expect("wait for alt-screen");
+        client.pump().expect("pump alt-screen");
+        if client.assert_text_visible("EDITOR ALT SCREEN").is_ok() {
+            break;
+        }
+    }
     client
         .screenshot(&format!("{}/25_terminal_alt_screen.png", d))
         .expect("embedded terminal alt-screen screenshot");

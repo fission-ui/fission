@@ -1164,7 +1164,21 @@ fn build_get_text_response(pipeline: &Pipeline) -> fission_test_driver::TestResp
     use fission_test_driver::{TestResponse, TextItem};
     let mut items = Vec::new();
     if let (Some(ir), Some(snap)) = (pipeline.prev_ir.as_ref(), pipeline.last_snapshot.as_ref()) {
-        for (id, node) in &ir.nodes {
+        let mut reachable = std::collections::HashSet::new();
+        let mut stack = ir.root.into_iter().collect::<Vec<_>>();
+        while let Some(node_id) = stack.pop() {
+            if !reachable.insert(node_id) {
+                continue;
+            }
+            if let Some(node) = ir.nodes.get(&node_id) {
+                stack.extend(node.children.iter().copied());
+            }
+        }
+
+        for id in reachable {
+            let Some(node) = ir.nodes.get(&id) else {
+                continue;
+            };
             let text_content = match &node.op {
                 fission_ir::Op::Paint(fission_ir::PaintOp::DrawText { text, .. }) => {
                     Some(text.clone())
@@ -1178,10 +1192,10 @@ fn build_get_text_response(pipeline: &Pipeline) -> fission_test_driver::TestResp
                 if text.is_empty() {
                     continue;
                 }
-                let check_id = node.parent.unwrap_or(*id);
+                let check_id = node.parent.unwrap_or(id);
                 let rect = snap
                     .get_node_rect(check_id)
-                    .or_else(|| snap.get_node_rect(*id));
+                    .or_else(|| snap.get_node_rect(id));
                 let (x, y, w, h) = rect
                     .map(|r| (r.x(), r.y(), r.width(), r.height()))
                     .unwrap_or((0.0, 0.0, 0.0, 0.0));

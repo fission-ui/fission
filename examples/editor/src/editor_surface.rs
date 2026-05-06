@@ -10,6 +10,7 @@ use fission_core::ui::traits::LowerDyn;
 use fission_core::ui::{Container, CustomNode, Node, Row, Scroll, Text};
 use fission_core::{BuildCtx, FlexDirection, Handler, View, Widget};
 use fission_widgets::{HStack, Spacer, VStack};
+use fission_ir::NodeId as IrNodeId;
 use std::sync::Arc;
 
 pub struct EditorSurface;
@@ -61,10 +62,21 @@ impl Widget<EditorState> for EditorSurface {
             - 61.0
             - 24.0)
             .max(180.0);
+        let active_path = view
+            .state
+            .active_buffer()
+            .map(|(tab, _)| tab.path.clone());
+        let editor_scroll_id = active_path
+            .as_ref()
+            .map(|path| IrNodeId::explicit(&format!("editor_scroll_{}", path)));
+        let scroll_y = editor_scroll_id
+            .and_then(|id| view.runtime.scroll.offsets.get(&id).copied())
+            .unwrap_or(view.state.scroll_offset_y);
         let render_node = match EditorRenderNode::from_state(
             view.state,
             editor_viewport_width,
             editor_viewport_height,
+            scroll_y,
         ) {
             Some(rn) => rn,
             None => return self.build_welcome_screen(ctx, view),
@@ -161,10 +173,7 @@ impl Widget<EditorState> for EditorSurface {
         // scroll together. The render node reports full content height so the
         // scrollbar reflects the real document length.
         let scrollable = Scroll {
-            id: Some(fission_ir::NodeId::explicit(&format!(
-                "editor_scroll_{}",
-                path
-            ))),
+            id: Some(IrNodeId::explicit(&format!("editor_scroll_{}", path))),
             child: Some(Box::new(editor_area)),
             direction: FlexDirection::Column,
             show_scrollbar: true,
