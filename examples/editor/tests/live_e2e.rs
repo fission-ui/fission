@@ -46,12 +46,16 @@ fn dir() -> String {
 }
 
 fn tap_first_visible_text(client: &LiveTestClient, options: &[&str]) -> String {
-    let texts = client.get_text().expect("get_text");
-    for option in options {
-        if texts.iter().any(|item| item.text == *option) {
-            client.tap_text(option).expect("tap visible text");
-            return (*option).to_string();
+    for _ in 0..12 {
+        let texts = client.get_text().expect("get_text");
+        for option in options {
+            if texts.iter().any(|item| item.text == *option) {
+                client.tap_text(option).expect("tap visible text");
+                return (*option).to_string();
+            }
         }
+        client.wait(200).expect("wait for visible text");
+        client.pump().expect("pump while waiting for visible text");
     }
     panic!("none of the expected labels were visible: {options:?}");
 }
@@ -777,6 +781,10 @@ fn bottom_panel_tabs_switch_visible_content() {
     client.wait_for_ready(20_000).expect("editor start");
     client.wait(2_000).expect("wait");
 
+    client.tap_text("TERMINAL").expect("show terminal tab");
+    client.wait(400).expect("wait for terminal tab");
+    client.pump().expect("pump after terminal tab");
+
     let terminal_tab = client
         .get_text()
         .expect("get text")
@@ -788,6 +796,7 @@ fn bottom_panel_tabs_switch_visible_content() {
     let focus_x = terminal_tab.x + 180.0;
     let focus_y = terminal_tab.y + 60.0;
     client.tap(focus_x, focus_y).expect("focus terminal");
+    client.wait(200).expect("wait after terminal focus");
     client
         .type_text("printf '\\124\\101\\102\\137\\117\\113\\n'")
         .expect("type terminal command");
