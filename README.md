@@ -13,6 +13,7 @@ Cross-platform, GPU-accelerated UI framework for Rust. Fission uses a Flutter-in
 
 - [Quick start](#quick-start)
 - [Project scaffolding](#project-scaffolding)
+- [Platform smoke tests](#platform-smoke-tests)
 - [Architecture](#architecture)
 - [Deterministic state management](#deterministic-state-management)
 - [Effects system](#effects-system)
@@ -116,7 +117,8 @@ The CLI currently does three things:
 Current status:
 
 - desktop targets are runnable today through `DesktopApp`
-- web, iOS, and Android targets are scaffolded, but their shells are still in progress in this branch
+- iOS and Android now have verified compile-smoke paths both through `examples/mobile-smoke/` and through CLI-generated apps after `fission add-target`, but `fission add-target` does not yet generate native packaging or launcher files
+- web/WASM is still scaffold-only; `fission-shell-web` is not implemented yet
 
 If you are developing against a local Fission checkout, use:
 
@@ -126,7 +128,45 @@ fission init my-app --local-path /path/to/fission
 
 That generates path dependencies so the new app tracks your local workspace instead of crates.io.
 
-More detail lives in `docs/cli-and-targets.md`.
+More detail lives in:
+
+- `docs/cli-and-targets.md`
+- `docs/platform-smoke-tests.md`
+
+## Platform smoke tests
+
+The current reproducible smoke path is:
+
+- desktop preview: `cargo run -p mobile-smoke`
+- iOS compile smoke: `cargo check -p fission-shell-mobile -p mobile-smoke --target aarch64-apple-ios`
+- Android compile smoke: `cargo check -p fission-shell-mobile -p mobile-smoke --target aarch64-linux-android`
+
+Install the extra Rust targets first:
+
+```sh
+rustup target add aarch64-apple-ios aarch64-linux-android wasm32-unknown-unknown
+```
+
+On macOS, the Android check also needs the SDK + NDK environment:
+
+```sh
+export ANDROID_HOME="$HOME/Library/Android/sdk"
+export ANDROID_NDK="$ANDROID_HOME/ndk/24.0.8215888"
+export ANDROID_TOOLCHAIN="$ANDROID_NDK/toolchains/llvm/prebuilt/darwin-x86_64/bin"
+export CC_aarch64_linux_android="$ANDROID_TOOLCHAIN/aarch64-linux-android24-clang"
+export AR_aarch64_linux_android="$ANDROID_TOOLCHAIN/llvm-ar"
+```
+
+If your NDK uses a different host prebuilt directory, replace `darwin-x86_64` with the correct value for your machine.
+
+Web/WASM prerequisites today are:
+
+```sh
+rustup target add wasm32-unknown-unknown
+cargo install wasm-pack
+```
+
+There is not yet a runnable checked-in web shell or `web-smoke` example in this branch, so WASM is currently a documented prerequisite rather than a runnable smoke target.
 
 ## Architecture
 
@@ -612,7 +652,12 @@ cargo run --example chart-gallery
 
 # Text rendering lab
 cargo run --example text-lab
+
+# Mobile shell smoke preview on the host
+cargo run -p mobile-smoke
 ```
+
+For the iOS and Android cross-target smoke commands, see `docs/platform-smoke-tests.md`.
 
 ## Crate map
 
@@ -632,7 +677,7 @@ cargo run --example text-lab
 | [`fission-render-vello`](crates/rendering/fission-render-vello) | Vello/wgpu rendering backend |
 | [`fission-shell`](crates/shell/fission-shell) | Shared shell abstractions (event loop, windowing) |
 | [`fission-shell-desktop`](crates/shell/fission-shell-desktop) | Desktop shell -- winit + Vello + wgpu integration |
-| [`fission-shell-mobile`](crates/shell/fission-shell-mobile) | Mobile shell (iOS / Android) -- in progress |
+| [`fission-shell-mobile`](crates/shell/fission-shell-mobile) | Mobile shell (iOS / Android) -- compile-smoke path verified, packaging still in progress |
 | [`fission-shell-web`](crates/shell/fission-shell-web) | Web shell (WASM + WebGPU) -- in progress |
 | [`fission-cli`](crates/tools/fission-cli) | Project scaffolding CLI and `cargo fission` entrypoint |
 | [`fission-diagnostics`](crates/tools/fission-diagnostics) | Structured diagnostic logging and performance tracing |
