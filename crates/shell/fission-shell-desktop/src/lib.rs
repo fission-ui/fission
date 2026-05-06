@@ -2561,7 +2561,13 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                             .offsets
                                             .values()
                                             .any(|offset| offset.abs() > 0.5);
-                                        if texture_plans.is_empty()
+                                        let enable_texture_compositor =
+                                            std::env::var("FISSION_ENABLE_TEXTURE_COMPOSITOR")
+                                                .ok()
+                                                .as_deref()
+                                                == Some("1");
+                                        if !enable_texture_compositor
+                                            || texture_plans.is_empty()
                                             || !texture_plans_fit_limits
                                             || has_active_scroll_offsets
                                         {

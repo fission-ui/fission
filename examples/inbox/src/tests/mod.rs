@@ -8,7 +8,7 @@ use fission_ir::op::{FlexDirection, FlexWrap, GridTrack};
 use fission_ir::semantics::{ActionTrigger, Role};
 use fission_ir::{EmbedKind, LayoutOp, Op, PaintOp};
 use fission_layout::LayoutEngine;
-use fission_render::LayoutRect;
+use fission_render::{DisplayOp, LayoutRect};
 use fission_shell_desktop::Pipeline;
 use fission_test::prelude::*;
 use std::collections::HashMap;
@@ -17,6 +17,18 @@ fn pump_state(state: InboxState) -> Result<TestHarness<InboxState>> {
     let mut h = TestHarness::new(state).with_root_widget(InboxApp);
     h.env = create_env();
     h.env.viewport_size = LayoutSize::new(1200.0, 800.0);
+    h.pump()?;
+    Ok(h)
+}
+
+fn pump_state_with_viewport(
+    state: InboxState,
+    width: f32,
+    height: f32,
+) -> Result<TestHarness<InboxState>> {
+    let mut h = TestHarness::new(state).with_root_widget(InboxApp);
+    h.env = create_env();
+    h.env.viewport_size = LayoutSize::new(width, height);
     h.pump()?;
     Ok(h)
 }
@@ -195,6 +207,26 @@ fn display_texts(h: &TestHarness<InboxState>) -> Vec<String> {
                 }
                 _ => {}
             }
+        }
+    }
+    out
+}
+
+fn scene_texts(scene: &fission_render::RenderScene) -> Vec<String> {
+    let mut out = Vec::new();
+    for op in scene.flatten().ops {
+        match op {
+            DisplayOp::DrawText { text, .. } => out.push(text),
+            DisplayOp::DrawRichText { runs, .. } => {
+                let combined: String = runs.iter().map(|r| r.text.clone()).collect();
+                if !combined.is_empty() {
+                    out.push(combined);
+                }
+                for run in runs {
+                    out.push(run.text);
+                }
+            }
+            _ => {}
         }
     }
     out
@@ -890,6 +922,42 @@ fn inbox_emits_root_texture_compositor_plans() -> Result<()> {
     Ok(())
 }
 
+#[test]
+fn default_viewport_retained_scene_contains_inbox_rows() -> Result<()> {
+    let (ir, runtime_state, env) = build_lowered_inbox_ir(&InboxState::default());
+    let mut pipeline = Pipeline::new();
+    let mut layout_engine = LayoutEngine::new();
+    pipeline.replace_ir(ir, &env);
+    pipeline.ensure_layout(
+        LayoutRect::new(0.0, 0.0, 800.0, 600.0),
+        &mut layout_engine,
+        &runtime_state.scroll,
+    )?;
+    pipeline.prepare_current(
+        LayoutSize::new(800.0, 600.0),
+        LayoutSize::new(800.0, 600.0),
+        false,
+        &runtime_state.scroll,
+        &runtime_state.animation,
+        &runtime_state.video,
+        &runtime_state.web,
+    )?;
+
+    let scene = pipeline.retained_scene().expect("retained scene");
+    let texts = scene_texts(scene);
+    assert!(
+        texts.iter().any(|t| t == "Dana Wu"),
+        "expected sender text in retained scene, got {:?}",
+        texts
+    );
+    assert!(
+        texts.iter().any(|t| t.contains("Quarterly planning sync")),
+        "expected subject text in retained scene, got {:?}",
+        texts
+    );
+    Ok(())
+}
+
 text_test!(app_title_visible, state_default(), "Fission Inbox");
 text_test!(compose_button_visible, state_default(), "Compose");
 #[test]
@@ -1309,6 +1377,54 @@ fn circular_progress_draw_path_present() -> Result<()> {
 }
 
 #[test]
+fn default_viewport_display_list_contains_inbox_rows() -> Result<()> {
+    let h = pump_state_with_viewport(state_default(), 800.0, 600.0)?;
+    let texts = display_texts(&h);
+    assert!(
+        texts.iter().any(|t| t == "Dana Wu"),
+        "expected first inbox sender in display list, got {:?}",
+        texts
+    );
+    assert!(
+        texts.iter().any(|t| t.contains("Quarterly planning sync")),
+        "expected subject text in display list, got {:?}",
+        texts
+    );
+    Ok(())
+}
+
+#[test]
+fn wide_viewport_display_list_contains_inbox_rows() -> Result<()> {
+    let h = pump_state_with_viewport(state_default(), 1400.0, 900.0)?;
+    let texts = display_texts(&h);
+    assert!(
+        texts.iter().any(|t| t == "Dana Wu"),
+        "expected first inbox sender in display list, got {:?}",
+        texts
+    );
+    assert!(
+        texts.iter().any(|t| t.contains("Quarterly planning sync")),
+        "expected subject text in display list, got {:?}",
+        texts
+    );
+    Ok(())
+}
+
+#[test]
+fn default_viewport_email_list_scroll_has_positive_height() -> Result<()> {
+    let h = pump_state_with_viewport(state_default(), 800.0, 600.0)?;
+    let lazy_id = WidgetNodeId::explicit("email_list");
+    let node_id = NodeId::derived(lazy_id.as_u128(), &[1]);
+    let rect = node_rect(&h, node_id).expect("email list rect");
+    assert!(
+        rect.height() > 200.0,
+        "expected email list scroll viewport to have real height, got {:?}",
+        rect
+    );
+    Ok(())
+}
+
+#[test]
 fn spinner_animation_disabled_in_default_inbox() -> Result<()> {
     let h = pump_state(state_default())?;
     let base = WidgetNodeId::explicit("sync_spinner");
@@ -1319,7 +1435,10 @@ fn spinner_animation_disabled_in_default_inbox() -> Result<()> {
             found += 1;
         }
     }
-    assert_eq!(found, 0, "default inbox should not schedule spinner animations");
+    assert_eq!(
+        found, 0,
+        "default inbox should not schedule spinner animations"
+    );
     Ok(())
 }
 

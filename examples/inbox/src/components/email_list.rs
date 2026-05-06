@@ -44,7 +44,8 @@ impl Widget<InboxState> for EmailList {
         let mut chrome_items = vec![];
 
         let folder = folder_from_route(&self.folder);
-        let compact_rows = view.viewport_size().height < 680.0 || view.viewport_size().width < 980.0;
+        let compact_rows =
+            view.viewport_size().height < 680.0 || view.viewport_size().width < 980.0;
         let folder_label = match &folder {
             Folder::Inbox => view
                 .env
@@ -593,7 +594,12 @@ impl Widget<InboxState> for EmailList {
                     Button {
                         variant: ButtonVariant::Ghost,
                         content_align: ButtonContentAlign::Start,
-                        child: Some(Box::new(item)),
+                        child: Some(Box::new(
+                            Container::new(item)
+                                .flex_grow(1.0)
+                                .min_width(0.0)
+                                .into_node(),
+                        )),
                         on_press: Some(ActionEnvelope {
                             id: navigate_id,
                             payload: serde_json::to_vec(&Navigate(path)).unwrap(),
@@ -660,7 +666,10 @@ impl Widget<InboxState> for EmailList {
                         children: chrome_items,
                     }
                     .build(ctx, view),
-                    Container::new(list_body).flex_grow(1.0).min_height(0.0).into_node(),
+                    Container::new(list_body)
+                        .flex_grow(1.0)
+                        .min_height(0.0)
+                        .into_node(),
                     footer,
                 ],
             }

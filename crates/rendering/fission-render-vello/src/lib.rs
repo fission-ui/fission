@@ -1082,25 +1082,36 @@ impl<'a> VelloRenderer<'a> {
     }
 
     fn render_layer(&mut self, layer: &RenderLayer) -> Result<()> {
-        if let Some(cache_key) = layer.style.cache_key {
-            if !self.scene_cache.contains(cache_key) {
-                let mut cached_scene = Scene::new();
-                {
-                    let mut cached_renderer = VelloRenderer::new(
-                        &mut cached_scene,
-                        Arc::clone(&self.measurer),
-                        self.scene_cache,
-                        1.0,
-                    );
-                    cached_renderer.render_layer_uncached(layer)?;
+        let enable_scene_cache = std::env::var("FISSION_ENABLE_VELLO_SCENE_CACHE")
+            .ok()
+            .as_deref()
+            == Some("1");
+        let can_cache_layer = enable_scene_cache
+            && layer.style.clip.is_none()
+            && layer.style.transform.is_none()
+            && (layer.style.opacity - 1.0).abs() <= 0.001;
+
+        if can_cache_layer {
+            if let Some(cache_key) = layer.style.cache_key {
+                if !self.scene_cache.contains(cache_key) {
+                    let mut cached_scene = Scene::new();
+                    {
+                        let mut cached_renderer = VelloRenderer::new(
+                            &mut cached_scene,
+                            Arc::clone(&self.measurer),
+                            self.scene_cache,
+                            1.0,
+                        );
+                        cached_renderer.render_layer_uncached(layer)?;
+                    }
+                    self.scene_cache.insert(cache_key, cached_scene);
                 }
-                self.scene_cache.insert(cache_key, cached_scene);
+                if let Some(cached_scene) = self.scene_cache.get(cache_key) {
+                    self.scene
+                        .append(cached_scene, Some(self.current_transform));
+                }
+                return Ok(());
             }
-            if let Some(cached_scene) = self.scene_cache.get(cache_key) {
-                self.scene
-                    .append(cached_scene, Some(self.current_transform));
-            }
-            return Ok(());
         }
 
         self.render_layer_uncached(layer)
@@ -1155,23 +1166,36 @@ impl<'a> VelloRenderer<'a> {
             self.current_transform = self.current_transform * affine;
         }
 
-        if let Some(cache_key) = layer.style.content_cache_key {
-            if !self.scene_cache.contains(cache_key) {
-                let mut cached_scene = Scene::new();
-                {
-                    let mut cached_renderer = VelloRenderer::new(
-                        &mut cached_scene,
-                        Arc::clone(&self.measurer),
-                        self.scene_cache,
-                        1.0,
-                    );
-                    cached_renderer.render_layer_contents(layer)?;
+        let enable_scene_cache = std::env::var("FISSION_ENABLE_VELLO_SCENE_CACHE")
+            .ok()
+            .as_deref()
+            == Some("1");
+        let can_cache_contents = enable_scene_cache
+            && layer.style.clip.is_none()
+            && layer.style.transform.is_none()
+            && (layer.style.opacity - 1.0).abs() <= 0.001;
+
+        if can_cache_contents {
+            if let Some(cache_key) = layer.style.content_cache_key {
+                if !self.scene_cache.contains(cache_key) {
+                    let mut cached_scene = Scene::new();
+                    {
+                        let mut cached_renderer = VelloRenderer::new(
+                            &mut cached_scene,
+                            Arc::clone(&self.measurer),
+                            self.scene_cache,
+                            1.0,
+                        );
+                        cached_renderer.render_layer_contents(layer)?;
+                    }
+                    self.scene_cache.insert(cache_key, cached_scene);
                 }
-                self.scene_cache.insert(cache_key, cached_scene);
-            }
-            if let Some(cached_scene) = self.scene_cache.get(cache_key) {
-                self.scene
-                    .append(cached_scene, Some(self.current_transform));
+                if let Some(cached_scene) = self.scene_cache.get(cache_key) {
+                    self.scene
+                        .append(cached_scene, Some(self.current_transform));
+                }
+            } else {
+                self.render_layer_contents(layer)?;
             }
         } else {
             self.render_layer_contents(layer)?;
