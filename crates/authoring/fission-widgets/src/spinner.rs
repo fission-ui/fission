@@ -6,6 +6,8 @@ use fission_core::{
 };
 use serde::{Deserialize, Serialize};
 
+const LOW_PRIORITY_REPEAT_FRAME_MS: u64 = 166;
+
 /// A three-dot animated loading indicator.
 ///
 /// Each dot pulses between 30% and 100% opacity in a 600ms cycle, with a 200ms
@@ -57,6 +59,7 @@ impl<S: fission_core::AppState> Widget<S> for Spinner {
                     duration_ms: 600,
                     repeat: true,
                     delay_ms: i as u64 * 200,
+                    frame_interval_ms: Some(LOW_PRIORITY_REPEAT_FRAME_MS),
                 });
                 Composite::new(boundary)
                     .animated_opacity(sub_id, 0.3)

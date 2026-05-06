@@ -119,6 +119,7 @@ impl Widget<CounterState> for CounterApp {
             duration_ms: 250,
             repeat: false,
             delay_ms: 0,
+            frame_interval_ms: None,
         });
         ctx.anim_for(*STATUS_WIDGET_ID).request(AnimationRequest {
             property: AnimationPropertyId::Opacity,
@@ -127,6 +128,7 @@ impl Widget<CounterState> for CounterApp {
             duration_ms: 250,
             repeat: false,
             delay_ms: 0,
+            frame_interval_ms: None,
         });
 
         let mut children = vec![

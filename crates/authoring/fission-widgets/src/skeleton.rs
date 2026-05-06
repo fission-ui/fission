@@ -6,6 +6,8 @@ use fission_core::{
 };
 use serde::{Deserialize, Serialize};
 
+const LOW_PRIORITY_REPEAT_FRAME_MS: u64 = 166;
+
 /// A placeholder shimmer rectangle used as a loading indicator.
 ///
 /// Animates opacity between 0.4 and 0.8 in an 800ms repeating loop, creating
@@ -57,6 +59,7 @@ impl<S: fission_core::AppState> Widget<S> for Skeleton {
                 duration_ms: 800,
                 repeat: true,
                 delay_ms: 0,
+                frame_interval_ms: Some(LOW_PRIORITY_REPEAT_FRAME_MS),
             });
             Composite::new(boundary)
                 .animated_opacity(self.id, 0.4)

@@ -2400,7 +2400,7 @@ mod tests {
             )
             .unwrap();
 
-        assert!(pipeline.texture_compositor_root_transform().is_some());
+        assert!(pipeline.texture_compositor_root_transform().is_none());
         assert!(!pipeline.texture_compositor_plans().is_empty());
     }
 

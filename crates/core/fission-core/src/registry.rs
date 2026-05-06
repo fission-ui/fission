@@ -222,6 +222,11 @@ pub struct AnimationRequest {
     pub repeat: bool,
     /// Delay before the animation starts (in milliseconds).
     pub delay_ms: u64,
+    /// Optional preferred redraw cadence for this animation (in milliseconds).
+    ///
+    /// This is primarily useful for low-priority repeating effects such as
+    /// loading indicators that do not need full frame-rate updates.
+    pub frame_interval_ms: Option<u64>,
 }
 
 /// Registration data for a [`Video`](crate::ui::Video) widget collected during

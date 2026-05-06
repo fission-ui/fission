@@ -120,6 +120,7 @@ pub struct ActiveAnimation {
     pub start_time: u64,
     pub duration: u64,
     pub repeat: bool,
+    pub frame_interval_ms: Option<u64>,
 }
 
 #[derive(Clone, Debug, Default)]

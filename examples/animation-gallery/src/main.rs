@@ -75,6 +75,7 @@ impl Widget<AnimationGalleryState> for AnimationGalleryApp {
                 duration_ms: 1400,
                 delay_ms: 0,
                 repeat: true,
+                frame_interval_ms: None,
             });
             ctx.anim_for(*CUSTOM_ID).request(AnimationRequest {
                 property: AnimationPropertyId::Opacity,
@@ -83,6 +84,7 @@ impl Widget<AnimationGalleryState> for AnimationGalleryApp {
                 duration_ms: 1400,
                 delay_ms: 0,
                 repeat: true,
+                frame_interval_ms: None,
             });
         }
 

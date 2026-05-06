@@ -216,17 +216,33 @@ fn active_animation_keys(runtime: &Runtime) -> Vec<String> {
     keys
 }
 
+fn repeating_animation_redraw_interval(
+    animation_map: &fission_core::env::AnimationStateMap,
+    default_repeat_frame: Duration,
+) -> Option<Duration> {
+    animation_map
+        .active
+        .values()
+        .filter(|anim| anim.repeat)
+        .map(|anim| {
+            anim.frame_interval_ms
+                .filter(|ms| *ms > 0)
+                .map(Duration::from_millis)
+                .unwrap_or(default_repeat_frame)
+        })
+        .min()
+}
+
 fn animation_redraw_interval(
     has_finite_animation: bool,
-    has_repeating_animation: bool,
+    repeat_animation_frame: Option<Duration>,
     has_playing_video: bool,
     min_frame: Duration,
-    repeat_animation_frame: Duration,
 ) -> Option<Duration> {
     if has_finite_animation || has_playing_video {
         Some(min_frame)
-    } else if has_repeating_animation {
-        Some(repeat_animation_frame)
+    } else if let Some(repeat_frame) = repeat_animation_frame {
+        Some(repeat_frame)
     } else {
         None
     }
@@ -1947,12 +1963,10 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                             .active
                             .values()
                             .any(|anim| !anim.repeat);
-                        let has_repeating_animation = runtime
-                            .runtime_state
-                            .animation
-                            .active
-                            .values()
-                            .any(|anim| anim.repeat);
+                        let repeat_animation_interval = repeating_animation_redraw_interval(
+                            &runtime.runtime_state.animation,
+                            repeat_animation_frame,
+                        );
                         let has_playing_video = players.iter().any(|(widget_id, _)| {
                             runtime
                                 .runtime_state
@@ -1964,10 +1978,9 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                         });
                         let animation_frame = animation_redraw_interval(
                             has_finite_animation,
-                            has_repeating_animation,
+                            repeat_animation_interval,
                             has_playing_video,
                             min_frame,
-                            repeat_animation_frame,
                         );
 
                         let focused_text_input = focused_text_input_id(&runtime, pipeline.prev_ir.as_ref());
@@ -3010,10 +3023,14 @@ fn recreate_target_texture(
 #[cfg(test)]
 mod tests {
     use super::{
-        animation_redraw_interval, texture_plans_fit_device_limits, LiveResizeController,
+        animation_redraw_interval, repeating_animation_redraw_interval,
+        texture_plans_fit_device_limits, LiveResizeController,
     };
     use crate::pipeline::CompositorTexturePlan;
+    use fission_core::env::{ActiveAnimation, AnimationStateMap};
+    use fission_core::{AnimationPropertyId, WidgetNodeId};
     use fission_layout::LayoutRect;
+    use std::collections::HashMap;
     use std::time::Duration;
 
     #[test]
@@ -3021,7 +3038,7 @@ mod tests {
         let min_frame = Duration::from_millis(16);
         let repeat_frame = Duration::from_millis(66);
         assert_eq!(
-            animation_redraw_interval(false, true, false, min_frame, repeat_frame),
+            animation_redraw_interval(false, Some(repeat_frame), false, min_frame),
             Some(repeat_frame)
         );
     }
@@ -3029,13 +3046,12 @@ mod tests {
     #[test]
     fn finite_animation_keeps_full_frame_rate() {
         let min_frame = Duration::from_millis(16);
-        let repeat_frame = Duration::from_millis(66);
         assert_eq!(
-            animation_redraw_interval(true, false, false, min_frame, repeat_frame),
+            animation_redraw_interval(true, None, false, min_frame),
             Some(min_frame)
         );
         assert_eq!(
-            animation_redraw_interval(false, false, true, min_frame, repeat_frame),
+            animation_redraw_interval(false, None, true, min_frame),
             Some(min_frame)
         );
     }
@@ -3045,8 +3061,68 @@ mod tests {
         let min_frame = Duration::from_millis(16);
         let repeat_frame = Duration::from_millis(66);
         assert_eq!(
-            animation_redraw_interval(false, true, false, min_frame, repeat_frame),
+            animation_redraw_interval(false, Some(repeat_frame), false, min_frame),
             Some(repeat_frame)
+        );
+    }
+
+    #[test]
+    fn repeat_animation_interval_uses_low_priority_hint() {
+        let mut animation = AnimationStateMap::default();
+        animation.active.insert(
+            (WidgetNodeId::explicit("spinner"), AnimationPropertyId::opacity()),
+            ActiveAnimation {
+                target: WidgetNodeId::explicit("spinner"),
+                property: AnimationPropertyId::opacity(),
+                start_value: 0.3,
+                end_value: 1.0,
+                start_time: 0,
+                duration: 600,
+                repeat: true,
+                frame_interval_ms: Some(166),
+            },
+        );
+        assert_eq!(
+            repeating_animation_redraw_interval(&animation, Duration::from_millis(66)),
+            Some(Duration::from_millis(166))
+        );
+    }
+
+    #[test]
+    fn repeat_animation_interval_chooses_fastest_active_repeat() {
+        let mut animation = AnimationStateMap {
+            values: HashMap::new(),
+            active: HashMap::new(),
+        };
+        animation.active.insert(
+            (WidgetNodeId::explicit("slow"), AnimationPropertyId::opacity()),
+            ActiveAnimation {
+                target: WidgetNodeId::explicit("slow"),
+                property: AnimationPropertyId::opacity(),
+                start_value: 0.3,
+                end_value: 1.0,
+                start_time: 0,
+                duration: 600,
+                repeat: true,
+                frame_interval_ms: Some(200),
+            },
+        );
+        animation.active.insert(
+            (WidgetNodeId::explicit("fast"), AnimationPropertyId::opacity()),
+            ActiveAnimation {
+                target: WidgetNodeId::explicit("fast"),
+                property: AnimationPropertyId::opacity(),
+                start_value: 0.3,
+                end_value: 1.0,
+                start_time: 0,
+                duration: 600,
+                repeat: true,
+                frame_interval_ms: Some(100),
+            },
+        );
+        assert_eq!(
+            repeating_animation_redraw_interval(&animation, Duration::from_millis(66)),
+            Some(Duration::from_millis(100))
         );
     }
 
@@ -3058,7 +3134,8 @@ mod tests {
         resize.note_resize(now);
 
         assert!(resize.is_live(now + Duration::from_millis(30)));
-        assert!(!resize.should_apply_layout(now + Duration::from_millis(30), true, false));
+        assert!(resize.should_apply_layout(now + Duration::from_millis(30), true, false));
+        assert!(!resize.should_apply_layout(now + Duration::from_millis(40), true, false));
         assert!(resize.should_apply_layout(now + Duration::from_millis(95), true, false));
     }
 

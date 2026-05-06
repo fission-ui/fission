@@ -398,6 +398,7 @@ impl Runtime {
             if (active.end_value - request.to).abs() < 0.001
                 && active.duration == request.duration_ms
                 && active.repeat == request.repeat
+                && active.frame_interval_ms == request.frame_interval_ms
             {
                 // Continue existing animation
                 return;
@@ -432,6 +433,7 @@ impl Runtime {
             start_time: self.clock().current_time() + request.delay_ms,
             duration: request.duration_ms,
             repeat: request.repeat,
+            frame_interval_ms: request.frame_interval_ms.filter(|ms| *ms > 0),
         };
 
         self.runtime_state

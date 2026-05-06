@@ -25,6 +25,7 @@ fn test_animation_tick() {
             start_time: 0,
             duration: 1000,
             repeat: false,
+            frame_interval_ms: None,
         },
     );
 
@@ -77,6 +78,7 @@ fn test_enqueue_animation_skips_noop_terminal_transition() {
             duration_ms: 300,
             repeat: false,
             delay_ms: 0,
+            frame_interval_ms: None,
         },
     );
 
@@ -111,6 +113,7 @@ fn test_sync_animation_requests_removes_stale_repeating_animation() {
             duration_ms: 600,
             repeat: true,
             delay_ms: 0,
+            frame_interval_ms: None,
         },
     );
     runtime.enqueue_animation(
@@ -122,6 +125,7 @@ fn test_sync_animation_requests_removes_stale_repeating_animation() {
             duration_ms: 600,
             repeat: true,
             delay_ms: 0,
+            frame_interval_ms: None,
         },
     );
 
@@ -134,6 +138,7 @@ fn test_sync_animation_requests_removes_stale_repeating_animation() {
             duration_ms: 600,
             repeat: true,
             delay_ms: 0,
+            frame_interval_ms: None,
         },
     )]);
 
