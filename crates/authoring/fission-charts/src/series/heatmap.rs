@@ -1,5 +1,4 @@
 use serde::{Deserialize, Serialize};
-use fission_core::op::Color;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HeatmapSeries {
@@ -14,7 +13,7 @@ impl HeatmapSeries {
             data: Vec::new(),
         }
     }
-    
+
     pub fn data(mut self, data: Vec<(usize, usize, f32)>) -> Self {
         self.data = data;
         self

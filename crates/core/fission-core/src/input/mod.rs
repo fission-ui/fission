@@ -5,9 +5,9 @@ use fission_ir::{CoreIR, NodeId};
 use fission_layout::{LayoutSnapshot, TextMeasurer};
 use std::sync::Arc;
 
-pub mod text;
-pub mod slider;
 pub mod gesture;
+pub mod slider;
+pub mod text;
 
 pub struct ControllerContext<'a> {
     pub ir: &'a CoreIR,
@@ -15,7 +15,6 @@ pub struct ControllerContext<'a> {
     pub text_edit: &'a mut TextEditStateMap,
     pub interaction: &'a mut InteractionStateMap,
     pub scroll: &'a mut ScrollStateMap,
-    pub ime_preedit: &'a mut Option<(NodeId, String)>,
     pub gesture: &'a mut crate::env::GestureState,
     pub clipboard: Option<&'a Arc<dyn Clipboard>>,
     pub measurer: Option<&'a Arc<dyn TextMeasurer>>,

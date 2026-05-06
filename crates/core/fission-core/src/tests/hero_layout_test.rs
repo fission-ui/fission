@@ -1,8 +1,8 @@
 use crate::env::{Env, RuntimeState};
-use crate::lowering::{LoweringContext, build_layout_tree, NodeBuilder};
-use crate::ui::traits::{Lower, LowerDyn};
+use crate::lowering::{build_layout_tree, LoweringContext, NodeBuilder};
+use crate::ui::traits::LowerDyn;
 use crate::ui::Node;
-use fission_ir::{LayoutOp, Op, Semantics};
+use fission_ir::{Op, Semantics};
 use fission_layout::{LayoutEngine, LayoutSize};
 
 #[derive(Debug)]
@@ -14,18 +14,20 @@ impl LowerDyn for MockHero {
     fn lower_dyn(&self, cx: &mut LoweringContext) -> fission_ir::NodeId {
         let child_id = self.child.lower(cx);
         let id = cx.next_node_id();
-        
+
         let semantics = Semantics {
             hero_tag: Some("test".into()),
             ..Default::default()
         };
-        
+
         // Hero lowers to Semantics op
         let mut builder = NodeBuilder::new(id, Op::Semantics(semantics));
         builder.add_child(child_id);
         builder.build(cx)
     }
-    fn stable_key(&self) -> u64 { 0 }
+    fn stable_key(&self) -> u64 {
+        0
+    }
 }
 
 #[test]
@@ -44,16 +46,11 @@ fn test_hero_text_layout_height() {
 
     // VStack
     let vstack = crate::ui::Column::default()
-        .children(vec![
-            hero,
-            crate::ui::Text::new("Preview").into_node()
-        ])
+        .children(vec![hero, crate::ui::Text::new("Preview").into_node()])
         .into_node();
 
     // Root Container (Constraint 100px width)
-    let root = crate::ui::Container::new(vstack)
-        .width(100.0)
-        .into_node();
+    let root = crate::ui::Container::new(vstack).width(100.0).into_node();
 
     let root_id = root.lower(&mut cx);
     cx.ir.root = Some(root_id);
@@ -72,10 +69,25 @@ fn test_hero_text_layout_height() {
             }
             (width, 20.0)
         }
-        fn hit_test(&self, _: &str, _: f32, _: Option<f32>, _: f32, _: f32) -> usize { 0 }
-        fn get_line_metrics(&self, _: &str, _: f32, _: Option<f32>) -> Vec<fission_layout::LineMetric> { vec![] }
-        fn get_caret_position(&self, _: &str, _: f32, _: Option<f32>, _: usize) -> (f32, f32) { (0.0, 0.0) }
-        fn measure_rich_text(&self, runs: &[fission_ir::op::TextRun], avail: Option<f32>) -> (f32, f32) { 
+        fn hit_test(&self, _: &str, _: f32, _: Option<f32>, _: f32, _: f32) -> usize {
+            0
+        }
+        fn get_line_metrics(
+            &self,
+            _: &str,
+            _: f32,
+            _: Option<f32>,
+        ) -> Vec<fission_layout::LineMetric> {
+            vec![]
+        }
+        fn get_caret_position(&self, _: &str, _: f32, _: Option<f32>, _: usize) -> (f32, f32) {
+            (0.0, 0.0)
+        }
+        fn measure_rich_text(
+            &self,
+            runs: &[fission_ir::op::TextRun],
+            avail: Option<f32>,
+        ) -> (f32, f32) {
             let text: String = runs.iter().map(|r| r.text.clone()).collect();
             // Simulate that "Preview" fits, but "Long..." wraps
             if text.contains("Long") {
@@ -89,12 +101,14 @@ fn test_hero_text_layout_height() {
     let input_nodes = build_layout_tree(&cx.ir, &env);
     let mut engine = LayoutEngine::new().with_measurer(std::sync::Arc::new(MockMeasurer));
     engine.rebuild(&input_nodes).unwrap();
-    let snapshot = engine.compute_layout(
-        &input_nodes, 
-        root_id, 
-        LayoutSize::new(800.0, 600.0), 
-        &|_| 0.0
-    ).unwrap();
+    let snapshot = engine
+        .compute_layout(
+            &input_nodes,
+            root_id,
+            LayoutSize::new(800.0, 600.0),
+            &|_| 0.0,
+        )
+        .unwrap();
 
     // Verify Hero Height
     // root -> container -> column -> hero(semantics) -> text
@@ -108,5 +122,8 @@ fn test_hero_text_layout_height() {
     let preview_geom = snapshot.get_node_geometry(preview_id).unwrap();
 
     assert_eq!(hero_geom.rect.height(), 40.0, "Hero should wrap to 2 lines");
-    assert!(preview_geom.rect.y() >= 40.0, "Preview should be below Hero");
+    assert!(
+        preview_geom.rect.y() >= 40.0,
+        "Preview should be below Hero"
+    );
 }

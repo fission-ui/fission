@@ -93,6 +93,7 @@ impl Widget<EditorState> for FindReplaceBar {
             children: vec![
                 Container::new(
                     TextInput {
+                        id: Some(fission_ir::NodeId::explicit("editor_find_query_input")),
                         value: view.state.find_query.clone(),
                         placeholder: Some("Find".into()),
                         on_change: Some(update_find),
@@ -118,6 +119,7 @@ impl Widget<EditorState> for FindReplaceBar {
             children: vec![
                 Container::new(
                     TextInput {
+                        id: Some(fission_ir::NodeId::explicit("editor_replace_query_input")),
                         value: view.state.replace_query.clone(),
                         placeholder: Some("Replace".into()),
                         on_change: Some(update_replace),

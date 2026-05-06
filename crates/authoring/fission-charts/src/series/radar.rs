@@ -13,7 +13,7 @@ impl RadarSeries {
             data: Vec::new(),
         }
     }
-    
+
     pub fn data(mut self, data: Vec<Vec<f32>>) -> Self {
         self.data = data;
         self

@@ -1,10 +1,8 @@
 use crate::stack::{HStack, VStack};
-use crate::{Icon, MenuButton, MenuItem};
-use fission_core::op::{BoxShadow, Color};
-use fission_core::ui::{
-    Button, ButtonVariant, Checkbox, Column, Container, Node, Row, Scroll, Text,
-};
-use fission_core::{ActionEnvelope, BuildCtx, NodeId, View, Widget, WidgetNodeId};
+use crate::Icon;
+use fission_core::op::Color;
+use fission_core::ui::{Button, ButtonVariant, Checkbox, Container, Node, Scroll, Text};
+use fission_core::{ActionEnvelope, BuildCtx, View, Widget, WidgetNodeId};
 use fission_icons::material;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -44,7 +42,7 @@ impl std::fmt::Debug for DataTable {
 }
 
 impl<S: fission_core::AppState> Widget<S> for DataTable {
-    fn build(&self, ctx: &mut BuildCtx<S>, view: &View<S>) -> Node {
+    fn build(&self, _ctx: &mut BuildCtx<S>, view: &View<S>) -> Node {
         let tokens = &view.env.theme.tokens;
 
         // Header

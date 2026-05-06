@@ -1,34 +1,34 @@
+#![allow(unexpected_cfgs)]
+
 use anyhow::Result;
 use std::collections::{HashMap, VecDeque};
-use std::num::NonZeroU32;
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
+#[cfg(target_os = "macos")]
+use winit::platform::macos::{ActivationPolicy, EventLoopBuilderExtMacOS};
 use winit::{
     dpi::PhysicalPosition,
-    event::{ElementState, Event, Ime, KeyEvent, MouseButton, MouseScrollDelta, WindowEvent},
+    event::{Event, Ime, MouseButton, MouseScrollDelta, WindowEvent},
     event_loop::{ControlFlow, EventLoopBuilder, EventLoopProxy, EventLoopWindowTarget},
-    keyboard::PhysicalKey,
     window::{Window, WindowBuilder},
 };
 
-use fission_core::env::{VideoState, VideoStateMap, VideoStatus};
-use fission_core::lowering::{build_layout_tree, LoweringContext};
+use fission_core::env::VideoStatus;
+use fission_core::lowering::LoweringContext;
+use fission_core::ui::custom_render::downcast_render_object;
 use fission_core::{
-    Action, ActionId, AppState, BuildCtx, Clock, Env, ImeHandler, InputEvent, KeyCode,
-    KeyEvent as FissionKeyEvent, Lower, Node, PointerButton, PointerEvent, Runtime, ScrollStateMap,
-    View, Widget,
+    ActionId, AppState, BuildCtx, Env, ImeHandler, InputEvent, KeyCode,
+    KeyEvent as FissionKeyEvent, PointerButton, PointerEvent, Runtime, View, Widget,
 };
 use fission_core::{ActionInput, Effect, EffectPayload, SystemEffect};
 use fission_diagnostics::prelude as diag;
-use fission_ir::{op::Color as IrColor, CoreIR, FlexDirection, NodeId, Op, PaintOp, WidgetNodeId};
+use fission_ir::{CoreIR, NodeId, Op, WidgetNodeId};
 use fission_layout::{LayoutEngine, LayoutSize};
-use fission_render::{
-    Color as RenderColor, DisplayList, LayoutPoint, LayoutRect, LayoutUnit, Renderer,
-};
+use fission_render::{LayoutPoint, LayoutRect, Renderer as _};
 use fission_render_vello::parley::FontContext;
-use fission_render_vello::{VelloRenderer, VelloTextMeasurer};
-use fission_shell::{Platform, VideoBackend, VideoEvent, VideoPlayer};
+use fission_render_vello::{RetainedSceneCache, VelloRenderer, VelloTextMeasurer};
+use fission_shell::{VideoBackend, VideoEvent, VideoPlayer};
 use fission_theme::fonts;
 use fontique::{Blob, Collection, CollectionOptions, FontInfoOverride, SourceCache};
 
@@ -38,10 +38,12 @@ use fission_test_driver::TestEvent;
 use pollster::block_on;
 use vello::util::{RenderContext, RenderSurface};
 use vello::wgpu;
-use vello::{AaConfig, AaSupport, Renderer as VelloSceneRenderer, RendererOptions, Scene};
+use vello::{AaSupport, Renderer as VelloSceneRenderer, RendererOptions, Scene};
 
+mod compositor;
+use compositor::TextureLayerCompositor;
 mod pipeline;
-pub use pipeline::Pipeline;
+pub use pipeline::{InvalidationSet, Pipeline};
 mod video_backend;
 #[cfg(target_os = "macos")]
 use video_backend::MacVideoBackend;
@@ -56,24 +58,6 @@ pub mod test_control;
 
 use fission_core::action::ActionEnvelope;
 
-/// Choose a supported composite alpha mode, preferring PostMultiplied for
-/// video hole-punching when available.
-fn pick_alpha_mode<'a>(
-    render_cx: &RenderContext,
-    surface: &RenderSurface<'a>,
-) -> wgpu::CompositeAlphaMode {
-    let adapter = render_cx.devices[surface.dev_id].adapter();
-    let caps = surface.surface.get_capabilities(adapter);
-    if caps.alpha_modes.contains(&wgpu::CompositeAlphaMode::PostMultiplied) {
-        wgpu::CompositeAlphaMode::PostMultiplied
-    } else {
-        caps.alpha_modes
-            .first()
-            .copied()
-            .unwrap_or(wgpu::CompositeAlphaMode::Opaque)
-    }
-}
-
 /// A single completed background effect result, ready to be dispatched on the main thread.
 ///
 /// Fields: `(req_id, result_payload_or_error, on_ok_continuation, on_err_continuation)`
@@ -87,10 +71,18 @@ type EffectResult = (
 /// Callback signature for application-specific effect handlers.
 ///
 /// The handler receives the opaque `Vec<u8>` payload from `Effect::App(...)`,
-/// plus the envelope metadata needed to send a result back on the channel.
+/// plus the envelope metadata needed to send a result back on the channel and
+/// an event-loop proxy it can use to wake the shell after background work
+/// completes.
 pub type AppEffectHandler = Box<
-    dyn Fn(Vec<u8>, u64, Option<ActionEnvelope>, Option<ActionEnvelope>, mpsc::Sender<EffectResult>)
-        + Send
+    dyn Fn(
+            Vec<u8>,
+            u64,
+            Option<ActionEnvelope>,
+            Option<ActionEnvelope>,
+            mpsc::Sender<EffectResult>,
+            EventLoopProxy<TestEvent>,
+        ) + Send
         + Sync,
 >;
 
@@ -121,6 +113,214 @@ fn request_redraw_throttled(
     }
 }
 
+fn frame_trace_enabled() -> bool {
+    static ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ENABLED.get_or_init(|| {
+        std::env::var("FISSION_FRAME_TRACE")
+            .map(|v| matches!(v.to_ascii_lowercase().as_str(), "1" | "true" | "yes"))
+            .unwrap_or(false)
+    })
+}
+
+#[derive(Default)]
+struct FrameTraceState {
+    enabled: bool,
+    redraw_reasons: Vec<String>,
+}
+
+impl FrameTraceState {
+    fn new(enabled: bool) -> Self {
+        Self {
+            enabled,
+            redraw_reasons: Vec::new(),
+        }
+    }
+
+    fn note_redraw_reason(&mut self, reason: impl Into<String>) {
+        if !self.enabled {
+            return;
+        }
+        let reason = reason.into();
+        if !self
+            .redraw_reasons
+            .iter()
+            .any(|existing| existing == &reason)
+        {
+            self.redraw_reasons.push(reason);
+        }
+    }
+
+    fn take_redraw_reasons(&mut self) -> Vec<String> {
+        if !self.enabled {
+            return Vec::new();
+        }
+        std::mem::take(&mut self.redraw_reasons)
+    }
+
+    fn emit(
+        &self,
+        phase: &str,
+        frame: u64,
+        active_animation_keys: &[String],
+        invalidations: InvalidationSet,
+        reasons: &[String],
+        detail: &str,
+    ) {
+        if !self.enabled {
+            return;
+        }
+        let active = if active_animation_keys.is_empty() {
+            "none".to_string()
+        } else {
+            active_animation_keys.join(",")
+        };
+        let reasons = if reasons.is_empty() {
+            "none".to_string()
+        } else {
+            reasons.join(",")
+        };
+        eprintln!(
+            "[frame-trace] phase={} frame={} invalidation={} active=[{}] reasons=[{}] {}",
+            phase,
+            frame,
+            invalidations.labels().join("+"),
+            active,
+            reasons,
+            detail,
+        );
+    }
+}
+
+fn request_redraw_logged(
+    window: &Window,
+    elwt: &EventLoopWindowTarget<TestEvent>,
+    last_redraw_at: &mut Instant,
+    min_frame: Duration,
+    redraw_pending: &mut bool,
+    frame_trace: &mut FrameTraceState,
+    reason: &str,
+) {
+    frame_trace.note_redraw_reason(reason);
+    request_redraw_throttled(window, elwt, last_redraw_at, min_frame, redraw_pending);
+}
+
+fn active_animation_keys(runtime: &Runtime) -> Vec<String> {
+    let mut keys = runtime
+        .runtime_state
+        .animation
+        .active
+        .iter()
+        .map(|((target, property), anim)| {
+            let repeat = if anim.repeat { "repeat" } else { "finite" };
+            format!("{}:{:?}:{}", target.as_u128(), property, repeat)
+        })
+        .collect::<Vec<_>>();
+    keys.sort();
+    keys
+}
+
+fn repeating_animation_redraw_interval(
+    animation_map: &fission_core::env::AnimationStateMap,
+    default_repeat_frame: Duration,
+) -> Option<Duration> {
+    animation_map
+        .active
+        .values()
+        .filter(|anim| anim.repeat)
+        .map(|anim| {
+            anim.frame_interval_ms
+                .filter(|ms| *ms > 0)
+                .map(Duration::from_millis)
+                .unwrap_or(default_repeat_frame)
+        })
+        .min()
+}
+
+fn animation_redraw_interval(
+    has_finite_animation: bool,
+    repeat_animation_frame: Option<Duration>,
+    has_playing_video: bool,
+    min_frame: Duration,
+) -> Option<Duration> {
+    if has_finite_animation || has_playing_video {
+        Some(min_frame)
+    } else if let Some(repeat_frame) = repeat_animation_frame {
+        Some(repeat_frame)
+    } else {
+        None
+    }
+}
+
+fn pending_work_redraw_interval(
+    invalidations: InvalidationSet,
+    pending_resize: bool,
+    min_frame: Duration,
+    resize_frame: Duration,
+) -> Duration {
+    if pending_resize && !invalidations.build && !invalidations.paint && !invalidations.composite {
+        resize_frame
+    } else {
+        min_frame
+    }
+}
+
+#[derive(Debug)]
+struct LiveResizeController {
+    active_until: Option<Instant>,
+    settle_delay: Duration,
+    layout_interval: Duration,
+    last_layout_at: Option<Instant>,
+}
+
+impl LiveResizeController {
+    fn new(settle_delay: Duration) -> Self {
+        Self {
+            active_until: None,
+            settle_delay,
+            layout_interval: Duration::from_millis(16),
+            last_layout_at: None,
+        }
+    }
+
+    fn note_resize(&mut self, now: Instant) {
+        self.active_until = Some(now + self.settle_delay);
+    }
+
+    fn is_live(&self, now: Instant) -> bool {
+        self.active_until
+            .map(|deadline| now < deadline)
+            .unwrap_or(false)
+    }
+
+    fn should_apply_layout(
+        &mut self,
+        now: Instant,
+        has_layout_snapshot: bool,
+        force: bool,
+    ) -> bool {
+        if !has_layout_snapshot || force {
+            self.last_layout_at = Some(now);
+            return true;
+        }
+
+        let settled = !self.is_live(now);
+        if settled {
+            self.active_until = None;
+            self.last_layout_at = Some(now);
+            true
+        } else {
+            let should_refresh = self
+                .last_layout_at
+                .map(|last| now.saturating_duration_since(last) >= self.layout_interval)
+                .unwrap_or(true);
+            if should_refresh {
+                self.last_layout_at = Some(now);
+            }
+            should_refresh
+        }
+    }
+}
+
 /// Drain pending effects from the runtime and either execute them synchronously
 /// (fire-and-forget effects like `OpenUrl`) or spawn background threads for I/O
 /// effects (`FileRead`, `HttpGet`) and send results back through `effect_tx`.
@@ -129,6 +329,7 @@ fn request_redraw_throttled(
 fn process_pending_effects(
     runtime: &mut Runtime,
     effect_tx: &mpsc::Sender<EffectResult>,
+    event_proxy: &EventLoopProxy<TestEvent>,
     app_effect_handler: Option<&AppEffectHandler>,
 ) -> bool {
     use std::process::Command;
@@ -254,35 +455,53 @@ fn process_pending_effects(
                     // ── Background: FileRead ─────────────────────────────────
                     SystemEffect::FileRead { path } => {
                         let tx = effect_tx.clone();
+                        let wake_proxy = event_proxy.clone();
                         let on_ok = env.on_ok.clone();
                         let on_err = env.on_err.clone();
                         let req_id = env.req_id;
                         let path = path.clone();
                         std::thread::spawn(move || {
-                            match std::fs::read_to_string(&path) {
+                            match std::fs::read(&path) {
                                 Ok(content) => {
-                                    let payload = EffectPayload::InlineBytes(content.into_bytes());
+                                    let payload = EffectPayload::InlineBytes(content);
                                     let _ = tx.send((req_id, Ok(payload), on_ok, on_err));
                                 }
                                 Err(e) => {
                                     let _ = tx.send((req_id, Err(e.to_string()), on_ok, on_err));
                                 }
                             }
+                            let _ = wake_proxy.send_event(TestEvent::Wake);
                         });
                     }
 
                     // ── Background: HttpGet ───────────────────────────────────
                     SystemEffect::HttpGet { url, headers } => {
                         let tx = effect_tx.clone();
+                        let wake_proxy = event_proxy.clone();
                         let on_ok = env.on_ok.clone();
                         let on_err = env.on_err.clone();
                         let req_id = env.req_id;
                         let url = url.clone();
                         let headers = headers.clone();
                         std::thread::spawn(move || {
+                            let curl_result = (|| -> std::result::Result<Vec<u8>, String> {
+                                let mut command = std::process::Command::new("curl");
+                                command.arg("-fsSL").arg(&url);
+                                for (k, v) in &headers {
+                                    command.arg("-H").arg(format!("{}: {}", k, v));
+                                }
+                                let output =
+                                    command.output().map_err(|e| format!("curl spawn: {}", e))?;
+                                if output.status.success() {
+                                    Ok(output.stdout)
+                                } else {
+                                    Err(String::from_utf8_lossy(&output.stderr).trim().to_string())
+                                }
+                            })();
+
                             // Minimal blocking HTTP GET using std only (no external crate).
                             // This parses the URL, opens a TCP stream, and reads the response.
-                            let result = (|| -> std::result::Result<Vec<u8>, String> {
+                            let result = curl_result.or_else(|_| (|| -> std::result::Result<Vec<u8>, String> {
                                 use std::io::{Read, Write};
                                 use std::net::TcpStream;
 
@@ -347,7 +566,7 @@ fn process_pending_effects(
                                     .unwrap_or(0);
 
                                 Ok(buf[body_start..].to_vec())
-                            })();
+                            })());
 
                             match result {
                                 Ok(bytes) => {
@@ -358,6 +577,7 @@ fn process_pending_effects(
                                     let _ = tx.send((req_id, Err(msg), on_ok, on_err));
                                 }
                             }
+                            let _ = wake_proxy.send_event(TestEvent::Wake);
                         });
                     }
 
@@ -385,6 +605,7 @@ fn process_pending_effects(
                         env.on_ok.clone(),
                         env.on_err.clone(),
                         effect_tx.clone(),
+                        event_proxy.clone(),
                     );
                 } else {
                     diag::emit(
@@ -408,10 +629,7 @@ fn process_pending_effects(
 /// their continuations on the main thread.
 ///
 /// Returns `true` if any continuation was dispatched (caller should redraw).
-fn drain_effect_results(
-    runtime: &mut Runtime,
-    effect_rx: &mpsc::Receiver<EffectResult>,
-) -> bool {
+fn drain_effect_results(runtime: &mut Runtime, effect_rx: &mpsc::Receiver<EffectResult>) -> bool {
     let mut dispatched = false;
 
     while let Ok((req_id, result, on_ok, on_err)) = effect_rx.try_recv() {
@@ -459,6 +677,29 @@ fn focused_text_input_id(runtime: &Runtime, ir: Option<&CoreIR>) -> Option<NodeI
         current = node.parent;
     }
     None
+}
+
+fn focused_custom_text_input(runtime: &Runtime, ir: Option<&CoreIR>) -> bool {
+    let focused = match runtime.runtime_state.interaction.focused {
+        Some(id) => id,
+        None => return false,
+    };
+    let ir = match ir {
+        Some(ir) => ir,
+        None => return false,
+    };
+    let mut current = Some(focused);
+    while let Some(id) = current {
+        if let Some(any_ro) = ir.custom_render_objects.get(&id) {
+            if let Some(render_obj) = downcast_render_object(any_ro) {
+                if render_obj.accepts_text_input() {
+                    return true;
+                }
+            }
+        }
+        current = ir.nodes.get(&id).and_then(|node| node.parent);
+    }
+    false
 }
 
 fn reset_text_input_caret(
@@ -568,14 +809,8 @@ fn flush_text_traces(
         let handled_at = trace.handled_at.unwrap_or(now);
         let effects_at = trace.effects_at.unwrap_or(handled_at);
         let total_ms = now.duration_since(trace.started_at).as_secs_f64() * 1000.0;
-        let handle_ms = handled_at
-            .duration_since(trace.started_at)
-            .as_secs_f64()
-            * 1000.0;
-        let effects_ms = effects_at
-            .duration_since(handled_at)
-            .as_secs_f64()
-            * 1000.0;
+        let handle_ms = handled_at.duration_since(trace.started_at).as_secs_f64() * 1000.0;
+        let effects_ms = effects_at.duration_since(handled_at).as_secs_f64() * 1000.0;
         let queue_ms = now.duration_since(effects_at).as_secs_f64() * 1000.0;
 
         let target_u128 = trace.target.map(|id| id.as_u128());
@@ -617,12 +852,15 @@ fn handle_cursor_moved(
     runtime: &mut Runtime,
     pipeline: &Pipeline,
     effect_result_tx: &mpsc::Sender<EffectResult>,
+    event_proxy: &EventLoopProxy<TestEvent>,
     app_effect_handler: Option<&AppEffectHandler>,
     window: &Window,
     elwt: &EventLoopWindowTarget<TestEvent>,
     last_redraw_at: &mut Instant,
     min_frame: Duration,
     redraw_pending: &mut bool,
+    frame_trace: &mut FrameTraceState,
+    invalidations: &mut InvalidationSet,
 ) {
     if let (Some(ir), Some(layout)) = (&pipeline.prev_ir, &pipeline.last_snapshot) {
         let point = LayoutPoint { x, y };
@@ -630,10 +868,28 @@ fn handle_cursor_moved(
         if let Err(e) = runtime.handle_input(event, ir, layout) {
             eprintln!("Input handling error: {:?}", e);
         }
-        if process_pending_effects(runtime, effect_result_tx, app_effect_handler) {
-            request_redraw_throttled(window, elwt, last_redraw_at, min_frame, redraw_pending);
+        invalidations.mark_build();
+        if process_pending_effects(runtime, effect_result_tx, event_proxy, app_effect_handler) {
+            invalidations.mark_build();
+            request_redraw_logged(
+                window,
+                elwt,
+                last_redraw_at,
+                min_frame,
+                redraw_pending,
+                frame_trace,
+                "pointer_move:effects",
+            );
         }
-        request_redraw_throttled(window, elwt, last_redraw_at, min_frame, redraw_pending);
+        request_redraw_logged(
+            window,
+            elwt,
+            last_redraw_at,
+            min_frame,
+            redraw_pending,
+            frame_trace,
+            "pointer_move",
+        );
     }
 }
 
@@ -647,6 +903,7 @@ fn handle_mouse_button(
     runtime: &mut Runtime,
     pipeline: &Pipeline,
     effect_result_tx: &mpsc::Sender<EffectResult>,
+    event_proxy: &EventLoopProxy<TestEvent>,
     app_effect_handler: Option<&AppEffectHandler>,
     window: &Window,
     elwt: &EventLoopWindowTarget<TestEvent>,
@@ -658,6 +915,8 @@ fn handle_mouse_button(
     next_text_trace_seq: &mut u64,
     presented_frames: u64,
     last_blink_toggle: &mut Instant,
+    frame_trace: &mut FrameTraceState,
+    invalidations: &mut InvalidationSet,
 ) {
     if let (Some(ir), Some(layout)) = (&pipeline.prev_ir, &pipeline.last_snapshot) {
         let point = LayoutPoint { x, y };
@@ -684,11 +943,25 @@ fn handle_mouse_button(
         if let Err(e) = runtime.handle_input(input_event, ir, layout) {
             eprintln!("Input handling error: {:?}", e);
         }
+        invalidations.mark_build();
 
         mark_text_trace_handled(pending_text_traces, trace_seq);
-        if process_pending_effects(runtime, effect_result_tx, app_effect_handler) {
+        if process_pending_effects(runtime, effect_result_tx, event_proxy, app_effect_handler) {
             mark_text_trace_effects(pending_text_traces, trace_seq);
-            request_redraw_throttled(window, elwt, last_redraw_at, min_frame, redraw_pending);
+            invalidations.mark_build();
+            request_redraw_logged(
+                window,
+                elwt,
+                last_redraw_at,
+                min_frame,
+                redraw_pending,
+                frame_trace,
+                if is_pressed {
+                    "pointer_down:effects"
+                } else {
+                    "pointer_up:effects"
+                },
+            );
         }
         if is_pressed {
             let target = focused_text_input_id(runtime, pipeline.prev_ir.as_ref());
@@ -699,7 +972,19 @@ fn handle_mouse_button(
             }
             reset_text_input_caret(runtime, pipeline.prev_ir.as_ref(), last_blink_toggle);
         }
-        request_redraw_throttled(window, elwt, last_redraw_at, min_frame, redraw_pending);
+        request_redraw_logged(
+            window,
+            elwt,
+            last_redraw_at,
+            min_frame,
+            redraw_pending,
+            frame_trace,
+            if is_pressed {
+                "pointer_down"
+            } else {
+                "pointer_up"
+            },
+        );
     }
 }
 
@@ -712,24 +997,57 @@ fn handle_scroll(
     runtime: &mut Runtime,
     pipeline: &Pipeline,
     effect_result_tx: &mpsc::Sender<EffectResult>,
+    event_proxy: &EventLoopProxy<TestEvent>,
     app_effect_handler: Option<&AppEffectHandler>,
     window: &Window,
     elwt: &EventLoopWindowTarget<TestEvent>,
     last_redraw_at: &mut Instant,
     min_frame: Duration,
     redraw_pending: &mut bool,
+    frame_trace: &mut FrameTraceState,
+    invalidations: &mut InvalidationSet,
 ) {
     if let (Some(ir), Some(layout)) = (&pipeline.prev_ir, &pipeline.last_snapshot) {
-        let point = LayoutPoint { x: point_x, y: point_y };
-        let scroll_delta = LayoutPoint { x: delta_x, y: delta_y };
-        let event = InputEvent::Pointer(PointerEvent::Scroll { point, delta: scroll_delta });
+        let point = LayoutPoint {
+            x: point_x,
+            y: point_y,
+        };
+        let scroll_delta = LayoutPoint {
+            x: delta_x,
+            y: delta_y,
+        };
+        let event = InputEvent::Pointer(PointerEvent::Scroll {
+            point,
+            delta: scroll_delta,
+        });
         if let Err(e) = runtime.handle_input(event, ir, layout) {
             eprintln!("Scroll error: {:?}", e);
         }
-        if process_pending_effects(runtime, effect_result_tx, app_effect_handler) {
-            request_redraw_throttled(window, elwt, last_redraw_at, min_frame, redraw_pending);
+        // Scroll offsets can affect more than a compositor translation. Virtualized
+        // lists, scrollbars, and scroll-aware wrappers depend on the updated offset
+        // during build/lowering, so treat scroll as a build invalidation.
+        invalidations.mark_build();
+        if process_pending_effects(runtime, effect_result_tx, event_proxy, app_effect_handler) {
+            invalidations.mark_build();
+            request_redraw_logged(
+                window,
+                elwt,
+                last_redraw_at,
+                min_frame,
+                redraw_pending,
+                frame_trace,
+                "scroll:effects",
+            );
         }
-        request_redraw_throttled(window, elwt, last_redraw_at, min_frame, redraw_pending);
+        request_redraw_logged(
+            window,
+            elwt,
+            last_redraw_at,
+            min_frame,
+            redraw_pending,
+            frame_trace,
+            "scroll",
+        );
     }
 }
 
@@ -762,6 +1080,7 @@ fn handle_key_down<S: AppState>(
     runtime: &mut Runtime,
     pipeline: &Pipeline,
     effect_result_tx: &mpsc::Sender<EffectResult>,
+    event_proxy: &EventLoopProxy<TestEvent>,
     app_effect_handler: Option<&AppEffectHandler>,
     window: &Window,
     elwt: &EventLoopWindowTarget<TestEvent>,
@@ -774,6 +1093,8 @@ fn handle_key_down<S: AppState>(
     presented_frames: u64,
     last_blink_toggle: &mut Instant,
     key_handler: Option<&KeyHandler<S>>,
+    frame_trace: &mut FrameTraceState,
+    invalidations: &mut InvalidationSet,
 ) -> bool {
     let ir_and_snap = match (&pipeline.prev_ir, &pipeline.last_snapshot) {
         (Some(ir), Some(snap)) => Some((ir, snap)),
@@ -785,10 +1106,33 @@ fn handle_key_down<S: AppState>(
         let handler = handler.clone();
         if let Some(state) = runtime.get_app_state_mut::<S>() {
             if handler(state, &code, modifiers) {
-                if process_pending_effects(runtime, effect_result_tx, app_effect_handler) {
-                    request_redraw_throttled(window, elwt, last_redraw_at, min_frame, redraw_pending);
+                if process_pending_effects(
+                    runtime,
+                    effect_result_tx,
+                    event_proxy,
+                    app_effect_handler,
+                ) {
+                    invalidations.mark_build();
+                    request_redraw_logged(
+                        window,
+                        elwt,
+                        last_redraw_at,
+                        min_frame,
+                        redraw_pending,
+                        frame_trace,
+                        "key_handler:effects",
+                    );
                 }
-                request_redraw_throttled(window, elwt, last_redraw_at, min_frame, redraw_pending);
+                invalidations.mark_build();
+                request_redraw_logged(
+                    window,
+                    elwt,
+                    last_redraw_at,
+                    min_frame,
+                    redraw_pending,
+                    frame_trace,
+                    "key_handler",
+                );
                 return true;
             }
         }
@@ -811,13 +1155,31 @@ fn handle_key_down<S: AppState>(
         if let Err(e) = runtime.handle_input(input_event, ir, layout) {
             eprintln!("Keyboard error: {:?}", e);
         }
+        invalidations.mark_build();
         mark_text_trace_handled(pending_text_traces, trace_seq);
-        if process_pending_effects(runtime, effect_result_tx, app_effect_handler) {
+        if process_pending_effects(runtime, effect_result_tx, event_proxy, app_effect_handler) {
             mark_text_trace_effects(pending_text_traces, trace_seq);
-            request_redraw_throttled(window, elwt, last_redraw_at, min_frame, redraw_pending);
+            invalidations.mark_build();
+            request_redraw_logged(
+                window,
+                elwt,
+                last_redraw_at,
+                min_frame,
+                redraw_pending,
+                frame_trace,
+                "keyboard:effects",
+            );
         }
         reset_text_input_caret(runtime, pipeline.prev_ir.as_ref(), last_blink_toggle);
-        request_redraw_throttled(window, elwt, last_redraw_at, min_frame, redraw_pending);
+        request_redraw_logged(
+            window,
+            elwt,
+            last_redraw_at,
+            min_frame,
+            redraw_pending,
+            frame_trace,
+            "keyboard",
+        );
     }
 
     false
@@ -825,27 +1187,66 @@ fn handle_key_down<S: AppState>(
 
 /// Build the response for a GetText query.
 fn build_get_text_response(pipeline: &Pipeline) -> fission_test_driver::TestResponse {
-    use fission_test_driver::{TextItem, TestResponse};
+    use fission_test_driver::{TestResponse, TextItem};
     let mut items = Vec::new();
     if let (Some(ir), Some(snap)) = (pipeline.prev_ir.as_ref(), pipeline.last_snapshot.as_ref()) {
-        for (id, node) in &ir.nodes {
+        let mut reachable = std::collections::HashSet::new();
+        let mut stack = ir.root.into_iter().collect::<Vec<_>>();
+        while let Some(node_id) = stack.pop() {
+            if !reachable.insert(node_id) {
+                continue;
+            }
+            if let Some(node) = ir.nodes.get(&node_id) {
+                stack.extend(node.children.iter().copied());
+            }
+        }
+
+        for id in reachable {
+            let Some(node) = ir.nodes.get(&id) else {
+                continue;
+            };
             let text_content = match &node.op {
-                fission_ir::Op::Paint(fission_ir::PaintOp::DrawText { text, .. }) => Some(text.clone()),
+                fission_ir::Op::Paint(fission_ir::PaintOp::DrawText { text, .. }) => {
+                    Some(text.clone())
+                }
                 fission_ir::Op::Paint(fission_ir::PaintOp::DrawRichText { runs, .. }) => {
                     Some(runs.iter().map(|r| r.text.clone()).collect::<String>())
                 }
                 _ => None,
             };
             if let Some(text) = text_content {
-                if text.is_empty() { continue; }
-                let check_id = node.parent.unwrap_or(*id);
-                let rect = snap.get_node_rect(check_id).or_else(|| snap.get_node_rect(*id));
-                let (x, y, w, h) = rect.map(|r| (r.x(), r.y(), r.width(), r.height())).unwrap_or((0.0, 0.0, 0.0, 0.0));
-                items.push(TextItem { text, x, y, width: w, height: h });
+                if text.is_empty() {
+                    continue;
+                }
+                let check_id = node.parent.unwrap_or(id);
+                let rect = snap
+                    .get_node_rect(check_id)
+                    .or_else(|| snap.get_node_rect(id));
+                let (x, y, w, h) = rect
+                    .map(|r| (r.x(), r.y(), r.width(), r.height()))
+                    .unwrap_or((0.0, 0.0, 0.0, 0.0));
+                items.push(TextItem {
+                    text,
+                    x,
+                    y,
+                    width: w,
+                    height: h,
+                });
             }
         }
     }
     TestResponse::Text { items }
+}
+
+fn find_visible_text_center(pipeline: &Pipeline, text: &str) -> Option<(f32, f32)> {
+    let fission_test_driver::TestResponse::Text { items } = build_get_text_response(pipeline)
+    else {
+        return None;
+    };
+    items
+        .into_iter()
+        .find(|item| item.text.contains(text) && item.width > 0.0 && item.height > 0.0)
+        .map(|item| (item.x + item.width / 2.0, item.y + item.height / 2.0))
 }
 
 /// Build the response for a GetTree query.
@@ -855,15 +1256,22 @@ fn build_get_tree_response(pipeline: &Pipeline) -> fission_test_driver::TestResp
     if let Some(ir) = &pipeline.prev_ir {
         for (id, node) in &ir.nodes {
             if let fission_ir::Op::Semantics(sem) = &node.op {
-                let rect = pipeline.last_snapshot.as_ref()
+                let rect = pipeline
+                    .last_snapshot
+                    .as_ref()
                     .and_then(|s| s.get_node_rect(*id));
-                let (x, y, w, h) = rect.map(|r| (r.x(), r.y(), r.width(), r.height())).unwrap_or((0.0, 0.0, 0.0, 0.0));
+                let (x, y, w, h) = rect
+                    .map(|r| (r.x(), r.y(), r.width(), r.height()))
+                    .unwrap_or((0.0, 0.0, 0.0, 0.0));
                 nodes.push(SemanticNode {
                     role: format!("{:?}", sem.role),
                     label: sem.label.clone(),
                     value: sem.value.clone(),
                     focusable: sem.focusable,
-                    x, y, width: w, height: h,
+                    x,
+                    y,
+                    width: w,
+                    height: h,
                 });
             }
         }
@@ -879,37 +1287,79 @@ fn handle_tap_text(
 ) -> fission_test_driver::TestResponse {
     use fission_test_driver::TestResponse;
     if let (Some(ir), Some(snap)) = (pipeline.prev_ir.as_ref(), pipeline.last_snapshot.as_ref()) {
-        let mut found = None;
-        for (id, node) in &ir.nodes {
-            let txt = match &node.op {
-                fission_ir::Op::Paint(fission_ir::PaintOp::DrawText { text: t, .. }) => Some(t.as_str()),
-                fission_ir::Op::Paint(fission_ir::PaintOp::DrawRichText { runs, .. }) => {
-                    let combined: String = runs.iter().map(|r| r.text.clone()).collect();
-                    if combined.contains(text) { Some("") } else { None }
-                }
-                _ => None,
-            };
-            if let Some(t) = txt {
-                if t.contains(text) || t.is_empty() {
-                    let check_id = node.parent.unwrap_or(*id);
-                    if let Some(rect) = snap.get_node_rect(check_id).or_else(|| snap.get_node_rect(*id)) {
-                        found = Some((rect.x() + rect.width() / 2.0, rect.y() + rect.height() / 2.0));
-                        break;
-                    }
-                }
-            }
-        }
-        if let Some((cx, cy)) = found {
+        if let Some((cx, cy)) = find_visible_text_center(pipeline, text) {
             let point = LayoutPoint::new(cx, cy);
-            let _ = runtime.handle_input(InputEvent::Pointer(PointerEvent::Down { point, button: PointerButton::Primary }), ir, snap);
-            let _ = runtime.handle_input(InputEvent::Pointer(PointerEvent::Up { point, button: PointerButton::Primary }), ir, snap);
+            let _ = runtime.handle_input(
+                InputEvent::Pointer(PointerEvent::Down {
+                    point,
+                    button: PointerButton::Primary,
+                }),
+                ir,
+                snap,
+            );
+            let _ = runtime.handle_input(
+                InputEvent::Pointer(PointerEvent::Up {
+                    point,
+                    button: PointerButton::Primary,
+                }),
+                ir,
+                snap,
+            );
             TestResponse::Ok {}
         } else {
-            TestResponse::Error { message: format!("text '{}' not found", text) }
+            TestResponse::Error {
+                message: format!("text '{}' not found", text),
+            }
         }
     } else {
-        TestResponse::Error { message: "no frame rendered yet".into() }
+        TestResponse::Error {
+            message: "no frame rendered yet".into(),
+        }
     }
+}
+
+fn wrap_portal_for_viewport(
+    id: Option<WidgetNodeId>,
+    node: fission_core::Node,
+    env: &Env,
+) -> fission_core::Node {
+    let builder = fission_core::ui::Container::new(node)
+        .width(env.viewport_size.width)
+        .height(env.viewport_size.height);
+    if let Some(id) = id {
+        builder
+            .id(fission_core::NodeId::derived(id.as_u128(), &[0x0000_F001]))
+            .into_node()
+    } else {
+        builder.into_node()
+    }
+}
+
+fn texture_plan_fits_device_limits(
+    plan: &crate::pipeline::CompositorTexturePlan,
+    scale_factor: f64,
+    max_texture_dimension_2d: u32,
+) -> bool {
+    if plan.scene.is_some() {
+        let width = ((plan.bounds.size.width as f64 * scale_factor).ceil() as u32).max(1);
+        let height = ((plan.bounds.size.height as f64 * scale_factor).ceil() as u32).max(1);
+        if width > max_texture_dimension_2d || height > max_texture_dimension_2d {
+            return false;
+        }
+    }
+    plan.children
+        .iter()
+        .all(|child| texture_plan_fits_device_limits(child, scale_factor, max_texture_dimension_2d))
+}
+
+fn texture_plans_fit_device_limits(
+    plans: &[crate::pipeline::CompositorTexturePlan],
+    scale_factor: f64,
+    max_texture_dimension_2d: u32,
+) -> bool {
+    plans
+        .iter()
+        .all(|plan| texture_plan_fits_device_limits(plan, scale_factor, max_texture_dimension_2d))
 }
 
 pub type KeyHandler<S> = Arc<dyn Fn(&mut S, &fission_core::KeyCode, u8) -> bool + Send + Sync>;
@@ -1039,8 +1489,14 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
     /// `mpsc::Sender<EffectResult>`.
     pub fn with_app_effect_handler<F>(mut self, handler: F) -> Self
     where
-        F: Fn(Vec<u8>, u64, Option<ActionEnvelope>, Option<ActionEnvelope>, mpsc::Sender<EffectResult>)
-            + Send
+        F: Fn(
+                Vec<u8>,
+                u64,
+                Option<ActionEnvelope>,
+                Option<ActionEnvelope>,
+                mpsc::Sender<EffectResult>,
+                EventLoopProxy<TestEvent>,
+            ) + Send
             + Sync
             + 'static,
     {
@@ -1070,14 +1526,25 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
 
         // Build event loop with TestEvent as the user event type.
         // This allows the test control server to inject events via EventLoopProxy.
-        let event_loop = EventLoopBuilder::<TestEvent>::with_user_event()
+        let background_test_mode = std::env::var_os("FISSION_BACKGROUND_TEST").is_some();
+        let mut event_loop_builder = EventLoopBuilder::<TestEvent>::with_user_event();
+        #[cfg(target_os = "macos")]
+        if background_test_mode {
+            event_loop_builder.with_activation_policy(ActivationPolicy::Accessory);
+            event_loop_builder.with_activate_ignoring_other_apps(false);
+            event_loop_builder.with_default_menu(false);
+        }
+        let event_loop = event_loop_builder
             .build()
             .map_err(|e| anyhow::anyhow!("Event loop error: {}", e))?;
         let event_proxy = event_loop.create_proxy();
 
+        let mut window_builder = WindowBuilder::new().with_title(&self.title);
+        if background_test_mode {
+            window_builder = window_builder.with_active(false).with_visible(false);
+        }
         let window = Arc::new(
-            WindowBuilder::new()
-                .with_title(&self.title)
+            window_builder
                 .build(&event_loop)
                 .map_err(|e| anyhow::anyhow!("Window build error: {}", e))?,
         );
@@ -1095,15 +1562,22 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
         ))
         .unwrap();
 
-        // Enable Alpha for video hole punching (if supported by the GPU)
+        // Enable Alpha for video hole punching
         let device_handle = &render_cx.devices[surface.dev_id];
-        surface.config.alpha_mode = pick_alpha_mode(&render_cx, &surface);
+        surface.config.alpha_mode = wgpu::CompositeAlphaMode::PostMultiplied;
         surface
             .surface
             .configure(&device_handle.device, &surface.config);
 
         // Recreate target texture with COPY_SRC so GPU screenshots work
-        recreate_target_texture(&mut surface, &render_cx);
+        let initial_target_texture_size = (surface.config.width, surface.config.height);
+        recreate_target_texture(
+            &mut surface,
+            &render_cx,
+            initial_target_texture_size.0,
+            initial_target_texture_size.1,
+        );
+        let mut target_texture_size = initial_target_texture_size;
 
         let mut scene3d_renderer = fission_3d::render::Scene3DRenderer::new(
             &device_handle.device,
@@ -1124,6 +1598,9 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
         .unwrap();
 
         let mut scene = Scene::new();
+        let mut retained_scene_cache = RetainedSceneCache::default();
+        let mut texture_compositor =
+            TextureLayerCompositor::new(&device_handle.device, wgpu::TextureFormat::Rgba8Unorm);
 
         window.request_redraw();
 
@@ -1150,6 +1627,27 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
             .filter(|v| *v > 0)
             .unwrap_or(60);
         let min_frame = Duration::from_secs_f32(1.0 / max_fps as f32);
+        let repeat_animation_fps = std::env::var("FISSION_REPEAT_ANIMATION_FPS")
+            .ok()
+            .and_then(|v| v.parse::<u32>().ok())
+            .filter(|v| *v > 0)
+            .map(|v| v.min(max_fps))
+            .unwrap_or(10);
+        let repeat_animation_frame = Duration::from_secs_f32(1.0 / repeat_animation_fps as f32);
+        let resize_fps = std::env::var("FISSION_RESIZE_FPS")
+            .ok()
+            .and_then(|v| v.parse::<u32>().ok())
+            .filter(|v| *v > 0)
+            .map(|v| v.min(max_fps))
+            .unwrap_or(60);
+        let resize_frame = Duration::from_secs_f32(1.0 / resize_fps as f32);
+        let resize_settle_delay = Duration::from_millis(
+            std::env::var("FISSION_RESIZE_SETTLE_MS")
+                .ok()
+                .and_then(|v| v.parse::<u64>().ok())
+                .filter(|v| *v > 0)
+                .unwrap_or(90),
+        );
         let mut last_redraw_at = Instant::now()
             .checked_sub(min_frame)
             .unwrap_or_else(Instant::now);
@@ -1170,6 +1668,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
         let text_trace_enabled = std::env::var("FISSION_TEXT_TRACE")
             .map(|v| matches!(v.to_ascii_lowercase().as_str(), "1" | "true" | "yes"))
             .unwrap_or(false);
+        let mut frame_trace = FrameTraceState::new(frame_trace_enabled());
         let mut presented_frames: u64 = 0;
         let mut next_text_trace_seq: u64 = 0;
         let mut pending_text_traces: VecDeque<PendingTextTrace> = VecDeque::new();
@@ -1179,19 +1678,28 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
         // Test control (enabled via FISSION_TEST_CONTROL_PORT env var).
         // The TCP server injects TestEvents via the EventLoopProxy and receives
         // query responses through a dedicated mpsc channel.
-        let test_response_tx: Option<test_control::ResponseSender> = std::env::var("FISSION_TEST_CONTROL_PORT")
-            .ok()
-            .and_then(|v| v.parse::<u16>().ok())
-            .map(|port| {
-                let (resp_tx, resp_rx) = test_control::create_response_channel();
-                test_control::spawn_server(port, event_proxy.clone(), resp_rx);
-                resp_tx
-            });
+        let test_response_tx: Option<test_control::ResponseSender> =
+            std::env::var("FISSION_TEST_CONTROL_PORT")
+                .ok()
+                .and_then(|v| v.parse::<u16>().ok())
+                .map(|port| {
+                    let (resp_tx, resp_rx) = test_control::create_response_channel();
+                    test_control::spawn_server(port, event_proxy.clone(), resp_rx);
+                    resp_tx
+                });
         // Pending screenshot/pump: path + whether it needs a screenshot (vs pump).
         let mut pending_screenshot_path: Option<String> = None;
         // Simulated viewport size override for test resize events.
         // When set, layout uses these dimensions instead of window.inner_size().
         let mut simulated_viewport: Option<(u32, u32)> = None;
+        let mut pending_resize = Some(window.inner_size());
+        let mut live_resize = LiveResizeController::new(resize_settle_delay);
+        let mut invalidations = InvalidationSet {
+            build: true,
+            layout: true,
+            paint: true,
+            composite: true,
+        };
 
         event_loop
             .run(move |event, elwt| {
@@ -1213,9 +1721,11 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                 handle_cursor_moved(
                                     x, y,
                                     &mut runtime, &pipeline,
-                                    &effect_result_tx, app_effect_handler.as_ref(),
+                                    &effect_result_tx, &event_proxy, app_effect_handler.as_ref(),
                                     &window, elwt,
                                     &mut last_redraw_at, min_frame, &mut redraw_pending,
+                                    &mut frame_trace,
+                                    &mut invalidations,
                                 );
                             }
                             TestEvent::MouseDown { x, y, button } => {
@@ -1223,12 +1733,14 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                 handle_mouse_button(
                                     x, y, btn, true,
                                     &mut runtime, &pipeline,
-                                    &effect_result_tx, app_effect_handler.as_ref(),
+                                    &effect_result_tx, &event_proxy, app_effect_handler.as_ref(),
                                     &window, elwt,
                                     &mut last_redraw_at, min_frame, &mut redraw_pending,
                                     text_trace_enabled, &mut pending_text_traces,
                                     &mut next_text_trace_seq, presented_frames,
                                     &mut last_blink_toggle,
+                                    &mut frame_trace,
+                                    &mut invalidations,
                                 );
                             }
                             TestEvent::MouseUp { x, y, button } => {
@@ -1236,12 +1748,14 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                 handle_mouse_button(
                                     x, y, btn, false,
                                     &mut runtime, &pipeline,
-                                    &effect_result_tx, app_effect_handler.as_ref(),
+                                    &effect_result_tx, &event_proxy, app_effect_handler.as_ref(),
                                     &window, elwt,
                                     &mut last_redraw_at, min_frame, &mut redraw_pending,
                                     text_trace_enabled, &mut pending_text_traces,
                                     &mut next_text_trace_seq, presented_frames,
                                     &mut last_blink_toggle,
+                                    &mut frame_trace,
+                                    &mut invalidations,
                                 );
                             }
                             TestEvent::KeyDown { key_code, modifiers } => {
@@ -1249,64 +1763,179 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                 handle_key_down::<S>(
                                     code, modifiers,
                                     &mut runtime, &pipeline,
-                                    &effect_result_tx, app_effect_handler.as_ref(),
-                                    &window, elwt,
-                                    &mut last_redraw_at, min_frame, &mut redraw_pending,
-                                    text_trace_enabled, &mut pending_text_traces,
-                                    &mut next_text_trace_seq, presented_frames,
-                                    &mut last_blink_toggle,
-                                    self.key_handler.as_ref(),
-                                );
-                            }
-                            TestEvent::KeyUp { .. } => {
-                                // Key-up is currently a no-op in the framework
-                                // (only key-down dispatches actions), but we request
-                                // a redraw so any state changes are rendered.
-                                request_redraw_throttled(&window, elwt, &mut last_redraw_at, min_frame, &mut redraw_pending);
-                            }
-                            TestEvent::TextInput { text } => {
-                                // Type each character via handle_key_down so custom
-                                // render objects receive the events (same path as real
-                                // keyboard input).
-                                for ch in text.chars() {
-                                    let key = if ch == ' ' { KeyCode::Space } else if ch == '\n' { KeyCode::Enter } else { KeyCode::Char(ch) };
-                                    handle_key_down::<S>(
-                                        key, 0,
-                                        &mut runtime, &pipeline,
-                                        &effect_result_tx, app_effect_handler.as_ref(),
+                                    &effect_result_tx, &event_proxy, app_effect_handler.as_ref(),
                                         &window, elwt,
                                         &mut last_redraw_at, min_frame, &mut redraw_pending,
                                         text_trace_enabled, &mut pending_text_traces,
                                         &mut next_text_trace_seq, presented_frames,
                                         &mut last_blink_toggle,
                                         self.key_handler.as_ref(),
+                                        &mut frame_trace,
+                                        &mut invalidations,
                                     );
+                            }
+                            TestEvent::KeyUp { .. } => {
+                                // Key-up is currently a no-op in the framework
+                                // (only key-down dispatches actions), but we request
+                                // a redraw so any state changes are rendered.
+                                request_redraw_logged(
+                                    &window,
+                                    elwt,
+                                    &mut last_redraw_at,
+                                    min_frame,
+                                    &mut redraw_pending,
+                                    &mut frame_trace,
+                                    "test_key_up",
+                                );
+                            }
+                            TestEvent::TextInput { text } => {
+                                // Route test typing through IME when the focus target accepts
+                                // real text input; otherwise fall back to key events so
+                                // app-level rename handlers and similar shortcuts still work.
+                                if let (Some(ir), Some(layout)) =
+                                    (&pipeline.prev_ir, &pipeline.last_snapshot)
+                                {
+                                    let target =
+                                        focused_text_input_id(&runtime, pipeline.prev_ir.as_ref());
+                                    if target.is_some()
+                                        || focused_custom_text_input(
+                                            &runtime,
+                                            pipeline.prev_ir.as_ref(),
+                                        )
+                                    {
+                                        let trace_seq = start_text_trace(
+                                            text_trace_enabled && target.is_some(),
+                                            &mut pending_text_traces,
+                                            &mut next_text_trace_seq,
+                                            format!("test_text_input:{}", text.chars().count()),
+                                            target,
+                                            presented_frames,
+                                        );
+                                        runtime
+                                            .handle_input(
+                                                InputEvent::Ime(
+                                                    fission_core::event::ImeEvent::Commit {
+                                                        text: text.clone(),
+                                                    },
+                                                ),
+                                                ir,
+                                                layout,
+                                            )
+                                            .ok();
+                                        invalidations.mark_build();
+                                        mark_text_trace_handled(
+                                            &mut pending_text_traces,
+                                            trace_seq,
+                                        );
+                                        if process_pending_effects(
+                                            &mut runtime,
+                                            &effect_result_tx,
+                                            &event_proxy,
+                                            app_effect_handler.as_ref(),
+                                        ) {
+                                            mark_text_trace_effects(
+                                                &mut pending_text_traces,
+                                                trace_seq,
+                                            );
+                                            invalidations.mark_build();
+                                        }
+                                        request_redraw_logged(
+                                            &window,
+                                            elwt,
+                                            &mut last_redraw_at,
+                                            min_frame,
+                                            &mut redraw_pending,
+                                            &mut frame_trace,
+                                            "test_text_input",
+                                        );
+                                    } else {
+                                        for ch in text.chars() {
+                                            let key = if ch == ' ' {
+                                                KeyCode::Space
+                                            } else if ch == '\n' {
+                                                KeyCode::Enter
+                                            } else {
+                                                KeyCode::Char(ch)
+                                            };
+                                            handle_key_down::<S>(
+                                                key,
+                                                0,
+                                                &mut runtime,
+                                                &pipeline,
+                                                &effect_result_tx,
+                                                &event_proxy,
+                                                app_effect_handler.as_ref(),
+                                                &window,
+                                                elwt,
+                                                &mut last_redraw_at,
+                                                min_frame,
+                                                &mut redraw_pending,
+                                                text_trace_enabled,
+                                                &mut pending_text_traces,
+                                                &mut next_text_trace_seq,
+                                                presented_frames,
+                                                &mut last_blink_toggle,
+                                                self.key_handler.as_ref(),
+                                                &mut frame_trace,
+                                                &mut invalidations,
+                                            );
+                                        }
+                                    }
                                 }
                             }
                             TestEvent::Scroll { x, y, dx, dy } => {
                                 handle_scroll(
                                     x, y, dx, dy,
                                     &mut runtime, &pipeline,
-                                    &effect_result_tx, app_effect_handler.as_ref(),
+                                    &effect_result_tx, &event_proxy, app_effect_handler.as_ref(),
                                     &window, elwt,
                                     &mut last_redraw_at, min_frame, &mut redraw_pending,
+                                    &mut frame_trace,
+                                    &mut invalidations,
                                 );
                             }
                             TestEvent::Resize { width, height } => {
                                 if width > 0 && height > 0 {
-                                    // Store the simulated size so layout uses
-                                    // it instead of window.inner_size().
                                     simulated_viewport = Some((width, height));
-                                    pipeline.last_viewport = None;
-                                    window.request_redraw();
+                                    pending_resize = Some(window.inner_size());
+                                    live_resize.note_resize(Instant::now());
+                                    invalidations.mark_composite();
+                                    request_redraw_logged(
+                                        &window,
+                                        elwt,
+                                        &mut last_redraw_at,
+                                        resize_frame,
+                                        &mut redraw_pending,
+                                        &mut frame_trace,
+                                        "test_resize",
+                                    );
                                 }
                             }
                             TestEvent::TapText { text } => {
                                 let resp = handle_tap_text(&text, &mut runtime, &pipeline);
+                                if matches!(resp, fission_test_driver::TestResponse::Ok { .. }) {
+                                    invalidations.mark_build();
+                                    if process_pending_effects(
+                                        &mut runtime,
+                                        &effect_result_tx,
+                                        &event_proxy,
+                                        app_effect_handler.as_ref(),
+                                    ) {
+                                        invalidations.mark_build();
+                                    }
+                                }
                                 if let Some(ref tx) = test_response_tx {
                                     let _ = tx.send(resp);
                                 }
-                                request_redraw_throttled(&window, elwt, &mut last_redraw_at, min_frame, &mut redraw_pending);
+                                request_redraw_logged(
+                                    &window,
+                                    elwt,
+                                    &mut last_redraw_at,
+                                    min_frame,
+                                    &mut redraw_pending,
+                                    &mut frame_trace,
+                                    "test_tap_text",
+                                );
                             }
                             TestEvent::Screenshot { path } => {
                                 pending_screenshot_path = Some(path);
@@ -1329,6 +1958,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                 pending_screenshot_path = Some("__pump__".into());
                                 window.request_redraw();
                             }
+                            TestEvent::Wake => {}
                             TestEvent::Wait { ms: _ } => {
                                 // Wait is handled on the server thread; this
                                 // should not arrive here. If it does, just
@@ -1348,14 +1978,6 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                     // ═══════════════════════════════════════════════════════
                     Event::AboutToWait => {
                         let now = Instant::now();
-                        let dt = now.duration_since(last_frame_time);
-                        last_frame_time = now;
-
-                        // Tick Runtime (Animations)
-                        let dt_ms = dt.as_millis() as u64;
-                        if let Err(e) = runtime.tick(dt_ms) {
-                            eprintln!("Runtime tick error: {:?}", e);
-                        }
 
                         // Video Logic
                         let surfaces = pipeline.take_video_surfaces();
@@ -1419,13 +2041,29 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                         VideoEvent::Ended => {
                                             video_state.status = VideoStatus::Ended;
                                             active_player.last_status = Some(VideoStatus::Ended);
-                                            request_redraw_throttled(&window, elwt, &mut last_redraw_at, min_frame, &mut redraw_pending);
+                                            request_redraw_logged(
+                                                &window,
+                                                elwt,
+                                                &mut last_redraw_at,
+                                                min_frame,
+                                                &mut redraw_pending,
+                                                &mut frame_trace,
+                                                "video_ended",
+                                            );
                                         },
                                         VideoEvent::Error(e) => {
                                             eprintln!("Video playback error for {:?}: {:?}", widget_id, e);
                                             video_state.status = VideoStatus::Error;
                                             active_player.last_status = Some(VideoStatus::Error);
-                                            request_redraw_throttled(&window, elwt, &mut last_redraw_at, min_frame, &mut redraw_pending);
+                                            request_redraw_logged(
+                                                &window,
+                                                elwt,
+                                                &mut last_redraw_at,
+                                                min_frame,
+                                                &mut redraw_pending,
+                                                &mut frame_trace,
+                                                "video_error",
+                                            );
                                         },
                                     }
                                 }
@@ -1451,13 +2089,35 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                             }
                         }
 
-                        // Check if we need a redraw (Animation or Video playing)
-                        // Only force continuous redraws for non-repeating animations
-                        // or active video players. Repeating animations (spinners, skeleton
-                        // shimmer) should not burn CPU when idle.
-                        let has_finite_animation = runtime.runtime_state.animation.active.values()
-                            .any(|a| !a.repeat);
-                        let needs_redraw = has_finite_animation || !players.is_empty();
+                        let has_finite_animation = runtime
+                            .runtime_state
+                            .animation
+                            .active
+                            .values()
+                            .any(|anim| !anim.repeat);
+                        let repeat_animation_interval = if pending_resize.is_some() {
+                            None
+                        } else {
+                            repeating_animation_redraw_interval(
+                                &runtime.runtime_state.animation,
+                                repeat_animation_frame,
+                            )
+                        };
+                        let has_playing_video = players.iter().any(|(widget_id, _)| {
+                            runtime
+                                .runtime_state
+                                .video
+                                .states
+                                .get(widget_id)
+                                .map(|state| state.status == VideoStatus::Playing)
+                                .unwrap_or(false)
+                        });
+                        let animation_frame = animation_redraw_interval(
+                            has_finite_animation,
+                            repeat_animation_interval,
+                            has_playing_video,
+                            min_frame,
+                        );
 
                         let focused_text_input = focused_text_input_id(&runtime, pipeline.prev_ir.as_ref());
                         if focused_text_input != blink_focus_id {
@@ -1468,7 +2128,16 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                             if let Some(id) = blink_focus_id {
                                 runtime.runtime_state.caret_visible.insert(id, true);
                                 last_blink_toggle = now;
-                                request_redraw_throttled(&window, elwt, &mut last_redraw_at, min_frame, &mut redraw_pending);
+                                invalidations.mark_build();
+                                request_redraw_logged(
+                                    &window,
+                                    elwt,
+                                    &mut last_redraw_at,
+                                    min_frame,
+                                    &mut redraw_pending,
+                                    &mut frame_trace,
+                                    "caret_focus_changed",
+                                );
                             }
                         }
 
@@ -1479,7 +2148,16 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                     let visible = runtime.runtime_state.caret_visible.get(&id).copied().unwrap_or(true);
                                     runtime.runtime_state.caret_visible.insert(id, !visible);
                                     last_blink_toggle = now;
-                                    request_redraw_throttled(&window, elwt, &mut last_redraw_at, min_frame, &mut redraw_pending);
+                                    invalidations.mark_build();
+                                    request_redraw_logged(
+                                        &window,
+                                        elwt,
+                                        &mut last_redraw_at,
+                                        min_frame,
+                                        &mut redraw_pending,
+                                        &mut frame_trace,
+                                        "caret_blink",
+                                    );
                                 }
                             }
                         }
@@ -1494,12 +2172,30 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                         // their continuations back into the runtime on the main thread.
                         let effect_results_dispatched = drain_effect_results(&mut runtime, &effect_result_rx);
                         if effect_results_dispatched {
+                            invalidations.mark_build();
                             // Background work completed — process any new effects
                             // the continuation reducers may have emitted.
-                            if process_pending_effects(&mut runtime, &effect_result_tx, app_effect_handler.as_ref()) {
-                                request_redraw_throttled(&window, elwt, &mut last_redraw_at, min_frame, &mut redraw_pending);
+                            if process_pending_effects(&mut runtime, &effect_result_tx, &event_proxy, app_effect_handler.as_ref()) {
+                                invalidations.mark_build();
+                                request_redraw_logged(
+                                    &window,
+                                    elwt,
+                                    &mut last_redraw_at,
+                                    min_frame,
+                                    &mut redraw_pending,
+                                    &mut frame_trace,
+                                    "effect_continuation",
+                                );
                             }
-                            window.request_redraw();
+                            request_redraw_logged(
+                                &window,
+                                elwt,
+                                &mut last_redraw_at,
+                                min_frame,
+                                &mut redraw_pending,
+                                &mut frame_trace,
+                                "effect_result",
+                            );
                         }
 
                         // Application frame hook (e.g. LSP polling).
@@ -1514,7 +2210,16 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                             false
                         };
                         if frame_hook_wants_redraw {
-                            request_redraw_throttled(&window, elwt, &mut last_redraw_at, min_frame, &mut redraw_pending);
+                            invalidations.mark_build();
+                            request_redraw_logged(
+                                &window,
+                                elwt,
+                                &mut last_redraw_at,
+                                min_frame,
+                                &mut redraw_pending,
+                                &mut frame_trace,
+                                "frame_hook",
+                            );
                         }
 
                         // When a frame_hook is registered, ensure the event loop
@@ -1527,9 +2232,105 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                             None
                         };
 
-                        if needs_redraw || redraw_pending || effect_results_dispatched || frame_hook_wants_redraw {
-                            request_redraw_throttled(&window, elwt, &mut last_redraw_at, min_frame, &mut redraw_pending);
-                            let mut wake_at = last_redraw_at + min_frame;
+                        let has_pending_work =
+                            effect_results_dispatched
+                                || frame_hook_wants_redraw
+                                || invalidations.any()
+                                || pending_resize.is_some();
+                        let active_keys = active_animation_keys(&runtime);
+
+                        if has_pending_work {
+                            let pending_frame = pending_work_redraw_interval(
+                                invalidations,
+                                pending_resize.is_some(),
+                                min_frame,
+                                resize_frame,
+                            );
+                            let redraw_reason = if pending_resize.is_some() {
+                                "pending_resize"
+                            } else if invalidations.build {
+                                "pending_work:build"
+                            } else if invalidations.layout {
+                                "pending_work:layout"
+                            } else if invalidations.paint {
+                                "pending_work:paint"
+                            } else if invalidations.composite {
+                                "pending_work:composite"
+                            } else if effect_results_dispatched {
+                                "pending_work:effects"
+                            } else if frame_hook_wants_redraw {
+                                "pending_work:frame_hook"
+                            } else {
+                                "pending_work"
+                            };
+                            request_redraw_logged(
+                                &window,
+                                elwt,
+                                &mut last_redraw_at,
+                                pending_frame,
+                                &mut redraw_pending,
+                                &mut frame_trace,
+                                redraw_reason,
+                            );
+                            let reasons = frame_trace.take_redraw_reasons();
+                            frame_trace.emit(
+                                "about_to_wait",
+                                presented_frames + 1,
+                                &active_keys,
+                                invalidations,
+                                &reasons,
+                                &format!(
+                                    "schedule=pending interval_ms={} pending_resize={} redraw_pending={} highest={}",
+                                    pending_frame.as_millis(),
+                                    pending_resize.is_some(),
+                                    redraw_pending,
+                                    invalidations.highest_class(),
+                                ),
+                            );
+                            let mut wake_at = last_redraw_at + pending_frame;
+                            if let Some(blink_at) = blink_wake_at {
+                                if blink_at < wake_at {
+                                    wake_at = blink_at;
+                                }
+                            }
+                            if let Some(hook_at) = frame_hook_wake_at {
+                                if hook_at < wake_at {
+                                    wake_at = hook_at;
+                                }
+                            }
+                            elwt.set_control_flow(ControlFlow::WaitUntil(wake_at));
+                        } else if let Some(animation_frame) = animation_frame {
+                            request_redraw_logged(
+                                &window,
+                                elwt,
+                                &mut last_redraw_at,
+                                animation_frame,
+                                &mut redraw_pending,
+                                &mut frame_trace,
+                                if has_finite_animation {
+                                    "animation:finite"
+                                } else if has_playing_video {
+                                    "animation:video"
+                                } else {
+                                    "animation:repeat"
+                                },
+                            );
+                            let reasons = frame_trace.take_redraw_reasons();
+                            frame_trace.emit(
+                                "about_to_wait",
+                                presented_frames + 1,
+                                &active_keys,
+                                invalidations,
+                                &reasons,
+                                &format!(
+                                    "schedule=animation interval_ms={} pending_resize={} redraw_pending={} highest={}",
+                                    animation_frame.as_millis(),
+                                    pending_resize.is_some(),
+                                    redraw_pending,
+                                    invalidations.highest_class(),
+                                ),
+                            );
+                            let mut wake_at = last_redraw_at + animation_frame;
                             if let Some(blink_at) = blink_wake_at {
                                 if blink_at < wake_at {
                                     wake_at = blink_at;
@@ -1542,6 +2343,15 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                             }
                             elwt.set_control_flow(ControlFlow::WaitUntil(wake_at));
                         } else if let Some(blink_at) = blink_wake_at {
+                            let reasons = frame_trace.take_redraw_reasons();
+                            frame_trace.emit(
+                                "about_to_wait",
+                                presented_frames + 1,
+                                &active_keys,
+                                invalidations,
+                                &reasons,
+                                "schedule=blink_wait pending_resize=false redraw_pending=false highest=none",
+                            );
                             let mut wake_at = blink_at;
                             if let Some(hook_at) = frame_hook_wake_at {
                                 if hook_at < wake_at {
@@ -1550,8 +2360,26 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                             }
                             elwt.set_control_flow(ControlFlow::WaitUntil(wake_at));
                         } else if let Some(hook_at) = frame_hook_wake_at {
+                            let reasons = frame_trace.take_redraw_reasons();
+                            frame_trace.emit(
+                                "about_to_wait",
+                                presented_frames + 1,
+                                &active_keys,
+                                invalidations,
+                                &reasons,
+                                "schedule=hook_wait pending_resize=false redraw_pending=false highest=none",
+                            );
                             elwt.set_control_flow(ControlFlow::WaitUntil(hook_at));
                         } else {
+                            let reasons = frame_trace.take_redraw_reasons();
+                            frame_trace.emit(
+                                "about_to_wait",
+                                presented_frames + 1,
+                                &active_keys,
+                                invalidations,
+                                &reasons,
+                                "schedule=idle pending_resize=false redraw_pending=false highest=none",
+                            );
                             elwt.set_control_flow(ControlFlow::Wait);
                         }
                     }
@@ -1563,61 +2391,189 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                         match event {
                             WindowEvent::Resized(size) => {
                                 if size.width > 0 && size.height > 0 {
-                                    // Invalidate viewport to force full layout rebuild
-                                    pipeline.last_viewport = None;
-                                    request_redraw_throttled(&window, elwt, &mut last_redraw_at, min_frame, &mut redraw_pending);
+                                    pending_resize = Some(size);
+                                    live_resize.note_resize(Instant::now());
+                                    invalidations.mark_composite();
+                                    request_redraw_logged(
+                                        &window,
+                                        elwt,
+                                        &mut last_redraw_at,
+                                        resize_frame,
+                                        &mut redraw_pending,
+                                        &mut frame_trace,
+                                        "window_resized",
+                                    );
                                 }
                             }
                             WindowEvent::ScaleFactorChanged { .. } => {
-                                // Invalidate viewport to force full layout rebuild
-                                pipeline.last_viewport = None;
-                                request_redraw_throttled(&window, elwt, &mut last_redraw_at, min_frame, &mut redraw_pending);
+                                pending_resize = Some(window.inner_size());
+                                live_resize.note_resize(Instant::now());
+                                invalidations.mark_composite();
+                                request_redraw_logged(
+                                    &window,
+                                    elwt,
+                                    &mut last_redraw_at,
+                                    resize_frame,
+                                    &mut redraw_pending,
+                                    &mut frame_trace,
+                                    "scale_factor_changed",
+                                );
                             }
                             WindowEvent::RedrawRequested => {
                                 redraw_pending = false;
                                 diag::begin_frame(None);
-                                // Drain pending effects before building the next frame.
-                                // This prevents the effect queue from growing unbounded.
-                                if process_pending_effects(&mut runtime, &effect_result_tx, app_effect_handler.as_ref()) {
-                                    request_redraw_throttled(&window, elwt, &mut last_redraw_at, min_frame, &mut redraw_pending);
+                                let now = Instant::now();
+                                let dt = now.duration_since(last_frame_time);
+                                last_frame_time = now;
+                                let dt_ms = dt.as_millis() as u64;
+                                let pre_tick_active = active_animation_keys(&runtime);
+                                match runtime.tick(dt_ms) {
+                                    Ok(tick_result) => {
+                                        let tick_invalidations =
+                                            pipeline.classify_animation_updates(
+                                                &tick_result.changed_animations,
+                                            );
+                                        invalidations.merge(tick_invalidations);
+                                        let reasons = if tick_result.changed_animations.is_empty() {
+                                            Vec::new()
+                                        } else {
+                                            tick_result
+                                                .changed_animations
+                                                .iter()
+                                                .map(|(target, property)| {
+                                                    format!(
+                                                        "tick:{}:{:?}:{}",
+                                                        target.as_u128(),
+                                                        property,
+                                                        tick_invalidations.highest_class()
+                                                    )
+                                                })
+                                                .collect::<Vec<_>>()
+                                        };
+                                        frame_trace.emit(
+                                            "redraw_requested",
+                                            presented_frames + 1,
+                                            &pre_tick_active,
+                                            tick_invalidations,
+                                            &reasons,
+                                            &format!("dt_ms={}", dt_ms),
+                                        );
+                                    }
+                                    Err(e) => {
+                                        eprintln!("Runtime tick error: {:?}", e);
+                                    }
                                 }
-                                let size = window.inner_size();
-                                if size.width > 0 && size.height > 0 {
-                                    if size.width != surface.config.width || size.height != surface.config.height {
-                                        render_cx.resize_surface(&mut surface, size.width, size.height);
-                                        // Re-apply alpha mode after resize
-                                        let device_handle = &render_cx.devices[surface.dev_id];
-                                        surface.config.alpha_mode = pick_alpha_mode(&render_cx, &surface);
-                                        surface.surface.configure(&device_handle.device, &surface.config);
-                                        // Recreate target texture with COPY_SRC for screenshots
-                                        recreate_target_texture(&mut surface, &render_cx);
-                                    }
+                                if process_pending_effects(&mut runtime, &effect_result_tx, &event_proxy, app_effect_handler.as_ref()) {
+                                    invalidations.mark_build();
+                                    request_redraw_logged(
+                                        &window,
+                                        elwt,
+                                        &mut last_redraw_at,
+                                        min_frame,
+                                        &mut redraw_pending,
+                                        &mut frame_trace,
+                                        "redraw:effects",
+                                    );
+                                }
+                                let swapchain_size =
+                                    pending_resize.unwrap_or_else(|| window.inner_size());
+                                if swapchain_size.width == 0 || swapchain_size.height == 0 {
+                                    diag::end_frame(diag::FrameStats::default());
+                                    return;
+                                }
 
-                                    let scale_factor = window.scale_factor();
-                                    // Use simulated viewport dimensions when
-                                    // a test resize event has been injected,
-                                    // otherwise derive from the real window size.
-                                    let (layout_width, layout_height) = if let Some((sw, sh)) = simulated_viewport {
-                                        (sw as f32, sh as f32)
-                                    } else {
-                                        (
-                                            (size.width as f64 / scale_factor) as f32,
-                                            (size.height as f64 / scale_factor) as f32,
-                                        )
-                                    };
-                                    env.viewport_size = LayoutSize {
-                                        width: layout_width,
-                                        height: layout_height,
-                                    };
+                                if swapchain_size.width != surface.config.width
+                                    || swapchain_size.height != surface.config.height
+                                {
+                                    render_cx.resize_surface(
+                                        &mut surface,
+                                        swapchain_size.width,
+                                        swapchain_size.height,
+                                    );
+                                    let device_handle = &render_cx.devices[surface.dev_id];
+                                    surface.config.alpha_mode = wgpu::CompositeAlphaMode::PostMultiplied;
+                                    surface.surface.configure(&device_handle.device, &surface.config);
+                                }
 
-                                    if let Some(sync) = &self.sync_env {
-                                        let state = runtime.get_app_state::<S>().unwrap();
-                                        sync(state, &mut env);
-                                    }
+                                let render_target_size =
+                                    simulated_viewport.unwrap_or((swapchain_size.width, swapchain_size.height));
+                                if render_target_size != target_texture_size {
+                                    recreate_target_texture(
+                                        &mut surface,
+                                        &render_cx,
+                                        render_target_size.0,
+                                        render_target_size.1,
+                                    );
+                                    target_texture_size = render_target_size;
+                                }
 
+                                let scale_factor = window.scale_factor();
+                                let pending_layout_viewport = if let Some((sw, sh)) = simulated_viewport {
+                                    (sw as f32, sh as f32)
+                                } else {
+                                    (
+                                        (swapchain_size.width as f64 / scale_factor) as f32,
+                                        (swapchain_size.height as f64 / scale_factor) as f32,
+                                    )
+                                };
+
+                                let force_resize_layout = invalidations.build
+                                    || pipeline.prev_ir.is_none()
+                                    || pipeline.last_snapshot.is_none();
+                                let apply_resize_layout = if pending_resize.is_some() {
+                                    live_resize.should_apply_layout(
+                                        now,
+                                        pipeline.last_snapshot.is_some(),
+                                        force_resize_layout,
+                                    )
+                                } else {
+                                    force_resize_layout
+                                };
+                                let resize_settled =
+                                    pending_resize.is_some() && !live_resize.is_live(now);
+                                let target_viewport = LayoutSize {
+                                    width: pending_layout_viewport.0,
+                                    height: pending_layout_viewport.1,
+                                };
+                                let viewport_changed = pipeline
+                                    .last_viewport
+                                    .map(|viewport| viewport.size != target_viewport)
+                                    .unwrap_or(true);
+                                if pending_resize.is_some()
+                                    && apply_resize_layout
+                                    && viewport_changed
+                                {
+                                    invalidations.mark_build();
+                                }
+                                if resize_settled && apply_resize_layout {
+                                    invalidations.mark_build();
+                                }
+
+                                let retained_viewport = pipeline
+                                    .last_viewport
+                                    .map(|viewport| viewport.size)
+                                    .unwrap_or(target_viewport);
+                                let viewport = if apply_resize_layout {
+                                    target_viewport
+                                } else {
+                                    retained_viewport
+                                };
+                                env.viewport_size = viewport;
+
+                                if let Some(sync) = &self.sync_env {
+                                    let state = runtime.get_app_state::<S>().unwrap();
+                                    sync(state, &mut env);
+                                }
+
+                                if invalidations.build || pipeline.prev_ir.is_none() {
                                     let (node_tree, registry, anims, videos, web_views, portals) = {
                                         let state = runtime.get_app_state::<S>().unwrap();
-                                        let view = View::new(state, &runtime.runtime_state, &env, pipeline.last_snapshot.as_ref());
+                                        let view = View::new(
+                                            state,
+                                            &runtime.runtime_state,
+                                            &env,
+                                            pipeline.last_snapshot.as_ref(),
+                                        );
                                         let mut ctx = BuildCtx::new();
                                         let node = root_widget.build(&mut ctx, &view);
                                         let anims = ctx.take_animation_requests();
@@ -1625,43 +2581,30 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                         let web_views = ctx.take_web_registrations();
                                         let portals_with_ids = ctx.take_portals();
 
-                                        let portals = portals_with_ids.into_iter().map(|(id, node)| {
-                                            if let Some(id) = id {
-                                                // Use a derived ID for the wrapper to avoid conflict with the widget's own node
-                                                let wrapper_id = fission_core::NodeId::derived(id.as_u128(), &[0x0000_F001]);
-                                                fission_core::ui::Container::new(node)
-                                                    .id(wrapper_id)
-                                                    .width(env.viewport_size.width)
-                                                    .height(env.viewport_size.height)
-                                                    .into_node()
-                                            } else {
-                                                node
-                                            }
-                                        }).collect::<Vec<_>>();
+                                        let portals = portals_with_ids
+                                            .into_iter()
+                                            .map(|(id, node)| wrap_portal_for_viewport(id, node, &env))
+                                            .collect::<Vec<_>>();
 
-                                        // Emit portal summary to diagnostics
-                                        {
-                                            use fission_diagnostics::prelude as diag;
-                                            diag::emit(
-                                                diag::DiagCategory::Layout,
-                                                diag::DiagLevel::Debug,
-                                                diag::DiagEventKind::PortalsComposed { portal_count: portals.len() as u32 },
-                                            );
-                                        }
+                                        diag::emit(
+                                            diag::DiagCategory::Layout,
+                                            diag::DiagLevel::Debug,
+                                            diag::DiagEventKind::PortalsComposed {
+                                                portal_count: portals.len() as u32,
+                                            },
+                                        );
                                         (node, ctx.registry, anims, videos, web_views, portals)
                                     };
 
                                     runtime.clear_reducers();
                                     runtime.absorb_registry(registry);
+                                    runtime.sync_animation_requests(&anims);
                                     for (target, req) in anims {
                                         runtime.enqueue_animation(target, req);
                                     }
                                     runtime.sync_video_nodes(&videos);
                                     runtime.sync_web_nodes(&web_views);
 
-                                    // Always compose an overlay layer above content.
-                                    // Portals are injected into that layer and never
-                                    // participate in normal layout.
                                     let final_root = fission_core::Node::Overlay(
                                         fission_core::ui::Overlay {
                                             id: None,
@@ -1672,117 +2615,222 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                                     ..Default::default()
                                                 },
                                             )),
-                                        }
+                                        },
                                     );
 
-                                    let mut lower_cx = LoweringContext::new(&env, &runtime.runtime_state, runtime.measurer.as_ref(), pipeline.last_snapshot.as_ref());
+                                    let mut lower_cx = LoweringContext::new(
+                                        &env,
+                                        &runtime.runtime_state,
+                                        runtime.measurer.as_ref(),
+                                        pipeline.last_snapshot.as_ref(),
+                                    );
                                     let root_id = final_root.lower(&mut lower_cx);
                                     lower_cx.ir.root = Some(root_id);
-                                    let cx_ir = lower_cx.ir;
 
-                                    let viewport = LayoutSize {
-                                        width: layout_width,
-                                        height: layout_height,
-                                    };
+                                    let pipeline_invalidations =
+                                        pipeline.replace_ir(lower_cx.ir, &env);
+                                    invalidations.merge(pipeline_invalidations);
+                                }
 
-                                    // Vello Rendering
-                                    scene.reset();
+                                let layout_updates = match pipeline.ensure_layout(
+                                    LayoutRect::new(0.0, 0.0, viewport.width, viewport.height),
+                                    &mut layout_engine,
+                                    &runtime.runtime_state.scroll,
+                                ) {
+                                    Ok(updates) => updates,
+                                    Err(e) => {
+                                        eprintln!("Layout error: {:?}", e);
+                                        diag::end_frame(diag::FrameStats::default());
+                                        return;
+                                    }
+                                };
 
-                                    let mut renderer_wrapper = VelloRenderer::new(&mut scene, measurer.clone(), scale_factor);
+                                if layout_updates > 0 {
+                                    if let (Some(ir), Some(layout)) =
+                                        (pipeline.prev_ir.as_ref(), pipeline.last_snapshot.as_ref())
+                                    {
+                                        runtime.post_layout_hook(ir, layout);
+                                    }
+                                }
 
-                                    match pipeline.render(
-                                        cx_ir,
-                                        viewport,
-                                        &mut layout_engine,
-                                        &runtime.runtime_state.scroll,
-                                        &mut renderer_wrapper,
-                                        &runtime.runtime_state.video,
-                                        &runtime.runtime_state.web,
-                                        &env,
-                                    ) {
-                                        Ok(_stats) => {
-                                            let surface_texture = surface.surface.get_current_texture().expect("failed to get texture");
-                                            let device_handle = &render_cx.devices[surface.dev_id];
+                                match pipeline.prepare_current(
+                                    LayoutSize {
+                                        width: pending_layout_viewport.0,
+                                        height: pending_layout_viewport.1,
+                                    },
+                                    viewport,
+                                    pending_resize.is_some() && !apply_resize_layout,
+                                    &runtime.runtime_state.scroll,
+                                    &runtime.runtime_state.animation,
+                                    &runtime.runtime_state.video,
+                                    &runtime.runtime_state.web,
+                                ) {
+                                    Ok(_stats) => {
+                                        let surface_texture = surface
+                                            .surface
+                                            .get_current_texture()
+                                            .expect("failed to get texture");
+                                        let device_handle = &render_cx.devices[surface.dev_id];
 
+                                        let texture_plans = pipeline.texture_compositor_plans();
+                                        let clear_color = vello::wgpu::Color {
+                                            r: env.theme.tokens.colors.background.r as f64 / 255.0,
+                                            g: env.theme.tokens.colors.background.g as f64 / 255.0,
+                                            b: env.theme.tokens.colors.background.b as f64 / 255.0,
+                                            a: env.theme.tokens.colors.background.a as f64 / 255.0,
+                                        };
+                                        let texture_plans_fit_limits = texture_plans_fit_device_limits(
+                                            texture_plans,
+                                            scale_factor,
+                                            device_handle.device.limits().max_texture_dimension_2d,
+                                        );
+                                        let has_active_scroll_offsets = runtime
+                                            .runtime_state
+                                            .scroll
+                                            .offsets
+                                            .values()
+                                            .any(|offset| offset.abs() > 0.5);
+                                        let enable_texture_compositor =
+                                            std::env::var("FISSION_ENABLE_TEXTURE_COMPOSITOR")
+                                                .ok()
+                                                .as_deref()
+                                                == Some("1");
+                                        if !enable_texture_compositor
+                                            || texture_plans.is_empty()
+                                            || !texture_plans_fit_limits
+                                            || has_active_scroll_offsets
+                                        {
                                             let render_params = vello::RenderParams {
-                                                base_color: vello::peniko::Color::from_rgb8(30, 30, 30),
-                                                width: size.width,
-                                                height: size.height,
+                                                base_color: vello::peniko::Color::from_rgba8(
+                                                    env.theme.tokens.colors.background.r,
+                                                    env.theme.tokens.colors.background.g,
+                                                    env.theme.tokens.colors.background.b,
+                                                    env.theme.tokens.colors.background.a,
+                                                ),
+                                                width: render_target_size.0,
+                                                height: render_target_size.1,
                                                 antialiasing_method: vello::AaConfig::Area,
                                             };
 
-                                            vello_renderer.render_to_texture(
-                                                &device_handle.device,
-                                                &device_handle.queue,
-                                                &scene,
-                                                &surface.target_view,
-                                                &render_params,
-                                            ).expect("failed to render");
+                                            scene.reset();
+                                            let retained_scene = pipeline
+                                                .retained_scene()
+                                                .expect("retained render scene missing before render");
+                                            let mut renderer_wrapper = VelloRenderer::new(
+                                                &mut scene,
+                                                measurer.clone(),
+                                                &mut retained_scene_cache,
+                                                scale_factor,
+                                            );
+                                            renderer_wrapper
+                                                .render_scene(retained_scene)
+                                                .expect("failed to encode retained scene");
+                                            vello_renderer
+                                                .render_to_texture(
+                                                    &device_handle.device,
+                                                    &device_handle.queue,
+                                                    &scene,
+                                                    &surface.target_view,
+                                                    &render_params,
+                                                )
+                                                .expect("failed to render");
+                                        } else {
+                                            let force_full_compositor_redraw = invalidations.build
+                                                || invalidations.layout
+                                                || invalidations.paint;
+                                            let _compositor_stats = texture_compositor
+                                                .render_layers(
+                                                    &device_handle.device,
+                                                    &device_handle.queue,
+                                                    &mut vello_renderer,
+                                                    &mut retained_scene_cache,
+                                                    measurer.clone(),
+                                                    scale_factor,
+                                                    render_target_size.0,
+                                                    render_target_size.1,
+                                                    pipeline.texture_compositor_root_transform(),
+                                                    texture_plans,
+                                                    force_full_compositor_redraw,
+                                                    clear_color,
+                                                    &surface.target_view,
+                                                )
+                                                .expect("failed to composite texture layers");
+                                        }
 
-                                            for (_, _rect, payload) in &pipeline.scene_3d_surfaces {
-                                                if let Ok(primitives) = bincode::deserialize::<Vec<fission_3d::Primitive3D>>(payload) {
-                                                    let scene3d = fission_3d::Scene3D {
-                                                        width: Some(size.width as f32),
-                                                        height: Some(size.height as f32),
-                                                        primitives,
-                                                    };
-                                                    scene3d_renderer.render(
+                                        for (_, _rect, payload) in &pipeline.scene_3d_surfaces {
+                                            if let Ok(primitives) =
+                                                bincode::deserialize::<Vec<fission_3d::Primitive3D>>(payload)
+                                            {
+                                                let scene3d = fission_3d::Scene3D {
+                                                    width: Some(render_target_size.0 as f32),
+                                                    height: Some(render_target_size.1 as f32),
+                                                    primitives,
+                                                };
+                                                scene3d_renderer.render(
+                                                    &device_handle.device,
+                                                    &device_handle.queue,
+                                                    &surface.target_view,
+                                                    &scene3d,
+                                                );
+                                            }
+                                        }
+
+                                        let surface_view = surface_texture
+                                            .texture
+                                            .create_view(&wgpu::TextureViewDescriptor::default());
+
+                                        let mut encoder = device_handle.device.create_command_encoder(
+                                            &wgpu::CommandEncoderDescriptor {
+                                                label: Some("Surface Blit"),
+                                            },
+                                        );
+
+                                        surface.blitter.copy(
+                                            &device_handle.device,
+                                            &mut encoder,
+                                            &surface.target_view,
+                                            &surface_view,
+                                        );
+
+                                        device_handle.queue.submit(Some(encoder.finish()));
+
+                                        if let Some(path) = pending_screenshot_path.take() {
+                                            if let Some(ref tx) = test_response_tx {
+                                                if path == "__pump__" {
+                                                    let _ =
+                                                        tx.send(fission_test_driver::TestResponse::Ok {});
+                                                } else {
+                                                    let resp = gpu_screenshot(
                                                         &device_handle.device,
                                                         &device_handle.queue,
-                                                        &surface.target_view,
-                                                        &scene3d,
+                                                    &surface.target_texture,
+                                                        render_target_size.0,
+                                                        render_target_size.1,
+                                                        &path,
                                                     );
+                                                    let _ = tx.send(resp);
                                                 }
                                             }
-
-                                            let surface_view = surface_texture.texture.create_view(&wgpu::TextureViewDescriptor::default());
-
-                                            let mut encoder = device_handle.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                                                label: Some("Surface Blit"),
-                                            });
-
-                                            surface.blitter.copy(
-                                                &device_handle.device,
-                                                &mut encoder,
-                                                &surface.target_view,
-                                                &surface_view,
-                                            );
-
-                                            device_handle.queue.submit(Some(encoder.finish()));
-
-                                            // GPU screenshot / pump response BEFORE present
-                                            if let Some(path) = pending_screenshot_path.take() {
-                                                if let Some(ref tx) = test_response_tx {
-                                                    if path == "__pump__" {
-                                                        let _ = tx.send(fission_test_driver::TestResponse::Ok {});
-                                                    } else {
-                                                        let resp = gpu_screenshot(
-                                                            &device_handle.device,
-                                                            &device_handle.queue,
-                                                            &surface.target_texture,
-                                                            size.width,
-                                                            size.height,
-                                                            &path,
-                                                        );
-                                                        let _ = tx.send(resp);
-                                                    }
-                                                }
-                                            }
-
-                                            surface_texture.present();
-
-                                            presented_frames = presented_frames.saturating_add(1);
-                                            flush_text_traces(
-                                                text_trace_enabled,
-                                                &mut pending_text_traces,
-                                                presented_frames,
-                                            );
-
-                                            diag::end_frame(diag::FrameStats::default());
                                         }
-                                        Err(e) => {
-                                            eprintln!("Pipeline error: {:?}", e);
+
+                                        surface_texture.present();
+                                        if apply_resize_layout {
+                                            pending_resize = None;
                                         }
+                                        invalidations = InvalidationSet::default();
+
+                                        presented_frames = presented_frames.saturating_add(1);
+                                        flush_text_traces(
+                                            text_trace_enabled,
+                                            &mut pending_text_traces,
+                                            presented_frames,
+                                        );
+
+                                        diag::end_frame(diag::FrameStats::default());
+                                    }
+                                    Err(e) => {
+                                        eprintln!("Pipeline error: {:?}", e);
+                                        diag::end_frame(diag::FrameStats::default());
                                     }
                                 }
                             }
@@ -1799,9 +2847,11 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                 handle_cursor_moved(
                                     x, y,
                                     &mut runtime, &pipeline,
-                                    &effect_result_tx, app_effect_handler.as_ref(),
+                                    &effect_result_tx, &event_proxy, app_effect_handler.as_ref(),
                                     &window, elwt,
                                     &mut last_redraw_at, min_frame, &mut redraw_pending,
+                                    &mut frame_trace,
+                                    &mut invalidations,
                                 );
                             }
                             WindowEvent::MouseInput { state, button, .. } => {
@@ -1814,12 +2864,14 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                         handle_mouse_button(
                                             x, y, btn, is_pressed,
                                             &mut runtime, &pipeline,
-                                            &effect_result_tx, app_effect_handler.as_ref(),
+                                            &effect_result_tx, &event_proxy, app_effect_handler.as_ref(),
                                             &window, elwt,
                                             &mut last_redraw_at, min_frame, &mut redraw_pending,
                                             text_trace_enabled, &mut pending_text_traces,
                                             &mut next_text_trace_seq, presented_frames,
                                             &mut last_blink_toggle,
+                                            &mut frame_trace,
+                                            &mut invalidations,
                                         );
                                     }
                                 }
@@ -1847,9 +2899,11 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                     handle_scroll(
                                         point_x, point_y, dx, dy,
                                         &mut runtime, &pipeline,
-                                        &effect_result_tx, app_effect_handler.as_ref(),
+                                        &effect_result_tx, &event_proxy, app_effect_handler.as_ref(),
                                         &window, elwt,
                                         &mut last_redraw_at, min_frame, &mut redraw_pending,
+                                        &mut frame_trace,
+                                        &mut invalidations,
                                     );
                                 }
                             }
@@ -1888,13 +2942,15 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                         handle_key_down::<S>(
                                             code, current_mods,
                                             &mut runtime, &pipeline,
-                                            &effect_result_tx, app_effect_handler.as_ref(),
+                                            &effect_result_tx, &event_proxy, app_effect_handler.as_ref(),
                                             &window, elwt,
                                             &mut last_redraw_at, min_frame, &mut redraw_pending,
                                             text_trace_enabled, &mut pending_text_traces,
                                             &mut next_text_trace_seq, presented_frames,
                                             &mut last_blink_toggle,
                                             self.key_handler.as_ref(),
+                                            &mut frame_trace,
+                                            &mut invalidations,
                                         );
                                     }
                                 }
@@ -1924,13 +2980,31 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                             presented_frames,
                                         );
                                         runtime.handle_input(e, ir, layout).ok();
+                                        invalidations.mark_build();
                                         mark_text_trace_handled(&mut pending_text_traces, trace_seq);
-                                        if process_pending_effects(&mut runtime, &effect_result_tx, app_effect_handler.as_ref()) {
+                                        if process_pending_effects(&mut runtime, &effect_result_tx, &event_proxy, app_effect_handler.as_ref()) {
                                             mark_text_trace_effects(&mut pending_text_traces, trace_seq);
-                                            request_redraw_throttled(&window, elwt, &mut last_redraw_at, min_frame, &mut redraw_pending);
+                                            invalidations.mark_build();
+                                            request_redraw_logged(
+                                                &window,
+                                                elwt,
+                                                &mut last_redraw_at,
+                                                min_frame,
+                                                &mut redraw_pending,
+                                                &mut frame_trace,
+                                                "ime:effects",
+                                            );
                                         }
                                         reset_text_input_caret(&mut runtime, pipeline.prev_ir.as_ref(), &mut last_blink_toggle);
-                                        request_redraw_throttled(&window, elwt, &mut last_redraw_at, min_frame, &mut redraw_pending);
+                                        request_redraw_logged(
+                                            &window,
+                                            elwt,
+                                            &mut last_redraw_at,
+                                            min_frame,
+                                            &mut redraw_pending,
+                                            &mut frame_trace,
+                                            "ime",
+                                        );
                                     }
                                 }
                             }
@@ -2025,9 +3099,11 @@ fn gpu_screenshot(
     queue.submit(Some(encoder.finish()));
 
     let (tx, rx) = std::sync::mpsc::channel();
-    staging.slice(..).map_async(wgpu::MapMode::Read, move |result| {
-        let _ = tx.send(result);
-    });
+    staging
+        .slice(..)
+        .map_async(wgpu::MapMode::Read, move |result| {
+            let _ = tx.send(result);
+        });
     let _ = device.poll(wgpu::PollType::Wait);
 
     match rx.recv() {
@@ -2068,11 +3144,13 @@ fn gpu_screenshot(
 fn recreate_target_texture(
     surface: &mut RenderSurface,
     render_cx: &RenderContext,
+    width: u32,
+    height: u32,
 ) {
     let device = &render_cx.devices[surface.dev_id].device;
     let size = wgpu::Extent3d {
-        width: surface.config.width.max(1),
-        height: surface.config.height.max(1),
+        width: width.max(1),
+        height: height.max(1),
         depth_or_array_layers: 1,
     };
     let new_texture = device.create_texture(&wgpu::TextureDescriptor {
@@ -2084,10 +3162,233 @@ fn recreate_target_texture(
         format: wgpu::TextureFormat::Rgba8Unorm, // Must match Vello's internal format
         usage: wgpu::TextureUsages::STORAGE_BINDING
             | wgpu::TextureUsages::TEXTURE_BINDING
+            | wgpu::TextureUsages::RENDER_ATTACHMENT
             | wgpu::TextureUsages::COPY_SRC,
         view_formats: &[],
     });
     let new_view = new_texture.create_view(&wgpu::TextureViewDescriptor::default());
     surface.target_texture = new_texture;
     surface.target_view = new_view;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        animation_redraw_interval, repeating_animation_redraw_interval,
+        texture_plans_fit_device_limits, LiveResizeController,
+    };
+    use crate::pipeline::CompositorTexturePlan;
+    use fission_core::env::{ActiveAnimation, AnimationStateMap};
+    use fission_core::{AnimationPropertyId, WidgetNodeId};
+    use fission_layout::LayoutRect;
+    use std::collections::HashMap;
+    use std::time::Duration;
+
+    #[test]
+    fn repeating_animation_uses_reduced_frame_rate() {
+        let min_frame = Duration::from_millis(16);
+        let repeat_frame = Duration::from_millis(66);
+        assert_eq!(
+            animation_redraw_interval(false, Some(repeat_frame), false, min_frame),
+            Some(repeat_frame)
+        );
+    }
+
+    #[test]
+    fn finite_animation_keeps_full_frame_rate() {
+        let min_frame = Duration::from_millis(16);
+        assert_eq!(
+            animation_redraw_interval(true, None, false, min_frame),
+            Some(min_frame)
+        );
+        assert_eq!(
+            animation_redraw_interval(false, None, true, min_frame),
+            Some(min_frame)
+        );
+    }
+
+    #[test]
+    fn idle_video_does_not_force_full_frame_rate() {
+        let min_frame = Duration::from_millis(16);
+        let repeat_frame = Duration::from_millis(66);
+        assert_eq!(
+            animation_redraw_interval(false, Some(repeat_frame), false, min_frame),
+            Some(repeat_frame)
+        );
+    }
+
+    #[test]
+    fn no_repeat_interval_means_no_idle_animation_redraw() {
+        let min_frame = Duration::from_millis(16);
+        assert_eq!(
+            animation_redraw_interval(false, None, false, min_frame),
+            None
+        );
+    }
+
+    #[test]
+    fn repeat_animation_interval_uses_low_priority_hint() {
+        let mut animation = AnimationStateMap::default();
+        animation.active.insert(
+            (
+                WidgetNodeId::explicit("spinner"),
+                AnimationPropertyId::opacity(),
+            ),
+            ActiveAnimation {
+                target: WidgetNodeId::explicit("spinner"),
+                property: AnimationPropertyId::opacity(),
+                start_value: 0.3,
+                end_value: 1.0,
+                start_time: 0,
+                duration: 600,
+                repeat: true,
+                frame_interval_ms: Some(166),
+                easing: fission_core::EasingFunction::Linear,
+            },
+        );
+        assert_eq!(
+            repeating_animation_redraw_interval(&animation, Duration::from_millis(66)),
+            Some(Duration::from_millis(166))
+        );
+    }
+
+    #[test]
+    fn repeat_animation_interval_chooses_fastest_active_repeat() {
+        let mut animation = AnimationStateMap {
+            values: HashMap::new(),
+            active: HashMap::new(),
+        };
+        animation.active.insert(
+            (
+                WidgetNodeId::explicit("slow"),
+                AnimationPropertyId::opacity(),
+            ),
+            ActiveAnimation {
+                target: WidgetNodeId::explicit("slow"),
+                property: AnimationPropertyId::opacity(),
+                start_value: 0.3,
+                end_value: 1.0,
+                start_time: 0,
+                duration: 600,
+                repeat: true,
+                frame_interval_ms: Some(200),
+                easing: fission_core::EasingFunction::Linear,
+            },
+        );
+        animation.active.insert(
+            (
+                WidgetNodeId::explicit("fast"),
+                AnimationPropertyId::opacity(),
+            ),
+            ActiveAnimation {
+                target: WidgetNodeId::explicit("fast"),
+                property: AnimationPropertyId::opacity(),
+                start_value: 0.3,
+                end_value: 1.0,
+                start_time: 0,
+                duration: 600,
+                repeat: true,
+                frame_interval_ms: Some(100),
+                easing: fission_core::EasingFunction::Linear,
+            },
+        );
+        assert_eq!(
+            repeating_animation_redraw_interval(&animation, Duration::from_millis(66)),
+            Some(Duration::from_millis(100))
+        );
+    }
+
+    #[test]
+    fn live_resize_defers_layout_until_settled() {
+        let settle = Duration::from_millis(90);
+        let mut resize = LiveResizeController::new(settle);
+        let now = std::time::Instant::now();
+        resize.note_resize(now);
+
+        assert!(resize.is_live(now + Duration::from_millis(30)));
+        assert!(resize.should_apply_layout(now + Duration::from_millis(30), true, false));
+        assert!(!resize.should_apply_layout(now + Duration::from_millis(40), true, false));
+        assert!(resize.should_apply_layout(now + Duration::from_millis(95), true, false));
+    }
+
+    #[test]
+    fn live_resize_force_path_bypasses_settle_delay() {
+        let settle = Duration::from_millis(90);
+        let mut resize = LiveResizeController::new(settle);
+        let now = std::time::Instant::now();
+        resize.note_resize(now);
+
+        assert!(resize.should_apply_layout(now + Duration::from_millis(10), true, true));
+    }
+
+    #[test]
+    fn live_resize_refreshes_layout_periodically_while_dragging() {
+        let settle = Duration::from_millis(90);
+        let mut resize = LiveResizeController::new(settle);
+        let now = std::time::Instant::now();
+        resize.note_resize(now);
+
+        assert!(resize.should_apply_layout(now, true, false));
+        assert!(!resize.should_apply_layout(now + Duration::from_millis(8), true, false));
+        assert!(resize.should_apply_layout(now + Duration::from_millis(20), true, false));
+    }
+
+    #[test]
+    fn oversized_texture_plan_forces_scene_fallback() {
+        let plans = vec![CompositorTexturePlan {
+            key: 1,
+            bounds: LayoutRect::new(0.0, 0.0, 320.0, 9000.0),
+            scene: Some(fission_render::RenderScene::new(LayoutRect::new(
+                0.0, 0.0, 320.0, 9000.0,
+            ))),
+            scene_cache_key: Some(1),
+            content_key: 1,
+            local_dynamic: false,
+            composite_dynamic: false,
+            opacity: 1.0,
+            transform: None,
+            transform_clip: false,
+            clip: None,
+            children: Vec::new(),
+            source_layer_path: None,
+        }];
+        assert!(!texture_plans_fit_device_limits(&plans, 1.0, 8192));
+    }
+
+    #[test]
+    fn nested_texture_plans_must_all_fit_device_limits() {
+        let child = CompositorTexturePlan {
+            key: 2,
+            bounds: LayoutRect::new(0.0, 0.0, 400.0, 8400.0),
+            scene: Some(fission_render::RenderScene::new(LayoutRect::new(
+                0.0, 0.0, 400.0, 8400.0,
+            ))),
+            scene_cache_key: Some(2),
+            content_key: 2,
+            local_dynamic: false,
+            composite_dynamic: false,
+            opacity: 1.0,
+            transform: None,
+            transform_clip: false,
+            clip: None,
+            children: Vec::new(),
+            source_layer_path: None,
+        };
+        let plans = vec![CompositorTexturePlan {
+            key: 1,
+            bounds: LayoutRect::new(0.0, 0.0, 800.0, 600.0),
+            scene: None,
+            scene_cache_key: None,
+            content_key: 3,
+            local_dynamic: false,
+            composite_dynamic: false,
+            opacity: 1.0,
+            transform: None,
+            transform_clip: false,
+            clip: None,
+            children: vec![child],
+            source_layer_path: None,
+        }];
+        assert!(!texture_plans_fit_device_limits(&plans, 1.0, 8192));
+    }
 }

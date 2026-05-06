@@ -1,7 +1,7 @@
 use crate::stack::VStack;
 use crate::Icon;
 use fission_core::op::Color;
-use fission_core::ui::{Container, Node, Row, Text, TextContent};
+use fission_core::ui::{Container, Node, Row, Text};
 use fission_core::{BuildCtx, View, Widget};
 use fission_icons::material;
 use serde::{Deserialize, Serialize};

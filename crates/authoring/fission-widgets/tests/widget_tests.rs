@@ -1,6 +1,6 @@
-use fission_core::{Lower, LoweringContext, Env, RuntimeState};
-use fission_widgets::{Slider, Checkbox, Tabs, TabItem};
+use fission_core::{Env, Lower, LoweringContext, RuntimeState};
 use fission_ir::{Op, Role};
+use fission_widgets::{Checkbox, Slider};
 
 #[test]
 fn test_slider_lowering() {
@@ -10,12 +10,12 @@ fn test_slider_lowering() {
         max: 1.0,
         ..Default::default()
     };
-    
+
     let env = Env::default();
     let runtime = RuntimeState::default();
     let mut cx = LoweringContext::new(&env, &runtime, None, None);
     let id = slider.lower(&mut cx);
-    
+
     let node = cx.ir.nodes.get(&id).unwrap();
     // Slider.lower wraps in Semantics
     if let Op::Semantics(s) = &node.op {
@@ -35,12 +35,12 @@ fn test_checkbox_lowering() {
         checked: true,
         ..Default::default()
     };
-    
+
     let env = Env::default();
     let runtime = RuntimeState::default();
     let mut cx = LoweringContext::new(&env, &runtime, None, None);
     let id = cb.lower(&mut cx);
-    
+
     let node = cx.ir.nodes.get(&id).unwrap();
     if let Op::Semantics(s) = &node.op {
         assert_eq!(s.role, Role::Checkbox);

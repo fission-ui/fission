@@ -19,7 +19,11 @@ pub struct TextEdit {
 
 impl TextEdit {
     /// Create a new edit.
-    pub fn new(range: Range<usize>, new_text: impl Into<String>, old_text: impl Into<String>) -> Self {
+    pub fn new(
+        range: Range<usize>,
+        new_text: impl Into<String>,
+        old_text: impl Into<String>,
+    ) -> Self {
         Self {
             range,
             new_text: new_text.into(),
@@ -134,12 +138,7 @@ impl EditHistory {
     /// Convenience: build a single-edit transaction, apply it, and record it.
     ///
     /// `old_text` is captured automatically from the buffer.
-    pub fn apply_edit(
-        &mut self,
-        buffer: &mut TextBuffer,
-        range: Range<usize>,
-        new_text: &str,
-    ) {
+    pub fn apply_edit(&mut self, buffer: &mut TextBuffer, range: Range<usize>, new_text: &str) {
         let old_text = buffer.slice(range.clone()).to_string();
         let edit = TextEdit::new(range, new_text, old_text);
         let mut txn = EditTransaction::new();

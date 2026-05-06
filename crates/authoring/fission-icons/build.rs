@@ -1,9 +1,9 @@
+use heck::ToSnakeCase;
+use std::collections::BTreeMap;
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::collections::BTreeMap;
 use walkdir::WalkDir;
-use heck::ToSnakeCase;
 
 // Structure: Category -> IconName -> Variant -> Path (relative to crate root)
 type IconMap = BTreeMap<String, BTreeMap<String, BTreeMap<String, String>>>;
@@ -12,7 +12,7 @@ fn main() {
     let out_dir = env::var("OUT_DIR").unwrap();
     let dest_path = Path::new(&out_dir).join("material_icons.rs");
     println!("cargo:rerun-if-env-changed=FISSION_MATERIAL_ICONS_DIR");
-    
+
     // CARGO_MANIFEST_DIR points to crates/authoring/fission-icons
     let manifest_dir = env::var("CARGO_MANIFEST_DIR").unwrap();
     let manifest_dir = Path::new(&manifest_dir);
@@ -42,7 +42,10 @@ fn main() {
     } else {
         let src_root = resolve_icons_root(&submodule_root, &vendor_src);
         let Some(src_root) = src_root else {
-            println!("cargo:warning=Material Icons sources not found. Expected {:?} or {:?}.", submodule_root, vendor_src);
+            println!(
+                "cargo:warning=Material Icons sources not found. Expected {:?} or {:?}.",
+                submodule_root, vendor_src
+            );
             fs::write(&dest_path, "// Material Icons not found\n").unwrap();
             return;
         };
@@ -66,18 +69,24 @@ fn main() {
     for (category, icon_map) in &icons {
         let mod_name = sanitize_keyword(&category.to_snake_case());
         code.push_str(&format!("pub mod {} {{\n", mod_name));
-        
+
         for (icon_name, variants) in icon_map {
             let icon_mod = sanitize_keyword(&icon_name.to_snake_case());
             if icon_mod.chars().next().unwrap().is_numeric() {
-                continue; 
+                continue;
             }
-            
+
             code.push_str(&format!("    pub mod {} {{\n", icon_mod));
-            
+
             for (variant, path) in variants {
-                code.push_str(&format!("        pub const fn {}() -> &'static str {{\n", variant));
-                code.push_str(&format!("            include_str!(concat!(env!(\"CARGO_MANIFEST_DIR\"), \"/{}\"))\n", path));
+                code.push_str(&format!(
+                    "        pub const fn {}() -> &'static str {{\n",
+                    variant
+                ));
+                code.push_str(&format!(
+                    "            include_str!(concat!(env!(\"CARGO_MANIFEST_DIR\"), \"/{}\"))\n",
+                    path
+                ));
                 code.push_str("        }\n");
 
                 if reflection_enabled {
@@ -114,8 +123,15 @@ fn load_icons_index(path: &Path) -> Result<IconMap, serde_json::Error> {
 fn scan_icons_root(src_root: &Path, manifest_dir: &Path) -> IconMap {
     let mut icons: IconMap = BTreeMap::new();
 
-    for entry in WalkDir::new(src_root).min_depth(3).max_depth(3).into_iter().filter_map(|e| e.ok()) {
-        if !entry.file_type().is_dir() { continue; }
+    for entry in WalkDir::new(src_root)
+        .min_depth(3)
+        .max_depth(3)
+        .into_iter()
+        .filter_map(|e| e.ok())
+    {
+        if !entry.file_type().is_dir() {
+            continue;
+        }
 
         // entry is .../category/icon_name/variant
         let variant_path = entry.path();
@@ -123,8 +139,16 @@ fn scan_icons_root(src_root: &Path, manifest_dir: &Path) -> IconMap {
         let category_path = icon_name_path.parent().unwrap();
 
         let variant_str = variant_path.file_name().unwrap().to_string_lossy();
-        let icon_name = icon_name_path.file_name().unwrap().to_string_lossy().to_string();
-        let category = category_path.file_name().unwrap().to_string_lossy().to_string();
+        let icon_name = icon_name_path
+            .file_name()
+            .unwrap()
+            .to_string_lossy()
+            .to_string();
+        let category = category_path
+            .file_name()
+            .unwrap()
+            .to_string_lossy()
+            .to_string();
 
         let svg_path_24 = variant_path.join("24px.svg");
 
@@ -143,7 +167,8 @@ fn scan_icons_root(src_root: &Path, manifest_dir: &Path) -> IconMap {
             let rel_path = svg_path_24.strip_prefix(manifest_dir).unwrap();
             let rel_path_str = rel_path.to_string_lossy().to_string();
 
-            icons.entry(category)
+            icons
+                .entry(category)
                 .or_default()
                 .entry(icon_name)
                 .or_default()

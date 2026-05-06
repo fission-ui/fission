@@ -1,5 +1,5 @@
-use serde::{Deserialize, Serialize};
 use fission_core::op::Color;
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BoxplotSeries {
@@ -16,16 +16,18 @@ impl BoxplotSeries {
             color: Color::BLUE,
         }
     }
-    
+
     pub fn data(mut self, data: Vec<Vec<f32>>) -> Self {
         self.data = data;
         self
     }
-    
+
     pub fn calculate_from_raw(mut self, raw_data: Vec<Vec<f32>>) -> Self {
         let mut calculated = Vec::new();
         for mut group in raw_data {
-            if group.is_empty() { continue; }
+            if group.is_empty() {
+                continue;
+            }
             group.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
             let min = group[0];
             let max = group[group.len() - 1];

@@ -1,8 +1,8 @@
 use anyhow::Result;
-use fission_core::ui::{Node, Text, TextContent, Container, Grid, GridItem, Button, TextInput, Row, Column};
-use fission_core::{BuildCtx, View, Widget, op::{GridTrack, GridPlacement}, WidgetNodeId, NodeId};
-use fission_widgets::{LazyColumn, VStack, HStack, Popover};
+use fission_core::ui::{Button, Grid, GridItem, Node, Text, TextContent, TextInput};
+use fission_core::{op::GridTrack, BuildCtx, NodeId, View, Widget, WidgetNodeId};
 use fission_test::TestHarness;
+use fission_widgets::{HStack, VStack};
 
 #[derive(Debug, Default, Clone)]
 struct AppState {}
@@ -31,23 +31,38 @@ impl Widget<AppState> for HeaderRepro {
                                     TextInput {
                                         width: Some(200.0),
                                         ..Default::default()
-                                    }.into(),
-                                    
+                                    }
+                                    .into(),
                                     // Popover logic simulated
                                     // Anchor button
                                     Button {
-                                        id: Some(NodeId::derived(WidgetNodeId::explicit("filter_btn").as_u128(), &[])),
-                                        child: Some(Box::new(Text { content: TextContent::Literal("Filter".into()), ..Default::default() }.into())),
+                                        id: Some(NodeId::derived(
+                                            WidgetNodeId::explicit("filter_btn").as_u128(),
+                                            &[],
+                                        )),
+                                        child: Some(Box::new(
+                                            Text {
+                                                content: TextContent::Literal("Filter".into()),
+                                                ..Default::default()
+                                            }
+                                            .into(),
+                                        )),
                                         ..Default::default()
-                                    }.into()
-                                ]
-                            }.build(ctx, view),
-                        ]
-                    }.build(ctx, view)
-                ).cell(1, 2).into(),
+                                    }
+                                    .into(),
+                                ],
+                            }
+                            .build(ctx, view),
+                        ],
+                    }
+                    .build(ctx, view),
+                )
+                .cell(1, 2)
+                .into(),
             ],
             ..Default::default()
-        }.into()
+        }
+        .into()
     }
 }
 
@@ -57,22 +72,26 @@ fn test_inbox_header_layout_coords() -> Result<()> {
     h.pump()?; // Build + Layout
 
     let filter_btn_id = NodeId::derived(WidgetNodeId::explicit("filter_btn").as_u128(), &[]);
-    
+
     if let Some(snapshot) = &h.last_snapshot {
         if let Some(geom) = snapshot.get_node_geometry(filter_btn_id) {
             println!("Filter Button Rect: {:?}", geom.rect);
-            // Expected: 220 (Col 1) + 200 (Input) + 8 (Gap) = 428? 
+            // Expected: 220 (Col 1) + 200 (Input) + 8 (Gap) = 428?
             // Gap spacing is accounted for in the row layout.
             // If Input is 200.
             // Button is at X=428?
             // Let's assert it is reasonable.
-            assert!(geom.rect.x() > 400.0 && geom.rect.x() < 500.0, "Filter button X {} should be around 428", geom.rect.x());
+            assert!(
+                geom.rect.x() > 400.0 && geom.rect.x() < 500.0,
+                "Filter button X {} should be around 428",
+                geom.rect.x()
+            );
         } else {
             panic!("Filter button not found in layout snapshot");
         }
     } else {
         panic!("No snapshot");
     }
-    
+
     Ok(())
 }

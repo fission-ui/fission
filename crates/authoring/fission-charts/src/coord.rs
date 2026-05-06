@@ -1,4 +1,4 @@
-use crate::layout::scale::{CategoryScale, LinearScale, Scale};
+use crate::layout::scale::Scale;
 use std::f32::consts::PI;
 
 pub trait CoordSystem {
@@ -15,7 +15,12 @@ pub struct Cartesian2D {
 
 impl Cartesian2D {
     pub fn new(x_scale: Scale, y_scale: Scale, x_range: (f32, f32), y_range: (f32, f32)) -> Self {
-        Self { x_scale, y_scale, x_range, y_range }
+        Self {
+            x_scale,
+            y_scale,
+            x_range,
+            y_range,
+        }
     }
 
     pub fn map_val(&self, x_val: f32, y_val: f32) -> (f32, f32) {

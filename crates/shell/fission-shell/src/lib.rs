@@ -1,4 +1,4 @@
-use fission_ir::{NodeId, WidgetNodeId};
+use fission_ir::WidgetNodeId;
 use fission_render::LayoutRect;
 use serde::{Deserialize, Serialize};
 
@@ -42,4 +42,3 @@ pub enum VideoEvent {
     Ended,
     Error(String),
 }
-

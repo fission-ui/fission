@@ -140,6 +140,9 @@ pub use hero::Hero;
 pub mod web_view;
 pub use web_view::WebView;
 
+pub mod terminal;
+pub use terminal::{TerminalLaunchConfig, TerminalSession, TerminalView};
+
 pub mod draggable;
 pub use draggable::{DragTarget, Draggable};
 
@@ -228,8 +231,10 @@ impl LowerDyn for CanvasLowerer {
     fn lower_dyn(&self, cx: &mut LoweringContext) -> NodeId {
         let child_ids = (self.painter)(cx);
         let group_id = cx.next_node_id();
-        let mut group =
-            NodeBuilder::new(group_id, Op::Structural(StructuralOp::Group { stable_hash: 0 }));
+        let mut group = NodeBuilder::new(
+            group_id,
+            Op::Structural(StructuralOp::Group { stable_hash: 0 }),
+        );
         for cid in child_ids {
             group.add_child(cid);
         }

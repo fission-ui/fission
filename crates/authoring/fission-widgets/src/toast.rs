@@ -1,7 +1,7 @@
 use crate::stack::HStack;
 use crate::Icon;
 use fission_core::op::Color;
-use fission_core::ui::{Button, ButtonVariant, Container, Node, Row, Text};
+use fission_core::ui::{Button, ButtonVariant, Container, Node, Text};
 use fission_core::{ActionEnvelope, BuildCtx, View, Widget, WidgetNodeId};
 use fission_icons::material;
 use serde::{Deserialize, Serialize};
@@ -33,7 +33,7 @@ pub struct Toast {
 }
 
 impl<S: fission_core::AppState> Widget<S> for Toast {
-    fn build(&self, ctx: &mut BuildCtx<S>, view: &View<S>) -> Node {
+    fn build(&self, _ctx: &mut BuildCtx<S>, view: &View<S>) -> Node {
         let tokens = &view.env.theme.tokens;
 
         let (icon_path, icon_color) = match self.kind {

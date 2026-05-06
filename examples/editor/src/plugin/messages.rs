@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 //! Plugin message types.
 //!
 //! These mirror what a protobuf schema would generate. The wire format is:
@@ -111,10 +113,14 @@ pub fn encode_message(msg_type: u16, payload: &[u8]) -> Vec<u8> {
 }
 
 pub fn decode_message(data: &[u8]) -> Option<(u16, &[u8])> {
-    if data.len() < 6 { return None; }
+    if data.len() < 6 {
+        return None;
+    }
     let msg_type = u16::from_le_bytes([data[0], data[1]]);
     let payload_len = u32::from_le_bytes([data[2], data[3], data[4], data[5]]) as usize;
-    if data.len() < 6 + payload_len { return None; }
+    if data.len() < 6 + payload_len {
+        return None;
+    }
     Some((msg_type, &data[6..6 + payload_len]))
 }
 
@@ -128,7 +134,8 @@ mod tests {
             path: "test.rs".into(),
             language: "rust".into(),
             content: "fn main() {}".into(),
-        }).unwrap();
+        })
+        .unwrap();
 
         let encoded = encode_message(MSG_FILE_OPENED, &payload);
         let (msg_type, decoded_payload) = decode_message(&encoded).unwrap();
@@ -143,12 +150,23 @@ mod tests {
     #[test]
     fn all_message_types_distinct() {
         let types = vec![
-            MSG_FILE_OPENED, MSG_FILE_SAVED, MSG_FILE_CLOSED,
-            MSG_DIAGNOSTIC_UPDATE, MSG_COMPLETION_REQUEST, MSG_COMPLETION_RESPONSE,
-            MSG_EDITOR_ACTION, MSG_STATUS_UPDATE, MSG_TREE_REFRESH,
-            MSG_COMMAND_REGISTER, MSG_COMMAND_EXECUTE,
+            MSG_FILE_OPENED,
+            MSG_FILE_SAVED,
+            MSG_FILE_CLOSED,
+            MSG_DIAGNOSTIC_UPDATE,
+            MSG_COMPLETION_REQUEST,
+            MSG_COMPLETION_RESPONSE,
+            MSG_EDITOR_ACTION,
+            MSG_STATUS_UPDATE,
+            MSG_TREE_REFRESH,
+            MSG_COMMAND_REGISTER,
+            MSG_COMMAND_EXECUTE,
         ];
         let unique: std::collections::HashSet<_> = types.iter().collect();
-        assert_eq!(types.len(), unique.len(), "All message types must be unique");
+        assert_eq!(
+            types.len(),
+            unique.len(),
+            "All message types must be unique"
+        );
     }
 }

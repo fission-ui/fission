@@ -1,7 +1,9 @@
 use fission_core::AppState;
 use fission_macros::Action;
+use fission_widgets::{TerminalLaunchConfig, TerminalSession};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
+use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
@@ -96,6 +98,7 @@ impl LspHandle {
     }
 
     /// Request completions at the given position.
+    #[allow(dead_code)]
     pub fn request_completions(&self, path: &str, line: usize, col: usize) {
         if let Ok(mut guard) = self.inner.try_lock() {
             if let Some(ref mut client) = *guard {
@@ -105,6 +108,7 @@ impl LspHandle {
     }
 
     /// Shut down the LSP server.
+    #[allow(dead_code)]
     pub fn shutdown(&self) {
         if let Ok(mut guard) = self.inner.try_lock() {
             if let Some(ref mut client) = *guard {
@@ -161,13 +165,12 @@ fn completion_kind_str(kind: Option<u32>) -> String {
     }
 }
 
-/// Maximum number of editor lines to render before truncating.
-pub const MAX_EDITOR_LINES: usize = 200;
-
-/// Maximum file size (in bytes) that the editor will open.  Files larger
-/// than this are rejected with a status-bar message to avoid freezing
-/// the UI with excessive IR node generation.
-const MAX_FILE_SIZE: u64 = 1_000_000;
+const NORMAL_FILE_LIMIT: u64 = 8 * 1024 * 1024;
+const LARGE_FILE_LIMIT: u64 = 64 * 1024 * 1024;
+const HUGE_FILE_PREVIEW_BYTES: usize = 1_048_576;
+const HUGE_FILE_SCAN_BYTES: usize = 64 * 1024;
+const HUGE_LINE_CHECKPOINT_STRIDE: usize = 2_048;
+const HUGE_WINDOW_CONTEXT_LINES: usize = 48;
 
 // --- State ---
 
@@ -194,7 +197,7 @@ pub struct EditorState {
     pub sidebar_visible: bool,
     pub sidebar_section: SidebarSection,
     pub terminal_visible: bool,
-    pub terminal_lines: Vec<String>,
+    pub terminal_session: Option<Arc<TerminalSession>>,
     pub status_message: Option<String>,
 
     // Split
@@ -206,10 +209,8 @@ pub struct EditorState {
     pub completions: Vec<CompletionItem>,
     pub show_completions: bool,
     pub selected_completion: usize,
+    #[allow(dead_code)]
     pub hover_info: Option<String>,
-
-    // Terminal input
-    pub terminal_input: String,
 
     // Search
     pub search_query: String,
@@ -222,6 +223,7 @@ pub struct EditorState {
     pub bottom_panel_tab: BottomPanelTab,
 
     // Menu bar
+    #[allow(dead_code)]
     pub show_menu_bar: bool,
     pub active_menu: Option<String>,
 
@@ -235,6 +237,7 @@ pub struct EditorState {
     pub find_matches: Vec<(String, usize, usize)>, // (path, line, col)
 
     // Hover tooltip
+    #[allow(dead_code)]
     pub show_hover: bool,
     pub hover_position: (f32, f32),
 
@@ -253,6 +256,7 @@ pub struct EditorState {
 
     // File watcher
     pub file_mtimes: HashMap<String, std::time::SystemTime>,
+    #[allow(dead_code)]
     pub key_event_count: u64,
 
     // Cached file tree (avoids re-scanning on every build)
@@ -294,16 +298,15 @@ impl Default for EditorState {
             sidebar_visible: true,
             sidebar_section: SidebarSection::Explorer,
             terminal_visible: true,
-            terminal_lines: vec!["Fission Editor v0.1.0".into(), "Ready.".into()],
+            terminal_session: None,
             status_message: None,
             sidebar_width: 240.0,
-            terminal_height: 120.0,
+            terminal_height: 96.0,
             diagnostics: HashMap::new(),
             completions: Vec::new(),
             show_completions: false,
             selected_completion: 0,
             hover_info: None,
-            terminal_input: String::new(),
             search_query: String::new(),
             search_results: Vec::new(),
             git_status_lines: Vec::new(),
@@ -348,6 +351,9 @@ pub struct TabInfo {
 pub struct FileBuffer {
     pub buffer: fission_text_engine::TextBuffer,
     pub language: Language,
+    pub wrap_mode: WrapMode,
+    pub document_mode: DocumentMode,
+    pub backing: DocumentBacking,
     pub cursor_line: usize,
     pub cursor_col: usize,
     /// Selection anchor line (same as cursor when no selection).
@@ -356,6 +362,13 @@ pub struct FileBuffer {
     pub anchor_col: usize,
     pub edit_history: fission_text_engine::EditHistory,
     pub line_index: fission_text_engine::LineIndex,
+    pub preedit: Option<EditorPreeditState>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EditorPreeditState {
+    pub text: String,
+    pub range: (usize, usize),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -365,6 +378,62 @@ pub enum Language {
     Markdown,
     Json,
     Plain,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum WrapMode {
+    NoWrap,
+    SoftWrap,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum DocumentMode {
+    Normal,
+    Large,
+    Huge,
+}
+
+#[derive(Debug, Clone)]
+pub enum DocumentBacking {
+    InMemory,
+    FileWindow {
+        source: Arc<Mutex<FileWindowSource>>,
+        window: FileWindow,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FileWindow {
+    pub start_byte: u64,
+    pub end_byte: u64,
+    pub size_bytes: u64,
+    pub start_line: usize,
+    pub end_line: usize,
+    pub content: String,
+    pub has_more_before: bool,
+    pub has_more_after: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LineCheckpoint {
+    pub line: usize,
+    pub byte_offset: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WindowPatch {
+    pub start_byte: u64,
+    pub end_byte: u64,
+    pub content: String,
+}
+
+#[derive(Debug)]
+pub struct FileWindowSource {
+    path: String,
+    size_bytes: u64,
+    window_bytes: usize,
+    checkpoints: Vec<LineCheckpoint>,
+    patches: Vec<WindowPatch>,
 }
 
 impl Language {
@@ -387,102 +456,672 @@ impl Language {
             Language::Plain => "Plain Text",
         }
     }
+
+    pub fn default_wrap_mode(&self) -> WrapMode {
+        match self {
+            Language::Markdown => WrapMode::SoftWrap,
+            Language::Rust | Language::Toml | Language::Json | Language::Plain => WrapMode::NoWrap,
+        }
+    }
+}
+
+pub fn default_wrap_mode_for_path(path: &str, language: Language) -> WrapMode {
+    let filename = Path::new(path)
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or(path)
+        .to_ascii_lowercase();
+
+    if matches!(
+        filename.as_str(),
+        "readme" | "license" | "copying" | "changelog"
+    ) {
+        return WrapMode::SoftWrap;
+    }
+
+    if filename.ends_with(".txt")
+        || filename.ends_with(".text")
+        || filename.ends_with(".md")
+        || filename.ends_with(".markdown")
+        || filename.ends_with(".mdx")
+    {
+        return WrapMode::SoftWrap;
+    }
+
+    language.default_wrap_mode()
+}
+
+pub fn classify_document_mode_for_size(size_bytes: u64) -> DocumentMode {
+    if size_bytes > LARGE_FILE_LIMIT {
+        DocumentMode::Huge
+    } else if size_bytes > NORMAL_FILE_LIMIT {
+        DocumentMode::Large
+    } else {
+        DocumentMode::Normal
+    }
+}
+
+fn logical_line_count(text: &str) -> usize {
+    text.split('\n').count().max(1)
+}
+
+fn copy_range(
+    source: &mut std::fs::File,
+    output: &mut std::fs::File,
+    start: u64,
+    end: u64,
+) -> std::io::Result<()> {
+    if end <= start {
+        return Ok(());
+    }
+    source.seek(SeekFrom::Start(start))?;
+    let mut remaining = end - start;
+    let mut buf = vec![0u8; HUGE_FILE_SCAN_BYTES];
+    while remaining > 0 {
+        let chunk = buf.len().min(remaining as usize);
+        let read = source.read(&mut buf[..chunk])?;
+        if read == 0 {
+            break;
+        }
+        output.write_all(&buf[..read])?;
+        remaining = remaining.saturating_sub(read as u64);
+    }
+    Ok(())
+}
+
+impl FileWindowSource {
+    pub fn new(path: String, size_bytes: u64) -> Self {
+        Self {
+            path,
+            size_bytes,
+            window_bytes: HUGE_FILE_PREVIEW_BYTES,
+            checkpoints: vec![LineCheckpoint {
+                line: 0,
+                byte_offset: 0,
+            }],
+            patches: Vec::new(),
+        }
+    }
+
+    pub fn current_window(&mut self) -> std::io::Result<FileWindow> {
+        self.load_window_for_line(0)
+    }
+
+    pub fn has_patches(&self) -> bool {
+        !self.patches.is_empty()
+    }
+
+    pub fn load_window_for_line(&mut self, line: usize) -> std::io::Result<FileWindow> {
+        let (start_byte, start_line) = self.byte_offset_for_line_start(line)?;
+        self.load_window_from_aligned_start(start_byte, start_line)
+    }
+
+    pub fn advance_forward_from(&mut self, window: &FileWindow) -> std::io::Result<FileWindow> {
+        if self.has_patches() {
+            let requested = window
+                .end_byte
+                .saturating_sub((self.window_bytes / 6) as u64)
+                .min(self.size_bytes);
+            return self.load_window_at_byte(requested);
+        }
+        let target_line = window.end_line.saturating_sub(HUGE_WINDOW_CONTEXT_LINES);
+        self.load_window_for_line(target_line)
+    }
+
+    pub fn advance_backward_from(&mut self, window: &FileWindow) -> std::io::Result<FileWindow> {
+        if self.has_patches() {
+            let requested = window
+                .start_byte
+                .saturating_sub((self.window_bytes / 2) as u64);
+            return self.load_window_at_byte(requested);
+        }
+        let target_line = window.start_line.saturating_sub(HUGE_WINDOW_CONTEXT_LINES);
+        self.load_window_for_line(target_line)
+    }
+
+    pub fn commit_window_patch(
+        &mut self,
+        start_byte: u64,
+        end_byte: u64,
+        content: &str,
+    ) -> std::io::Result<()> {
+        let base = self.read_base_range(start_byte, end_byte)?;
+        self.patches
+            .retain(|patch| patch.end_byte <= start_byte || patch.start_byte >= end_byte);
+        if base != content {
+            self.patches.push(WindowPatch {
+                start_byte,
+                end_byte,
+                content: content.to_string(),
+            });
+            self.patches.sort_by_key(|patch| patch.start_byte);
+        }
+        self.checkpoints.clear();
+        self.checkpoints.push(LineCheckpoint {
+            line: 0,
+            byte_offset: 0,
+        });
+        Ok(())
+    }
+
+    pub fn save_with_patches(&mut self) -> std::io::Result<()> {
+        if self.patches.is_empty() {
+            return Ok(());
+        }
+
+        let tmp_path = format!("{}.fission-save", self.path);
+        let mut source = std::fs::File::open(&self.path)?;
+        let mut output = std::fs::File::create(&tmp_path)?;
+        let mut cursor = 0u64;
+        let mut patches = self.patches.clone();
+        patches.sort_by_key(|patch| patch.start_byte);
+
+        for patch in &patches {
+            if patch.start_byte > cursor {
+                copy_range(&mut source, &mut output, cursor, patch.start_byte)?;
+            }
+            output.write_all(patch.content.as_bytes())?;
+            cursor = patch.end_byte.max(cursor);
+        }
+
+        if cursor < self.size_bytes {
+            copy_range(&mut source, &mut output, cursor, self.size_bytes)?;
+        }
+        output.flush()?;
+        std::fs::rename(&tmp_path, &self.path)?;
+        self.size_bytes = std::fs::metadata(&self.path)?.len();
+        self.patches.clear();
+        self.checkpoints.clear();
+        self.checkpoints.push(LineCheckpoint {
+            line: 0,
+            byte_offset: 0,
+        });
+        Ok(())
+    }
+
+    fn load_window_at_byte(&mut self, requested_start: u64) -> std::io::Result<FileWindow> {
+        let aligned_start = self.align_start_to_line_boundary(requested_start)?;
+        let start_line = self.line_for_byte_offset(aligned_start)?;
+        self.load_window_from_aligned_start(aligned_start, start_line)
+    }
+
+    fn load_window_from_aligned_start(
+        &mut self,
+        mut actual_start: u64,
+        mut start_line: usize,
+    ) -> std::io::Result<FileWindow> {
+        loop {
+            let expanded_start = self
+                .patches
+                .iter()
+                .filter(|patch| patch.start_byte < actual_start && patch.end_byte > actual_start)
+                .map(|patch| patch.start_byte)
+                .min();
+            if let Some(expanded_start) = expanded_start {
+                actual_start = expanded_start;
+                start_line = self.line_for_byte_offset(actual_start)?;
+                continue;
+            }
+            break;
+        }
+
+        let mut actual_end = self.compute_window_end(actual_start)?;
+        loop {
+            let expanded_end = self
+                .patches
+                .iter()
+                .filter(|patch| patch.start_byte < actual_end && patch.end_byte > actual_end)
+                .map(|patch| patch.end_byte)
+                .max();
+            let Some(expanded_end) = expanded_end else {
+                break;
+            };
+            actual_end = self.extend_end_to_line_boundary(expanded_end.min(self.size_bytes))?;
+        }
+
+        let base = self.read_base_range(actual_start, actual_end)?;
+        let content = self.apply_patches(actual_start, actual_end, &base);
+        let line_count = logical_line_count(&content);
+        self.seed_base_checkpoint(start_line, actual_start);
+        Ok(FileWindow {
+            start_byte: actual_start,
+            end_byte: actual_end,
+            size_bytes: self.size_bytes,
+            start_line,
+            end_line: start_line + line_count,
+            content,
+            has_more_before: actual_start > 0,
+            has_more_after: actual_end < self.size_bytes,
+        })
+    }
+
+    fn seed_base_checkpoint(&mut self, line: usize, byte_offset: u64) {
+        if self
+            .checkpoints
+            .iter()
+            .any(|checkpoint| checkpoint.line == line && checkpoint.byte_offset == byte_offset)
+        {
+            return;
+        }
+        self.checkpoints.push(LineCheckpoint { line, byte_offset });
+        self.checkpoints
+            .sort_by_key(|checkpoint| checkpoint.byte_offset);
+    }
+
+    fn byte_offset_for_line_start(&mut self, target_line: usize) -> std::io::Result<(u64, usize)> {
+        let checkpoint_idx = self
+            .checkpoints
+            .iter()
+            .enumerate()
+            .rev()
+            .find(|(_, checkpoint)| checkpoint.line <= target_line)
+            .map(|(idx, _)| idx)
+            .unwrap_or(0);
+        let checkpoint = self.checkpoints[checkpoint_idx].clone();
+        if checkpoint.line == target_line {
+            return Ok((checkpoint.byte_offset, checkpoint.line));
+        }
+
+        let mut file = std::fs::File::open(&self.path)?;
+        file.seek(SeekFrom::Start(checkpoint.byte_offset))?;
+        let mut line = checkpoint.line;
+        let mut byte_offset = checkpoint.byte_offset;
+        let mut last_checkpoint_line = checkpoint.line;
+        let mut buf = vec![0u8; HUGE_FILE_SCAN_BYTES];
+
+        loop {
+            let read = file.read(&mut buf)?;
+            if read == 0 {
+                break;
+            }
+            for (idx, byte) in buf[..read].iter().enumerate() {
+                if *byte != b'\n' {
+                    continue;
+                }
+                line += 1;
+                let next_line_byte = byte_offset + idx as u64 + 1;
+                if line == target_line {
+                    self.seed_base_checkpoint(line, next_line_byte);
+                    return Ok((next_line_byte, line));
+                }
+                if line.saturating_sub(last_checkpoint_line) >= HUGE_LINE_CHECKPOINT_STRIDE {
+                    self.seed_base_checkpoint(line, next_line_byte);
+                    last_checkpoint_line = line;
+                }
+            }
+            byte_offset += read as u64;
+        }
+
+        Ok((self.size_bytes, line))
+    }
+
+    fn line_for_byte_offset(&mut self, target_byte: u64) -> std::io::Result<usize> {
+        let checkpoint_idx = self
+            .checkpoints
+            .iter()
+            .enumerate()
+            .rev()
+            .find(|(_, checkpoint)| checkpoint.byte_offset <= target_byte)
+            .map(|(idx, _)| idx)
+            .unwrap_or(0);
+        let checkpoint = self.checkpoints[checkpoint_idx].clone();
+        if checkpoint.byte_offset == target_byte {
+            return Ok(checkpoint.line);
+        }
+
+        let mut file = std::fs::File::open(&self.path)?;
+        file.seek(SeekFrom::Start(checkpoint.byte_offset))?;
+        let mut line = checkpoint.line;
+        let mut byte_offset = checkpoint.byte_offset;
+        let mut last_checkpoint_line = checkpoint.line;
+        let mut remaining = target_byte.saturating_sub(checkpoint.byte_offset);
+        let mut buf = vec![0u8; HUGE_FILE_SCAN_BYTES];
+
+        while remaining > 0 {
+            let chunk_len = buf.len().min(remaining as usize);
+            let read = file.read(&mut buf[..chunk_len])?;
+            if read == 0 {
+                break;
+            }
+            for (idx, byte) in buf[..read].iter().enumerate() {
+                if *byte != b'\n' {
+                    continue;
+                }
+                line += 1;
+                let next_line_byte = byte_offset + idx as u64 + 1;
+                if line.saturating_sub(last_checkpoint_line) >= HUGE_LINE_CHECKPOINT_STRIDE {
+                    self.seed_base_checkpoint(line, next_line_byte);
+                    last_checkpoint_line = line;
+                }
+            }
+            byte_offset += read as u64;
+            remaining = target_byte.saturating_sub(byte_offset);
+        }
+
+        Ok(line)
+    }
+
+    fn align_start_to_line_boundary(&self, requested_start: u64) -> std::io::Result<u64> {
+        let mut file = std::fs::File::open(&self.path)?;
+        let mut actual_start = requested_start.min(self.size_bytes);
+        if actual_start == 0 {
+            return Ok(0);
+        }
+        let lookback = actual_start.min(4096);
+        file.seek(SeekFrom::Start(actual_start - lookback))?;
+        let mut prefix = vec![0u8; lookback as usize];
+        let read = file.read(&mut prefix)?;
+        prefix.truncate(read);
+        if let Some(last_newline) = prefix.iter().rposition(|byte| *byte == b'\n') {
+            actual_start = actual_start - lookback + last_newline as u64 + 1;
+        }
+        Ok(actual_start)
+    }
+
+    fn compute_window_end(&self, actual_start: u64) -> std::io::Result<u64> {
+        let mut file = std::fs::File::open(&self.path)?;
+        file.seek(SeekFrom::Start(actual_start))?;
+        let mut buf = vec![0u8; self.window_bytes];
+        let read = file.read(&mut buf)?;
+        buf.truncate(read);
+        if let Some(first_nul) = buf.iter().position(|byte| *byte == 0) {
+            buf.truncate(first_nul);
+        }
+        let mut actual_end = actual_start + buf.len() as u64;
+        if actual_end < self.size_bytes {
+            if let Some(last_newline) = buf.iter().rposition(|byte| *byte == b'\n') {
+                actual_end = actual_start + last_newline as u64 + 1;
+            }
+        }
+        Ok(actual_end.min(self.size_bytes))
+    }
+
+    fn extend_end_to_line_boundary(&self, requested_end: u64) -> std::io::Result<u64> {
+        if requested_end >= self.size_bytes {
+            return Ok(self.size_bytes);
+        }
+        let mut file = std::fs::File::open(&self.path)?;
+        let mut end = requested_end;
+        file.seek(SeekFrom::Start(end))?;
+        let mut buf = vec![0u8; 4096];
+        loop {
+            let read = file.read(&mut buf)?;
+            if read == 0 {
+                return Ok(self.size_bytes);
+            }
+            if let Some(newline) = buf[..read].iter().position(|byte| *byte == b'\n') {
+                return Ok((end + newline as u64 + 1).min(self.size_bytes));
+            }
+            end = (end + read as u64).min(self.size_bytes);
+            if end >= self.size_bytes {
+                return Ok(self.size_bytes);
+            }
+        }
+    }
+
+    fn read_base_range(&self, start: u64, end: u64) -> std::io::Result<String> {
+        if end <= start {
+            return Ok(String::new());
+        }
+        let mut file = std::fs::File::open(&self.path)?;
+        file.seek(SeekFrom::Start(start))?;
+        let mut buf = vec![0u8; (end - start) as usize];
+        let read = file.read(&mut buf)?;
+        buf.truncate(read);
+        if let Some(first_nul) = buf.iter().position(|byte| *byte == 0) {
+            buf.truncate(first_nul);
+        }
+        Ok(String::from_utf8_lossy(&buf).into_owned())
+    }
+
+    fn apply_patches(&self, start: u64, end: u64, base: &str) -> String {
+        if self.patches.is_empty() {
+            return base.to_string();
+        }
+        let mut content = String::new();
+        let mut cursor = start;
+        for patch in self
+            .patches
+            .iter()
+            .filter(|patch| patch.start_byte < end && patch.end_byte > start)
+        {
+            if patch.start_byte > cursor {
+                let rel_start = (cursor - start) as usize;
+                let rel_end = (patch.start_byte.min(end) - start) as usize;
+                content.push_str(&base[rel_start..rel_end]);
+            }
+            content.push_str(&patch.content);
+            cursor = cursor.max(patch.end_byte.min(end));
+        }
+        if cursor < end {
+            let rel_start = (cursor - start) as usize;
+            content.push_str(&base[rel_start..]);
+        }
+        content
+    }
 }
 
 impl FileBuffer {
+    pub fn is_editable(&self) -> bool {
+        true
+    }
+
+    pub fn supports_lsp_sync(&self) -> bool {
+        !matches!(self.document_mode, DocumentMode::Huge)
+    }
+
+    pub fn mode_label(&self) -> &'static str {
+        match self.document_mode {
+            DocumentMode::Normal => "Normal",
+            DocumentMode::Large => "Large",
+            DocumentMode::Huge => "Huge",
+        }
+    }
+
+    fn rebuild_line_index(&mut self) {
+        self.line_index = fission_text_engine::LineIndex::build(self.buffer.text());
+    }
+
+    fn sync_window_backing_from_buffer(&mut self) {
+        let new_content = self.content();
+        if let DocumentBacking::FileWindow { source, window } = &mut self.backing {
+            if let Ok(mut source) = source.lock() {
+                let _ =
+                    source.commit_window_patch(window.start_byte, window.end_byte, &new_content);
+            }
+            window.content = new_content.clone();
+            window.end_line = window.start_line + logical_line_count(&new_content);
+        }
+    }
+
     /// Materialize the rope into a `String` (for backward compatibility with
     /// code that needs a contiguous `String`).
     pub fn content(&self) -> String {
         self.buffer.to_string()
     }
 
-    /// Snapshot the full buffer content as an undo transaction so the caller
-    /// can mutate `buffer` freely afterwards.  Records a single edit that
-    /// replaces the *entire* content with whatever the buffer currently holds,
-    /// so that undoing it restores the prior state.
-    ///
-    /// The snapshot is intentionally whole-content: callers that do
-    /// fine-grained edits (insert / delete at a byte range) should use
-    /// `edit_history.apply_edit(&mut buffer, range, new_text)` directly.
-    pub fn push_undo_force(&mut self) {
-        // Capture the full text *before* the caller's mutation.
-        let old = self.buffer.to_string();
-        let old_len = old.len();
-        // Record a "replace everything with itself" transaction.  The
-        // *old_text* field is what undo will restore; the *new_text* field is
-        // what redo will restore.  After `set_content` the caller will have
-        // changed the rope to different text, but because we use our own
-        // whole-buffer undo/redo (see below) the byte ranges do not matter --
-        // we only look at old_text / new_text.
-        let edit = fission_text_engine::TextEdit::new(0..old_len, old.clone(), old);
-        let mut txn = fission_text_engine::EditTransaction::new();
-        txn.push(edit);
-        self.edit_history.record(txn);
+    pub fn current_offsets(&self) -> (usize, usize) {
+        let max_offset = self.buffer.len_bytes();
+        let caret = self
+            .line_index
+            .line_col_to_byte(fission_text_engine::LineCol {
+                line: self.cursor_line,
+                col: self.cursor_col,
+            })
+            .unwrap_or(max_offset)
+            .min(max_offset);
+        let anchor = self
+            .line_index
+            .line_col_to_byte(fission_text_engine::LineCol {
+                line: self.anchor_line,
+                col: self.anchor_col,
+            })
+            .unwrap_or(max_offset)
+            .min(max_offset);
+        (caret, anchor)
     }
 
-    /// Replace the entire buffer contents with `new_text`.
-    ///
-    /// This is the primary way tests and the rest of the editor set new
-    /// content.  It rebuilds the `line_index` automatically.
-    pub fn set_content(&mut self, new_text: &str) {
+    pub fn set_selection_offsets(&mut self, caret: usize, anchor: usize) {
+        let max_offset = self.buffer.len_bytes();
+        let caret = caret.min(max_offset);
+        let anchor = anchor.min(max_offset);
+        let caret_lc = self
+            .line_index
+            .byte_to_line_col(caret)
+            .unwrap_or(fission_text_engine::LineCol { line: 0, col: 0 });
+        let anchor_lc = self
+            .line_index
+            .byte_to_line_col(anchor)
+            .unwrap_or(fission_text_engine::LineCol { line: 0, col: 0 });
+        self.cursor_line = caret_lc.line;
+        self.cursor_col = caret_lc.col;
+        self.anchor_line = anchor_lc.line;
+        self.anchor_col = anchor_lc.col;
+    }
+
+    pub fn set_caret_line_col(&mut self, line: usize, col: usize) {
+        let offset = self
+            .line_index
+            .line_col_to_byte(fission_text_engine::LineCol { line, col })
+            .unwrap_or_else(|| {
+                self.line_index
+                    .line_end_byte(line)
+                    .unwrap_or(self.buffer.len_bytes())
+            })
+            .min(self.buffer.len_bytes());
+        self.set_selection_offsets(offset, offset);
+    }
+
+    pub fn preedit_range(&self) -> Option<(usize, usize)> {
+        self.preedit.as_ref().map(|preedit| preedit.range)
+    }
+
+    pub fn display_content(&self) -> String {
+        let committed = self.content();
+        let Some(preedit) = &self.preedit else {
+            return committed;
+        };
+        let start = preedit.range.0.min(committed.len());
+        let end = preedit.range.1.min(committed.len());
+        let mut display = String::with_capacity(
+            committed.len() - (end.saturating_sub(start)) + preedit.text.len(),
+        );
+        display.push_str(&committed[..start]);
+        display.push_str(&preedit.text);
+        display.push_str(&committed[end..]);
+        display
+    }
+
+    pub fn display_offsets(&self) -> (usize, usize) {
+        if let Some(preedit) = &self.preedit {
+            let start = preedit.range.0;
+            return (start + preedit.text.len(), start);
+        }
+        self.current_offsets()
+    }
+
+    pub fn clear_preedit(&mut self) {
+        self.preedit = None;
+    }
+
+    pub fn set_preedit(&mut self, text: String) {
+        if text.is_empty() {
+            self.preedit = None;
+            return;
+        }
+
+        if let Some(preedit) = &mut self.preedit {
+            preedit.text = text;
+            return;
+        }
+
+        let (caret, anchor) = self.current_offsets();
+        self.preedit = Some(EditorPreeditState {
+            text,
+            range: (caret.min(anchor), caret.max(anchor)),
+        });
+    }
+
+    pub fn apply_edit(&mut self, range: std::ops::Range<usize>, new_text: &str) {
+        let (caret, anchor) = self.current_offsets();
+        self.clear_preedit();
+        self.edit_history
+            .apply_edit(&mut self.buffer, range, new_text);
+        self.rebuild_line_index();
+        self.set_selection_offsets(
+            caret.min(self.buffer.len_bytes()),
+            anchor.min(self.buffer.len_bytes()),
+        );
+        self.sync_window_backing_from_buffer();
+    }
+
+    pub fn apply_transaction(&mut self, txn: &fission_text_engine::EditTransaction) {
+        let (caret, anchor) = self.current_offsets();
+        self.clear_preedit();
+        self.edit_history.apply(txn, &mut self.buffer);
+        self.rebuild_line_index();
+        self.set_selection_offsets(
+            caret.min(self.buffer.len_bytes()),
+            anchor.min(self.buffer.len_bytes()),
+        );
+        self.sync_window_backing_from_buffer();
+    }
+
+    /// Replace the entire document through a single undoable transaction.
+    #[allow(dead_code)]
+    pub fn replace_document(&mut self, new_text: &str) {
+        let (caret, anchor) = self.current_offsets();
+        self.clear_preedit();
+        let len = self.buffer.len_bytes();
+        self.edit_history
+            .apply_edit(&mut self.buffer, 0..len, new_text);
+        self.rebuild_line_index();
+        self.set_selection_offsets(
+            caret.min(self.buffer.len_bytes()),
+            anchor.min(self.buffer.len_bytes()),
+        );
+        self.sync_window_backing_from_buffer();
+    }
+
+    /// Replace the buffer from an external source and clear undo/redo state.
+    #[allow(dead_code)]
+    pub fn sync_content(&mut self, new_text: &str) {
+        let (caret, anchor) = self.current_offsets();
+        self.clear_preedit();
         self.buffer = fission_text_engine::TextBuffer::from_str(new_text);
-        self.line_index = fission_text_engine::LineIndex::build(self.buffer.text());
+        self.edit_history.clear();
+        self.rebuild_line_index();
+        self.set_selection_offsets(
+            caret.min(self.buffer.len_bytes()),
+            anchor.min(self.buffer.len_bytes()),
+        );
     }
 
     /// Undo the last change.
-    ///
-    /// We use whole-buffer snapshot undo: the `old_text` stored in the most
-    /// recent undo transaction becomes the new buffer content, and the
-    /// *current* content is pushed onto the redo stack so it can be restored.
     pub fn undo(&mut self) {
-        if let Some(txn) = self.edit_history.pop_undo() {
-            if let Some(edit) = txn.edits.first() {
-                let current = self.buffer.to_string();
-                let restore_to = edit.old_text.clone();
-
-                // Build a redo transaction: old_text = the content we are
-                // about to restore to, new_text = current (what redo should
-                // bring back).
-                let redo_edit = fission_text_engine::TextEdit::new(
-                    0..0, // range unused by our whole-buffer undo
-                    restore_to.clone(),
-                    current, // stash current so redo can restore it
-                );
-                let mut redo_txn = fission_text_engine::EditTransaction::new();
-                redo_txn.push(redo_edit);
-                self.edit_history.push_redo(redo_txn);
-
-                // Restore the old content.
-                self.buffer = fission_text_engine::TextBuffer::from_str(&restore_to);
-                self.line_index = fission_text_engine::LineIndex::build(self.buffer.text());
-            }
+        self.clear_preedit();
+        let (caret, anchor) = self.current_offsets();
+        if self.edit_history.undo(&mut self.buffer) {
+            self.rebuild_line_index();
+            self.set_selection_offsets(
+                caret.min(self.buffer.len_bytes()),
+                anchor.min(self.buffer.len_bytes()),
+            );
+            self.sync_window_backing_from_buffer();
         }
     }
 
     /// Redo the last undone change.
     pub fn redo(&mut self) {
-        if let Some(txn) = self.edit_history.pop_redo() {
-            if let Some(edit) = txn.edits.first() {
-                let current = self.buffer.to_string();
-                // old_text in the redo entry = what we stored as the content
-                // to restore to.  But actually we stashed the "current at
-                // undo time" in *old_text* -- that is what redo should bring
-                // back.
-                let restore_to = edit.old_text.clone();
-
-                // Build an undo transaction so we can undo this redo.
-                let undo_edit = fission_text_engine::TextEdit::new(
-                    0..0,
-                    current.clone(),
-                    current, // old_text = what was there before redo
-                );
-                let mut undo_txn = fission_text_engine::EditTransaction::new();
-                undo_txn.push(undo_edit);
-                self.edit_history.push_undo(undo_txn);
-
-                self.buffer = fission_text_engine::TextBuffer::from_str(&restore_to);
-                self.line_index = fission_text_engine::LineIndex::build(self.buffer.text());
-            }
+        self.clear_preedit();
+        let (caret, anchor) = self.current_offsets();
+        if self.edit_history.redo(&mut self.buffer) {
+            self.rebuild_line_index();
+            self.set_selection_offsets(
+                caret.min(self.buffer.len_bytes()),
+                anchor.min(self.buffer.len_bytes()),
+            );
+            self.sync_window_backing_from_buffer();
         }
     }
 }
@@ -536,8 +1175,18 @@ pub struct ToggleTreeNode(pub String);
 pub struct SelectTreeNode(pub String);
 
 #[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
-#[serde(transparent)]
-pub struct UpdateFileContent(pub String);
+pub struct ApplyEditorEdit {
+    pub range_start: usize,
+    pub range_end: usize,
+    pub new_text: String,
+    pub caret: usize,
+    pub anchor: usize,
+}
+
+#[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+pub struct SetEditorPreedit {
+    pub text: String,
+}
 
 #[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct ToggleCommandPalette;
@@ -559,17 +1208,25 @@ pub struct SetSidebarSection(pub SidebarSection);
 pub struct SaveFile;
 
 #[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
-pub struct Noop;
-
-#[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct SaveAllFiles;
 
 #[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
-#[serde(transparent)]
-pub struct UpdateTerminalInput(pub String);
+pub struct DismissMenu;
 
 #[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
-pub struct SubmitTerminalCommand;
+pub struct ShowMenuStatus(pub String);
+
+#[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+pub struct SetBottomPanelTab(pub BottomPanelTab);
+
+#[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+pub struct ShowContextStatus(pub String);
+
+#[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+pub struct RenameContextTarget;
+
+#[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+pub struct DeleteContextTarget;
 
 #[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 #[serde(transparent)]
@@ -587,6 +1244,7 @@ pub struct DismissCompletions;
 #[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct RefreshGitStatus;
 
+#[allow(dead_code)]
 #[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct NavigateDiagnostic {
     pub path: String,
@@ -637,23 +1295,28 @@ pub struct ReplaceOne;
 #[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct ReplaceAll;
 
+#[allow(dead_code)]
 #[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 #[serde(transparent)]
 pub struct ShowHover(pub String);
 
+#[allow(dead_code)]
 #[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct DismissHover;
 
+#[allow(dead_code)]
 #[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 #[serde(transparent)]
 pub struct DeleteFile(pub String);
 
+#[allow(dead_code)]
 #[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct RenameFile {
     pub old: String,
     pub new_name: String,
 }
 
+#[allow(dead_code)]
 #[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct StartRename(pub String);
 
@@ -670,6 +1333,7 @@ pub struct UpdateRenameInput(pub String);
 #[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct SetActiveMenu(pub Option<String>);
 
+#[allow(dead_code)]
 #[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct GoToLine(pub usize);
 
@@ -702,6 +1366,11 @@ pub struct UpdateCursorPosition {
 #[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct UpdateScrollY(pub f32);
 
+#[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+pub struct ShiftActiveFileWindow {
+    pub forward: bool,
+}
+
 // --- Additional types ---
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -721,6 +1390,18 @@ pub struct GitStatusEntry {
 // --- Helpers ---
 
 impl EditorState {
+    pub fn ensure_terminal_session(&mut self) {
+        if self.terminal_session.is_some() {
+            return;
+        }
+        self.terminal_session = TerminalSession::spawn(TerminalLaunchConfig {
+            cwd: Some(self.root_path.clone()),
+            program: std::env::var("SHELL").ok(),
+            ..Default::default()
+        })
+        .ok();
+    }
+
     pub fn open_file(&mut self, path: String) {
         // Check if already open
         if let Some(idx) = self.open_tabs.iter().position(|t| t.path == path) {
@@ -729,18 +1410,8 @@ impl EditorState {
             return;
         }
 
-        // Reject files that are too large — reading them into the editor would
-        // generate thousands of IR nodes and freeze the UI.
-        if let Ok(meta) = std::fs::metadata(&path) {
-            if meta.len() > MAX_FILE_SIZE {
-                self.status_message = Some(format!(
-                    "File too large to open ({:.1} MB). Max is {} MB.",
-                    meta.len() as f64 / 1_000_000.0,
-                    MAX_FILE_SIZE / 1_000_000,
-                ));
-                return;
-            }
-        }
+        let file_size = std::fs::metadata(&path).map(|meta| meta.len()).unwrap_or(0);
+        let document_mode = classify_document_mode_for_size(file_size);
 
         // Store the file's modification time for external-change detection
         if let Ok(meta) = std::fs::metadata(&path) {
@@ -749,18 +1420,49 @@ impl EditorState {
             }
         }
 
-        // Read file
-        let content = std::fs::read_to_string(&path).unwrap_or_else(|_| String::new());
         let ext = Path::new(&path)
             .extension()
             .and_then(|e| e.to_str())
             .unwrap_or("");
         let lang = Language::from_extension(ext);
+        let wrap_mode = if matches!(document_mode, DocumentMode::Huge) {
+            WrapMode::NoWrap
+        } else {
+            default_wrap_mode_for_path(&path, lang)
+        };
         let title = Path::new(&path)
             .file_name()
             .and_then(|n| n.to_str())
             .unwrap_or(&path)
             .to_string();
+
+        let (content, backing) = match document_mode {
+            DocumentMode::Huge => {
+                let source = Arc::new(Mutex::new(FileWindowSource::new(path.clone(), file_size)));
+                let window = source
+                    .lock()
+                    .ok()
+                    .and_then(|mut src| src.current_window().ok())
+                    .unwrap_or(FileWindow {
+                        start_byte: 0,
+                        end_byte: 0,
+                        size_bytes: file_size,
+                        start_line: 0,
+                        end_line: 0,
+                        content: String::new(),
+                        has_more_before: false,
+                        has_more_after: false,
+                    });
+                (
+                    window.content.clone(),
+                    DocumentBacking::FileWindow { source, window },
+                )
+            }
+            DocumentMode::Normal | DocumentMode::Large => (
+                std::fs::read_to_string(&path).unwrap_or_else(|_| String::new()),
+                DocumentBacking::InMemory,
+            ),
+        };
 
         let buffer = fission_text_engine::TextBuffer::from_str(&content);
         let line_index = fission_text_engine::LineIndex::build(buffer.text());
@@ -769,12 +1471,16 @@ impl EditorState {
             FileBuffer {
                 buffer,
                 language: lang,
+                wrap_mode,
+                document_mode,
+                backing,
                 cursor_line: 0,
                 cursor_col: 0,
                 anchor_line: 0,
                 anchor_col: 0,
                 edit_history: fission_text_engine::EditHistory::new(),
                 line_index,
+                preedit: None,
             },
         );
 
@@ -786,10 +1492,12 @@ impl EditorState {
             Language::Json => "json",
             Language::Plain => "plaintext",
         };
-        if let Some(ref handle) = self.lsp_handle {
-            if let Some(buf) = self.file_contents.get(&path) {
-                let content_str = buf.content();
-                handle.notify_open(&path, &content_str, language_id);
+        if matches!(document_mode, DocumentMode::Normal | DocumentMode::Large) {
+            if let Some(ref handle) = self.lsp_handle {
+                if let Some(buf) = self.file_contents.get(&path) {
+                    let content_str = buf.content();
+                    handle.notify_open(&path, &content_str, language_id);
+                }
             }
         }
 
@@ -802,6 +1510,28 @@ impl EditorState {
         self.scroll_offset_y = 0.0;
         self.tree_cache_dirty = true;
         self.update_breadcrumb();
+        self.status_message = match document_mode {
+            DocumentMode::Normal => Some(format!("Opened {}", path)),
+            DocumentMode::Large => Some(format!(
+                "Opened large file ({:.1} MB)",
+                file_size as f64 / 1_000_000.0
+            )),
+            DocumentMode::Huge => {
+                self.file_contents
+                    .get(&path)
+                    .and_then(|buf| match &buf.backing {
+                        DocumentBacking::FileWindow { window, .. } => Some(format!(
+                        "Opened huge file in windowed mode ({:.1} MB, lines {}..{}, bytes {}..{})",
+                        file_size as f64 / 1_000_000.0,
+                        window.start_line,
+                        window.end_line,
+                        window.start_byte,
+                        window.end_byte
+                    )),
+                        DocumentBacking::InMemory => None,
+                    })
+            }
+        };
     }
 
     pub fn close_tab(&mut self, idx: usize) {
@@ -816,9 +1546,9 @@ impl EditorState {
     }
 
     pub fn active_buffer(&self) -> Option<(&TabInfo, &FileBuffer)> {
-        self.open_tabs.get(self.active_tab).and_then(|tab| {
-            self.file_contents.get(&tab.path).map(|buf| (tab, buf))
-        })
+        self.open_tabs
+            .get(self.active_tab)
+            .and_then(|tab| self.file_contents.get(&tab.path).map(|buf| (tab, buf)))
     }
 
     pub fn active_buffer_mut(&mut self) -> Option<(&TabInfo, &mut FileBuffer)> {
@@ -829,19 +1559,124 @@ impl EditorState {
         Some((tab, buf))
     }
 
+    pub fn shift_active_file_window(&mut self, forward: bool) {
+        let Some(path) = self
+            .open_tabs
+            .get(self.active_tab)
+            .map(|tab| tab.path.clone())
+        else {
+            return;
+        };
+        let Some(buf) = self.file_contents.get_mut(&path) else {
+            return;
+        };
+        let (source, current_start, current_end, current_window) = match &buf.backing {
+            DocumentBacking::FileWindow { source, window } => (
+                source.clone(),
+                window.start_byte,
+                window.end_byte,
+                window.clone(),
+            ),
+            DocumentBacking::InMemory => return,
+        };
+        let next_window = source.lock().ok().and_then(|mut src| {
+            if forward {
+                src.advance_forward_from(&current_window).ok()
+            } else {
+                src.advance_backward_from(&current_window).ok()
+            }
+        });
+        let Some(next_window) = next_window else {
+            return;
+        };
+        let moved = next_window.start_byte != current_start || next_window.end_byte != current_end;
+        if let DocumentBacking::FileWindow { window, .. } = &mut buf.backing {
+            *window = next_window.clone();
+        }
+        buf.sync_content(&next_window.content);
+        if forward {
+            buf.set_caret_line_col(0, 0);
+        } else {
+            let last_line = buf.content().lines().count().saturating_sub(1);
+            buf.set_caret_line_col(last_line, 0);
+        }
+        if moved {
+            self.scroll_offset_y = 0.0;
+            self.status_message = Some(format!(
+                "Huge file window lines {}..{} (bytes {}..{} of {})",
+                next_window.start_line,
+                next_window.end_line,
+                next_window.start_byte,
+                next_window.end_byte,
+                next_window.size_bytes
+            ));
+        }
+    }
+
+    pub fn notify_buffer_changed(&self, path: &str) {
+        if let Some(ref handle) = self.lsp_handle {
+            if let Some(buf) = self.file_contents.get(path) {
+                if !buf.supports_lsp_sync() {
+                    return;
+                }
+                let content = buf.content();
+                handle.notify_change(path, &content);
+            }
+        }
+    }
+
+    pub fn mark_active_tab_dirty(&mut self) {
+        if let Some(tab) = self.open_tabs.get_mut(self.active_tab) {
+            tab.is_dirty = true;
+        }
+    }
+
     pub fn save_active_file(&mut self) {
         if let Some(tab) = self.open_tabs.get(self.active_tab) {
             let path = tab.path.clone();
-            if let Some(buf) = self.file_contents.get(&path) {
-                let content_str = buf.content();
-                if std::fs::write(&path, &content_str).is_ok() {
-                    if let Some(tab) = self.open_tabs.get_mut(self.active_tab) {
-                        tab.is_dirty = false;
+            let huge_reload = self
+                .file_contents
+                .get(&path)
+                .and_then(|buf| match &buf.backing {
+                    DocumentBacking::FileWindow { source, window } => {
+                        Some((source.clone(), window.start_line))
                     }
-                    self.status_message = Some(format!("Saved {}", path));
-                } else {
-                    self.status_message = Some(format!("Failed to save {}", path));
+                    DocumentBacking::InMemory => None,
+                });
+
+            let save_ok = if let Some((source, _)) = &huge_reload {
+                source
+                    .lock()
+                    .ok()
+                    .and_then(|mut src| src.save_with_patches().ok())
+                    .is_some()
+            } else if let Some(buf) = self.file_contents.get(&path) {
+                std::fs::write(&path, buf.content()).is_ok()
+            } else {
+                false
+            };
+
+            if save_ok {
+                if let Some((source, start_line)) = huge_reload {
+                    let reloaded = source
+                        .lock()
+                        .ok()
+                        .and_then(|mut src| src.load_window_for_line(start_line).ok());
+                    if let Some(reloaded) = reloaded {
+                        if let Some(buf) = self.file_contents.get_mut(&path) {
+                            if let DocumentBacking::FileWindow { window, .. } = &mut buf.backing {
+                                *window = reloaded.clone();
+                            }
+                            buf.sync_content(&reloaded.content);
+                        }
+                    }
                 }
+                if let Some(tab) = self.open_tabs.get_mut(self.active_tab) {
+                    tab.is_dirty = false;
+                }
+                self.status_message = Some(format!("Saved {}", path));
+            } else {
+                self.status_message = Some(format!("Failed to save {}", path));
             }
         }
     }
@@ -850,50 +1685,47 @@ impl EditorState {
         for i in 0..self.open_tabs.len() {
             if self.open_tabs[i].is_dirty {
                 let path = self.open_tabs[i].path.clone();
-                if let Some(buf) = self.file_contents.get(&path) {
-                    let content_str = buf.content();
-                    if std::fs::write(&path, &content_str).is_ok() {
-                        self.open_tabs[i].is_dirty = false;
+                let huge_reload =
+                    self.file_contents
+                        .get(&path)
+                        .and_then(|buf| match &buf.backing {
+                            DocumentBacking::FileWindow { source, window } => {
+                                Some((source.clone(), window.start_line))
+                            }
+                            DocumentBacking::InMemory => None,
+                        });
+                let save_ok = if let Some((source, _)) = &huge_reload {
+                    source
+                        .lock()
+                        .ok()
+                        .and_then(|mut src| src.save_with_patches().ok())
+                        .is_some()
+                } else if let Some(buf) = self.file_contents.get(&path) {
+                    std::fs::write(&path, buf.content()).is_ok()
+                } else {
+                    false
+                };
+                if save_ok {
+                    if let Some((source, start_line)) = huge_reload {
+                        let reloaded = source
+                            .lock()
+                            .ok()
+                            .and_then(|mut src| src.load_window_for_line(start_line).ok());
+                        if let Some(reloaded) = reloaded {
+                            if let Some(buf) = self.file_contents.get_mut(&path) {
+                                if let DocumentBacking::FileWindow { window, .. } = &mut buf.backing
+                                {
+                                    *window = reloaded.clone();
+                                }
+                                buf.sync_content(&reloaded.content);
+                            }
+                        }
                     }
+                    self.open_tabs[i].is_dirty = false;
                 }
             }
         }
         self.status_message = Some("All files saved".into());
-    }
-
-    pub fn run_terminal_command(&mut self) {
-        let cmd = self.terminal_input.trim().to_string();
-        if cmd.is_empty() { return; }
-        self.terminal_lines.push(format!("$ {}", cmd));
-        #[cfg(windows)]
-        let output = std::process::Command::new("cmd")
-            .arg("/c")
-            .arg(&cmd)
-            .current_dir(&self.root_path)
-            .output();
-        #[cfg(not(windows))]
-        let output = std::process::Command::new("sh")
-            .arg("-c")
-            .arg(&cmd)
-            .current_dir(&self.root_path)
-            .output();
-        match output
-        {
-            Ok(output) => {
-                let stdout = String::from_utf8_lossy(&output.stdout);
-                let stderr = String::from_utf8_lossy(&output.stderr);
-                for line in stdout.lines() {
-                    self.terminal_lines.push(line.to_string());
-                }
-                for line in stderr.lines() {
-                    self.terminal_lines.push(format!("ERR: {}", line));
-                }
-            }
-            Err(e) => {
-                self.terminal_lines.push(format!("Error: {}", e));
-            }
-        }
-        self.terminal_input.clear();
     }
 
     pub fn run_search(&mut self) {
@@ -1002,18 +1834,18 @@ impl EditorState {
             if let Some(tab) = self.open_tabs.get(self.active_tab) {
                 let path = tab.path.clone();
                 if let Some(buf) = self.file_contents.get_mut(&path) {
-                    let content_str = buf.content();
-                    let mut lines: Vec<String> = content_str.lines().map(|l| l.to_string()).collect();
-                    if line < lines.len() {
-                        let line_str = &mut lines[line];
-                        if col + query.len() <= line_str.len() {
-                            line_str.replace_range(col..col + query.len(), &replacement);
+                    if let Some(line_start) = buf.line_index.line_start_byte(line) {
+                        let start = line_start.saturating_add(col).min(buf.buffer.len_bytes());
+                        let end = start
+                            .saturating_add(query.len())
+                            .min(buf.buffer.len_bytes());
+                        if start <= end {
+                            buf.apply_edit(start..end, &replacement);
+                            let caret = start + replacement.len();
+                            buf.set_selection_offsets(caret, caret);
+                            self.mark_active_tab_dirty();
+                            self.notify_buffer_changed(&path);
                         }
-                    }
-                    buf.set_content(&lines.join("\n"));
-                    // Mark dirty
-                    if let Some(tab) = self.open_tabs.get_mut(self.active_tab) {
-                        tab.is_dirty = true;
                     }
                 }
             }
@@ -1036,10 +1868,28 @@ impl EditorState {
         if let Some(tab) = self.open_tabs.get(self.active_tab) {
             let path = tab.path.clone();
             if let Some(buf) = self.file_contents.get_mut(&path) {
-                let new_content = buf.content().replace(&query, &replacement);
-                buf.set_content(&new_content);
-                if let Some(tab) = self.open_tabs.get_mut(self.active_tab) {
-                    tab.is_dirty = true;
+                let content = buf.content();
+                let mut matches = Vec::new();
+                let mut search_from = 0usize;
+                while let Some(found) = content[search_from..].find(&query) {
+                    let start = search_from + found;
+                    let end = start + query.len();
+                    matches.push((start, end));
+                    search_from = end;
+                }
+
+                if !matches.is_empty() {
+                    let mut txn = fission_text_engine::EditTransaction::new();
+                    for (start, end) in matches.into_iter().rev() {
+                        txn.push(fission_text_engine::TextEdit::new(
+                            start..end,
+                            replacement.clone(),
+                            &content[start..end],
+                        ));
+                    }
+                    buf.apply_transaction(&txn);
+                    self.mark_active_tab_dirty();
+                    self.notify_buffer_changed(&path);
                 }
             }
         }
@@ -1062,7 +1912,8 @@ impl EditorState {
                 for (line_idx, line) in content_str.lines().enumerate() {
                     let mut start = 0;
                     while let Some(col) = line[start..].find(&query) {
-                        self.find_matches.push((path.clone(), line_idx, start + col));
+                        self.find_matches
+                            .push((path.clone(), line_idx, start + col));
                         start += col + query.len();
                     }
                 }
@@ -1076,8 +1927,7 @@ impl EditorState {
             if let Some(tab) = self.open_tabs.get(self.active_tab) {
                 let path = tab.path.clone();
                 if let Some(buf) = self.file_contents.get_mut(&path) {
-                    buf.cursor_line = line;
-                    buf.cursor_col = col;
+                    buf.set_caret_line_col(line, col);
                 }
             }
         }
@@ -1086,14 +1936,18 @@ impl EditorState {
     // --- File operations ---
 
     /// Create a new file on disk and open it in a tab.
+    #[allow(dead_code)]
     pub fn create_file(&mut self, path: String) {
         if let Some(parent) = Path::new(&path).parent() {
             let _ = std::fs::create_dir_all(parent);
+            self.tree_expanded
+                .insert(parent.to_string_lossy().to_string());
         }
         match std::fs::write(&path, "") {
             Ok(_) => {
                 self.status_message = Some(format!("Created {}", path));
                 self.tree_cache_dirty = true;
+                self.tree_selected = Some(path.clone());
                 self.open_file(path);
             }
             Err(e) => {
@@ -1103,11 +1957,18 @@ impl EditorState {
     }
 
     /// Create a directory on disk.
+    #[allow(dead_code)]
     pub fn create_folder(&mut self, path: String) {
         match std::fs::create_dir_all(&path) {
             Ok(_) => {
                 self.status_message = Some(format!("Created folder {}", path));
                 self.tree_cache_dirty = true;
+                self.tree_selected = Some(path.clone());
+                if let Some(parent) = Path::new(&path).parent() {
+                    self.tree_expanded
+                        .insert(parent.to_string_lossy().to_string());
+                }
+                self.start_rename(path);
             }
             Err(e) => {
                 self.status_message = Some(format!("Failed to create folder: {}", e));
@@ -1116,6 +1977,7 @@ impl EditorState {
     }
 
     /// Delete a file or folder from disk. If the file is open, close its tab.
+    #[allow(dead_code)]
     pub fn delete_file(&mut self, path: String) {
         let p = Path::new(&path);
         let result = if p.is_dir() {
@@ -1140,6 +2002,7 @@ impl EditorState {
     }
 
     /// Rename a file/folder on disk and update any open tabs that reference it.
+    #[allow(dead_code)]
     pub fn rename_file(&mut self, old: String, new_name: String) {
         let old_path = Path::new(&old);
         let new_path = if let Some(parent) = old_path.parent() {
@@ -1178,13 +2041,10 @@ impl EditorState {
         self.breadcrumb_path.clear();
         if let Some(tab) = self.open_tabs.get(self.active_tab) {
             let tab_path = Path::new(&tab.path);
-            let relative = tab_path
-                .strip_prefix(&self.root_path)
-                .unwrap_or(tab_path);
+            let relative = tab_path.strip_prefix(&self.root_path).unwrap_or(tab_path);
             for component in relative.components() {
-                self.breadcrumb_path.push(
-                    component.as_os_str().to_string_lossy().to_string(),
-                );
+                self.breadcrumb_path
+                    .push(component.as_os_str().to_string_lossy().to_string());
             }
         }
     }
@@ -1240,6 +2100,9 @@ impl EditorState {
                     if self.tree_expanded.remove(&old_path) {
                         self.tree_expanded.insert(new_path_str.clone());
                     }
+                    if self.tree_selected.as_deref() == Some(&old_path) {
+                        self.tree_selected = Some(new_path_str.clone());
+                    }
                     self.tree_cache_dirty = true;
                     self.update_breadcrumb();
                     self.status_message = Some(format!("Renamed to '{}'", new_name));
@@ -1266,6 +2129,8 @@ impl EditorState {
             if let Some(buf) = self.file_contents.get_mut(&path) {
                 buf.undo();
             }
+            self.mark_active_tab_dirty();
+            self.notify_buffer_changed(&path);
         }
     }
 
@@ -1276,6 +2141,8 @@ impl EditorState {
             if let Some(buf) = self.file_contents.get_mut(&path) {
                 buf.redo();
             }
+            self.mark_active_tab_dirty();
+            self.notify_buffer_changed(&path);
         }
     }
 
@@ -1298,27 +2165,30 @@ impl EditorState {
         if let Some(tab) = self.open_tabs.get(self.active_tab) {
             let path = tab.path.clone();
             if let Some(buf) = self.file_contents.get_mut(&path) {
-                let content_str = buf.content();
-                let line_count = content_str.lines().count();
+                let content = buf.content();
+                let line_count = content.lines().count();
                 if buf.cursor_line < line_count {
-                    let lines: Vec<String> = content_str.lines().map(|l| l.to_string()).collect();
-                    self.clipboard = lines[buf.cursor_line].clone();
-                    buf.push_undo_force();
-                    let mut new_lines = lines;
-                    new_lines.remove(buf.cursor_line);
-                    let joined = new_lines.join("\n");
-                    buf.set_content(&joined);
-                    // Adjust cursor if it was on the last line
-                    let new_content = buf.content();
-                    let max_line = new_content.lines().count().saturating_sub(1);
-                    if buf.cursor_line > max_line {
-                        buf.cursor_line = max_line;
+                    self.clipboard = content
+                        .lines()
+                        .nth(buf.cursor_line)
+                        .unwrap_or("")
+                        .to_string();
+                    if let (Some(mut start), Some(end)) = (
+                        buf.line_index.line_start_byte(buf.cursor_line),
+                        buf.line_index.line_end_byte(buf.cursor_line),
+                    ) {
+                        if end == buf.buffer.len_bytes()
+                            && start > 0
+                            && content.as_bytes().get(start - 1) == Some(&b'\n')
+                        {
+                            start -= 1;
+                        }
+                        buf.apply_edit(start..end, "");
+                        buf.set_selection_offsets(start, start);
+                        self.mark_active_tab_dirty();
+                        self.notify_buffer_changed(&path);
+                        self.status_message = Some("Cut line".into());
                     }
-                    buf.cursor_col = 0;
-                    if let Some(tab) = self.open_tabs.get_mut(self.active_tab) {
-                        tab.is_dirty = true;
-                    }
-                    self.status_message = Some("Cut line".into());
                 }
             }
         }
@@ -1333,31 +2203,14 @@ impl EditorState {
         if let Some(tab) = self.open_tabs.get(self.active_tab) {
             let path = tab.path.clone();
             if let Some(buf) = self.file_contents.get_mut(&path) {
-                buf.push_undo_force();
-                let content_str = buf.content();
-                let lines: Vec<&str> = content_str.lines().collect();
-                let line_idx = buf.cursor_line.min(lines.len().saturating_sub(1));
-                let col = if line_idx < lines.len() {
-                    buf.cursor_col.min(lines[line_idx].len())
-                } else {
-                    0
-                };
-                // Compute byte offset for insertion
-                let mut byte_offset = 0;
-                for (i, line) in content_str.lines().enumerate() {
-                    if i == line_idx {
-                        byte_offset += col;
-                        break;
-                    }
-                    byte_offset += line.len() + 1; // +1 for '\n'
-                }
-                byte_offset = byte_offset.min(content_str.len());
-                let mut new_content = content_str;
-                new_content.insert_str(byte_offset, &clip);
-                buf.set_content(&new_content);
-                if let Some(tab) = self.open_tabs.get_mut(self.active_tab) {
-                    tab.is_dirty = true;
-                }
+                let (caret, anchor) = buf.current_offsets();
+                let start = caret.min(anchor);
+                let end = caret.max(anchor);
+                buf.apply_edit(start..end, &clip);
+                let next = start + clip.len();
+                buf.set_selection_offsets(next, next);
+                self.mark_active_tab_dirty();
+                self.notify_buffer_changed(&path);
                 self.status_message = Some("Pasted".into());
             }
         }
@@ -1369,11 +2222,16 @@ impl EditorState {
     /// value.  If the file was modified externally and the buffer is clean,
     /// reload its contents automatically.  If the buffer is dirty, set a
     /// status-bar warning instead of silently overwriting the user's edits.
+    #[allow(dead_code)]
     pub fn check_external_changes(&mut self) {
         for tab in &self.open_tabs {
             let path = &tab.path;
-            let Ok(meta) = std::fs::metadata(path) else { continue };
-            let Ok(current_mtime) = meta.modified() else { continue };
+            let Ok(meta) = std::fs::metadata(path) else {
+                continue;
+            };
+            let Ok(current_mtime) = meta.modified() else {
+                continue;
+            };
 
             let changed = match self.file_mtimes.get(path) {
                 Some(stored) => current_mtime != *stored,
@@ -1388,13 +2246,13 @@ impl EditorState {
             self.file_mtimes.insert(path.clone(), current_mtime);
 
             if tab.is_dirty {
-                self.status_message =
-                    Some(format!("File changed on disk: {}", path));
+                self.status_message = Some(format!("File changed on disk: {}", path));
             } else {
                 // Reload content from disk
                 if let Ok(new_content) = std::fs::read_to_string(path) {
                     if let Some(buf) = self.file_contents.get_mut(path) {
-                        buf.set_content(&new_content);
+                        buf.sync_content(&new_content);
+                        self.notify_buffer_changed(path);
                     }
                 }
             }
@@ -1402,6 +2260,7 @@ impl EditorState {
     }
 
     /// Move the cursor to the given line number (1-based).
+    #[allow(dead_code)]
     pub fn go_to_line(&mut self, line: usize) {
         let target = if line > 0 { line - 1 } else { 0 };
         if let Some(tab) = self.open_tabs.get(self.active_tab) {
@@ -1409,8 +2268,7 @@ impl EditorState {
             if let Some(buf) = self.file_contents.get_mut(&path) {
                 let content_str = buf.content();
                 let max_line = content_str.lines().count().saturating_sub(1);
-                buf.cursor_line = target.min(max_line);
-                buf.cursor_col = 0;
+                buf.set_caret_line_col(target.min(max_line), 0);
             }
         }
     }
@@ -1468,18 +2326,27 @@ pub fn scan_directory(path: &Path, depth: usize) -> Vec<FileEntry> {
     entries
 }
 
+#[allow(dead_code)]
 fn search_files_recursive(dir: &Path, query: &str, results: &mut Vec<SearchResult>, depth: usize) {
-    if depth > 3 || results.len() > 100 { return; }
-    let Ok(entries) = std::fs::read_dir(dir) else { return };
+    if depth > 3 || results.len() > 100 {
+        return;
+    }
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
     for entry in entries.filter_map(|e| e.ok()) {
         let name = entry.file_name().to_string_lossy().to_string();
-        if name.starts_with('.') || name == "target" || name == "node_modules" { continue; }
+        if name.starts_with('.') || name == "target" || name == "node_modules" {
+            continue;
+        }
         let path = entry.path();
         if path.is_dir() {
             search_files_recursive(&path, query, results, depth + 1);
         } else if path.is_file() {
             let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-            if !matches!(ext, "rs" | "toml" | "md" | "json" | "txt" | "yaml" | "yml") { continue; }
+            if !matches!(ext, "rs" | "toml" | "md" | "json" | "txt" | "yaml" | "yml") {
+                continue;
+            }
             if let Ok(content) = std::fs::read_to_string(&path) {
                 for (line_idx, line) in content.lines().enumerate() {
                     if let Some(col) = line.find(query) {
@@ -1489,7 +2356,9 @@ fn search_files_recursive(dir: &Path, query: &str, results: &mut Vec<SearchResul
                             col,
                             context: line.trim().to_string(),
                         });
-                        if results.len() > 100 { return; }
+                        if results.len() > 100 {
+                            return;
+                        }
                     }
                 }
             }
@@ -1504,15 +2373,15 @@ mod tests {
     #[test]
     fn test_undo_redo() {
         let mut state = EditorState::default();
-        state.root_path = std::env::temp_dir();
+        state.root_path = PathBuf::from("/tmp");
         // Create a temp file
-        let path = temp_file("test_undo.txt", "hello");
+        let path = "/tmp/test_undo.txt".to_string();
+        std::fs::write(&path, "hello").ok();
         state.open_file(path.clone());
 
         // Modify content
         if let Some(buf) = state.file_contents.get_mut(&path) {
-            buf.push_undo_force();
-            buf.set_content("hello world");
+            buf.replace_document("hello world");
         }
 
         // Undo
@@ -1527,7 +2396,7 @@ mod tests {
             assert_eq!(buf.content(), "hello world");
         }
 
-        cleanup(&path);
+        std::fs::remove_file(&path).ok();
     }
 
     #[test]
@@ -1535,17 +2404,20 @@ mod tests {
         let mut buf = FileBuffer {
             buffer: fission_text_engine::TextBuffer::from_str("a"),
             language: Language::Plain,
+            wrap_mode: WrapMode::NoWrap,
+            document_mode: DocumentMode::Normal,
+            backing: DocumentBacking::InMemory,
             cursor_line: 0,
             cursor_col: 0,
             anchor_line: 0,
             anchor_col: 0,
             edit_history: fission_text_engine::EditHistory::new(),
             line_index: fission_text_engine::LineIndex::build_from_str("a"),
+            preedit: None,
         };
 
         // Change to "b"
-        buf.push_undo_force();
-        buf.set_content("b");
+        buf.replace_document("b");
 
         // Undo back to "a"
         buf.undo();
@@ -1554,8 +2426,7 @@ mod tests {
         assert_eq!(buf.edit_history.redo_depth(), 1);
 
         // New change to "c" should clear redo
-        buf.push_undo_force();
-        buf.set_content("c");
+        buf.replace_document("c");
         assert_eq!(buf.edit_history.redo_depth(), 0);
     }
 
@@ -1564,27 +2435,57 @@ mod tests {
         let mut buf = FileBuffer {
             buffer: fission_text_engine::TextBuffer::from_str("start"),
             language: Language::Plain,
+            wrap_mode: WrapMode::NoWrap,
+            document_mode: DocumentMode::Normal,
+            backing: DocumentBacking::InMemory,
             cursor_line: 0,
             cursor_col: 0,
             anchor_line: 0,
             anchor_col: 0,
             edit_history: fission_text_engine::EditHistory::with_max(100),
             line_index: fission_text_engine::LineIndex::build_from_str("start"),
+            preedit: None,
         };
 
         for i in 0..110 {
-            buf.push_undo_force();
-            buf.set_content(&format!("version_{}", i));
+            buf.replace_document(&format!("version_{}", i));
         }
 
         assert!(buf.edit_history.undo_depth() <= 100);
     }
 
     #[test]
+    fn test_sync_content_clears_history() {
+        let mut buf = FileBuffer {
+            buffer: fission_text_engine::TextBuffer::from_str("before"),
+            language: Language::Plain,
+            wrap_mode: WrapMode::NoWrap,
+            document_mode: DocumentMode::Normal,
+            backing: DocumentBacking::InMemory,
+            cursor_line: 0,
+            cursor_col: 0,
+            anchor_line: 0,
+            anchor_col: 0,
+            edit_history: fission_text_engine::EditHistory::new(),
+            line_index: fission_text_engine::LineIndex::build_from_str("before"),
+            preedit: None,
+        };
+
+        buf.replace_document("during");
+        assert_eq!(buf.edit_history.undo_depth(), 1);
+
+        buf.sync_content("after");
+        assert_eq!(buf.content(), "after");
+        assert_eq!(buf.edit_history.undo_depth(), 0);
+        assert_eq!(buf.edit_history.redo_depth(), 0);
+    }
+
+    #[test]
     fn test_find_replace() {
         let mut state = EditorState::default();
-        state.root_path = std::env::temp_dir();
-        let path = temp_file("test_find.txt", "foo bar foo baz foo");
+        state.root_path = PathBuf::from("/tmp");
+        let path = "/tmp/test_find.txt".to_string();
+        std::fs::write(&path, "foo bar foo baz foo").ok();
         state.open_file(path.clone());
         state.find_query = "foo".to_string();
         state.find_next();
@@ -1596,7 +2497,7 @@ mod tests {
         assert!(!content.contains("foo"));
         assert!(content.contains("qux"));
 
-        cleanup(&path);
+        std::fs::remove_file(&path).ok();
     }
 
     // --- New tests ---
@@ -1657,8 +2558,7 @@ mod tests {
 
         // Modify content, mark dirty
         if let Some(buf) = state.file_contents.get_mut(&path) {
-            buf.push_undo_force();
-            buf.set_content("modified");
+            buf.replace_document("modified");
         }
         state.open_tabs[0].is_dirty = true;
         assert!(state.open_tabs[0].is_dirty);
@@ -1733,9 +2633,9 @@ mod tests {
         assert_eq!(state.find_matches.len(), 3);
 
         // Verify positions
-        assert_eq!(state.find_matches[0].2, 0);   // col 0
-        assert_eq!(state.find_matches[1].2, 13);  // col 13 ("apple banana apple...")
-        assert_eq!(state.find_matches[2].2, 26);  // col 26
+        assert_eq!(state.find_matches[0].2, 0); // col 0
+        assert_eq!(state.find_matches[1].2, 13); // col 13 ("apple banana apple...")
+        assert_eq!(state.find_matches[2].2, 26); // col 26
 
         cleanup(&path);
     }
@@ -1823,7 +2723,11 @@ mod tests {
         let content = state.file_contents[&path].content();
         assert_eq!(content, "ZZZ bar ZZZ baz ZZZ");
         assert!(state.open_tabs[0].is_dirty);
-        assert!(state.status_message.as_ref().unwrap().contains("Replaced all"));
+        assert!(state
+            .status_message
+            .as_ref()
+            .unwrap()
+            .contains("Replaced all"));
 
         cleanup(&path);
     }
@@ -1854,10 +2758,8 @@ mod tests {
 
         // Make several changes
         if let Some(buf) = state.file_contents.get_mut(&path) {
-            buf.push_undo_force();
-            buf.set_content("version_1");
-            buf.push_undo_force();
-            buf.set_content("version_2");
+            buf.replace_document("version_1");
+            buf.replace_document("version_2");
         }
 
         // Undo through the state helper
@@ -1888,20 +2790,24 @@ mod tests {
         let path = std::env::temp_dir().join("test_large_file.txt");
         let path_str = path.to_string_lossy().to_string();
 
-        // Create a file >1MB
-        let large_content = "x".repeat(1_100_000);
-        std::fs::write(&path, &large_content).expect("write large file");
+        // Create a sparse file larger than the Huge threshold.
+        let file = std::fs::File::create(&path).expect("create large file");
+        file.set_len(LARGE_FILE_LIMIT + 4096)
+            .expect("resize large file");
 
         state.open_file(path_str.clone());
 
-        // Should not have opened
-        assert!(state.open_tabs.is_empty());
-        assert!(state.file_contents.is_empty());
+        assert_eq!(state.open_tabs.len(), 1);
+        assert!(state.file_contents.contains_key(&path_str));
+        let buf = state.file_contents.get(&path_str).expect("huge buffer");
+        assert_eq!(buf.document_mode, DocumentMode::Huge);
 
-        // Status message should indicate "too large"
         let msg = state.status_message.as_ref().expect("status message set");
-        assert!(msg.contains("too large") || msg.contains("Too large"),
-            "expected 'too large' message, got: {}", msg);
+        assert!(
+            msg.contains("Opened huge file in windowed mode"),
+            "expected huge-file window status, got: {}",
+            msg
+        );
 
         std::fs::remove_file(&path).ok();
     }
@@ -1929,8 +2835,8 @@ mod tests {
         let buf = state.file_contents.get(&path_str).expect("buffer exists");
         assert_eq!(buf.content(), "");
 
-        // Status message should mention creation
-        assert!(state.status_message.as_ref().unwrap().contains("Created"));
+        // Opening the new file currently replaces the initial create status.
+        assert!(state.status_message.as_ref().unwrap().contains("Opened"));
 
         std::fs::remove_file(&path).ok();
     }
@@ -2008,9 +2914,14 @@ mod tests {
         state.open_file(path_str.clone());
 
         // Breadcrumb should contain the dir name and the file name
-        assert!(state.breadcrumb_path.len() >= 2,
-            "breadcrumb should have at least 2 segments, got: {:?}", state.breadcrumb_path);
-        assert!(state.breadcrumb_path.contains(&"test_breadcrumb_dir".to_string()));
+        assert!(
+            state.breadcrumb_path.len() >= 2,
+            "breadcrumb should have at least 2 segments, got: {:?}",
+            state.breadcrumb_path
+        );
+        assert!(state
+            .breadcrumb_path
+            .contains(&"test_breadcrumb_dir".to_string()));
         assert!(state.breadcrumb_path.contains(&"deep.txt".to_string()));
 
         std::fs::remove_file(&file_path).ok();
@@ -2040,34 +2951,163 @@ mod tests {
     }
 
     #[test]
-    fn test_terminal_runs_command() {
-        let mut state = EditorState::default();
-        state.root_path = std::env::temp_dir();
-        state.terminal_input = "echo hello_from_test".to_string();
-
-        state.run_terminal_command();
-
-        // terminal_input should be cleared
-        assert!(state.terminal_input.is_empty());
-
-        // terminal_lines should contain the command and its output
-        let has_prompt = state.terminal_lines.iter().any(|l| l.contains("$ echo hello_from_test"));
-        let has_output = state.terminal_lines.iter().any(|l| l.contains("hello_from_test") && !l.starts_with("$"));
-        assert!(has_prompt, "terminal should show the command prompt");
-        assert!(has_output, "terminal should show command output");
+    fn test_classify_document_mode_for_size() {
+        assert_eq!(classify_document_mode_for_size(1_024), DocumentMode::Normal);
+        assert_eq!(
+            classify_document_mode_for_size(NORMAL_FILE_LIMIT + 1),
+            DocumentMode::Large
+        );
+        assert_eq!(
+            classify_document_mode_for_size(LARGE_FILE_LIMIT + 1),
+            DocumentMode::Huge
+        );
     }
 
     #[test]
-    fn test_terminal_empty_command_noop() {
+    fn test_open_file_uses_huge_window_mode() {
         let mut state = EditorState::default();
-        state.root_path = std::env::temp_dir();
-        let initial_count = state.terminal_lines.len();
-        state.terminal_input = "   ".to_string();
+        let dir = std::env::temp_dir().join("fission_editor_huge_preview");
+        std::fs::create_dir_all(&dir).ok();
+        let file = dir.join("huge.tsv");
+        let mut payload = String::from("col1\\tcol2\\nvalue\\tvalue\\n");
+        while payload.len() < 8192 {
+            payload.push_str("abcdefghij\\tklmnopqrst\\n");
+        }
+        std::fs::write(&file, payload).ok();
+        let sparse = std::fs::OpenOptions::new().write(true).open(&file).unwrap();
+        sparse.set_len(LARGE_FILE_LIMIT + 4096).unwrap();
 
-        state.run_terminal_command();
+        state.open_file(file.to_string_lossy().to_string());
 
-        // Empty/whitespace command should be a no-op
-        assert_eq!(state.terminal_lines.len(), initial_count);
+        let buf = state
+            .active_buffer()
+            .map(|(_, buf)| buf)
+            .expect("buffer should open");
+        assert_eq!(buf.document_mode, DocumentMode::Huge);
+        assert!(buf.is_editable());
+        assert!(matches!(buf.backing, DocumentBacking::FileWindow { .. }));
+        assert!(state
+            .status_message
+            .as_deref()
+            .unwrap_or_default()
+            .contains("windowed mode"));
+    }
+
+    #[test]
+    fn test_shift_active_file_window_moves_between_windows() {
+        let mut state = EditorState::default();
+        let dir = std::env::temp_dir().join("fission_editor_huge_window_shift");
+        std::fs::create_dir_all(&dir).ok();
+        let file = dir.join("huge.log");
+        let mut payload = String::new();
+        payload.push_str("WINDOW-000\n");
+        for idx in 1..80_000 {
+            payload.push_str(&format!("WINDOW-{idx:05} :: lorem ipsum dolor sit amet\n"));
+        }
+        std::fs::write(&file, &payload).unwrap();
+        let sparse = std::fs::OpenOptions::new().write(true).open(&file).unwrap();
+        sparse.set_len(LARGE_FILE_LIMIT + 4096).unwrap();
+
+        state.open_file(file.to_string_lossy().to_string());
+        let initial_window = state
+            .active_buffer()
+            .and_then(|(_, buf)| match &buf.backing {
+                DocumentBacking::FileWindow { window, .. } => Some(window.clone()),
+                DocumentBacking::InMemory => None,
+            })
+            .expect("initial huge window metadata");
+        let initial = state
+            .active_buffer()
+            .map(|(_, buf)| buf.content())
+            .expect("initial huge window content");
+        assert!(initial.contains("WINDOW-000"));
+
+        state.shift_active_file_window(true);
+        let moved_window = state
+            .active_buffer()
+            .and_then(|(_, buf)| match &buf.backing {
+                DocumentBacking::FileWindow { window, .. } => Some(window.clone()),
+                DocumentBacking::InMemory => None,
+            })
+            .expect("shifted huge window metadata");
+        let moved = state
+            .active_buffer()
+            .map(|(_, buf)| buf.content())
+            .expect("shifted huge window content");
+        assert_ne!(
+            initial, moved,
+            "forward shift should load a different file window"
+        );
+        assert!(
+            state
+                .status_message
+                .as_deref()
+                .unwrap_or_default()
+                .contains("Huge file window"),
+            "status should describe the active huge-file byte window"
+        );
+
+        state.shift_active_file_window(false);
+        let restored_window = state
+            .active_buffer()
+            .and_then(|(_, buf)| match &buf.backing {
+                DocumentBacking::FileWindow { window, .. } => Some(window.clone()),
+                DocumentBacking::InMemory => None,
+            })
+            .expect("restored huge window metadata");
+        assert!(
+            restored_window.start_line <= moved_window.start_line,
+            "backward shift should move the window earlier in the file"
+        );
+        assert!(
+            restored_window.start_byte <= moved_window.start_byte,
+            "backward shift should move the byte window earlier in the file"
+        );
+        assert!(
+            restored_window.start_line <= initial_window.end_line,
+            "backward shift should land near the previous viewport window"
+        );
+    }
+
+    #[test]
+    fn test_huge_window_edits_save_via_overlay_journal() {
+        let mut state = EditorState::default();
+        let dir = std::env::temp_dir().join("fission_editor_huge_window_save");
+        std::fs::create_dir_all(&dir).ok();
+        let file = dir.join("huge.txt");
+        let mut payload = String::new();
+        payload.push_str("HEADER\n");
+        for idx in 0..6000 {
+            payload.push_str(&format!("ROW-{idx:04}\n"));
+        }
+        std::fs::write(&file, &payload).unwrap();
+        let sparse = std::fs::OpenOptions::new().write(true).open(&file).unwrap();
+        sparse.set_len(LARGE_FILE_LIMIT + 4096).unwrap();
+
+        state.open_file(file.to_string_lossy().to_string());
+        {
+            let (_, buf) = state.active_buffer_mut().expect("active huge buffer");
+            let original = buf.content();
+            let replace_end = original.find('\n').unwrap_or(original.len());
+            buf.apply_edit(0..replace_end, "PATCHED-HEADER");
+            assert!(buf.content().starts_with("PATCHED-HEADER"));
+        }
+        state.mark_active_tab_dirty();
+        state.save_active_file();
+
+        let saved = std::fs::read_to_string(&file).unwrap();
+        assert!(
+            saved.starts_with("PATCHED-HEADER"),
+            "overlay-journal save should rewrite the underlying huge file stream"
+        );
+        assert!(
+            state
+                .status_message
+                .as_deref()
+                .unwrap_or_default()
+                .contains("Saved"),
+            "saving the huge file should report success"
+        );
     }
 
     #[test]
@@ -2151,16 +3191,18 @@ mod tests {
 
         // Set cursor to line 1, col 5 ("line |two")
         if let Some(buf) = state.file_contents.get_mut(&path) {
-            buf.cursor_line = 1;
-            buf.cursor_col = 5;
+            buf.set_caret_line_col(1, 5);
         }
 
         state.clipboard = "INSERTED".to_string();
         state.paste();
 
         let content = state.file_contents[&path].content();
-        assert!(content.contains("line INSERTEDtwo"),
-            "paste should insert at cursor position, got: {}", content);
+        assert!(
+            content.contains("line INSERTEDtwo"),
+            "paste should insert at cursor position, got: {}",
+            content
+        );
         assert!(state.open_tabs[0].is_dirty);
 
         cleanup(&path);
@@ -2191,8 +3233,7 @@ mod tests {
 
         // Set cursor to line 1 ("line B")
         if let Some(buf) = state.file_contents.get_mut(&path) {
-            buf.cursor_line = 1;
-            buf.cursor_col = 0;
+            buf.set_caret_line_col(1, 0);
         }
 
         state.cut_line();
@@ -2202,7 +3243,11 @@ mod tests {
 
         // Content should have the line removed
         let content = state.file_contents[&path].content();
-        assert!(!content.contains("line B"), "cut line should be removed, got: {}", content);
+        assert!(
+            !content.contains("line B"),
+            "cut line should be removed, got: {}",
+            content
+        );
         assert!(content.contains("line A"));
         assert!(content.contains("line C"));
         assert!(state.open_tabs[0].is_dirty);
@@ -2223,7 +3268,7 @@ mod tests {
         state.open_file(path.clone());
 
         if let Some(buf) = state.file_contents.get_mut(&path) {
-            buf.cursor_line = 2;
+            buf.set_caret_line_col(2, 0);
         }
 
         state.copy_line();
@@ -2288,6 +3333,30 @@ mod tests {
     }
 
     #[test]
+    fn test_markdown_defaults_to_soft_wrap() {
+        assert_eq!(
+            default_wrap_mode_for_path("README.md", Language::Markdown),
+            WrapMode::SoftWrap
+        );
+    }
+
+    #[test]
+    fn test_readme_without_extension_defaults_to_soft_wrap() {
+        assert_eq!(
+            default_wrap_mode_for_path("README", Language::Plain),
+            WrapMode::SoftWrap
+        );
+    }
+
+    #[test]
+    fn test_rust_defaults_to_no_wrap() {
+        assert_eq!(
+            default_wrap_mode_for_path("main.rs", Language::Rust),
+            WrapMode::NoWrap
+        );
+    }
+
+    #[test]
     fn test_save_all_files() {
         let mut state = EditorState::default();
         state.root_path = std::env::temp_dir();
@@ -2298,12 +3367,12 @@ mod tests {
 
         // Modify both
         if let Some(buf) = state.file_contents.get_mut(&p1) {
-            buf.set_content("one_modified");
+            buf.replace_document("one_modified");
         }
         state.open_tabs[0].is_dirty = true;
 
         if let Some(buf) = state.file_contents.get_mut(&p2) {
-            buf.set_content("two_modified");
+            buf.replace_document("two_modified");
         }
         state.open_tabs[1].is_dirty = true;
 
@@ -2311,7 +3380,11 @@ mod tests {
 
         assert!(!state.open_tabs[0].is_dirty);
         assert!(!state.open_tabs[1].is_dirty);
-        assert!(state.status_message.as_ref().unwrap().contains("All files saved"));
+        assert!(state
+            .status_message
+            .as_ref()
+            .unwrap()
+            .contains("All files saved"));
 
         // Verify on disk
         assert_eq!(std::fs::read_to_string(&p1).unwrap(), "one_modified");
@@ -2406,7 +3479,11 @@ mod tests {
 
         assert!(folder_path.exists());
         assert!(folder_path.is_dir());
-        assert!(state.status_message.as_ref().unwrap().contains("Created folder"));
+        assert!(state
+            .status_message
+            .as_ref()
+            .unwrap()
+            .contains("Created folder"));
 
         std::fs::remove_dir_all(&folder_path).ok();
     }
@@ -2423,7 +3500,11 @@ mod tests {
         let entries = scan_directory(&dir, 0);
 
         // Should find at least the two files and one subdir
-        assert!(entries.len() >= 3, "expected >= 3 entries, got {}", entries.len());
+        assert!(
+            entries.len() >= 3,
+            "expected >= 3 entries, got {}",
+            entries.len()
+        );
 
         // Directories should come before files (by the sort in scan_directory)
         let first_dir_idx = entries.iter().position(|e| e.is_dir);
@@ -2545,7 +3626,10 @@ mod tests {
     fn test_multiline_find_matches() {
         let mut state = EditorState::default();
         state.root_path = std::env::temp_dir();
-        let path = temp_file("test_multiline_find.txt", "hello world\nhello rust\ngoodbye hello");
+        let path = temp_file(
+            "test_multiline_find.txt",
+            "hello world\nhello rust\ngoodbye hello",
+        );
         state.open_file(path.clone());
 
         state.find_query = "hello".to_string();
@@ -2643,12 +3727,15 @@ mod tests {
 
         // Paste at end
         if let Some(buf) = state.file_contents.get_mut(&path) {
-            buf.cursor_line = 2;
-            buf.cursor_col = 5; // end of "line3"
+            buf.set_caret_line_col(2, 5); // end of "line3"
         }
         state.paste();
         let content = state.file_contents[&path].content();
-        assert!(content.contains("line3line3"), "paste at end of file, got: {}", content);
+        assert!(
+            content.contains("line3line3"),
+            "paste at end of file, got: {}",
+            content
+        );
 
         cleanup(&path);
     }
@@ -2793,7 +3880,11 @@ mod tests {
         let content = state.file_contents[&path].content();
         // One "x" replaced with "xx", so total "x" count changes
         let x_count = content.matches("x").count();
-        assert!(x_count >= 3, "at least original minus 1 plus 2, got: {}", x_count);
+        assert!(
+            x_count >= 3,
+            "at least original minus 1 plus 2, got: {}",
+            x_count
+        );
 
         // Replace remaining originals one by one
         state.replace_one();
@@ -2812,22 +3903,28 @@ mod tests {
         let mut buf = FileBuffer {
             buffer: fission_text_engine::TextBuffer::from_str("initial"),
             language: Language::Plain,
+            wrap_mode: WrapMode::NoWrap,
+            document_mode: DocumentMode::Normal,
+            backing: DocumentBacking::InMemory,
             cursor_line: 0,
             cursor_col: 0,
             anchor_line: 0,
             anchor_col: 0,
             edit_history: fission_text_engine::EditHistory::new(),
             line_index: fission_text_engine::LineIndex::build_from_str("initial"),
+            preedit: None,
         };
 
         for i in 0..200 {
-            buf.push_undo_force();
-            buf.set_content(&format!("change_{}", i));
+            buf.replace_document(&format!("change_{}", i));
         }
 
         // The default EditHistory max is 1000, but we pushed 200, so depth == 200.
         // Verify the stack did not grow unboundedly beyond the max.
-        assert!(buf.edit_history.undo_depth() <= 1000, "undo stack should be capped");
+        assert!(
+            buf.edit_history.undo_depth() <= 1000,
+            "undo stack should be capped"
+        );
 
         // Current content should be the last change
         assert_eq!(buf.content(), "change_199");
@@ -2838,18 +3935,21 @@ mod tests {
         let mut buf = FileBuffer {
             buffer: fission_text_engine::TextBuffer::from_str("start"),
             language: Language::Plain,
+            wrap_mode: WrapMode::NoWrap,
+            document_mode: DocumentMode::Normal,
+            backing: DocumentBacking::InMemory,
             cursor_line: 0,
             cursor_col: 0,
             anchor_line: 0,
             anchor_col: 0,
             edit_history: fission_text_engine::EditHistory::new(),
             line_index: fission_text_engine::LineIndex::build_from_str("start"),
+            preedit: None,
         };
 
         // Push 200 changes
         for i in 0..200 {
-            buf.push_undo_force();
-            buf.set_content(&format!("v{}", i));
+            buf.replace_document(&format!("v{}", i));
         }
 
         let undo_depth = buf.edit_history.undo_depth();
@@ -2861,7 +3961,11 @@ mod tests {
 
         // Should be at the oldest available state
         let c = buf.content();
-        assert!(c.starts_with("v") || c == "start", "content should be a v-version or start, got: {}", c);
+        assert!(
+            c.starts_with("v") || c == "start",
+            "content should be a v-version or start, got: {}",
+            c
+        );
 
         // Undo once more should be a no-op (stack empty)
         let before = buf.content();
@@ -2907,7 +4011,11 @@ mod tests {
             max
         }
         let depth = max_depth(&entries, 0);
-        assert!(depth <= 4, "scan_directory should stop at depth 4, got depth {}", depth);
+        assert!(
+            depth <= 4,
+            "scan_directory should stop at depth 4, got depth {}",
+            depth
+        );
 
         std::fs::remove_dir_all(&base).ok();
     }
@@ -2926,7 +4034,10 @@ mod tests {
         let names: Vec<&str> = entries.iter().map(|e| e.name.as_str()).collect();
 
         assert!(!names.contains(&"target"), "should skip target directory");
-        assert!(!names.contains(&"node_modules"), "should skip node_modules directory");
+        assert!(
+            !names.contains(&"node_modules"),
+            "should skip node_modules directory"
+        );
         assert!(names.contains(&"src"), "should include src directory");
 
         std::fs::remove_dir_all(&base).ok();
@@ -2962,7 +4073,10 @@ mod tests {
         std::fs::create_dir_all(&base).ok();
 
         let entries = scan_directory(&base, 0);
-        assert!(entries.is_empty(), "empty directory should return empty vec");
+        assert!(
+            entries.is_empty(),
+            "empty directory should return empty vec"
+        );
 
         std::fs::remove_dir_all(&base).ok();
     }
@@ -2970,7 +4084,10 @@ mod tests {
     #[test]
     fn test_scan_directory_nonexistent() {
         let entries = scan_directory(Path::new("/tmp/definitely_does_not_exist_12345"), 0);
-        assert!(entries.is_empty(), "nonexistent directory should return empty vec");
+        assert!(
+            entries.is_empty(),
+            "nonexistent directory should return empty vec"
+        );
     }
 
     // -----------------------------------------------------------------------
@@ -3103,9 +4220,21 @@ mod tests {
     fn test_select_completion_index() {
         let mut state = EditorState::default();
         state.completions = vec![
-            CompletionItem { label: "foo".into(), kind: "function".into(), detail: None },
-            CompletionItem { label: "bar".into(), kind: "variable".into(), detail: None },
-            CompletionItem { label: "baz".into(), kind: "keyword".into(), detail: Some("built-in".into()) },
+            CompletionItem {
+                label: "foo".into(),
+                kind: "function".into(),
+                detail: None,
+            },
+            CompletionItem {
+                label: "bar".into(),
+                kind: "variable".into(),
+                detail: None,
+            },
+            CompletionItem {
+                label: "baz".into(),
+                kind: "keyword".into(),
+                detail: Some("built-in".into()),
+            },
         ];
         state.show_completions = true;
         state.selected_completion = 2;
@@ -3117,9 +4246,11 @@ mod tests {
     fn test_dismiss_completions_hides_panel() {
         let mut state = EditorState::default();
         state.show_completions = true;
-        state.completions = vec![
-            CompletionItem { label: "item".into(), kind: "text".into(), detail: None },
-        ];
+        state.completions = vec![CompletionItem {
+            label: "item".into(),
+            kind: "text".into(),
+            detail: None,
+        }];
 
         state.show_completions = false;
         assert!(!state.show_completions);
@@ -3130,7 +4261,10 @@ mod tests {
     fn test_navigate_diagnostic_moves_cursor() {
         let mut state = EditorState::default();
         state.root_path = std::env::temp_dir();
-        let path = temp_file("test_nav_diag.rs", "fn main() {\n    let x = 1;\n    let y = 2;\n}");
+        let path = temp_file(
+            "test_nav_diag.rs",
+            "fn main() {\n    let x = 1;\n    let y = 2;\n}",
+        );
         state.open_file(path.clone());
 
         state.go_to_line(2);
@@ -3149,8 +4283,7 @@ mod tests {
         assert!(!state.open_tabs[0].is_dirty);
 
         if let Some(buf) = state.file_contents.get_mut(&path) {
-            buf.push_undo_force();
-            buf.set_content("modified content");
+            buf.replace_document("modified content");
         }
         state.open_tabs[0].is_dirty = true;
 
@@ -3173,7 +4306,10 @@ mod tests {
         let path = temp_file("test_scroll_reset.txt", "content");
         state.open_file(path.clone());
 
-        assert_eq!(state.scroll_offset_y, 0.0, "scroll should reset when opening a file");
+        assert_eq!(
+            state.scroll_offset_y, 0.0,
+            "scroll should reset when opening a file"
+        );
 
         cleanup(&path);
     }
@@ -3190,14 +4326,17 @@ mod tests {
         state.open_file(path.clone());
 
         if let Some(buf) = state.file_contents.get_mut(&path) {
-            buf.cursor_line = 0;
-            buf.cursor_col = 0;
+            buf.set_caret_line_col(0, 0);
         }
         state.clipboard = "PREFIX ".to_string();
         state.paste();
 
         let content = state.file_contents[&path].content();
-        assert!(content.starts_with("PREFIX "), "should paste at beginning, got: {}", content);
+        assert!(
+            content.starts_with("PREFIX "),
+            "should paste at beginning, got: {}",
+            content
+        );
 
         cleanup(&path);
     }
@@ -3210,7 +4349,7 @@ mod tests {
         state.open_file(path.clone());
 
         if let Some(buf) = state.file_contents.get_mut(&path) {
-            buf.cursor_line = 2; // last line
+            buf.set_caret_line_col(2, 0); // last line
         }
 
         state.cut_line();
@@ -3218,8 +4357,12 @@ mod tests {
 
         let buf = state.file_contents.get(&path).unwrap();
         let max_line = buf.content().lines().count().saturating_sub(1);
-        assert!(buf.cursor_line <= max_line,
-            "cursor_line {} should be <= max_line {}", buf.cursor_line, max_line);
+        assert!(
+            buf.cursor_line <= max_line,
+            "cursor_line {} should be <= max_line {}",
+            buf.cursor_line,
+            max_line
+        );
 
         cleanup(&path);
     }
@@ -3342,7 +4485,11 @@ mod tests {
     fn test_save_all_no_tabs_sets_message() {
         let mut state = EditorState::default();
         state.save_all_files();
-        assert!(state.status_message.as_ref().unwrap().contains("All files saved"));
+        assert!(state
+            .status_message
+            .as_ref()
+            .unwrap()
+            .contains("All files saved"));
     }
 
     // -----------------------------------------------------------------------
@@ -3412,10 +4559,10 @@ mod tests {
         assert!(state.breadcrumb_path.is_empty());
         assert_eq!(state.scroll_offset_y, 0.0);
         assert_eq!(state.sidebar_width, 240.0);
-        assert_eq!(state.terminal_height, 120.0);
+        assert_eq!(state.terminal_height, 96.0);
         assert_eq!(state.sidebar_section, SidebarSection::Explorer);
         assert_eq!(state.bottom_panel_tab, BottomPanelTab::Terminal);
-        assert!(state.terminal_lines.len() >= 2);
+        assert!(state.terminal_session.is_none());
         assert!(state.lsp_handle.is_none());
         assert!(!state.lsp_initialized);
     }
@@ -3426,7 +4573,10 @@ mod tests {
 
     #[test]
     fn test_uri_to_path() {
-        assert_eq!(uri_to_path("file:///home/user/file.rs"), "/home/user/file.rs");
+        assert_eq!(
+            uri_to_path("file:///home/user/file.rs"),
+            "/home/user/file.rs"
+        );
         assert_eq!(uri_to_path("/already/a/path"), "/already/a/path");
         assert_eq!(uri_to_path("file://relative"), "relative");
     }

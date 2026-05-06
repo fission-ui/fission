@@ -2,7 +2,8 @@ use anyhow::Result;
 use fission_layout::TextMeasurer;
 use fission_theme::fonts;
 use fission_render::{
-    BoxShadow, Color as RenderColor, DisplayList, DisplayOp, Fill, ImageFit, Renderer, Stroke,
+    BoxShadow, Color as RenderColor, DisplayList, DisplayOp, Fill, ImageFit, RenderScene,
+    Renderer, Stroke,
 };
 use skia_safe::wrapper::NativeTransmutableWrapper;
 use skia_safe::{
@@ -109,9 +110,15 @@ impl TextMeasurer for SkiaTextMeasurer {
 }
 
 impl<'r> Renderer for SkiaRenderer<'r> {
-    fn render(&mut self, display_list: &DisplayList) -> Result<()> {
+    fn render_scene(&mut self, scene: &RenderScene) -> Result<()> {
         self.canvas.clear(SkColor::WHITE);
+        let display_list = scene.flatten();
+        self.render_ops(&display_list)
+    }
+}
 
+impl<'r> SkiaRenderer<'r> {
+    fn render_ops(&mut self, display_list: &DisplayList) -> Result<()> {
         for op in &display_list.ops {
             match op {
                 DisplayOp::Save => {
@@ -135,6 +142,10 @@ impl<'r> Renderer for SkiaRenderer<'r> {
                     );
                     self.canvas.clip_rrect(rrect, skia_safe::ClipOp::Intersect, true);
                 }
+                DisplayOp::OpacityLayer { alpha, bounds } => {
+                    let rect = Rect::new(bounds.x(), bounds.y(), bounds.right(), bounds.bottom());
+                    self.canvas.save_layer_alpha_f(Some(&rect), *alpha);
+                }
                 DisplayOp::Translate(point) => {
                     self.canvas.translate((point.x, point.y));
                 }
@@ -151,6 +162,9 @@ impl<'r> Renderer for SkiaRenderer<'r> {
                         0.0, 0.0, 1.0,
                     );
                     self.canvas.concat(&m);
+                }
+                DisplayOp::CachedScene { list, .. } => {
+                    self.render_ops(list)?;
                 }
                 DisplayOp::DrawRect {
                     rect,
@@ -253,11 +267,16 @@ impl<'r> Renderer for SkiaRenderer<'r> {
                     color,
                     bounds,
                     underline,
+                    wrap,
                     ..
                 } => {
                     let sk_color = SkColor::from_argb(color.a, color.r, color.g, color.b);
                     // Use bounds width if available, otherwise unbounded
-                    let max_width = if bounds.width() > 0.0 { Some(bounds.width()) } else { None };
+                    let max_width = if *wrap && bounds.width() > 0.0 {
+                        Some(bounds.width())
+                    } else {
+                        None
+                    };
                     
                     let mut collection = FontCollection::new();
                     let mut provider = TypefaceFontProvider::new();
@@ -284,6 +303,7 @@ impl<'r> Renderer for SkiaRenderer<'r> {
                     runs,
                     position,
                     bounds,
+                    wrap,
                     ..
                 } => {
                     let mut collection = FontCollection::new();
@@ -304,7 +324,11 @@ impl<'r> Renderer for SkiaRenderer<'r> {
                     }
                     
                     let mut paragraph = paragraph_builder.build();
-                    let max_width = if bounds.width() > 0.0 { Some(bounds.width()) } else { None };
+                    let max_width = if *wrap && bounds.width() > 0.0 {
+                        Some(bounds.width())
+                    } else {
+                        None
+                    };
                     let width = max_width.unwrap_or(10000.0); 
                     paragraph.layout(width);
 

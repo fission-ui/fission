@@ -26,7 +26,7 @@ pub struct Divider {
 }
 
 impl<S: fission_core::AppState> Widget<S> for Divider {
-    fn build(&self, ctx: &mut BuildCtx<S>, view: &View<S>) -> Node {
+    fn build(&self, _ctx: &mut BuildCtx<S>, view: &View<S>) -> Node {
         let tokens = &view.env.theme.tokens;
 
         let (w, h) = match self.orientation {

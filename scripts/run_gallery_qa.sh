@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-SCREENSHOT_DIR="${FISSION_SCREENSHOT_DIR:-$ROOT_DIR/test_screenshots/gallery_qa}"
+SCREENSHOT_DIR="${FISSION_SCREENSHOT_DIR:-$ROOT_DIR/.artifacts/screenshots/scripts/gallery_qa}"
 CONTROL_PORT="${FISSION_TEST_CONTROL_PORT:-9879}"
 
 mkdir -p "$SCREENSHOT_DIR"
@@ -74,7 +74,7 @@ shot "04_boxplot"
 
 # --- 5. Switch to 3D Scene ---
 echo "5. Open 3D Scene"
-cmd '{"cmd":"TapText","text":"Scene3D"}'
+cmd '{"cmd":"TapText","text":"3D Scene"}'
 cmd '{"cmd":"Pump"}'
 sleep 0.5
 shot "05_scene3d"

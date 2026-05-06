@@ -45,7 +45,7 @@ impl LspClient {
 
         let mut client = Self {
             child,
-            stdin_tx: mpsc::channel().0, // placeholder
+            stdin_tx: mpsc::channel().0,    // placeholder
             response_rx: mpsc::channel().1, // placeholder
             next_id: 1,
             version: 0,
@@ -63,9 +63,15 @@ impl LspClient {
             let mut stdin = stdin;
             while let Ok(msg) = stdin_rx.recv() {
                 let header = format!("Content-Length: {}\r\n\r\n", msg.len());
-                if stdin.write_all(header.as_bytes()).is_err() { break; }
-                if stdin.write_all(msg.as_bytes()).is_err() { break; }
-                if stdin.flush().is_err() { break; }
+                if stdin.write_all(header.as_bytes()).is_err() {
+                    break;
+                }
+                if stdin.write_all(msg.as_bytes()).is_err() {
+                    break;
+                }
+                if stdin.flush().is_err() {
+                    break;
+                }
             }
         });
 
@@ -81,20 +87,28 @@ impl LspClient {
                         return;
                     }
                     let line = header_line.trim();
-                    if line.is_empty() { break; }
+                    if line.is_empty() {
+                        break;
+                    }
                     if let Some(len_str) = line.strip_prefix("Content-Length: ") {
                         content_length = len_str.parse().unwrap_or(0);
                     }
                 }
 
-                if content_length == 0 { continue; }
+                if content_length == 0 {
+                    continue;
+                }
 
                 // Read body
                 let mut body = vec![0u8; content_length];
-                if reader.read_exact(&mut body).is_err() { return; }
+                if reader.read_exact(&mut body).is_err() {
+                    return;
+                }
 
                 if let Ok(response) = serde_json::from_slice::<JsonRpcResponse>(&body) {
-                    if response_tx.send(response).is_err() { return; }
+                    if response_tx.send(response).is_err() {
+                        return;
+                    }
                 }
             }
         });
@@ -147,7 +161,9 @@ impl LspClient {
         self.send_request("initialize", Some(serde_json::to_value(params).unwrap()));
 
         // Wait for initialize response (with timeout)
-        let _ = self.response_rx.recv_timeout(std::time::Duration::from_secs(10));
+        let _ = self
+            .response_rx
+            .recv_timeout(std::time::Duration::from_secs(10));
 
         // Send initialized notification
         self.send_notification("initialized", Some(serde_json::json!({})));
@@ -163,7 +179,10 @@ impl LspClient {
                 text: content.into(),
             },
         };
-        self.send_notification("textDocument/didOpen", Some(serde_json::to_value(params).unwrap()));
+        self.send_notification(
+            "textDocument/didOpen",
+            Some(serde_json::to_value(params).unwrap()),
+        );
     }
 
     pub fn did_change(&mut self, path: &str, content: &str) {
@@ -177,9 +196,13 @@ impl LspClient {
                 text: content.into(),
             }],
         };
-        self.send_notification("textDocument/didChange", Some(serde_json::to_value(params).unwrap()));
+        self.send_notification(
+            "textDocument/didChange",
+            Some(serde_json::to_value(params).unwrap()),
+        );
     }
 
+    #[allow(dead_code)]
     pub fn request_completion(&mut self, path: &str, line: u32, character: u32) -> u64 {
         let params = CompletionParams {
             text_document: TextDocumentIdentifier {
@@ -187,7 +210,10 @@ impl LspClient {
             },
             position: Position { line, character },
         };
-        self.send_request("textDocument/completion", Some(serde_json::to_value(params).unwrap()))
+        self.send_request(
+            "textDocument/completion",
+            Some(serde_json::to_value(params).unwrap()),
+        )
     }
 
     /// Drain all pending responses/notifications from the server.
@@ -201,7 +227,9 @@ impl LspClient {
                 if let Some(method) = &response.method {
                     if method == "textDocument/publishDiagnostics" {
                         if let Some(params) = &response.params {
-                            if let Ok(diag_params) = serde_json::from_value::<PublishDiagnosticsParams>(params.clone()) {
+                            if let Ok(diag_params) =
+                                serde_json::from_value::<PublishDiagnosticsParams>(params.clone())
+                            {
                                 result.diagnostics.push(diag_params);
                             }
                         }
@@ -213,12 +241,15 @@ impl LspClient {
             // Response to a request
             if let Some(result_value) = &response.result {
                 // Try to parse as completion
-                if let Ok(items) = serde_json::from_value::<Vec<CompletionItem>>(result_value.clone()) {
+                if let Ok(items) =
+                    serde_json::from_value::<Vec<CompletionItem>>(result_value.clone())
+                {
                     result.completions = items;
                 }
                 // CompletionList wrapper
                 if let Some(items) = result_value.get("items") {
-                    if let Ok(items) = serde_json::from_value::<Vec<CompletionItem>>(items.clone()) {
+                    if let Ok(items) = serde_json::from_value::<Vec<CompletionItem>>(items.clone())
+                    {
                         result.completions = items;
                     }
                 }
@@ -229,10 +260,13 @@ impl LspClient {
     }
 
     /// Send shutdown request and exit notification, then kill the child process.
+    #[allow(dead_code)]
     pub fn shutdown(&mut self) {
         self.send_request("shutdown", None);
         // Give the server a moment to process the shutdown request.
-        let _ = self.response_rx.recv_timeout(std::time::Duration::from_secs(2));
+        let _ = self
+            .response_rx
+            .recv_timeout(std::time::Duration::from_secs(2));
         self.send_notification("exit", None);
         // Wait briefly for a clean exit, then force-kill if still running.
         match self.child.try_wait() {

@@ -3,10 +3,7 @@ use fission_core::ui::Node;
 use fission_core::{
     ActionEnvelope, BuildCtx, LowerDyn, LoweringContext, NodeBuilder, View, Widget,
 };
-use fission_ir::{
-    op::{Fill, Stroke},
-    FlexDirection, LayoutOp, NodeId, Op, PaintOp,
-};
+use fission_ir::{LayoutOp, NodeId, Op, PaintOp};
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -62,9 +59,7 @@ impl LowerDyn for RangeSliderLowerer {
             let track_paint = NodeBuilder::new(
                 cx.next_node_id(),
                 Op::Paint(PaintOp::DrawRect {
-                    fill: Some(fission_ir::op::Fill::Solid(
-                        tokens.colors.border,
-                    )),
+                    fill: Some(fission_ir::op::Fill::Solid(tokens.colors.border)),
                     stroke: None,
                     corner_radius: track_height / 2.0,
                     shadow: None,
@@ -151,9 +146,7 @@ impl LowerDyn for RangeSliderLowerer {
         let thumb1 = NodeBuilder::new(
             cx.next_node_id(),
             Op::Paint(PaintOp::DrawRect {
-                fill: Some(fission_ir::op::Fill::Solid(
-                    tokens.colors.primary,
-                )),
+                fill: Some(fission_ir::op::Fill::Solid(tokens.colors.primary)),
                 stroke: None,
                 corner_radius: thumb_size / 2.0,
                 shadow: None,
@@ -192,9 +185,7 @@ impl LowerDyn for RangeSliderLowerer {
         let thumb2 = NodeBuilder::new(
             cx.next_node_id(),
             Op::Paint(PaintOp::DrawRect {
-                fill: Some(fission_ir::op::Fill::Solid(
-                    tokens.colors.primary,
-                )),
+                fill: Some(fission_ir::op::Fill::Solid(tokens.colors.primary)),
                 stroke: None,
                 corner_radius: thumb_size / 2.0,
                 shadow: None,

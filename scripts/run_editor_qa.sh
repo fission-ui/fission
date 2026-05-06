@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-SCREENSHOT_DIR="${FISSION_SCREENSHOT_DIR:-$ROOT_DIR/test_screenshots/editor_qa}"
+SCREENSHOT_DIR="${FISSION_SCREENSHOT_DIR:-$ROOT_DIR/.artifacts/screenshots/scripts/editor_qa}"
 CONTROL_PORT="${FISSION_TEST_CONTROL_PORT:-9878}"
 
 mkdir -p "$SCREENSHOT_DIR"
@@ -23,7 +23,7 @@ echo "Building fission-editor..."
 cargo build -p fission-editor 2>&1 | tail -2
 
 # Create test workspace with files
-TEST_DIR="$ROOT_DIR/test_screenshots/qa_workspace"
+TEST_DIR="$ROOT_DIR/.artifacts/qa_workspace"
 rm -rf "$TEST_DIR"
 mkdir -p "$TEST_DIR/src"
 cat > "$TEST_DIR/src/main.rs" << 'RUST'

@@ -1,7 +1,6 @@
-use crate::stack::{HStack, VStack};
-use fission_core::op::{BoxShadow, Color};
+use fission_core::op::Color;
 use fission_core::ui::{Column, Container, Node, Row};
-use fission_core::{ActionEnvelope, BuildCtx, NodeId, View, Widget, WidgetNodeId};
+use fission_core::{ActionEnvelope, BuildCtx, View, Widget, WidgetNodeId};
 use serde::{Deserialize, Serialize};
 
 /// The axis along which a [`SplitView`] divides its two panes.
@@ -34,12 +33,6 @@ pub struct SplitView {
     pub on_resize: Option<ActionEnvelope>, // Action(f32)
 }
 
-// Internal action to track dragging
-#[derive(Clone, Debug, Serialize, Deserialize, fission_macros::Action)]
-struct DragHandle {
-    delta: f32,
-}
-
 // Since we can't easily capture local drag state without a reducer in the user app,
 // SplitView relies on the user providing `split_ratio` and `on_resize`.
 // However, to make it drag, we need a Handle widget that emits drag events.
@@ -62,7 +55,7 @@ struct DragHandle {
 // Second pane: flex_grow = 1.0 - ratio.
 
 impl<S: fission_core::AppState> Widget<S> for SplitView {
-    fn build(&self, ctx: &mut BuildCtx<S>, view: &View<S>) -> Node {
+    fn build(&self, _ctx: &mut BuildCtx<S>, view: &View<S>) -> Node {
         let handle_size = 4.0;
         let tokens = &view.env.theme.tokens;
 
@@ -76,7 +69,7 @@ impl<S: fission_core::AppState> Widget<S> for SplitView {
             SplitDirection::Vertical => (None, Some(1.0)),
         };
 
-        let line = Container::new(fission_core::ui::widgets::Spacer::default().into_node())
+        let _line = Container::new(fission_core::ui::widgets::Spacer::default().into_node())
             .bg(tokens.colors.border)
             .into_node();
 
@@ -97,13 +90,14 @@ impl<S: fission_core::AppState> Widget<S> for SplitView {
             line_container = line_container.height(h);
         }
 
-        let mut handle = Container::new(line_container.into_node()).bg(Color {
-            r: 0,
-            g: 0,
-            b: 0,
-            a: 0,
-        }) // Transparent hit area
-        .flex_shrink(0.0);
+        let mut handle = Container::new(line_container.into_node())
+            .bg(Color {
+                r: 0,
+                g: 0,
+                b: 0,
+                a: 0,
+            }) // Transparent hit area
+            .flex_shrink(0.0);
 
         if let Some(w) = width {
             handle = handle.width(w);

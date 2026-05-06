@@ -1,12 +1,12 @@
 use anyhow::Result;
 use fission_core::action::AppState as CoreAppState;
 use fission_core::env::Env;
-use fission_core::lowering::{build_layout_tree, LoweringContext};
+use fission_core::lowering::LoweringContext;
 use fission_core::ui::{Node, TextInput};
 use fission_core::{BuildCtx, InputEvent, LayoutPoint, Runtime, View};
 use fission_ir::Role;
-use fission_layout::{LayoutEngine, LayoutSize, TextMeasurer, LineMetric};
-use fission_render::{DisplayList, Renderer};
+use fission_layout::{LayoutEngine, LayoutSize, LineMetric, TextMeasurer};
+use fission_render::{DisplayList, RenderScene, Renderer};
 use fission_widgets::{Checkbox, Portal};
 use std::sync::{Arc, Mutex};
 
@@ -39,34 +39,56 @@ fn on_update(state: &mut AppState, a: UpdateText) {
 #[derive(Clone, Default)]
 struct MockRenderer(pub Arc<Mutex<Option<DisplayList>>>);
 impl Renderer for MockRenderer {
-    fn render(&mut self, dl: &DisplayList) -> Result<()> {
-        *self.0.lock().unwrap() = Some(dl.clone());
+    fn render_scene(&mut self, scene: &RenderScene) -> Result<()> {
+        *self.0.lock().unwrap() = Some(scene.flatten());
         Ok(())
     }
 }
 
 struct MockMeasurer;
 impl TextMeasurer for MockMeasurer {
-    fn measure(&self, _text: &str, _font_size: f32, _available_width: Option<f32>) -> (f32, f32) { (0.0, 0.0) }
-    fn hit_test(&self, _text: &str, _font_size: f32, _available_width: Option<f32>, _x: f32, _y: f32) -> usize { 0 }
-    fn get_line_metrics(&self, _text: &str, _font_size: f32, _available_width: Option<f32>) -> Vec<LineMetric> { vec![] }
+    fn measure(&self, _text: &str, _font_size: f32, _available_width: Option<f32>) -> (f32, f32) {
+        (0.0, 0.0)
+    }
+    fn hit_test(
+        &self,
+        _text: &str,
+        _font_size: f32,
+        _available_width: Option<f32>,
+        _x: f32,
+        _y: f32,
+    ) -> usize {
+        0
+    }
+    fn get_line_metrics(
+        &self,
+        _text: &str,
+        _font_size: f32,
+        _available_width: Option<f32>,
+    ) -> Vec<LineMetric> {
+        vec![]
+    }
 }
 
 struct Root;
 impl fission_core::view::Widget<AppState> for Root {
     fn build(&self, ctx: &mut BuildCtx<AppState>, view: &View<AppState>) -> Node {
-        use fission_core::ui::{Column, Row, Text, TextContent};
+        use fission_core::ui::Column;
         let mut children: Vec<Node> = vec![
             Checkbox {
                 checked: view.state.checked,
                 on_toggle: Some(ctx.bind(Toggle, on_toggle as fn(&mut AppState, Toggle))),
                 label: Some("check".into()),
                 ..Default::default()
-            }.into(),
+            }
+            .into(),
             TextInput {
                 value: view.state.text.clone(),
                 placeholder: Some("type".into()),
-                on_change: Some(ctx.bind(UpdateText("".into()), on_update as fn(&mut AppState, UpdateText))),
+                on_change: Some(ctx.bind(
+                    UpdateText("".into()),
+                    on_update as fn(&mut AppState, UpdateText),
+                )),
                 width: Some(200.0),
                 height: Some(40.0),
                 ..Default::default()
@@ -104,7 +126,12 @@ fn pump(
     // Build + wrap portals like desktop
     let node_tree = {
         let state = runtime.get_app_state::<AppState>().unwrap();
-        let view = View::new(state, &runtime.runtime_state, env, pipe.last_snapshot.as_ref());
+        let view = View::new(
+            state,
+            &runtime.runtime_state,
+            env,
+            pipe.last_snapshot.as_ref(),
+        );
         let mut ctx = BuildCtx::new();
         let mut tree = root.build(&mut ctx, &view);
         runtime.clear_reducers();
@@ -143,7 +170,12 @@ fn pump(
         tree
     };
     // Lower
-    let mut cx = LoweringContext::new(env, &runtime.runtime_state, None, pipe.last_snapshot.as_ref());
+    let mut cx = LoweringContext::new(
+        env,
+        &runtime.runtime_state,
+        None,
+        pipe.last_snapshot.as_ref(),
+    );
     let root_id = node_tree.lower(&mut cx);
     cx.ir.root = Some(root_id);
     let ir = cx.ir;

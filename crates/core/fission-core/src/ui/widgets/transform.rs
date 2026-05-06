@@ -16,10 +16,7 @@ impl Default for Transform {
         Self {
             id: None,
             transform: [
-                1.0, 0.0, 0.0, 0.0,
-                0.0, 1.0, 0.0, 0.0,
-                0.0, 0.0, 1.0, 0.0,
-                0.0, 0.0, 0.0, 1.0,
+                1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0,
             ],
             child: Box::new(crate::ui::widgets::spacer::Spacer::default().into_node()),
         }
@@ -43,15 +40,18 @@ impl Transform {
 impl Lower for Transform {
     fn lower(&self, cx: &mut LoweringContext) -> NodeId {
         let id = self.id.unwrap_or_else(|| cx.next_node_id());
-        
+
         cx.push_scope(id);
         let child_id = self.child.lower(cx);
         cx.pop_scope();
-        
-        let mut builder = NodeBuilder::new(id, Op::Layout(LayoutOp::Transform {
-            transform: self.transform,
-        }));
-        
+
+        let mut builder = NodeBuilder::new(
+            id,
+            Op::Layout(LayoutOp::Transform {
+                transform: self.transform,
+            }),
+        );
+
         builder.add_child(child_id);
         builder.build(cx)
     }

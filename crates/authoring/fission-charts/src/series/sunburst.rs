@@ -1,5 +1,5 @@
-use serde::{Deserialize, Serialize};
-use super::treemap::TreemapNode; // Reuse tree node structure
+use super::treemap::TreemapNode;
+use serde::{Deserialize, Serialize}; // Reuse tree node structure
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SunburstSeries {
@@ -14,7 +14,7 @@ impl SunburstSeries {
             data: Vec::new(),
         }
     }
-    
+
     pub fn data(mut self, data: Vec<TreemapNode>) -> Self {
         self.data = data;
         self

@@ -13,9 +13,12 @@ impl ThemeRiverSeries {
             data: Vec::new(),
         }
     }
-    
+
     pub fn data(mut self, data: Vec<(&str, f32, &str)>) -> Self {
-        self.data = data.into_iter().map(|(t, v, c)| (t.into(), v, c.into())).collect();
+        self.data = data
+            .into_iter()
+            .map(|(t, v, c)| (t.into(), v, c.into()))
+            .collect();
         self
     }
 }

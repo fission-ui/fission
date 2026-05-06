@@ -1,12 +1,10 @@
 use crate::TestHarness;
 use anyhow::{anyhow, Result};
 use fission_core::action::AppState;
-use fission_core::event::{
-    ImeEvent, InputEvent, KeyCode, KeyEvent, PointerButton, PointerEvent,
-};
-use fission_ir::{NodeId, Op, LayoutOp};
+use fission_core::event::{ImeEvent, InputEvent, KeyCode, KeyEvent, PointerButton, PointerEvent};
+use fission_ir::{LayoutOp, NodeId, Op};
 use fission_layout::{LayoutPoint, LayoutRect, LayoutSize};
-use fission_render::{DisplayList, DisplayOp};
+use fission_render::DisplayOp;
 
 #[derive(Debug, Clone)]
 pub struct TextMatch {
@@ -143,18 +141,16 @@ impl<S: AppState> TestDriver<S> {
 
     pub fn tap_point(&mut self, x: f32, y: f32) -> Result<()> {
         let point = LayoutPoint::new(x, y);
-        self.harness.send_event(InputEvent::Pointer(
-            PointerEvent::Down {
+        self.harness
+            .send_event(InputEvent::Pointer(PointerEvent::Down {
                 point,
                 button: PointerButton::Primary,
-            },
-        ))?;
-        self.harness.send_event(InputEvent::Pointer(
-            PointerEvent::Up {
+            }))?;
+        self.harness
+            .send_event(InputEvent::Pointer(PointerEvent::Up {
                 point,
                 button: PointerButton::Primary,
-            },
-        ))?;
+            }))?;
         if self.auto_pump {
             self.harness.pump()?;
         }
@@ -171,12 +167,11 @@ impl<S: AppState> TestDriver<S> {
     }
 
     pub fn scroll(&mut self, at: LayoutPoint, delta: LayoutPoint) -> Result<()> {
-        self.harness.send_event(InputEvent::Pointer(
-            PointerEvent::Scroll {
+        self.harness
+            .send_event(InputEvent::Pointer(PointerEvent::Scroll {
                 point: at,
                 delta,
-            },
-        ))?;
+            }))?;
         if self.auto_pump {
             self.harness.pump()?;
         }
@@ -194,10 +189,20 @@ impl<S: AppState> TestDriver<S> {
             .ok_or_else(|| anyhow!("text '{}' not found", needle))?;
 
         // Find the text's node_id, then walk up the IR to find enclosing Scroll
-        let ir = self.harness.last_ir.as_ref().ok_or_else(|| anyhow!("no IR"))?;
-        let snapshot = self.harness.last_snapshot.as_ref().ok_or_else(|| anyhow!("no snapshot"))?;
+        let ir = self
+            .harness
+            .last_ir
+            .as_ref()
+            .ok_or_else(|| anyhow!("no IR"))?;
+        let snapshot = self
+            .harness
+            .last_snapshot
+            .as_ref()
+            .ok_or_else(|| anyhow!("no snapshot"))?;
 
-        let text_node_id = text_match.node_id.ok_or_else(|| anyhow!("text has no node_id"))?;
+        let text_node_id = text_match
+            .node_id
+            .ok_or_else(|| anyhow!("text has no node_id"))?;
 
         // Walk up parents to find Scroll container
         let mut current = ir.nodes.get(&text_node_id).and_then(|n| n.parent);
@@ -214,8 +219,10 @@ impl<S: AppState> TestDriver<S> {
             }
         }
 
-        let scroll_id = scroll_id.ok_or_else(|| anyhow!("no enclosing Scroll found for '{}'", needle))?;
-        let scroll_rect = snapshot.get_node_rect(scroll_id)
+        let scroll_id =
+            scroll_id.ok_or_else(|| anyhow!("no enclosing Scroll found for '{}'", needle))?;
+        let scroll_rect = snapshot
+            .get_node_rect(scroll_id)
             .ok_or_else(|| anyhow!("scroll node has no rect"))?;
 
         // Calculate needed offset to bring text into view
@@ -229,7 +236,11 @@ impl<S: AppState> TestDriver<S> {
 
         // Set scroll offset directly for reliability
         let needed_offset = (text_y - viewport_top - 20.0).max(0.0); // 20px margin from top
-        self.harness.runtime.runtime_state.scroll.set_offset(scroll_id, needed_offset);
+        self.harness
+            .runtime
+            .runtime_state
+            .scroll
+            .set_offset(scroll_id, needed_offset);
         self.harness.pump()?;
         Ok(())
     }
@@ -244,19 +255,16 @@ impl<S: AppState> TestDriver<S> {
                 } else {
                     KeyCode::Char(ch)
                 };
-                self.harness.send_event(InputEvent::Keyboard(
-                    KeyEvent::Down {
+                self.harness
+                    .send_event(InputEvent::Keyboard(KeyEvent::Down {
                         key_code: key_code.clone(),
                         modifiers: 0,
-                    },
-                ))?;
+                    }))?;
             } else {
                 // Non-ASCII: use IME commit
-                self.harness.send_event(InputEvent::Ime(
-                    ImeEvent::Commit {
-                        text: ch.to_string(),
-                    },
-                ))?;
+                self.harness.send_event(InputEvent::Ime(ImeEvent::Commit {
+                    text: ch.to_string(),
+                }))?;
             }
         }
         if self.auto_pump {
@@ -266,12 +274,11 @@ impl<S: AppState> TestDriver<S> {
     }
 
     pub fn press_key(&mut self, key: KeyCode, modifiers: u8) -> Result<()> {
-        self.harness.send_event(InputEvent::Keyboard(
-            KeyEvent::Down {
+        self.harness
+            .send_event(InputEvent::Keyboard(KeyEvent::Down {
                 key_code: key,
                 modifiers,
-            },
-        ))?;
+            }))?;
         if self.auto_pump {
             self.harness.pump()?;
         }

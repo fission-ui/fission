@@ -1,6 +1,5 @@
 use crate::stack::HStack;
 use fission_core::action::ActionEnvelope;
-use fission_core::op::Color;
 use fission_core::ui::{Button, ButtonVariant, Container, Node, Text, TextContent};
 use fission_core::{BuildCtx, View, Widget};
 use serde::{Deserialize, Serialize};

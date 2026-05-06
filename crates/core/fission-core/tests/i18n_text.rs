@@ -28,7 +28,7 @@ fn text_key_resolves_from_i18n_registry() {
     cx.ir.root = Some(root_id);
 
     let mut found = false;
-    for (id, node) in &cx.ir.nodes {
+    for (_id, node) in &cx.ir.nodes {
         if let Op::Paint(PaintOp::DrawText { text, .. }) = &node.op {
             if text == "Hola" {
                 found = true;

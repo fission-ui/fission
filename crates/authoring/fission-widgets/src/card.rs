@@ -21,7 +21,7 @@ impl Default for Card {
 }
 
 impl<S: fission_core::AppState> Widget<S> for Card {
-    fn build(&self, ctx: &mut BuildCtx<S>, view: &View<S>) -> Node {
+    fn build(&self, _ctx: &mut BuildCtx<S>, view: &View<S>) -> Node {
         let tokens = &view.env.theme.tokens;
         let default_shadow = fission_core::op::BoxShadow {
             color: fission_core::op::Color {

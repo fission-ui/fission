@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-SCREENSHOT_DIR="${FISSION_SCREENSHOT_DIR:-$ROOT_DIR/test_screenshots/editor_e2e}"
+SCREENSHOT_DIR="${FISSION_SCREENSHOT_DIR:-$ROOT_DIR/.artifacts/screenshots/scripts/editor_e2e}"
 CONTROL_PORT="${FISSION_TEST_CONTROL_PORT:-9878}"
 
 mkdir -p "$SCREENSHOT_DIR"

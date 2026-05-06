@@ -3,8 +3,8 @@ use crate::ui::traits::Lower;
 use crate::ui::Node;
 use crate::ActionEnvelope;
 use fission_ir::{
-    ActionEntry, NodeId, Op, Semantics, 
     semantics::{ActionTrigger, Role},
+    ActionEntry, NodeId, Op, Semantics,
 };
 use serde::{Deserialize, Serialize};
 
@@ -106,24 +106,26 @@ impl GestureDetector {
 impl Lower for GestureDetector {
     fn lower(&self, cx: &mut LoweringContext) -> NodeId {
         let id = self.id.unwrap_or_else(|| cx.next_node_id());
-        
+
         // Lower child
         let child_id = self.child.lower(cx);
-        
+
         // Build Semantics
         let mut semantics = Semantics {
             role: Role::Generic,
             label: None,
             value: None,
             actions: Default::default(),
-            focusable: self.on_tap.is_some(), 
+            focusable: self.on_tap.is_some(),
             multiline: false,
             masked: false,
             input_mask: None,
             ime_preedit_range: None,
             checked: None,
             disabled: false,
-            draggable: self.on_drag_start.is_some() || self.on_drag_update.is_some() || self.drag_payload.is_some(),
+            draggable: self.on_drag_start.is_some()
+                || self.on_drag_update.is_some()
+                || self.drag_payload.is_some(),
             scrollable_x: false,
             scrollable_y: false,
             min_value: None,
@@ -133,7 +135,9 @@ impl Lower for GestureDetector {
             is_focus_barrier: false,
             drag_payload: self.drag_payload.clone(),
             hero_tag: None,
-            focus_index: None, capture_tab: false, auto_indent: false,
+            focus_index: None,
+            capture_tab: false,
+            auto_indent: false,
         };
 
         if let Some(a) = &self.on_tap {
@@ -159,7 +163,7 @@ impl Lower for GestureDetector {
                 payload_data: Some(a.payload.clone()),
             });
         }
-        
+
         if let Some(a) = &self.on_drag_update {
             semantics.actions.entries.push(ActionEntry {
                 trigger: ActionTrigger::DragUpdate,
@@ -167,7 +171,7 @@ impl Lower for GestureDetector {
                 payload_data: Some(a.payload.clone()),
             });
         }
-        
+
         if let Some(a) = &self.on_drag_end {
             semantics.actions.entries.push(ActionEntry {
                 trigger: ActionTrigger::DragEnd,
@@ -175,7 +179,7 @@ impl Lower for GestureDetector {
                 payload_data: Some(a.payload.clone()),
             });
         }
-        
+
         if let Some(a) = &self.on_hover_enter {
             semantics.actions.entries.push(ActionEntry {
                 trigger: ActionTrigger::HoverEnter,
@@ -183,7 +187,7 @@ impl Lower for GestureDetector {
                 payload_data: Some(a.payload.clone()),
             });
         }
-        
+
         if let Some(a) = &self.on_hover_exit {
             semantics.actions.entries.push(ActionEntry {
                 trigger: ActionTrigger::HoverExit,
@@ -191,7 +195,7 @@ impl Lower for GestureDetector {
                 payload_data: Some(a.payload.clone()),
             });
         }
-        
+
         if let Some(a) = &self.on_drop {
             semantics.actions.entries.push(ActionEntry {
                 trigger: ActionTrigger::Drop,
@@ -199,7 +203,7 @@ impl Lower for GestureDetector {
                 payload_data: Some(a.payload.clone()),
             });
         }
-        
+
         if let Some(a) = &self.on_drag_enter {
             semantics.actions.entries.push(ActionEntry {
                 trigger: ActionTrigger::DragEnter,
@@ -207,7 +211,7 @@ impl Lower for GestureDetector {
                 payload_data: Some(a.payload.clone()),
             });
         }
-        
+
         if let Some(a) = &self.on_drag_leave {
             semantics.actions.entries.push(ActionEntry {
                 trigger: ActionTrigger::DragLeave,

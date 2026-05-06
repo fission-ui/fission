@@ -1,7 +1,6 @@
 use crate::stack::HStack;
 use fission_core::ui::{Button, ButtonVariant, Container, Node, Text};
 use fission_core::{ActionEnvelope, BuildCtx, View, Widget};
-use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
 /// A horizontal row of toggle buttons where exactly one option is active.

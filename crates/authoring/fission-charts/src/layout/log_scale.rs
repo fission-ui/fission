@@ -36,7 +36,7 @@ impl LogScale {
     /// Generates ticks in base-10 (or self.base) format.
     pub fn ticks(&self) -> Vec<f32> {
         let mut ticks = Vec::new();
-        
+
         let log_min = self.domain_min.log(self.base).floor() as i32;
         let log_max = self.domain_max.log(self.base).ceil() as i32;
 

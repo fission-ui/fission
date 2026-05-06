@@ -1,24 +1,27 @@
-use crate::action::{Action, ActionEnvelope, ActionId, AppState};
+use crate::action::{ActionEnvelope, ActionId, AppState};
 use crate::effect::{ActionInput, EffectEnvelope};
-use crate::env::{
-    ActiveAnimation, AnimationStateMap, Env, InteractionStateMap, RuntimeState, ScrollStateMap,
-    VideoStateMap, VideoStatus,
+use crate::env::{ActiveAnimation, RuntimeState, VideoStatus};
+use crate::registry::{
+    ActionRegistry, AnimationPropertyId, AnimationRequest, AnimationStartValue, VideoRegistration,
 };
-use crate::registry::{ActionRegistry, AnimationRequest, AnimationStartValue, VideoRegistration};
 use crate::BoxedReducer;
 use crate::{
-    Clipboard, Clock, CurrentTime, ImeHandler, InputEvent, KeyCode, KeyEvent, PointerButton,
-    PointerEvent,
+    Clipboard, Clock, CurrentTime, ImeHandler, InputEvent, KeyCode, KeyEvent, PointerEvent,
 };
 use anyhow::{anyhow, Result};
 use fission_diagnostics::prelude as diag;
 use fission_ir::{CoreIR, FlexDirection, LayoutOp, NodeId, Op, WidgetNodeId};
-use fission_layout::{LayoutPoint, LayoutRect, LayoutSnapshot, LayoutUnit, TextMeasurer};
+use fission_layout::{LayoutPoint, LayoutRect, LayoutSnapshot, TextMeasurer};
 use glam::{Mat4, Vec4};
 use serde_json;
-use std::any::{Any, TypeId};
+use std::any::TypeId;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
+
+#[derive(Debug, Default, Clone)]
+pub struct TickResult {
+    pub changed_animations: Vec<(WidgetNodeId, AnimationPropertyId)>,
+}
 
 /// The core runtime that owns application state, reducers, and the effect queue.
 ///
@@ -333,7 +336,7 @@ impl Runtime {
         Ok(())
     }
 
-    pub fn tick(&mut self, dt: CurrentTime) -> Result<()> {
+    pub fn tick(&mut self, dt: CurrentTime) -> Result<TickResult> {
         use crate::Tick;
         let action = Tick { dt };
         let envelope: ActionEnvelope = action.into();
@@ -342,13 +345,13 @@ impl Runtime {
         let current_time = self.clock().current_time();
 
         let mut finished = Vec::new();
-        let mut has_animation_changes = false;
+        let mut result = TickResult::default();
         for ((target, property), anim) in self.runtime_state.animation.active.iter_mut() {
             let elapsed = current_time.saturating_sub(anim.start_time);
             let mut progress = if anim.duration == 0 {
                 1.0
             } else {
-                (elapsed as f32 / anim.duration as f32)
+                elapsed as f32 / anim.duration as f32
             };
 
             if anim.repeat && progress >= 1.0 {
@@ -361,27 +364,29 @@ impl Runtime {
                 finished.push((*target, property.clone()));
             }
 
-            let value = anim.start_value + (anim.end_value - anim.start_value) * progress;
-            
+            let eased_progress = anim.easing.apply(progress);
+            let value = anim.start_value + (anim.end_value - anim.start_value) * eased_progress;
             // Only update and mark dirty if the value actually changed
-            let current_val = self.runtime_state.animation.values.get(&(*target, property.clone())).copied();
+            let current_val = self
+                .runtime_state
+                .animation
+                .values
+                .get(&(*target, property.clone()))
+                .copied();
             if current_val != Some(value) {
                 self.runtime_state
                     .animation
                     .values
                     .insert((*target, property.clone()), value);
-                has_animation_changes = true;
+                result.changed_animations.push((*target, property.clone()));
             }
         }
 
         for key in finished {
             self.runtime_state.animation.active.remove(&key);
-            has_animation_changes = true;
         }
 
-        let _ = has_animation_changes;
-
-        Ok(())
+        Ok(result)
     }
 
     pub fn enqueue_animation(&mut self, target: WidgetNodeId, request: AnimationRequest) {
@@ -393,26 +398,28 @@ impl Runtime {
             if (active.end_value - request.to).abs() < 0.001
                 && active.duration == request.duration_ms
                 && active.repeat == request.repeat
+                && active.frame_interval_ms == request.frame_interval_ms
+                && active.easing == request.easing
             {
                 // Continue existing animation
                 return;
             }
         }
 
-        let current_value = self
-            .runtime_state
-            .animation
-            .values
-            .get(&key)
-            .copied()
-            .unwrap_or_else(|| request.property.default_value());
+        let current_value = self.runtime_state.animation.values.get(&key).copied();
+        let current_value = current_value.unwrap_or_else(|| request.property.default_value());
 
-        // If we are already at the target value and no animation is running, do we need to start one?
-        // Yes, because we might want to ensure it's "set" or trigger completion events (if we had them).
-        // But if start == end and duration > 0, it's a no-op animation?
-        // Optimization: if current == to, maybe skip?
-        // But if we want to "hold" the value, active animation keeps it?
-        // Let's simpler logic: Start new if target changed.
+        // Declarative builds can re-emit the same terminal transition every frame.
+        // If the current visible value already matches the target and nothing is
+        // animating, treat it as satisfied instead of starting a zero-delta
+        // animation that would keep the shell redrawing forever.
+        if !request.repeat
+            && self.runtime_state.animation.values.contains_key(&key)
+            && (current_value - request.to).abs() < 0.001
+        {
+            self.runtime_state.animation.values.insert(key, request.to);
+            return;
+        }
 
         let start_value = match request.from {
             AnimationStartValue::Explicit(v) => v,
@@ -427,6 +434,8 @@ impl Runtime {
             start_time: self.clock().current_time() + request.delay_ms,
             duration: request.duration_ms,
             repeat: request.repeat,
+            frame_interval_ms: request.frame_interval_ms.filter(|ms| *ms > 0),
+            easing: request.easing.clone(),
         };
 
         self.runtime_state
@@ -434,6 +443,22 @@ impl Runtime {
             .values
             .insert(key.clone(), start_value);
         self.runtime_state.animation.active.insert(key, anim);
+    }
+
+    pub fn sync_animation_requests(&mut self, requests: &[(WidgetNodeId, AnimationRequest)]) {
+        let requested: HashSet<(WidgetNodeId, AnimationPropertyId)> = requests
+            .iter()
+            .map(|(target, request)| (*target, request.property.clone()))
+            .collect();
+
+        self.runtime_state
+            .animation
+            .active
+            .retain(|key, _| requested.contains(key));
+        self.runtime_state
+            .animation
+            .values
+            .retain(|key, _| requested.contains(key));
     }
 
     pub fn sync_video_nodes(&mut self, registrations: &[VideoRegistration]) {
@@ -587,22 +612,46 @@ impl Runtime {
                             let mut walk = ir.nodes.get(&nid).and_then(|n| n.parent);
                             while let Some(pid) = walk {
                                 if let Some(pnode) = ir.nodes.get(&pid) {
-                                    if let fission_ir::Op::Layout(fission_ir::LayoutOp::Scroll { direction, .. }) = &pnode.op {
+                                    if let fission_ir::Op::Layout(fission_ir::LayoutOp::Scroll {
+                                        direction,
+                                        ..
+                                    }) = &pnode.op
+                                    {
                                         let off = self.runtime_state.scroll.get_offset(pid);
                                         match direction {
-                                            fission_ir::FlexDirection::Row => node_rect.origin.x -= off,
-                                            fission_ir::FlexDirection::Column => node_rect.origin.y -= off,
+                                            fission_ir::FlexDirection::Row => {
+                                                node_rect.origin.x -= off
+                                            }
+                                            fission_ir::FlexDirection::Column => {
+                                                node_rect.origin.y -= off
+                                            }
                                         }
                                     }
                                     walk = pnode.parent;
-                                } else { break; }
+                                } else {
+                                    break;
+                                }
                             }
                         }
                         let result = render_obj.handle_event(nid, &event, node_rect);
                         if result.handled {
                             // Set focus to this node so keyboard events route here
                             if matches!(event, InputEvent::Pointer(PointerEvent::Down { .. })) {
+                                let old_focused_id = self.runtime_state.interaction.focused;
+                                if Some(nid) != old_focused_id {
+                                    self.clear_text_pending_on_blur(old_focused_id, Some(nid));
+                                    self.dispatch_custom_blur_actions(ir, old_focused_id)?;
+                                }
                                 self.runtime_state.interaction.set_focused(Some(nid));
+                                if let Some(ime_handler) = &self.ime_handler {
+                                    let accepts_text = render_obj.accepts_text_input();
+                                    ime_handler.set_ime_allowed(accepts_text);
+                                    if accepts_text {
+                                        if let Some(rect) = render_obj.ime_cursor_area(node_rect) {
+                                            ime_handler.set_ime_cursor_area(rect);
+                                        }
+                                    }
+                                }
                             }
                             // Dispatch any actions the render object produced.
                             for (target, envelope) in result.actions {
@@ -620,7 +669,7 @@ impl Runtime {
         // (if any) and walk up its ancestor chain looking for a custom render
         // object.  This allows custom editor nodes to handle arrow keys,
         // typing, etc. before the framework's default focus-navigation logic.
-        if matches!(event, InputEvent::Keyboard(_)) {
+        if matches!(event, InputEvent::Keyboard(_) | InputEvent::Ime(_)) {
             if let Some(focused_id) = self.runtime_state.interaction.focused {
                 let mut walk_id = Some(focused_id);
                 while let Some(nid) = walk_id {
@@ -643,17 +692,13 @@ impl Runtime {
             }
         }
 
-        let mut dispatched_actions = Vec::new();
-        let mut handled = false;
-
-        {
+        let (handled, dispatched_actions) = {
             let mut ctx = ControllerContext {
                 ir,
                 layout,
                 text_edit: &mut self.runtime_state.text_edit,
                 interaction: &mut self.runtime_state.interaction,
                 scroll: &mut self.runtime_state.scroll,
-                ime_preedit: &mut self.runtime_state.ime_preedit,
                 gesture: &mut self.runtime_state.gesture,
                 clipboard: self.clipboard_backend.as_ref(),
                 measurer: self.measurer.as_ref(),
@@ -661,21 +706,19 @@ impl Runtime {
             };
 
             let mut gesture_controller = GestureController;
-            if gesture_controller.handle_event(&mut ctx, &event) {
-                handled = true;
+            let handled = if gesture_controller.handle_event(&mut ctx, &event) {
+                true
             } else {
                 let mut text_controller = TextInputController;
                 if text_controller.handle_event(&mut ctx, &event) {
-                    handled = true;
+                    true
                 } else {
                     let mut slider_controller = SliderController;
-                    if slider_controller.handle_event(&mut ctx, &event) {
-                        handled = true;
-                    }
+                    slider_controller.handle_event(&mut ctx, &event)
                 }
-            }
-            dispatched_actions = ctx.dispatched_actions;
-        }
+            };
+            (handled, ctx.dispatched_actions)
+        };
 
         for (target, action, input) in dispatched_actions {
             self.dispatch_with_input(action, target, &input)?;
@@ -802,8 +845,8 @@ impl Runtime {
                     let next =
                         find_next_focus_node(ir, self.runtime_state.interaction.focused, reverse);
                     if next != old_focus {
-                        self.runtime_state.ime_preedit = None;
                         self.clear_text_pending_on_blur(old_focus, next);
+                        self.dispatch_custom_blur_actions(ir, old_focus)?;
                     }
                     self.runtime_state.interaction.set_focused(next);
                 }
@@ -817,8 +860,8 @@ impl Runtime {
                             _ => unreachable!(),
                         };
                         if let Some(next) = find_neighbor_focus_node(ir, layout, focused, dir) {
-                            self.runtime_state.ime_preedit = None;
                             self.clear_text_pending_on_blur(Some(focused), Some(next));
+                            self.dispatch_custom_blur_actions(ir, Some(focused))?;
                             self.runtime_state.interaction.set_focused(Some(next));
                         }
                     }
@@ -868,11 +911,11 @@ impl Runtime {
                                 if s.focusable {
                                     let old_focused_id = self.runtime_state.interaction.focused;
                                     if Some(node_id) != old_focused_id {
-                                        self.runtime_state.ime_preedit = None;
                                         self.clear_text_pending_on_blur(
                                             old_focused_id,
                                             Some(node_id),
                                         );
+                                        self.dispatch_custom_blur_actions(ir, old_focused_id)?;
 
                                         if s.role == fission_ir::semantics::Role::TextInput {
                                             if let Some(ime_handler) = &self.ime_handler {
@@ -905,6 +948,7 @@ impl Runtime {
                             }
                         }
                         self.clear_text_pending_on_blur(old_focused_id, None);
+                        self.dispatch_custom_blur_actions(ir, old_focused_id)?;
                         self.runtime_state.interaction.set_focused(None);
                     }
 
@@ -946,6 +990,7 @@ impl Runtime {
                         }
                     }
                     self.clear_text_pending_on_blur(old_focused_id, None);
+                    self.dispatch_custom_blur_actions(ir, old_focused_id)?;
                     self.runtime_state.interaction.set_focused(None);
                 }
             }
@@ -1000,8 +1045,31 @@ impl Runtime {
         if let Some(old_id) = old_focus {
             if let Some(st) = self.runtime_state.text_edit.states.get_mut(&old_id) {
                 st.pending_model_sync = false;
+                st.clear_preedit();
             }
         }
+    }
+
+    fn dispatch_custom_blur_actions(
+        &mut self,
+        ir: &CoreIR,
+        old_focus: Option<NodeId>,
+    ) -> Result<()> {
+        if let Some(old_id) = old_focus {
+            if let Some(any_ro) = ir.custom_render_objects.get(&old_id) {
+                if let Some(render_obj) = crate::ui::custom_render::downcast_render_object(any_ro) {
+                    if render_obj.accepts_text_input() {
+                        if let Some(ime_handler) = &self.ime_handler {
+                            ime_handler.set_ime_allowed(false);
+                        }
+                    }
+                    for (target, envelope) in render_obj.blur_actions(old_id) {
+                        self.dispatch(envelope, target)?;
+                    }
+                }
+            }
+        }
+        Ok(())
     }
 
     pub fn hit_test(

@@ -35,7 +35,7 @@ pub struct Tabs {
 }
 
 impl<S: fission_core::AppState> Widget<S> for Tabs {
-    fn build(&self, ctx: &mut BuildCtx<S>, view: &View<S>) -> Node {
+    fn build(&self, _ctx: &mut BuildCtx<S>, view: &View<S>) -> Node {
         let theme = &view.env.theme.components.tabs;
         let mut tab_buttons = vec![];
 

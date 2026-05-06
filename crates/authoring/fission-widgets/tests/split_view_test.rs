@@ -1,7 +1,6 @@
-use fission_core::{BuildCtx, View, Widget, WidgetNodeId, NodeId, AppState};
 use fission_core::ui::{Node, Text};
-use fission_widgets::{SplitView, SplitDirection, Container};
-use std::sync::Arc;
+use fission_core::{AppState, BuildCtx, View, Widget, WidgetNodeId};
+use fission_widgets::{SplitDirection, SplitView};
 
 #[derive(Default, Clone, Debug)]
 struct State;
@@ -11,12 +10,12 @@ impl AppState for State {}
 fn test_split_view_layout() {
     let mut runtime = fission_core::Runtime::default();
     runtime.add_app_state(Box::new(State)).unwrap();
-    
+
     let mut ctx = BuildCtx::<State>::new();
     let env = fission_core::Env::default();
     let state = runtime.get_app_state::<State>().unwrap();
     let view = View::new(state, &runtime.runtime_state, &env, None);
-    
+
     let split = SplitView {
         id: WidgetNodeId::explicit("split"),
         direction: SplitDirection::Horizontal,
@@ -25,9 +24,9 @@ fn test_split_view_layout() {
         split_ratio: 0.3,
         on_resize: None,
     };
-    
+
     let node = split.build(&mut ctx, &view);
-    
+
     // SplitView lowers to a Row (Horizontal)
     if let Node::Row(row) = node {
         assert_eq!(row.children.len(), 3); // Pane 1, Handle, Pane 2

@@ -1,4 +1,4 @@
-use fission_core::{AppState, BuildCtx, View, Widget, Node};
+use fission_core::{AppState, BuildCtx, Node, View, Widget};
 use fission_widgets::timeline::{Timeline, TimelineItem};
 use serde::{Deserialize, Serialize};
 
@@ -16,8 +16,16 @@ fn test_timeline_structure() {
 
     let timeline = Timeline {
         items: vec![
-            TimelineItem { title: "Step 1".into(), description: None, timestamp: None },
-            TimelineItem { title: "Step 2".into(), description: None, timestamp: None },
+            TimelineItem {
+                title: "Step 1".into(),
+                description: None,
+                timestamp: None,
+            },
+            TimelineItem {
+                title: "Step 2".into(),
+                description: None,
+                timestamp: None,
+            },
         ],
     };
 

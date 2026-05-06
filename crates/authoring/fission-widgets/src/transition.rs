@@ -1,9 +1,8 @@
-use fission_core::ui::Node;
+use fission_core::ui::{Composite, Node};
 use fission_core::{
-    AnimationPropertyId, AnimationRequest, AnimationStartValue, BuildCtx, NodeId, View, Widget,
+    AnimationPropertyId, AnimationRequest, AnimationStartValue, BuildCtx, View, Widget,
     WidgetNodeId,
 };
-use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug)]
 pub struct Transition {
@@ -39,10 +38,28 @@ impl<S: fission_core::AppState> Widget<S> for Transition {
                 duration_ms: self.duration,
                 delay_ms: self.delay,
                 repeat: false,
+                frame_interval_ms: None,
+                easing: Default::default(),
             },
         );
 
-        // Pass-through child
-        *self.child.clone()
+        let composite = Composite::new(*self.child.clone()).repaint_boundary(true);
+
+        match self.property {
+            AnimationPropertyId::Opacity => {
+                composite.animated_opacity(self.id, self.value).into_node()
+            }
+            AnimationPropertyId::TranslateX => composite
+                .animated_translate_x(self.id, self.value)
+                .into_node(),
+            AnimationPropertyId::TranslateY => composite
+                .animated_translate_y(self.id, self.value)
+                .into_node(),
+            AnimationPropertyId::Scale => composite.animated_scale(self.id, self.value).into_node(),
+            AnimationPropertyId::Rotation => {
+                composite.animated_rotation(self.id, self.value).into_node()
+            }
+            AnimationPropertyId::Custom(_) => *self.child.clone(),
+        }
     }
 }

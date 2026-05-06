@@ -18,8 +18,6 @@ use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_json;
 use std::any::Any;
 
-use crate as fission_core;
-
 pub mod video;
 
 pub use video::{
@@ -94,7 +92,6 @@ impl ActionId {
     }
 }
 
-
 /// Action dispatched by the text-editing controller when the user modifies a
 /// [`TextInput`](crate::ui::TextInput) field.
 ///
@@ -115,7 +112,8 @@ pub struct UpdateTextInput {
 impl Action for UpdateTextInput {
     fn static_id() -> ActionId {
         lazy_static! {
-            pub static ref UPDATE_TEXT_INPUT_ACTION_ID: ActionId = ActionId::from_name("fission_core::UpdateTextInput");
+            pub static ref UPDATE_TEXT_INPUT_ACTION_ID: ActionId =
+                ActionId::from_name("fission_core::UpdateTextInput");
         }
         *UPDATE_TEXT_INPUT_ACTION_ID
     }
@@ -131,7 +129,8 @@ pub struct CursorChanged {
 impl Action for CursorChanged {
     fn static_id() -> ActionId {
         lazy_static! {
-            pub static ref CURSOR_CHANGED_ACTION_ID: ActionId = ActionId::from_name("fission_core::CursorChanged");
+            pub static ref CURSOR_CHANGED_ACTION_ID: ActionId =
+                ActionId::from_name("fission_core::CursorChanged");
         }
         *CURSOR_CHANGED_ACTION_ID
     }

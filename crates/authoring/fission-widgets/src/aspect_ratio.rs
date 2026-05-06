@@ -30,7 +30,6 @@ struct AspectRatioLowerer {
 
 impl LowerDyn for AspectRatioLowerer {
     fn lower_dyn(&self, cx: &mut LoweringContext) -> NodeId {
-        use fission_core::Lower; // Import trait to call lower on child
         let child_id = self.child.lower(cx);
         let id = cx.next_node_id();
 

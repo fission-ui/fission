@@ -1,8 +1,8 @@
 use anyhow::Result;
 use fission_core::ui::{Node, Text, TextContent};
 use fission_core::{BuildCtx, View, Widget};
-use fission_widgets::LazyColumn;
 use fission_test::TestHarness;
+use fission_widgets::LazyColumn;
 use std::sync::Arc;
 
 #[derive(Debug, Default, Clone)]
@@ -14,17 +14,21 @@ impl Widget<AppState> for Root {
     fn build(&self, _ctx: &mut BuildCtx<AppState>, _view: &View<AppState>) -> Node {
         let mut children = Vec::new();
         for i in 0..10 {
-            children.push(Text {
-                content: TextContent::Literal(format!("Item {}", i)),
-                ..Default::default()
-            }.into());
+            children.push(
+                Text {
+                    content: TextContent::Literal(format!("Item {}", i)),
+                    ..Default::default()
+                }
+                .into(),
+            );
         }
-        
+
         LazyColumn {
             id: None,
             children: Arc::new(children),
             item_height: 20.0,
-        }.into()
+        }
+        .into()
     }
 }
 

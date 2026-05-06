@@ -12,7 +12,12 @@ use fission_widgets::{Spacer, VStack};
 pub struct Minimap;
 
 /// Background colour for the minimap column.
-const MINIMAP_BG: Color = Color { r: 25, g: 25, b: 25, a: 255 };
+const MINIMAP_BG: Color = Color {
+    r: 25,
+    g: 25,
+    b: 25,
+    a: 255,
+};
 
 /// Width of the minimap column in logical pixels.
 const MINIMAP_WIDTH: f32 = 60.0;
@@ -26,14 +31,39 @@ const MAX_HEIGHT: f32 = 400.0;
 const BAR_HEIGHT: f32 = 2.0;
 
 /// Semi-transparent overlay that highlights the currently-visible region.
-const VIEWPORT_OVERLAY: Color = Color { r: 255, g: 255, b: 255, a: 25 };
+const VIEWPORT_OVERLAY: Color = Color {
+    r: 255,
+    g: 255,
+    b: 255,
+    a: 25,
+};
 
 // Line-type colours -------------------------------------------------------
 
-const COLOR_EMPTY: Color = Color { r: 30, g: 30, b: 30, a: 255 };
-const COLOR_COMMENT: Color = Color { r: 60, g: 80, b: 50, a: 255 };
-const COLOR_STRING: Color = Color { r: 80, g: 60, b: 50, a: 255 };
-const COLOR_CODE: Color = Color { r: 70, g: 70, b: 70, a: 255 };
+const COLOR_EMPTY: Color = Color {
+    r: 30,
+    g: 30,
+    b: 30,
+    a: 255,
+};
+const COLOR_COMMENT: Color = Color {
+    r: 60,
+    g: 80,
+    b: 50,
+    a: 255,
+};
+const COLOR_STRING: Color = Color {
+    r: 80,
+    g: 60,
+    b: 50,
+    a: 255,
+};
+const COLOR_CODE: Color = Color {
+    r: 70,
+    g: 70,
+    b: 70,
+    a: 255,
+};
 
 /// Classify a single trimmed source line into a colour.
 fn line_color(trimmed: &str) -> Color {

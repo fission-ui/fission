@@ -3,7 +3,7 @@ use crate::{
         VideoPause, VideoPlay, VideoSeek, VideoSetMuted, VideoSetRate, VideoSetVolume, VideoStop,
     },
     env::{VideoStateMap, VideoStatus},
-    Action, ActionEnvelope, ActionId,
+    Action, ActionEnvelope,
 };
 use anyhow::{anyhow, Result};
 use serde_json;

@@ -1,3 +1,5 @@
+#![allow(unexpected_cfgs)]
+
 use fission_shell::{VideoBackend, VideoEvent, VideoPlayer};
 
 #[cfg(target_os = "macos")]
@@ -7,13 +9,14 @@ pub use mac::MacVideoBackend;
 pub use mock::MockVideoBackend;
 
 #[cfg(target_os = "macos")]
+#[allow(unexpected_cfgs)]
 mod mac {
     use super::{VideoBackend, VideoEvent, VideoPlayer};
     use cocoa::base::{id, nil, YES};
     use cocoa::foundation::{NSString, NSURL};
-    use core_graphics::color::CGColor;
+
     use core_graphics::geometry::{CGPoint, CGRect, CGSize};
-    use fission_diagnostics::prelude as diag;
+
     use fission_ir::WidgetNodeId;
     use fission_render::LayoutRect;
     use fission_shell::VideoSurfaceFrame;

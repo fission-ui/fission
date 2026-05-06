@@ -1,53 +1,90 @@
 use fission_core::op::Color;
 use fission_core::ui::{
-    Align, Button, ButtonContentAlign, ButtonVariant, Column, Container, GestureDetector, Icon, Node,
-    Positioned, Row, Text, TextInput, ZStack,
+    Align, Button, ButtonContentAlign, ButtonVariant, Column, Container, GestureDetector, Icon,
+    Node, Positioned, Row, Text, TextInput, ZStack,
 };
-use fission_core::{ActionEnvelope, AppState, BuildCtx, Handler, PortalLayer, View, Widget, WidgetNodeId};
-use fission_macros::Action;
+use fission_core::{ActionEnvelope, BuildCtx, Handler, PortalLayer, View, Widget, WidgetNodeId};
 use fission_shell_desktop::DesktopApp;
-use fission_widgets::{HStack, Spacer, SplitDirection, SplitView, VStack};
-use serde::{Deserialize, Serialize};
+use fission_widgets::{Spacer, VStack};
 use std::path::PathBuf;
 
-mod model;
-mod file_tree;
+mod command_palette;
+mod completion_popup;
+mod diagnostics_panel;
 mod editor_render_node;
 mod editor_surface;
-mod tab_bar;
-mod status_bar;
-mod terminal_panel;
-mod command_palette;
-mod syntax;
+mod file_tree;
+mod git_panel;
 mod lsp;
+mod minimap;
+mod model;
 mod plugin;
 mod search_panel;
-mod git_panel;
-mod diagnostics_panel;
-mod completion_popup;
-mod minimap;
+mod status_bar;
+mod syntax;
+mod tab_bar;
+mod terminal_panel;
 
-use model::*;
-use file_tree::FileTree;
-use editor_surface::EditorSurface;
-use tab_bar::TabBar;
-use status_bar::StatusBar;
-use search_panel::SearchPanel;
-use git_panel::GitPanel;
-use terminal_panel::TerminalPanel;
 use command_palette::CommandPalette;
+use editor_surface::EditorSurface;
+use file_tree::FileTree;
+use git_panel::GitPanel;
+use model::*;
+use search_panel::SearchPanel;
+use status_bar::StatusBar;
+use tab_bar::TabBar;
+use terminal_panel::TerminalPanel;
 
 // ── Colours ──────────────────────────────────────────────────────────────────
 
-const MENU_BAR_BG: Color = Color { r: 51, g: 51, b: 51, a: 255 };
-const SURFACE_BG: Color = Color { r: 37, g: 37, b: 38, a: 255 };
-const DARK_BG: Color = Color { r: 30, g: 30, b: 30, a: 255 };
-const BORDER_COLOR: Color = Color { r: 48, g: 48, b: 49, a: 255 };
-const DIM_TEXT: Color = Color { r: 140, g: 140, b: 140, a: 255 };
-const BRIGHT_TEXT: Color = Color { r: 220, g: 220, b: 220, a: 255 };
-const FLYOUT_BG: Color = Color { r: 37, g: 37, b: 38, a: 255 };
-const FLYOUT_BORDER: Color = Color { r: 60, g: 60, b: 60, a: 255 };
-const FIND_BAR_BG: Color = Color { r: 37, g: 37, b: 38, a: 255 };
+const MENU_BAR_BG: Color = Color {
+    r: 51,
+    g: 51,
+    b: 51,
+    a: 255,
+};
+const SURFACE_BG: Color = Color {
+    r: 37,
+    g: 37,
+    b: 38,
+    a: 255,
+};
+const BORDER_COLOR: Color = Color {
+    r: 48,
+    g: 48,
+    b: 49,
+    a: 255,
+};
+const DIM_TEXT: Color = Color {
+    r: 140,
+    g: 140,
+    b: 140,
+    a: 255,
+};
+const BRIGHT_TEXT: Color = Color {
+    r: 220,
+    g: 220,
+    b: 220,
+    a: 255,
+};
+const FLYOUT_BG: Color = Color {
+    r: 37,
+    g: 37,
+    b: 38,
+    a: 255,
+};
+const FLYOUT_BORDER: Color = Color {
+    r: 60,
+    g: 60,
+    b: 60,
+    a: 255,
+};
+const FIND_BAR_BG: Color = Color {
+    r: 37,
+    g: 37,
+    b: 38,
+    a: 255,
+};
 
 // ── Activity bar (left icon strip, like VS Code) ─────────────────────────────
 
@@ -55,38 +92,80 @@ struct ActivityBar;
 
 impl Widget<EditorState> for ActivityBar {
     fn build(&self, ctx: &mut BuildCtx<EditorState>, view: &View<EditorState>) -> Node {
-        let bg = Color { r: 44, g: 44, b: 44, a: 255 };
-        let active_color = Color { r: 255, g: 255, b: 255, a: 255 };
-        let inactive_color = Color { r: 140, g: 140, b: 140, a: 255 };
+        let bg = Color {
+            r: 44,
+            g: 44,
+            b: 44,
+            a: 255,
+        };
+        let active_color = Color {
+            r: 255,
+            g: 255,
+            b: 255,
+            a: 255,
+        };
+        let inactive_color = Color {
+            r: 140,
+            g: 140,
+            b: 140,
+            a: 255,
+        };
 
         let section_icons = vec![
-            (fission_icons::material::action::description::round(), SidebarSection::Explorer, "Explorer"),
-            (fission_icons::material::action::search::round(), SidebarSection::Search, "Search"),
-            (fission_icons::material::action::commit::round(), SidebarSection::Git, "Source Control"),
-            (fission_icons::material::action::extension::round(), SidebarSection::Extensions, "Extensions"),
+            (
+                fission_icons::material::action::description::round(),
+                SidebarSection::Explorer,
+                "Explorer",
+            ),
+            (
+                fission_icons::material::action::search::round(),
+                SidebarSection::Search,
+                "Search",
+            ),
+            (
+                fission_icons::material::action::commit::round(),
+                SidebarSection::Git,
+                "Source Control",
+            ),
+            (
+                fission_icons::material::action::extension::round(),
+                SidebarSection::Extensions,
+                "Extensions",
+            ),
         ];
 
-        let set_section_id = ctx.bind(
-            SetSidebarSection(SidebarSection::Explorer),
-            (|s: &mut EditorState, a: SetSidebarSection, _| {
-                if s.sidebar_visible && s.sidebar_section == a.0 {
-                    s.sidebar_visible = false;
-                } else {
-                    s.sidebar_section = a.0;
-                    s.sidebar_visible = true;
-                }
-            }) as Handler<EditorState, SetSidebarSection>,
-        ).id;
+        let set_section_id = ctx
+            .bind(
+                SetSidebarSection(SidebarSection::Explorer),
+                (|s: &mut EditorState, a: SetSidebarSection, _| {
+                    if s.sidebar_visible && s.sidebar_section == a.0 {
+                        s.sidebar_visible = false;
+                    } else {
+                        s.sidebar_section = a.0;
+                        s.sidebar_visible = true;
+                    }
+                }) as Handler<EditorState, SetSidebarSection>,
+            )
+            .id;
 
         let mut icons = Vec::new();
         for (icon_svg, section, _label) in &section_icons {
             let is_active = view.state.sidebar_visible && view.state.sidebar_section == *section;
-            let color = if is_active { active_color } else { inactive_color };
+            let color = if is_active {
+                active_color
+            } else {
+                inactive_color
+            };
 
             let indicator_color = if is_active {
                 active_color
             } else {
-                Color { r: 0, g: 0, b: 0, a: 0 }
+                Color {
+                    r: 0,
+                    g: 0,
+                    b: 0,
+                    a: 0,
+                }
             };
 
             icons.push(
@@ -99,7 +178,8 @@ impl Widget<EditorState> for ActivityBar {
                                     .size(24.0)
                                     .color(color)
                                     .into_node(),
-                            ).into_node(),
+                            )
+                            .into_node(),
                         )
                         .border(indicator_color, 0.0)
                         .into_node(),
@@ -137,18 +217,12 @@ struct MenuBar;
 
 impl MenuBar {
     /// Build a single top-level menu button.
-    fn menu_button(
-        label: &str,
-        set_menu_id: fission_core::ActionId,
-    ) -> Node {
+    fn menu_button(label: &str, set_menu_id: fission_core::ActionId) -> Node {
         let label_owned = label.to_string();
         Button {
             variant: ButtonVariant::Ghost,
             child: Some(Box::new(
-                Text::new(label)
-                    .size(12.0)
-                    .color(BRIGHT_TEXT)
-                    .into_node(),
+                Text::new(label).size(12.0).color(BRIGHT_TEXT).into_node(),
             )),
             on_press: Some(ActionEnvelope {
                 id: set_menu_id,
@@ -167,10 +241,7 @@ impl MenuBar {
             variant: ButtonVariant::Ghost,
             content_align: ButtonContentAlign::Start,
             child: Some(Box::new(
-                Text::new(label)
-                    .size(12.0)
-                    .color(BRIGHT_TEXT)
-                    .into_node(),
+                Text::new(label).size(12.0).color(BRIGHT_TEXT).into_node(),
             )),
             on_press: Some(action),
             height: Some(26.0),
@@ -183,6 +254,9 @@ impl MenuBar {
 
 impl Widget<EditorState> for MenuBar {
     fn build(&self, ctx: &mut BuildCtx<EditorState>, view: &View<EditorState>) -> Node {
+        let viewport = view.viewport_size();
+        let flyout_width = (viewport.width - 80.0).clamp(180.0, 240.0);
+
         // Handler: set active_menu (toggle logic)
         let set_menu = ctx.bind(
             SetActiveMenu(None),
@@ -196,19 +270,13 @@ impl Widget<EditorState> for MenuBar {
         );
         let set_menu_id = set_menu.id;
 
-        // Action for dismissing menu (click outside)
-        let dismiss_menu = ActionEnvelope {
-            id: set_menu_id,
-            payload: serde_json::to_vec(&SetActiveMenu(None)).unwrap(),
-        };
-
         // ── Shared action handlers for flyout commands ──
 
-        let noop = ctx.bind(
-            Noop,
+        let dismiss_menu = ctx.bind(
+            DismissMenu,
             (|s: &mut EditorState, _, _| {
                 s.active_menu = None;
-            }) as Handler<EditorState, Noop>,
+            }) as Handler<EditorState, DismissMenu>,
         );
 
         let save_file = ctx.bind(
@@ -256,6 +324,10 @@ impl Widget<EditorState> for MenuBar {
             ToggleTerminal,
             (|s: &mut EditorState, _, _| {
                 s.terminal_visible = !s.terminal_visible;
+                if s.terminal_visible {
+                    s.bottom_panel_tab = crate::model::BottomPanelTab::Terminal;
+                    s.ensure_terminal_session();
+                }
                 s.active_menu = None;
             }) as Handler<EditorState, ToggleTerminal>,
         );
@@ -269,27 +341,35 @@ impl Widget<EditorState> for MenuBar {
         );
 
         let about_action = ctx.bind(
-            Noop,
-            (|s: &mut EditorState, _, _| {
-                s.status_message = Some("Fission Editor v0.1.0".into());
+            ShowMenuStatus("Fission Editor v0.1.0".into()),
+            (|s: &mut EditorState, a: ShowMenuStatus, _| {
+                s.status_message = Some(a.0);
                 s.active_menu = None;
-            }) as Handler<EditorState, Noop>,
+            }) as Handler<EditorState, ShowMenuStatus>,
         );
 
         let new_file_action = ctx.bind(
-            Noop,
-            (|s: &mut EditorState, _, _| {
-                s.status_message = Some("New File (use file tree context menu)".into());
+            ShowMenuStatus("New File (use file tree context menu)".into()),
+            (|s: &mut EditorState, a: ShowMenuStatus, _| {
+                s.status_message = Some(a.0);
                 s.active_menu = None;
-            }) as Handler<EditorState, Noop>,
+            }) as Handler<EditorState, ShowMenuStatus>,
         );
 
         let new_folder_action = ctx.bind(
-            Noop,
-            (|s: &mut EditorState, _, _| {
-                s.status_message = Some("New Folder (use file tree context menu)".into());
+            ShowMenuStatus("New Folder (use file tree context menu)".into()),
+            (|s: &mut EditorState, a: ShowMenuStatus, _| {
+                s.status_message = Some(a.0);
                 s.active_menu = None;
-            }) as Handler<EditorState, Noop>,
+            }) as Handler<EditorState, ShowMenuStatus>,
+        );
+
+        let go_to_def_action = ctx.bind(
+            GoToDefinition,
+            (|s: &mut EditorState, _, _| {
+                s.status_message = Some("Go to Definition: LSP not connected".into());
+                s.active_menu = None;
+            }) as Handler<EditorState, GoToDefinition>,
         );
 
         let go_to_line_action = ctx.bind(
@@ -344,10 +424,17 @@ impl Widget<EditorState> for MenuBar {
         // ── Top-level buttons ──
 
         let labels = ["File", "Edit", "View", "Go", "Help"];
-        let mut buttons: Vec<Node> = labels.iter()
+        let mut buttons: Vec<Node> = labels
+            .iter()
             .map(|l| Self::menu_button(l, set_menu_id))
             .collect();
-        buttons.push(Spacer { flex_grow: 1.0, ..Default::default() }.into_node());
+        buttons.push(
+            Spacer {
+                flex_grow: 1.0,
+                ..Default::default()
+            }
+            .into_node(),
+        );
 
         let bar = Container::new(
             Row {
@@ -388,11 +475,9 @@ impl Widget<EditorState> for MenuBar {
                 ],
                 "Go" => vec![
                     Self::flyout_item("Go to Line", go_to_line_action.clone()),
-                    Self::flyout_item("Go to Definition", noop.clone()),
+                    Self::flyout_item("Go to Definition", go_to_def_action.clone()),
                 ],
-                "Help" => vec![
-                    Self::flyout_item("About", about_action.clone()),
-                ],
+                "Help" => vec![Self::flyout_item("About", about_action.clone())],
                 _ => vec![],
             };
 
@@ -405,6 +490,7 @@ impl Widget<EditorState> for MenuBar {
                 "Help" => 180.0,
                 _ => 0.0,
             };
+            let flyout_left = (left_px + 48.0).min((viewport.width - flyout_width - 16.0).max(8.0));
 
             let flyout = Container::new(
                 Column {
@@ -413,9 +499,10 @@ impl Widget<EditorState> for MenuBar {
                     flex_grow: 0.0,
                     justify_content: fission_core::op::JustifyContent::Start,
                     ..Default::default()
-                }.into_node(),
+                }
+                .into_node(),
             )
-            .width(200.0)
+            .width(flyout_width)
             .bg(FLYOUT_BG)
             .border(FLYOUT_BORDER, 1.0)
             .border_radius(4.0)
@@ -426,37 +513,53 @@ impl Widget<EditorState> for MenuBar {
                 on_tap: Some(dismiss_menu.clone()),
                 child: Box::new(
                     Container::new(Spacer::default().into_node())
-                        .bg(Color { r: 0, g: 0, b: 0, a: 1 }) // Nearly transparent
+                        .bg(Color {
+                            r: 0,
+                            g: 0,
+                            b: 0,
+                            a: 1,
+                        }) // Nearly transparent
                         .flex_grow(1.0)
                         .into_node(),
                 ),
                 ..Default::default()
-            }.into_node();
+            }
+            .into_node();
 
             let overlay = ZStack {
                 children: vec![
                     // Full-screen dismiss target
                     Positioned {
-                        left: Some(0.0), right: Some(0.0), top: Some(0.0), bottom: Some(0.0),
+                        left: Some(0.0),
+                        right: Some(0.0),
+                        top: Some(0.0),
+                        bottom: Some(0.0),
                         child: Some(Box::new(backdrop)),
                         ..Default::default()
-                    }.into_node(),
+                    }
+                    .into_node(),
                     // The flyout itself, positioned under the menu bar
                     Positioned {
-                        left: Some(left_px + 48.0), // offset by activity bar width
+                        left: Some(flyout_left), // offset by activity bar width
                         top: Some(28.0),
                         child: Some(Box::new(flyout)),
                         ..Default::default()
-                    }.into_node(),
+                    }
+                    .into_node(),
                 ],
                 ..Default::default()
-            }.into_node();
+            }
+            .into_node();
 
             let positioned_root = Positioned {
-                left: Some(0.0), right: Some(0.0), top: Some(0.0), bottom: Some(0.0),
+                left: Some(0.0),
+                right: Some(0.0),
+                top: Some(0.0),
+                bottom: Some(0.0),
                 child: Some(Box::new(overlay)),
                 ..Default::default()
-            }.into_node();
+            }
+            .into_node();
 
             ctx.register_portal_with_layer(
                 fission_core::registry::PortalLayer::Modal,
@@ -476,7 +579,11 @@ struct FindReplaceBar;
 impl Widget<EditorState> for FindReplaceBar {
     fn build(&self, ctx: &mut BuildCtx<EditorState>, view: &View<EditorState>) -> Node {
         if !view.state.show_find_replace {
-            return Spacer { height: Some(0.0), ..Default::default() }.into_node();
+            return Spacer {
+                height: Some(0.0),
+                ..Default::default()
+            }
+            .into_node();
         }
 
         let update_find = ctx.bind(
@@ -530,7 +637,11 @@ impl Widget<EditorState> for FindReplaceBar {
 
         // Match count display
         let total = view.state.find_matches.len();
-        let current = if total > 0 { view.state.find_match_index + 1 } else { 0 };
+        let current = if total > 0 {
+            view.state.find_match_index + 1
+        } else {
+            0
+        };
         let match_label = if view.state.find_query.is_empty() {
             "No results".to_string()
         } else if total == 0 {
@@ -546,18 +657,21 @@ impl Widget<EditorState> for FindReplaceBar {
                 placeholder: Some("Find".into()),
                 on_change: Some(update_find),
                 ..Default::default()
-            }.into_node(),
+            }
+            .into_node(),
         )
         .flex_grow(1.0)
         .into_node();
 
         let replace_input = Container::new(
             TextInput {
+                id: Some(fission_ir::NodeId::explicit("replace_input")),
                 value: view.state.replace_query.clone(),
                 placeholder: Some("Replace".into()),
                 on_change: Some(update_replace),
                 ..Default::default()
-            }.into_node(),
+            }
+            .into_node(),
         )
         .flex_grow(1.0)
         .into_node();
@@ -571,51 +685,81 @@ impl Widget<EditorState> for FindReplaceBar {
 
         let btn_prev = Button {
             variant: ButtonVariant::Ghost,
-            child: Some(Box::new(Icon::svg(material::navigation::chevron_left::round()).size(18.0).color(BRIGHT_TEXT).into_node())),
+            child: Some(Box::new(
+                Icon::svg(material::navigation::chevron_left::round())
+                    .size(18.0)
+                    .color(BRIGHT_TEXT)
+                    .into_node(),
+            )),
             on_press: Some(find_prev),
             height: Some(24.0),
             width: Some(24.0),
             padding: Some([0.0; 4]),
             ..Default::default()
-        }.into_node();
+        }
+        .into_node();
 
         let btn_next = Button {
             variant: ButtonVariant::Ghost,
-            child: Some(Box::new(Icon::svg(material::navigation::chevron_right::round()).size(18.0).color(BRIGHT_TEXT).into_node())),
+            child: Some(Box::new(
+                Icon::svg(material::navigation::chevron_right::round())
+                    .size(18.0)
+                    .color(BRIGHT_TEXT)
+                    .into_node(),
+            )),
             on_press: Some(find_next),
             height: Some(24.0),
             width: Some(24.0),
             padding: Some([0.0; 4]),
             ..Default::default()
-        }.into_node();
+        }
+        .into_node();
 
         let btn_replace = Button {
             variant: ButtonVariant::Ghost,
-            child: Some(Box::new(Text::new("Replace").size(11.0).color(BRIGHT_TEXT).into_node())),
+            child: Some(Box::new(
+                Text::new("Replace")
+                    .size(11.0)
+                    .color(BRIGHT_TEXT)
+                    .into_node(),
+            )),
             on_press: Some(replace_one),
             height: Some(24.0),
             padding: Some([0.0, 6.0, 0.0, 6.0]),
             ..Default::default()
-        }.into_node();
+        }
+        .into_node();
 
         let btn_replace_all = Button {
             variant: ButtonVariant::Ghost,
-            child: Some(Box::new(Text::new("Replace All").size(11.0).color(BRIGHT_TEXT).into_node())),
+            child: Some(Box::new(
+                Text::new("Replace All")
+                    .size(11.0)
+                    .color(BRIGHT_TEXT)
+                    .into_node(),
+            )),
             on_press: Some(replace_all_action),
             height: Some(24.0),
             padding: Some([0.0, 6.0, 0.0, 6.0]),
             ..Default::default()
-        }.into_node();
+        }
+        .into_node();
 
         let btn_close = Button {
             variant: ButtonVariant::Ghost,
-            child: Some(Box::new(Icon::svg(material::navigation::close::round()).size(16.0).color(BRIGHT_TEXT).into_node())),
+            child: Some(Box::new(
+                Icon::svg(material::navigation::close::round())
+                    .size(16.0)
+                    .color(BRIGHT_TEXT)
+                    .into_node(),
+            )),
             on_press: Some(close_find),
             height: Some(24.0),
             width: Some(24.0),
             padding: Some([0.0; 4]),
             ..Default::default()
-        }.into_node();
+        }
+        .into_node();
 
         Container::new(
             Row {
@@ -626,7 +770,8 @@ impl Widget<EditorState> for FindReplaceBar {
                             align_items: fission_ir::op::AlignItems::Center,
                             flex_grow: 1.0,
                             ..Default::default()
-                        }.into_node(),
+                        }
+                        .into_node(),
                     )
                     .border(FLYOUT_BORDER, 1.0)
                     .border_radius(3.0)
@@ -641,7 +786,8 @@ impl Widget<EditorState> for FindReplaceBar {
                 ],
                 align_items: fission_ir::op::AlignItems::Center,
                 ..Default::default()
-            }.into_node(),
+            }
+            .into_node(),
         )
         .height(32.0)
         .bg(FIND_BAR_BG)
@@ -659,7 +805,11 @@ impl Widget<EditorState> for Breadcrumb {
     fn build(&self, _ctx: &mut BuildCtx<EditorState>, view: &View<EditorState>) -> Node {
         // Only shown when a file is open
         if view.state.open_tabs.is_empty() || view.state.breadcrumb_path.is_empty() {
-            return Spacer { height: Some(0.0), ..Default::default() }.into_node();
+            return Spacer {
+                height: Some(0.0),
+                ..Default::default()
+            }
+            .into_node();
         }
 
         let segments = &view.state.breadcrumb_path;
@@ -667,12 +817,7 @@ impl Widget<EditorState> for Breadcrumb {
 
         for (i, seg) in segments.iter().enumerate() {
             if i > 0 {
-                children.push(
-                    Text::new(" > ")
-                        .size(11.0)
-                        .color(DIM_TEXT)
-                        .into_node(),
-                );
+                children.push(Text::new(" > ").size(11.0).color(DIM_TEXT).into_node());
             }
             children.push(
                 Text::new(seg.as_str())
@@ -687,7 +832,8 @@ impl Widget<EditorState> for Breadcrumb {
                 children,
                 align_items: fission_ir::op::AlignItems::Center,
                 ..Default::default()
-            }.into_node(),
+            }
+            .into_node(),
         )
         .height(22.0)
         .padding_all(4.0)
@@ -707,10 +853,7 @@ impl ContextMenu {
             variant: ButtonVariant::Ghost,
             content_align: ButtonContentAlign::Start,
             child: Some(Box::new(
-                Text::new(label)
-                    .size(12.0)
-                    .color(BRIGHT_TEXT)
-                    .into_node(),
+                Text::new(label).size(12.0).color(BRIGHT_TEXT).into_node(),
             )),
             on_press: Some(action),
             height: Some(26.0),
@@ -724,7 +867,11 @@ impl ContextMenu {
 impl Widget<EditorState> for ContextMenu {
     fn build(&self, ctx: &mut BuildCtx<EditorState>, view: &View<EditorState>) -> Node {
         if !view.state.context_menu_visible {
-            return Spacer { height: Some(0.0), ..Default::default() }.into_node();
+            return Spacer {
+                height: Some(0.0),
+                ..Default::default()
+            }
+            .into_node();
         }
 
         let dismiss = ctx.bind(
@@ -732,14 +879,6 @@ impl Widget<EditorState> for ContextMenu {
             (|s: &mut EditorState, _, _| {
                 s.context_menu_visible = false;
             }) as Handler<EditorState, DismissContextMenu>,
-        );
-
-        let noop = ctx.bind(
-            Noop,
-            (|s: &mut EditorState, _, _| {
-                s.context_menu_visible = false;
-                s.status_message = Some("Action (placeholder)".into());
-            }) as Handler<EditorState, Noop>,
         );
 
         let toggle_find = ctx.bind(
@@ -751,23 +890,45 @@ impl Widget<EditorState> for ContextMenu {
         );
 
         let new_file_ctx = ctx.bind(
-            Noop,
-            (|s: &mut EditorState, _, _| {
+            CreateFile(String::new()),
+            (|s: &mut EditorState, _: CreateFile, _| {
                 s.context_menu_visible = false;
-                s.status_message = Some("New File (placeholder)".into());
-            }) as Handler<EditorState, Noop>,
+                if let Some(target) = s.context_menu_target.clone() {
+                    let dir = if std::path::Path::new(&target).is_dir() {
+                        target
+                    } else {
+                        std::path::Path::new(&target)
+                            .parent()
+                            .map(|p| p.to_string_lossy().to_string())
+                            .unwrap_or_else(|| s.root_path.to_string_lossy().to_string())
+                    };
+                    s.create_file(format!("{}/untitled.rs", dir));
+                }
+                s.context_menu_target = None;
+            }) as Handler<EditorState, CreateFile>,
         );
 
         let new_folder_ctx = ctx.bind(
-            Noop,
-            (|s: &mut EditorState, _, _| {
+            CreateFolder(String::new()),
+            (|s: &mut EditorState, _: CreateFolder, _| {
                 s.context_menu_visible = false;
-                s.status_message = Some("New Folder (placeholder)".into());
-            }) as Handler<EditorState, Noop>,
+                if let Some(target) = s.context_menu_target.clone() {
+                    let dir = if std::path::Path::new(&target).is_dir() {
+                        target
+                    } else {
+                        std::path::Path::new(&target)
+                            .parent()
+                            .map(|p| p.to_string_lossy().to_string())
+                            .unwrap_or_else(|| s.root_path.to_string_lossy().to_string())
+                    };
+                    s.create_folder(format!("{}/new_folder", dir));
+                }
+                s.context_menu_target = None;
+            }) as Handler<EditorState, CreateFolder>,
         );
 
         let rename_action = ctx.bind(
-            Noop,
+            RenameContextTarget,
             (|s: &mut EditorState, _, _| {
                 s.context_menu_visible = false;
                 if let Some(target) = s.context_menu_target.clone() {
@@ -775,11 +936,11 @@ impl Widget<EditorState> for ContextMenu {
                 } else {
                     s.status_message = Some("Nothing selected to rename".into());
                 }
-            }) as Handler<EditorState, Noop>,
+            }) as Handler<EditorState, RenameContextTarget>,
         );
 
         let delete_action = ctx.bind(
-            Noop,
+            DeleteContextTarget,
             (|s: &mut EditorState, _, _| {
                 s.context_menu_visible = false;
                 if let Some(target) = s.context_menu_target.clone() {
@@ -799,7 +960,7 @@ impl Widget<EditorState> for ContextMenu {
                         }
                     }
                 }
-            }) as Handler<EditorState, Noop>,
+            }) as Handler<EditorState, DeleteContextTarget>,
         );
 
         let go_to_def = ctx.bind(
@@ -872,14 +1033,19 @@ impl Widget<EditorState> for ContextMenu {
         };
 
         let (cx, cy) = view.state.context_menu_position;
+        let viewport = view.viewport_size();
+        let card_width = (viewport.width - 80.0).clamp(160.0, 220.0);
+        let clamped_left = cx.min((viewport.width - card_width - 16.0).max(8.0));
+        let clamped_top = cy.min((viewport.height - 220.0).max(8.0));
 
         let card = Container::new(
             VStack {
                 spacing: Some(0.0),
                 children: items,
-            }.into_node(),
+            }
+            .into_node(),
         )
-        .width(180.0)
+        .width(card_width)
         .bg(FLYOUT_BG)
         .border(FLYOUT_BORDER, 1.0)
         .border_radius(4.0)
@@ -889,35 +1055,51 @@ impl Widget<EditorState> for ContextMenu {
             on_tap: Some(dismiss.clone()),
             child: Box::new(
                 Container::new(Spacer::default().into_node())
-                    .bg(Color { r: 0, g: 0, b: 0, a: 1 })
+                    .bg(Color {
+                        r: 0,
+                        g: 0,
+                        b: 0,
+                        a: 1,
+                    })
                     .flex_grow(1.0)
                     .into_node(),
             ),
             ..Default::default()
-        }.into_node();
+        }
+        .into_node();
 
         let overlay = ZStack {
             children: vec![
                 Positioned {
-                    left: Some(0.0), right: Some(0.0), top: Some(0.0), bottom: Some(0.0),
+                    left: Some(0.0),
+                    right: Some(0.0),
+                    top: Some(0.0),
+                    bottom: Some(0.0),
                     child: Some(Box::new(backdrop)),
                     ..Default::default()
-                }.into_node(),
+                }
+                .into_node(),
                 Positioned {
-                    left: Some(cx),
-                    top: Some(cy),
+                    left: Some(clamped_left),
+                    top: Some(clamped_top),
                     child: Some(Box::new(card)),
                     ..Default::default()
-                }.into_node(),
+                }
+                .into_node(),
             ],
             ..Default::default()
-        }.into_node();
+        }
+        .into_node();
 
         let positioned_root = Positioned {
-            left: Some(0.0), right: Some(0.0), top: Some(0.0), bottom: Some(0.0),
+            left: Some(0.0),
+            right: Some(0.0),
+            top: Some(0.0),
+            bottom: Some(0.0),
             child: Some(Box::new(overlay)),
             ..Default::default()
-        }.into_node();
+        }
+        .into_node();
 
         ctx.register_portal_with_layer(
             PortalLayer::Flyout,
@@ -925,7 +1107,11 @@ impl Widget<EditorState> for ContextMenu {
             positioned_root,
         );
 
-        Spacer { height: Some(0.0), ..Default::default() }.into_node()
+        Spacer {
+            height: Some(0.0),
+            ..Default::default()
+        }
+        .into_node()
     }
 }
 
@@ -935,6 +1121,12 @@ struct EditorApp;
 
 impl Widget<EditorState> for EditorApp {
     fn build(&self, ctx: &mut BuildCtx<EditorState>, view: &View<EditorState>) -> Node {
+        let viewport = view.viewport_size();
+        let sidebar_width = view
+            .state
+            .sidebar_width
+            .min((viewport.width - 160.0).clamp(180.0, 360.0));
+
         // ── Menu bar (topmost) ──
         let menu_bar = MenuBar.build(ctx, view);
 
@@ -947,18 +1139,29 @@ impl Widget<EditorState> for EditorApp {
                 SidebarSection::Explorer => ("EXPLORER", FileTree.build(ctx, view)),
                 SidebarSection::Search => ("SEARCH", SearchPanel.build(ctx, view)),
                 SidebarSection::Git => ("SOURCE CONTROL", GitPanel.build(ctx, view)),
-                SidebarSection::Extensions => ("EXTENSIONS", Container::new(
-                    Text::new("No extensions installed")
-                        .size(12.0)
-                        .color(DIM_TEXT)
-                        .into_node(),
-                ).padding_all(8.0).flex_grow(1.0).into_node()),
+                SidebarSection::Extensions => (
+                    "EXTENSIONS",
+                    Container::new(
+                        Text::new("No extensions installed")
+                            .size(12.0)
+                            .color(DIM_TEXT)
+                            .into_node(),
+                    )
+                    .padding_all(8.0)
+                    .flex_grow(1.0)
+                    .into_node(),
+                ),
             };
 
             let header = Container::new(
                 Text::new(header_text)
                     .size(11.0)
-                    .color(Color { r: 187, g: 187, b: 187, a: 255 })
+                    .color(Color {
+                        r: 187,
+                        g: 187,
+                        b: 187,
+                        a: 255,
+                    })
                     .into_node(),
             )
             .bg(SURFACE_BG)
@@ -975,12 +1178,16 @@ impl Widget<EditorState> for EditorApp {
                 }
                 .into_node(),
             )
-            .width(view.state.sidebar_width)
+            .width(sidebar_width)
             .bg(SURFACE_BG)
             .flex_shrink(0.0)
             .into_node()
         } else {
-            Spacer { width: Some(0.0), ..Default::default() }.into_node()
+            Spacer {
+                width: Some(0.0),
+                ..Default::default()
+            }
+            .into_node()
         };
 
         // 1px vertical divider between sidebar and editor
@@ -991,7 +1198,11 @@ impl Widget<EditorState> for EditorApp {
                 .flex_shrink(0.0)
                 .into_node()
         } else {
-            Spacer { width: Some(0.0), ..Default::default() }.into_node()
+            Spacer {
+                width: Some(0.0),
+                ..Default::default()
+            }
+            .into_node()
         };
 
         // ── Editor area: tabs + breadcrumb + find/replace + surface ──
@@ -1128,6 +1339,16 @@ fn main() -> anyhow::Result<()> {
                     }
                 }
 
+                if state.terminal_visible && state.bottom_panel_tab == BottomPanelTab::Terminal {
+                    state.ensure_terminal_session();
+                }
+
+                if state.terminal_visible && state.bottom_panel_tab == BottomPanelTab::Terminal {
+                    if let Some(session) = state.terminal_session.as_ref() {
+                        changed |= session.take_dirty();
+                    }
+                }
+
                 // Skip LSP entirely in test mode
                 if is_test_mode {
                     return changed;
@@ -1167,143 +1388,184 @@ fn main() -> anyhow::Result<()> {
                 changed
             }
         })
-        .with_key_handler(move |state: &mut EditorState, key: &fission_core::KeyCode, mods: u8| -> bool {
-            // Initialize root path on first call
-            if state.root_path == PathBuf::from(".") {
-                state.root_path = root_for_sync.clone();
-            }
-
-            // Tree scanning and external-change checking are handled
-            // asynchronously in the frame hook -- no I/O in the key handler.
-
-            let ctrl = (mods & 4) != 0 || (mods & 8) != 0; // Ctrl or Cmd
-            let shift = (mods & 1) != 0;
-
-            // Dismiss context menu on any keystroke (except Escape which handles it explicitly)
-            if !matches!(key, fission_core::KeyCode::Escape) {
-                state.context_menu_visible = false;
-            }
-
-            // Enter confirms rename if one is in progress
-            if matches!(key, fission_core::KeyCode::Enter) && !ctrl {
-                if state.renaming_path.is_some() {
-                    state.confirm_rename();
-                    return true;
+        .with_key_handler(
+            move |state: &mut EditorState, key: &fission_core::KeyCode, mods: u8| -> bool {
+                // Initialize root path on first call
+                if state.root_path == PathBuf::from(".") {
+                    state.root_path = root_for_sync.clone();
                 }
-                if state.terminal_visible && !state.terminal_input.is_empty() {
-                    state.run_terminal_command();
-                    return true;
-                }
-                return false;
-            }
 
-            // Escape dismisses menus / context menus / find bar / command palette / rename
-            if matches!(key, fission_core::KeyCode::Escape) {
-                let mut handled = false;
-                if state.renaming_path.is_some() {
-                    state.cancel_rename();
-                    handled = true;
-                }
-                if state.active_menu.is_some() {
-                    state.active_menu = None;
-                    handled = true;
-                }
-                if state.context_menu_visible {
+                // Tree scanning and external-change checking are handled
+                // asynchronously in the frame hook -- no I/O in the key handler.
+
+                let ctrl = (mods & 2) != 0 || (mods & 8) != 0; // Ctrl or Cmd
+                let shift = (mods & 1) != 0;
+
+                // Dismiss context menu on any keystroke (except Escape which handles it explicitly)
+                if !matches!(key, fission_core::KeyCode::Escape) {
                     state.context_menu_visible = false;
-                    handled = true;
                 }
-                if state.show_find_replace {
-                    state.show_find_replace = false;
-                    handled = true;
-                }
-                if state.show_command_palette {
-                    state.show_command_palette = false;
-                    state.command_query.clear();
-                    handled = true;
-                }
-                return handled;
-            }
 
-            if !ctrl { return false; }
+                // Enter confirms rename if one is in progress
+                if matches!(key, fission_core::KeyCode::Enter) && !ctrl {
+                    if state.renaming_path.is_some() {
+                        state.confirm_rename();
+                        return true;
+                    }
+                    return false;
+                }
 
-            match key {
-                fission_core::KeyCode::Char('s') | fission_core::KeyCode::Char('S') => {
-                    if shift {
-                        state.save_all_files();
-                    } else {
-                        state.save_active_file();
+                if state.renaming_path.is_some() && !ctrl {
+                    let should_replace_rename_text = state
+                        .renaming_path
+                        .as_ref()
+                        .and_then(|path| std::path::Path::new(path).file_name())
+                        .and_then(|value| value.to_str())
+                        .map(|name| state.rename_input == name)
+                        .unwrap_or(false);
+                    match key {
+                        fission_core::KeyCode::Backspace => {
+                            if should_replace_rename_text {
+                                state.rename_input.clear();
+                            } else {
+                                state.rename_input.pop();
+                            }
+                            return true;
+                        }
+                        fission_core::KeyCode::Space => {
+                            if should_replace_rename_text {
+                                state.rename_input.clear();
+                            }
+                            state.rename_input.push(' ');
+                            return true;
+                        }
+                        fission_core::KeyCode::Char(ch) => {
+                            if should_replace_rename_text {
+                                state.rename_input.clear();
+                            }
+                            state.rename_input.push(*ch);
+                            return true;
+                        }
+                        _ => {}
                     }
-                    true
                 }
-                fission_core::KeyCode::Char('p') | fission_core::KeyCode::Char('P') if shift => {
-                    state.show_command_palette = !state.show_command_palette;
-                    if !state.show_command_palette {
-                        state.command_query.clear();
+
+                // Escape dismisses menus / context menus / find bar / command palette / rename
+                if matches!(key, fission_core::KeyCode::Escape) {
+                    let mut handled = false;
+                    if state.renaming_path.is_some() {
+                        state.cancel_rename();
+                        handled = true;
                     }
-                    true
-                }
-                fission_core::KeyCode::Char('b') | fission_core::KeyCode::Char('B') => {
-                    state.sidebar_visible = !state.sidebar_visible;
-                    true
-                }
-                fission_core::KeyCode::Char('`') => {
-                    state.terminal_visible = !state.terminal_visible;
-                    true
-                }
-                // Ctrl+F: toggle find/replace
-                fission_core::KeyCode::Char('f') | fission_core::KeyCode::Char('F') => {
-                    state.context_menu_visible = false;
-                    state.show_find_replace = !state.show_find_replace;
-                    true
-                }
-                // Ctrl+G: go to line (toggle command palette with prompt)
-                fission_core::KeyCode::Char('g') | fission_core::KeyCode::Char('G') => {
-                    state.show_command_palette = !state.show_command_palette;
+                    if state.active_menu.is_some() {
+                        state.active_menu = None;
+                        handled = true;
+                    }
+                    if state.context_menu_visible {
+                        state.context_menu_visible = false;
+                        handled = true;
+                    }
+                    if state.show_find_replace {
+                        state.show_find_replace = false;
+                        handled = true;
+                    }
                     if state.show_command_palette {
-                        state.command_query = "Go to Line:".into();
-                    } else {
+                        state.show_command_palette = false;
                         state.command_query.clear();
+                        handled = true;
                     }
-                    true
+                    return handled;
                 }
-                // Ctrl+W: close active tab
-                fission_core::KeyCode::Char('w') | fission_core::KeyCode::Char('W') => {
-                    let idx = state.active_tab;
-                    state.close_tab(idx);
-                    true
+
+                if !ctrl {
+                    return false;
                 }
-                // Ctrl+Z: undo, Ctrl+Shift+Z: redo
-                fission_core::KeyCode::Char('z') | fission_core::KeyCode::Char('Z') => {
-                    if shift {
+
+                match key {
+                    fission_core::KeyCode::Char('s') | fission_core::KeyCode::Char('S') => {
+                        if shift {
+                            state.save_all_files();
+                        } else {
+                            state.save_active_file();
+                        }
+                        true
+                    }
+                    fission_core::KeyCode::Char('p') | fission_core::KeyCode::Char('P')
+                        if shift =>
+                    {
+                        state.show_command_palette = !state.show_command_palette;
+                        if !state.show_command_palette {
+                            state.command_query.clear();
+                        }
+                        true
+                    }
+                    fission_core::KeyCode::Char('b') | fission_core::KeyCode::Char('B') => {
+                        state.sidebar_visible = !state.sidebar_visible;
+                        true
+                    }
+                    fission_core::KeyCode::Char('`') => {
+                        state.terminal_visible = !state.terminal_visible;
+                        if state.terminal_visible {
+                            state.bottom_panel_tab = BottomPanelTab::Terminal;
+                            state.ensure_terminal_session();
+                        }
+                        true
+                    }
+                    // Ctrl+F: toggle find/replace
+                    fission_core::KeyCode::Char('f') | fission_core::KeyCode::Char('F') => {
+                        state.context_menu_visible = false;
+                        state.show_find_replace = !state.show_find_replace;
+                        true
+                    }
+                    // Ctrl+G: go to line (toggle command palette with prompt)
+                    fission_core::KeyCode::Char('g') | fission_core::KeyCode::Char('G') => {
+                        state.show_command_palette = !state.show_command_palette;
+                        if state.show_command_palette {
+                            state.command_query = "Go to Line:".into();
+                        } else {
+                            state.command_query.clear();
+                        }
+                        true
+                    }
+                    // Ctrl+W: close active tab
+                    fission_core::KeyCode::Char('w') | fission_core::KeyCode::Char('W') => {
+                        let idx = state.active_tab;
+                        state.close_tab(idx);
+                        true
+                    }
+                    // Ctrl+Z: undo, Ctrl+Shift+Z: redo
+                    fission_core::KeyCode::Char('z') | fission_core::KeyCode::Char('Z') => {
+                        if shift {
+                            state.redo_active();
+                        } else {
+                            state.undo_active();
+                        }
+                        true
+                    }
+                    // Ctrl+Y: redo (alternative)
+                    fission_core::KeyCode::Char('y') | fission_core::KeyCode::Char('Y') => {
                         state.redo_active();
-                    } else {
-                        state.undo_active();
+                        true
                     }
-                    true
+                    // Ctrl+C: copy current line
+                    fission_core::KeyCode::Char('c') | fission_core::KeyCode::Char('C') => {
+                        state.copy_line();
+                        true
+                    }
+                    // Ctrl+X: cut current line
+                    fission_core::KeyCode::Char('x') | fission_core::KeyCode::Char('X') => {
+                        state.cut_line();
+                        true
+                    }
+                    // Ctrl+V: paste clipboard
+                    fission_core::KeyCode::Char('v') | fission_core::KeyCode::Char('V') => {
+                        state.paste();
+                        true
+                    }
+                    _ => false,
                 }
-                // Ctrl+Y: redo (alternative)
-                fission_core::KeyCode::Char('y') | fission_core::KeyCode::Char('Y') => {
-                    state.redo_active();
-                    true
-                }
-                // Ctrl+C: copy current line
-                fission_core::KeyCode::Char('c') | fission_core::KeyCode::Char('C') => {
-                    state.copy_line();
-                    true
-                }
-                // Ctrl+X: cut current line
-                fission_core::KeyCode::Char('x') | fission_core::KeyCode::Char('X') => {
-                    state.cut_line();
-                    true
-                }
-                // Ctrl+V: paste clipboard
-                fission_core::KeyCode::Char('v') | fission_core::KeyCode::Char('V') => {
-                    state.paste();
-                    true
-                }
-                _ => false,
-            }
-        });
+            },
+        );
 
     app.run()
 }

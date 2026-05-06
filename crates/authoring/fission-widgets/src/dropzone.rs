@@ -1,5 +1,5 @@
 use fission_core::ui::widgets::GestureDetector;
-use fission_core::ui::{Container, Node};
+use fission_core::ui::Node;
 use fission_core::{ActionEnvelope, BuildCtx, View, Widget};
 use serde::{Deserialize, Serialize};
 

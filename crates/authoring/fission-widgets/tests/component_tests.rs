@@ -1,10 +1,10 @@
 use fission_core::env::Env;
 use fission_core::ui::{Node, Text};
 use fission_core::{AppState, BuildCtx, View, Widget, WidgetNodeId};
-use fission_widgets::{MenuButton, MenuItem, Popover, Toast, ToastKind, Tooltip};
-use std::sync::Arc;
+use fission_widgets::{MenuButton, MenuItem, Popover, Toast, ToastKind};
 
 #[derive(Default, Clone, Debug)]
+#[allow(dead_code)]
 struct State {
     menu_open: bool,
     toast_visible: bool,

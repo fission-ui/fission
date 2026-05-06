@@ -12,7 +12,9 @@ struct State {
 }
 impl AppState for State {}
 
-#[derive(fission_macros::Action, serde::Serialize, serde::Deserialize, Debug, Clone, PartialEq, Eq)]
+#[derive(
+    fission_macros::Action, serde::Serialize, serde::Deserialize, Debug, Clone, PartialEq, Eq,
+)]
 struct Dismiss;
 
 #[test]
@@ -73,7 +75,10 @@ fn clicking_text_input_inside_modal_sets_focus() -> Result<()> {
         .unwrap()
         .get_node_rect(subject_id)
         .expect("subject TextInput rect");
-    let center = fission_core::LayoutPoint::new(rect.x() + rect.width() / 2.0, rect.y() + rect.height() / 2.0);
+    let center = fission_core::LayoutPoint::new(
+        rect.x() + rect.width() / 2.0,
+        rect.y() + rect.height() / 2.0,
+    );
 
     h.send_event(fission_core::InputEvent::Pointer(PointerEvent::Down {
         point: center,
@@ -89,4 +94,3 @@ fn clicking_text_input_inside_modal_sets_focus() -> Result<()> {
 
     Ok(())
 }
-

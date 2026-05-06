@@ -1,4 +1,4 @@
-use fission_ir::{LayoutOp, NodeId, Op, PaintOp, StructuralOp};
+use fission_ir::{NodeId, Op, StructuralOp};
 use serde_json;
 
 #[test]

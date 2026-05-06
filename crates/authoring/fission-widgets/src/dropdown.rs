@@ -1,6 +1,6 @@
 use crate::stack::HStack;
 use crate::Icon;
-use fission_core::action::{Action, ActionEnvelope, AppState};
+use fission_core::action::{ActionEnvelope, AppState};
 use fission_core::ui::{Button, ButtonContentAlign, Text, TextContent};
 use fission_core::{BuildCtx, Node, View, Widget};
 use fission_icons::material;

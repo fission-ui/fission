@@ -1,7 +1,7 @@
-use crate::lowering::{LoweringContext, NodeBuilder, wrap_zstack_child};
+use crate::lowering::{wrap_zstack_child, LoweringContext, NodeBuilder};
 use crate::ui::traits::Lower;
 use crate::ui::Node;
-use fission_ir::{NodeId, Op, Semantics, semantics::Role};
+use fission_ir::{semantics::Role, NodeId, Op, Semantics};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -30,14 +30,14 @@ impl FocusScope {
 impl Lower for FocusScope {
     fn lower(&self, cx: &mut LoweringContext) -> NodeId {
         let id = self.id.unwrap_or_else(|| cx.next_node_id());
-        
+
         cx.push_scope(id);
         let mut child_ids = Vec::new();
         for child in &self.children {
             child_ids.push(child.lower(cx));
         }
         cx.pop_scope();
-        
+
         // Wrap children in a ZStack layout node
         let layout_id = cx.next_node_id();
         cx.push_scope(layout_id);
@@ -47,7 +47,8 @@ impl Lower for FocusScope {
         }
         cx.pop_scope();
 
-        let mut layout_builder = NodeBuilder::new(layout_id, Op::Layout(fission_ir::LayoutOp::ZStack));
+        let mut layout_builder =
+            NodeBuilder::new(layout_id, Op::Layout(fission_ir::LayoutOp::ZStack));
         for cid in wrapped_children {
             layout_builder.add_child(cid);
         }
@@ -75,7 +76,9 @@ impl Lower for FocusScope {
             is_focus_barrier: self.is_barrier,
             drag_payload: None,
             hero_tag: None,
-            focus_index: None, capture_tab: false, auto_indent: false,
+            focus_index: None,
+            capture_tab: false,
+            auto_indent: false,
         };
 
         let mut node = NodeBuilder::new(id, Op::Semantics(semantics));

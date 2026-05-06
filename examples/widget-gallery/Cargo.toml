@@ -21,3 +21,4 @@ fission-test = { path = "../../crates/tools/fission-test" }
 fission-test-driver = { path = "../../crates/tools/fission-test-driver" }
 fission-render = { path = "../../crates/rendering/fission-render" }
 fission-layout = { path = "../../crates/core/fission-layout" }
+image = "0.25"

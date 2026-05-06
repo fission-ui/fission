@@ -1,5 +1,5 @@
-use crate::{AppState, BuildCtx, BoxConstraints, Node, NodeId, View, Widget, WidgetNodeId};
 use crate::ui::Container;
+use crate::{AppState, BoxConstraints, BuildCtx, Node, NodeId, View, Widget, WidgetNodeId};
 use std::sync::Arc;
 
 /// A closure-based widget that builds a [`Node`] tree from a function.

@@ -1,9 +1,6 @@
-use fission_core::ui::{Container, Node};
+use fission_core::ui::Node;
 use fission_core::{BuildCtx, LowerDyn, LoweringContext, NodeBuilder, View, Widget};
-use fission_ir::{
-    op::{Color, Stroke},
-    LayoutOp, NodeId, Op, PaintOp,
-};
+use fission_ir::{op::Color, LayoutOp, NodeId, Op, PaintOp};
 use serde::{Deserialize, Serialize};
 use std::f32::consts::PI;
 
@@ -62,7 +59,9 @@ impl LowerDyn for CircularProgressLowerer {
         let id = cx.next_node_id();
 
         // Track Circle
-        let r = (self.size - self.thickness) / 2.0;
+        // Keep the stroked arc inside the widget bounds so retained texture
+        // edges do not clip the antialiased stroke into square artifacts.
+        let r = (self.size * 0.5 - (self.thickness * 0.5 + 1.0)).max(0.0);
         let cx_pt = self.size / 2.0;
         let cy_pt = self.size / 2.0;
 
@@ -84,8 +83,8 @@ impl LowerDyn for CircularProgressLowerer {
                     fill: fission_ir::op::Fill::Solid(self.track_color),
                     width: self.thickness,
                     dash_array: None,
-                    line_cap: fission_ir::op::LineCap::Butt,
-                    line_join: fission_ir::op::LineJoin::Miter,
+                    line_cap: fission_ir::op::LineCap::Round,
+                    line_join: fission_ir::op::LineJoin::Round,
                 }),
             }),
         )
@@ -132,8 +131,8 @@ impl LowerDyn for CircularProgressLowerer {
                     fill: fission_ir::op::Fill::Solid(self.color),
                     width: self.thickness,
                     dash_array: None,
-                    line_cap: fission_ir::op::LineCap::Butt,
-                    line_join: fission_ir::op::LineJoin::Miter,
+                    line_cap: fission_ir::op::LineCap::Round,
+                    line_join: fission_ir::op::LineJoin::Round,
                 }),
             }),
         )

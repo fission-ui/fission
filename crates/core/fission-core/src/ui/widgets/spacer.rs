@@ -1,7 +1,10 @@
 use crate::lowering::{LoweringContext, NodeBuilder};
 use crate::ui::traits::Lower;
 use crate::ui::Node;
-use fission_ir::{op::{LayoutOp, Op}, NodeId};
+use fission_ir::{
+    op::{LayoutOp, Op},
+    NodeId,
+};
 use serde::{Deserialize, Serialize};
 
 /// An invisible widget that occupies space.
@@ -43,7 +46,7 @@ impl Spacer {
 impl Lower for Spacer {
     fn lower(&self, cx: &mut LoweringContext) -> NodeId {
         let id = self.id.unwrap_or_else(|| cx.next_node_id());
-        
+
         NodeBuilder::new(
             id,
             Op::Layout(LayoutOp::Box {
@@ -62,5 +65,3 @@ impl Lower for Spacer {
         .build(cx)
     }
 }
-
-

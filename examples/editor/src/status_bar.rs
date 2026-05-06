@@ -1,19 +1,39 @@
 use crate::model::EditorState;
 use fission_core::op::Color;
-use fission_core::ui::{Container, Node, Text, Icon, Column};
+use fission_core::ui::{Container, Icon, Node, Text};
 use fission_core::{BuildCtx, View, Widget};
-use fission_widgets::{HStack, Spacer};
 use fission_icons::material;
+use fission_widgets::{HStack, Spacer};
 
 pub struct StatusBar;
 
 impl Widget<EditorState> for StatusBar {
-    fn build(&self, ctx: &mut BuildCtx<EditorState>, view: &View<EditorState>) -> Node {
-        let bg = Color { r: 37, g: 37, b: 38, a: 255 }; // Workspace dark gray
-        let text_color = Color { r: 255, g: 255, b: 255, a: 255 };
+    fn build(&self, _ctx: &mut BuildCtx<EditorState>, view: &View<EditorState>) -> Node {
+        let bg = Color {
+            r: 37,
+            g: 37,
+            b: 38,
+            a: 255,
+        }; // Workspace dark gray
+        let text_color = Color {
+            r: 255,
+            g: 255,
+            b: 255,
+            a: 255,
+        };
 
-        let error_color = Color { r: 255, g: 80, b: 80, a: 255 };
-        let warn_color = Color { r: 255, g: 200, b: 60, a: 255 };
+        let error_color = Color {
+            r: 255,
+            g: 80,
+            b: 80,
+            a: 255,
+        };
+        let warn_color = Color {
+            r: 255,
+            g: 200,
+            b: 60,
+            a: 255,
+        };
 
         let mut items = vec![];
 
@@ -22,22 +42,36 @@ impl Widget<EditorState> for StatusBar {
             HStack {
                 spacing: Some(4.0),
                 children: vec![
-                    Icon::svg(material::notification::account_tree::round()).size(14.0).color(text_color).into_node(),
+                    Icon::svg(material::notification::account_tree::round())
+                        .size(14.0)
+                        .color(text_color)
+                        .into_node(),
                     Text::new("main").size(12.0).color(text_color).into_node(),
                 ],
-            }.into_node()
+            }
+            .into_node(),
         );
 
         items.push(
-            Spacer { width: Some(16.0), ..Default::default() }.into_node()
+            Spacer {
+                width: Some(16.0),
+                ..Default::default()
+            }
+            .into_node(),
         );
 
         // Diagnostics summary
-        let error_count: usize = view.state.diagnostics.values()
+        let error_count: usize = view
+            .state
+            .diagnostics
+            .values()
             .flat_map(|d| d.iter())
             .filter(|d| d.severity == crate::model::DiagSeverity::Error)
             .count();
-        let warn_count: usize = view.state.diagnostics.values()
+        let warn_count: usize = view
+            .state
+            .diagnostics
+            .values()
             .flat_map(|d| d.iter())
             .filter(|d| d.severity == crate::model::DiagSeverity::Warning)
             .count();
@@ -46,39 +80,77 @@ impl Widget<EditorState> for StatusBar {
             HStack {
                 spacing: Some(4.0),
                 children: vec![
-                    Icon::svg(material::alert::error::round()).size(14.0).color(if error_count > 0 { error_color } else { text_color }).into_node(),
-                    Text::new(error_count.to_string()).size(12.0).color(text_color).into_node(),
+                    Icon::svg(material::alert::error::round())
+                        .size(14.0)
+                        .color(if error_count > 0 {
+                            error_color
+                        } else {
+                            text_color
+                        })
+                        .into_node(),
+                    Text::new(error_count.to_string())
+                        .size(12.0)
+                        .color(text_color)
+                        .into_node(),
                 ],
-            }.into_node()
+            }
+            .into_node(),
         );
         items.push(
-            Spacer { width: Some(8.0), ..Default::default() }.into_node()
+            Spacer {
+                width: Some(8.0),
+                ..Default::default()
+            }
+            .into_node(),
         );
         items.push(
             HStack {
                 spacing: Some(4.0),
                 children: vec![
-                    Icon::svg(material::alert::warning::round()).size(14.0).color(if warn_count > 0 { warn_color } else { text_color }).into_node(),
-                    Text::new(warn_count.to_string()).size(12.0).color(text_color).into_node(),
+                    Icon::svg(material::alert::warning::round())
+                        .size(14.0)
+                        .color(if warn_count > 0 {
+                            warn_color
+                        } else {
+                            text_color
+                        })
+                        .into_node(),
+                    Text::new(warn_count.to_string())
+                        .size(12.0)
+                        .color(text_color)
+                        .into_node(),
                 ],
-            }.into_node()
+            }
+            .into_node(),
         );
 
         items.push(
-            Spacer { width: Some(16.0), ..Default::default() }.into_node()
+            Spacer {
+                width: Some(16.0),
+                ..Default::default()
+            }
+            .into_node(),
         );
 
         // Active file info
-        if let Some((tab, buf)) = view.state.active_buffer() {
+        if let Some((_tab, buf)) = view.state.active_buffer() {
             items.push(
-                Text::new(format!("Ln {}, Col {}", buf.cursor_line + 1, buf.cursor_col + 1))
-                    .size(12.0)
-                    .color(text_color)
-                    .into_node(),
+                Text::new(format!(
+                    "Ln {}, Col {}",
+                    buf.cursor_line + 1,
+                    buf.cursor_col + 1
+                ))
+                .size(12.0)
+                .color(text_color)
+                .into_node(),
             );
 
             items.push(
-                Spacer { width: Some(16.0), ..Default::default() }.into_node()
+                Spacer {
+                    width: Some(16.0),
+                    ..Default::default()
+                }
+                .into_node(),
             );
 
             items.push(
@@ -89,18 +161,36 @@ impl Widget<EditorState> for StatusBar {
             );
 
             items.push(
-                Spacer { width: Some(16.0), ..Default::default() }.into_node()
+                Spacer {
+                    width: Some(16.0),
+                    ..Default::default()
+                }
+                .into_node(),
+            );
+
+            items.push(Text::new("UTF-8").size(12.0).color(text_color).into_node());
+
+            items.push(
+                Spacer {
+                    width: Some(16.0),
+                    ..Default::default()
+                }
+                .into_node(),
             );
 
             items.push(
-                Text::new("UTF-8")
+                Text::new(buf.mode_label())
                     .size(12.0)
                     .color(text_color)
                     .into_node(),
             );
 
             items.push(
-                Spacer { width: Some(16.0), ..Default::default() }.into_node()
+                Spacer {
+                    width: Some(16.0),
+                    ..Default::default()
+                }
+                .into_node(),
             );
 
             items.push(
@@ -112,7 +202,11 @@ impl Widget<EditorState> for StatusBar {
         }
 
         items.push(
-            Spacer { flex_grow: 1.0, ..Default::default() }.into_node()
+            Spacer {
+                flex_grow: 1.0,
+                ..Default::default()
+            }
+            .into_node(),
         );
 
         // Status message

@@ -1,5 +1,5 @@
 use fission_core::ui::Node;
-use fission_core::{BuildCtx, NodeId, View, Widget};
+use fission_core::{BuildCtx, View, Widget};
 use std::collections::HashMap;
 use std::sync::Arc;
 

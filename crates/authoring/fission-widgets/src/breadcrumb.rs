@@ -1,8 +1,5 @@
 use crate::Icon;
-use fission_core::op::Color;
-use fission_core::ui::{
-    Button, ButtonContentAlign, ButtonVariant, Container, Node, Row, Text, TextContent,
-};
+use fission_core::ui::{Button, ButtonContentAlign, ButtonVariant, Container, Node, Row, Text};
 use fission_core::{ActionEnvelope, BuildCtx, View, Widget};
 use fission_icons::material;
 use serde::{Deserialize, Serialize};
@@ -19,7 +16,7 @@ pub struct Breadcrumb {
 }
 
 impl<S: fission_core::AppState> Widget<S> for Breadcrumb {
-    fn build(&self, ctx: &mut BuildCtx<S>, view: &View<S>) -> Node {
+    fn build(&self, _ctx: &mut BuildCtx<S>, view: &View<S>) -> Node {
         let tokens = &view.env.theme.tokens;
         let mut children = Vec::new();
 

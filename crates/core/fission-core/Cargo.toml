@@ -12,6 +12,7 @@ fission-layout = { path = "../fission-layout", version = "0.1.1" }
 fission-semantics = { path = "../fission-semantics", version = "0.1.1" }
 fission-theme = { path = "../fission-theme", version = "0.1.1" }
 fission-i18n = { path = "../fission-i18n", version = "0.1.1" }
+fission-text-engine = { path = "../fission-text-engine", version = "0.1.0" }
 fission-macros = { path = "../../authoring/fission-macros", version = "0.1.1" }
 serde = { version = "1.0", features = ["derive", "rc"] }
 serde_json = "1.0"

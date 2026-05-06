@@ -1,8 +1,8 @@
 use crate::env::ScrollStateMap;
 use crate::ui::custom_render::downcast_render_object;
 use fission_diagnostics::prelude as diag;
-use fission_ir::{CoreIR, LayoutOp, NodeId, Op, PaintOp};
-use fission_layout::{LayoutPoint, LayoutRect, LayoutSnapshot, LayoutUnit};
+use fission_ir::{CoreIR, LayoutOp, NodeId, Op};
+use fission_layout::{LayoutPoint, LayoutSnapshot};
 use glam::{Mat4, Vec4};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -113,10 +113,8 @@ fn hit_test_recursive(
     if geom.rect.contains(point) {
         if let Some(any_ro) = ir.custom_render_objects.get(&node_id) {
             if let Some(render_obj) = downcast_render_object(any_ro) {
-                let local_point = LayoutPoint::new(
-                    point.x - geom.rect.origin.x,
-                    point.y - geom.rect.origin.y,
-                );
+                let local_point =
+                    LayoutPoint::new(point.x - geom.rect.origin.x, point.y - geom.rect.origin.y);
                 let result = render_obj.hit_test(local_point, geom.rect);
                 if result.hit {
                     return Some(node_id);
@@ -145,40 +143,11 @@ fn hit_test_recursive(
         }
     }
 
-    if current_is_hit { Some(node_id) } else { None }
-}
-
-fn is_point_in_rounded_rect(p: LayoutPoint, r: LayoutRect, radius: LayoutUnit) -> bool {
-    let local_p_x = p.x - r.x();
-    let local_p_y = p.y - r.y();
-    let (width, height) = (r.width(), r.height());
-
-    if radius <= 0.0 {
-        return true;
+    if current_is_hit {
+        Some(node_id)
+    } else {
+        None
     }
-
-    let clamped_radius = radius.min(width / 2.0).min(height / 2.0);
-
-    if local_p_x < clamped_radius && local_p_y < clamped_radius {
-        return (local_p_x - clamped_radius).powi(2) + (local_p_y - clamped_radius).powi(2)
-            <= clamped_radius.powi(2);
-    }
-    if local_p_x > width - clamped_radius && local_p_y < clamped_radius {
-        return (local_p_x - (width - clamped_radius)).powi(2) + (local_p_y - clamped_radius).powi(2)
-            <= clamped_radius.powi(2);
-    }
-    if local_p_x < clamped_radius && local_p_y > height - clamped_radius {
-        return (local_p_x - clamped_radius).powi(2)
-            + (local_p_y - (height - clamped_radius)).powi(2)
-            <= clamped_radius.powi(2);
-    }
-    if local_p_x > width - clamped_radius && local_p_y > height - clamped_radius {
-        return (local_p_x - (width - clamped_radius)).powi(2)
-            + (local_p_y - (height - clamped_radius)).powi(2)
-            <= clamped_radius.powi(2);
-    }
-
-    true
 }
 
 pub fn find_next_focus_node(ir: &CoreIR, current: Option<NodeId>, reverse: bool) -> Option<NodeId> {
@@ -256,8 +225,20 @@ pub fn get_all_focusable_nodes(ir: &CoreIR) -> Vec<NodeId> {
 
 fn sort_focusable_nodes(ir: &CoreIR, mut list: Vec<(NodeId, usize)>) -> Vec<NodeId> {
     list.sort_by(|(id_a, order_a), (id_b, order_b)| {
-        let idx_a = ir.nodes.get(id_a).and_then(|n| if let Op::Semantics(s) = &n.op { s.focus_index } else { None });
-        let idx_b = ir.nodes.get(id_b).and_then(|n| if let Op::Semantics(s) = &n.op { s.focus_index } else { None });
+        let idx_a = ir.nodes.get(id_a).and_then(|n| {
+            if let Op::Semantics(s) = &n.op {
+                s.focus_index
+            } else {
+                None
+            }
+        });
+        let idx_b = ir.nodes.get(id_b).and_then(|n| {
+            if let Op::Semantics(s) = &n.op {
+                s.focus_index
+            } else {
+                None
+            }
+        });
 
         match (idx_a, idx_b) {
             (Some(a), Some(b)) => a.cmp(&b).then(order_a.cmp(order_b)),
@@ -269,7 +250,13 @@ fn sort_focusable_nodes(ir: &CoreIR, mut list: Vec<(NodeId, usize)>) -> Vec<Node
     list.into_iter().map(|(id, _)| id).collect()
 }
 
-fn collect_focusable_nodes(node_id: NodeId, ir: &CoreIR, list: &mut Vec<(NodeId, usize)>, stop_at_barriers: bool, mut order: usize) {
+fn collect_focusable_nodes(
+    node_id: NodeId,
+    ir: &CoreIR,
+    list: &mut Vec<(NodeId, usize)>,
+    stop_at_barriers: bool,
+    mut order: usize,
+) {
     if let Some(node) = ir.nodes.get(&node_id) {
         let mut is_barrier = false;
         if let Op::Semantics(s) = &node.op {
@@ -281,19 +268,22 @@ fn collect_focusable_nodes(node_id: NodeId, ir: &CoreIR, list: &mut Vec<(NodeId,
         }
 
         if stop_at_barriers && is_barrier {
-             return; 
+            return;
         }
 
         let mut children = node.children.clone();
         // Internal sort within branches still useful for tree-order
         children.sort_by_key(|cid| {
-            ir.nodes.get(cid).and_then(|n| {
-                if let Op::Semantics(s) = &n.op {
-                    s.focus_index
-                } else {
-                    None
-                }
-            }).unwrap_or(i32::MAX)
+            ir.nodes
+                .get(cid)
+                .and_then(|n| {
+                    if let Op::Semantics(s) = &n.op {
+                        s.focus_index
+                    } else {
+                        None
+                    }
+                })
+                .unwrap_or(i32::MAX)
         });
 
         for child in children {
@@ -346,7 +336,10 @@ pub fn find_neighbor_focus_node(
             None => continue,
         };
 
-        let (nx, ny) = (rect.x() + rect.width() / 2.0, rect.y() + rect.height() / 2.0);
+        let (nx, ny) = (
+            rect.x() + rect.width() / 2.0,
+            rect.y() + rect.height() / 2.0,
+        );
 
         let is_in_dir = match direction {
             FocusDirection::Up => ny < cy && (nx - cx).abs() < (ny - cy).abs(),

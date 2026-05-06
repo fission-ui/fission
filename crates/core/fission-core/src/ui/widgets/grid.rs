@@ -109,7 +109,7 @@ impl Default for GridItem {
         Self {
             id: None,
             // Default child: empty Row
-            child: Box::new(Node::Row(crate::ui::Row::default())), 
+            child: Box::new(Node::Row(crate::ui::Row::default())),
             row_start: GridPlacement::Auto,
             row_end: GridPlacement::Auto,
             col_start: GridPlacement::Auto,
@@ -125,13 +125,13 @@ impl GridItem {
             ..Default::default()
         }
     }
-    
+
     pub fn cell(mut self, row: i16, col: i16) -> Self {
         self.row_start = GridPlacement::Line(row);
         self.col_start = GridPlacement::Line(col);
         self
     }
-    
+
     pub fn span(mut self, row_span: u16, col_span: u16) -> Self {
         self.row_end = GridPlacement::Span(row_span);
         self.col_end = GridPlacement::Span(col_span);
@@ -147,19 +147,19 @@ impl Lower for GridItem {
     fn lower(&self, cx: &mut LoweringContext) -> NodeId {
         let id = self.id.unwrap_or_else(|| cx.next_node_id());
         cx.push_scope(id);
-        
+
         let child_id = self.child.lower(cx);
-        
+
         cx.pop_scope();
-        
+
         let mut builder = NodeBuilder::new(
-            id, 
+            id,
             Op::Layout(LayoutOp::GridItem {
                 row_start: self.row_start,
                 row_end: self.row_end,
                 col_start: self.col_start,
                 col_end: self.col_end,
-            })
+            }),
         );
         builder.add_child(child_id);
         builder.build(cx)

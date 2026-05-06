@@ -1,6 +1,5 @@
 use fission_core::ui::widgets::GestureDetector;
 use fission_core::{ActionEnvelope, BuildCtx, Node, View, Widget};
-use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug)]
 pub struct Draggable {

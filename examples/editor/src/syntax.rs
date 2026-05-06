@@ -17,7 +17,7 @@ use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 use std::sync::Mutex;
 
-use tree_sitter::{Node as TsNode, Parser, Tree};
+use tree_sitter::{Node as TsNode, Parser};
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -33,17 +33,60 @@ pub struct StyledSpan {
 // Colour palette (VS Code Dark+ inspired)
 // ---------------------------------------------------------------------------
 
-const KEYWORD: Color = Color { r: 86, g: 156, b: 214, a: 255 };     // blue
-const STRING_LIT: Color = Color { r: 206, g: 145, b: 120, a: 255 };  // brown/orange
-const COMMENT: Color = Color { r: 106, g: 153, b: 85, a: 255 };      // green
-const NUMBER: Color = Color { r: 181, g: 206, b: 168, a: 255 };      // light green
-const TYPE_COLOR: Color = Color { r: 78, g: 201, b: 176, a: 255 };   // teal
-const MACRO_COLOR: Color = Color { r: 220, g: 220, b: 170, a: 255 }; // yellow
-const PUNCT: Color = Color { r: 212, g: 212, b: 212, a: 255 };       // white/gray
-const IDENT: Color = Color { r: 156, g: 220, b: 254, a: 255 };       // light blue
-const DEFAULT: Color = Color { r: 212, g: 212, b: 212, a: 255 };
-const ATTRIBUTE_COLOR: Color = Color { r: 156, g: 220, b: 254, a: 255 }; // light blue
-const LIFETIME_COLOR: Color = Color { r: 86, g: 156, b: 214, a: 255 };   // blue
+const KEYWORD: Color = Color {
+    r: 86,
+    g: 156,
+    b: 214,
+    a: 255,
+}; // blue
+const STRING_LIT: Color = Color {
+    r: 206,
+    g: 145,
+    b: 120,
+    a: 255,
+}; // brown/orange
+const COMMENT: Color = Color {
+    r: 106,
+    g: 153,
+    b: 85,
+    a: 255,
+}; // green
+const NUMBER: Color = Color {
+    r: 181,
+    g: 206,
+    b: 168,
+    a: 255,
+}; // light green
+const TYPE_COLOR: Color = Color {
+    r: 78,
+    g: 201,
+    b: 176,
+    a: 255,
+}; // teal
+const MACRO_COLOR: Color = Color {
+    r: 220,
+    g: 220,
+    b: 170,
+    a: 255,
+}; // yellow
+const DEFAULT: Color = Color {
+    r: 212,
+    g: 212,
+    b: 212,
+    a: 255,
+};
+const ATTRIBUTE_COLOR: Color = Color {
+    r: 156,
+    g: 220,
+    b: 254,
+    a: 255,
+}; // light blue
+const LIFETIME_COLOR: Color = Color {
+    r: 86,
+    g: 156,
+    b: 214,
+    a: 255,
+}; // blue
 
 // ---------------------------------------------------------------------------
 // Cached parsers (one per language)
@@ -80,14 +123,17 @@ const SLOW_THRESHOLD: std::time::Duration = std::time::Duration::from_millis(50)
 /// Tokenize a single line.  Provided for backward-compatibility with call
 /// sites that highlight line-by-line.  Internally delegates to
 /// [`highlight_document`] on a single-line document.
+#[cfg_attr(not(test), allow(dead_code))]
 pub fn highlight_line(line: &str, language: Language) -> Vec<StyledSpan> {
     match language {
         Language::Rust => {
             let doc = highlight_document(line, language);
-            doc.into_iter().next().unwrap_or_else(|| vec![StyledSpan {
-                text: line.to_string(),
-                color: DEFAULT,
-            }])
+            doc.into_iter().next().unwrap_or_else(|| {
+                vec![StyledSpan {
+                    text: line.to_string(),
+                    color: DEFAULT,
+                }]
+            })
         }
         Language::Toml => highlight_toml_line(line),
         _ => vec![StyledSpan {
@@ -182,7 +228,7 @@ fn highlight_rust_document(content: &str) -> Vec<Vec<StyledSpan>> {
     let lines: Vec<&str> = content.lines().collect();
     // Handle trailing newline: if content ends with '\n' there is an implicit
     // empty final line that `lines()` drops.
-    let line_count = if content.ends_with('\n') {
+    let _line_count = if content.ends_with('\n') {
         lines.len() + 1
     } else {
         lines.len().max(1)
@@ -216,7 +262,15 @@ fn highlight_rust_document(content: &str) -> Vec<Vec<StyledSpan>> {
 
     // Apply colored ranges to lines, splitting spans as needed
     for &(start_row, start_col, end_row, end_col, color) in &colored_ranges {
-        apply_color_to_range(&mut result, &lines, start_row, start_col, end_row, end_col, color);
+        apply_color_to_range(
+            &mut result,
+            &lines,
+            start_row,
+            start_col,
+            end_row,
+            end_col,
+            color,
+        );
     }
 
     result
@@ -279,7 +333,7 @@ fn is_leaf_colored(kind: &str) -> bool {
 
 /// Map a tree-sitter node kind to a colour.  Returns `None` if the node
 /// should inherit the default colour or be handled by its children.
-fn node_color(node: TsNode, source: &str) -> Option<Color> {
+fn node_color(node: TsNode, _source: &str) -> Option<Color> {
     match node.kind() {
         // Comments
         "line_comment" | "block_comment" => Some(COMMENT),
@@ -297,10 +351,10 @@ fn node_color(node: TsNode, source: &str) -> Option<Color> {
 
         // Rust keywords (leaf nodes whose text is the keyword itself)
         "fn" | "let" | "mut" | "pub" | "use" | "mod" | "struct" | "enum" | "impl" | "trait"
-        | "for" | "while" | "loop" | "if" | "else" | "match" | "return" | "break"
-        | "continue" | "const" | "static" | "type" | "where" | "as" | "in" | "ref" | "self"
-        | "Self" | "super" | "crate" | "async" | "await" | "dyn" | "move" | "unsafe"
-        | "extern" | "yield" => Some(KEYWORD),
+        | "for" | "while" | "loop" | "if" | "else" | "match" | "return" | "break" | "continue"
+        | "const" | "static" | "type" | "where" | "as" | "in" | "ref" | "self" | "Self"
+        | "super" | "crate" | "async" | "await" | "dyn" | "move" | "unsafe" | "extern"
+        | "yield" => Some(KEYWORD),
 
         // Identifier-like nodes that tree-sitter may emit as keywords
         "mutable_specifier" => Some(KEYWORD), // `mut`
@@ -545,7 +599,9 @@ mod tests {
     fn rust_string_highlighted() {
         let spans = highlight_line("let x = \"hello\";", Language::Rust);
         assert!(
-            spans.iter().any(|s| s.text.contains("hello") && s.color == STRING_LIT),
+            spans
+                .iter()
+                .any(|s| s.text.contains("hello") && s.color == STRING_LIT),
             "expected string literal span, got: {:?}",
             spans
         );

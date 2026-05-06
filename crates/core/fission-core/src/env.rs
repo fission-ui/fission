@@ -1,7 +1,8 @@
-use crate::{action::AppState, registry::AnimationPropertyId};
+use crate::{action::AppState, registry::{AnimationPropertyId, EasingFunction}};
 use fission_i18n::{I18nRegistry, Locale};
 use fission_ir::{NodeId, WidgetNodeId};
 use fission_layout::{LayoutPoint, LayoutSize};
+use fission_text_engine::{EditTransaction, TextBuffer, TextEdit};
 use fission_theme::Theme;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -81,7 +82,6 @@ pub struct RuntimeState {
     pub web: WebStateMap,
     pub animation: AnimationStateMap,
     pub interaction: InteractionStateMap,
-    pub ime_preedit: Option<(NodeId, String)>,
     pub text_edit: TextEditStateMap,
     pub clipboard: String,
     pub caret_visible: HashMap<NodeId, bool>,
@@ -120,6 +120,8 @@ pub struct ActiveAnimation {
     pub start_time: u64,
     pub duration: u64,
     pub repeat: bool,
+    pub frame_interval_ms: Option<u64>,
+    pub easing: EasingFunction,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -144,10 +146,11 @@ pub struct TextEditStateMap {
 
 #[derive(Clone, Debug)]
 pub struct TextEditState {
-    pub caret: usize,             // byte index into value
-    pub anchor: usize,            // selection anchor; if equal to caret then no selection
-    pub history: TextEditHistory, // NEW
-    pub last_value: String,       // Store last committed value here for history snapshots
+    pub buffer: TextBuffer,
+    pub caret: usize,  // byte index into value
+    pub anchor: usize, // selection anchor; if equal to caret then no selection
+    pub history: TextEditHistory,
+    pub preedit: Option<TextPreeditState>,
     pub pending_model_sync: bool, // True when edits are newer than the currently lowered semantics value
     /// Last cursor position that was dispatched as a CursorChanged action.
     /// Used to deduplicate dispatches and prevent unnecessary model updates
@@ -158,10 +161,11 @@ pub struct TextEditState {
 impl Default for TextEditState {
     fn default() -> Self {
         Self {
+            buffer: TextBuffer::new(),
             caret: 0,
             anchor: 0,
             history: TextEditHistory::default(),
-            last_value: String::new(),
+            preedit: None,
             pending_model_sync: false,
             last_dispatched_cursor: None,
         }
@@ -169,62 +173,69 @@ impl Default for TextEditState {
 }
 
 #[derive(Clone, Debug)]
+pub struct TextPreeditState {
+    pub text: String,
+    pub range: (usize, usize),
+}
+
+#[derive(Clone, Debug)]
+pub struct TextHistoryEntry {
+    pub transaction: EditTransaction,
+    pub before_caret: usize,
+    pub before_anchor: usize,
+    pub after_caret: usize,
+    pub after_anchor: usize,
+}
+
+#[derive(Clone, Debug)]
 pub struct TextEditHistory {
-    pub stack: Vec<(String, usize, usize)>,
-    pub index: usize,
+    pub undo_stack: Vec<TextHistoryEntry>,
+    pub redo_stack: Vec<TextHistoryEntry>,
     pub capacity: usize, // Max undo steps
 }
 
 impl Default for TextEditHistory {
     fn default() -> Self {
         Self {
-            stack: vec![("".to_string(), 0, 0)],
-            index: 0,
+            undo_stack: Vec::new(),
+            redo_stack: Vec::new(),
             capacity: 100,
         }
     }
 }
 
 impl TextEditHistory {
-    pub fn push(&mut self, value: String, caret: usize, anchor: usize) {
-        // Don't push if state is identical to current top of stack
-        if let Some((last_val, last_caret, last_anchor)) = self.stack.get(self.index) {
-            if last_val == &value && last_caret == &caret && last_anchor == &anchor {
-                return;
-            }
+    pub fn record(&mut self, entry: TextHistoryEntry) {
+        self.undo_stack.push(entry);
+        if self.undo_stack.len() > self.capacity {
+            let overflow = self.undo_stack.len() - self.capacity;
+            self.undo_stack.drain(0..overflow);
         }
-
-        // Clear redo history
-        self.stack.truncate(self.index + 1);
-
-        // Add new state
-        self.stack.push((value, caret, anchor));
-        self.index = self.stack.len() - 1;
-
-        // Enforce capacity
-        if self.stack.len() > self.capacity {
-            let overflow = self.stack.len() - self.capacity;
-            self.stack.drain(0..overflow);
-            self.index = self.stack.len() - 1;
-        }
+        self.redo_stack.clear();
     }
 
-    pub fn undo(&mut self) -> Option<&(String, usize, usize)> {
-        if self.index > 0 {
-            self.index -= 1;
-            Some(&self.stack[self.index])
-        } else {
-            None
-        }
+    pub fn undo(&mut self, buffer: &mut TextBuffer) -> Option<(usize, usize)> {
+        let entry = self.undo_stack.pop()?;
+        apply_transaction(buffer, &entry.transaction.inverse());
+        let caret = entry.before_caret;
+        let anchor = entry.before_anchor;
+        self.redo_stack.push(entry);
+        Some((caret, anchor))
     }
 
-    pub fn redo(&mut self) -> Option<&(String, usize, usize)> {
-        if self.index < self.stack.len() - 1 {
-            self.index += 1;
-            Some(&self.stack[self.index])
-        } else {
-            None
-        }
+    pub fn redo(&mut self, buffer: &mut TextBuffer) -> Option<(usize, usize)> {
+        let entry = self.redo_stack.pop()?;
+        apply_transaction(buffer, &entry.transaction);
+        let caret = entry.after_caret;
+        let anchor = entry.after_anchor;
+        self.undo_stack.push(entry);
+        Some((caret, anchor))
+    }
+}
+
+fn apply_transaction(buffer: &mut TextBuffer, transaction: &EditTransaction) {
+    for edit in &transaction.edits {
+        buffer.replace(edit.range.clone(), &edit.new_text);
     }
 }
 
@@ -240,6 +251,116 @@ impl TextEditStateMap {
         st.caret = caret;
         st.anchor = anchor.unwrap_or(caret);
         st.pending_model_sync = false;
+    }
+}
+
+impl TextEditState {
+    pub fn committed_text(&self) -> String {
+        self.buffer.to_string()
+    }
+
+    pub fn sync_from_model(&mut self, semantic_value: &str) {
+        if self.pending_model_sync && self.buffer.to_string() == semantic_value {
+            self.pending_model_sync = false;
+        }
+
+        if !self.pending_model_sync && self.buffer.to_string() != semantic_value {
+            self.buffer = TextBuffer::from_str(semantic_value);
+            self.caret = self.caret.min(semantic_value.len());
+            self.anchor = self.anchor.min(semantic_value.len());
+            self.preedit = None;
+            self.history = TextEditHistory::default();
+        }
+    }
+
+    pub fn selection_range(&self) -> (usize, usize) {
+        if self.caret <= self.anchor {
+            (self.caret, self.anchor)
+        } else {
+            (self.anchor, self.caret)
+        }
+    }
+
+    pub fn clear_preedit(&mut self) {
+        self.preedit = None;
+    }
+
+    pub fn set_preedit(&mut self, text: String) {
+        if text.is_empty() {
+            self.preedit = None;
+            return;
+        }
+
+        if let Some(preedit) = &mut self.preedit {
+            preedit.text = text;
+            return;
+        }
+
+        self.preedit = Some(TextPreeditState {
+            text,
+            range: self.selection_range(),
+        });
+    }
+
+    pub fn display_text(&self) -> (String, Option<(usize, usize)>) {
+        let committed = self.buffer.to_string();
+        let Some(preedit) = &self.preedit else {
+            return (committed, None);
+        };
+
+        let start = preedit.range.0.min(committed.len());
+        let end = preedit.range.1.min(committed.len());
+
+        let mut display = String::with_capacity(
+            committed.len() - (end.saturating_sub(start)) + preedit.text.len(),
+        );
+        display.push_str(&committed[..start]);
+        display.push_str(&preedit.text);
+        display.push_str(&committed[end..]);
+        (display, Some((start, start + preedit.text.len())))
+    }
+
+    pub fn apply_edit(
+        &mut self,
+        range: std::ops::Range<usize>,
+        new_text: &str,
+        next_caret: usize,
+        next_anchor: usize,
+    ) -> String {
+        let old_text = self.buffer.slice(range.clone()).to_string();
+        let mut txn = EditTransaction::new();
+        txn.push(TextEdit::new(range, new_text, old_text));
+        apply_transaction(&mut self.buffer, &txn);
+        self.history.record(TextHistoryEntry {
+            transaction: txn,
+            before_caret: self.caret,
+            before_anchor: self.anchor,
+            after_caret: next_caret,
+            after_anchor: next_anchor,
+        });
+        self.caret = next_caret;
+        self.anchor = next_anchor;
+        self.preedit = None;
+        self.pending_model_sync = true;
+        self.buffer.to_string()
+    }
+
+    pub fn undo(&mut self) -> Option<(String, usize, usize)> {
+        let (caret, anchor) = self.history.undo(&mut self.buffer)?;
+        self.caret = caret;
+        self.anchor = anchor;
+        self.preedit = None;
+        self.pending_model_sync = true;
+        Some((self.buffer.to_string(), caret, anchor))
+    }
+
+    pub fn redo(&mut self) -> Option<(String, usize, usize)> {
+        let (caret, anchor) = self.history.redo(&mut self.buffer)?;
+        self.caret = caret;
+        self.anchor = anchor;
+        self.preedit = None;
+        self.pending_model_sync = true;
+        Some((self.buffer.to_string(), caret, anchor))
     }
 }
 

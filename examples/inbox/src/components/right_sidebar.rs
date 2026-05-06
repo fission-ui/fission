@@ -1,11 +1,13 @@
-use fission_core::{BuildCtx, View, Widget, Handler, WidgetNodeId};
-use fission_core::ui::{Container, Node, Text, TextContent, Button, ButtonVariant, Row, Column, Switch};
-use fission_widgets::{
-    VStack, HStack, Card, Icon, Calendar, Menu, MenuItem, Stat, Stepper, Spinner, Skeleton
+use crate::model::{
+    Folder, InboxState, SetCalendarSelected, SetMeetCameraOn, SetMeetMicOn, ShowToast,
 };
-use crate::model::{InboxState, Folder, SetMeetCameraOn, SetMeetMicOn, SetCalendarSelected, ShowToast};
-use fission_icons::material;
 use chrono::{Datelike, Local};
+use fission_core::ui::{Button, ButtonVariant, Container, Node, Row, Switch, Text, TextContent};
+use fission_core::{BuildCtx, Handler, View, Widget, WidgetNodeId};
+use fission_icons::material;
+use fission_widgets::{
+    Calendar, Card, HStack, Icon, Menu, MenuItem, Skeleton, Spinner, Stepper, VStack,
+};
 use serde_json;
 
 pub struct RightSidebar;
@@ -21,14 +23,39 @@ impl Widget<InboxState> for RightSidebar {
                 .unwrap_or_else(|| key.to_string())
         };
         let today = Local::now().date_naive();
+        let compact_sidebar = view.viewport_size().height < 980.0;
+        let ultra_compact_sidebar = view.viewport_size().height < 900.0;
 
-        let meet_camera_id = ctx.bind(SetMeetCameraOn(false), (|s: &mut InboxState, a: SetMeetCameraOn, _| s.meet_camera_on = a.0) as Handler<InboxState, SetMeetCameraOn>).id;
-        let meet_mic_id = ctx.bind(SetMeetMicOn(false), (|s: &mut InboxState, a: SetMeetMicOn, _| s.meet_mic_on = a.0) as Handler<InboxState, SetMeetMicOn>).id;
-        let calendar_id = ctx.bind(SetCalendarSelected(today), (|s: &mut InboxState, a: SetCalendarSelected, _| s.calendar_selected = Some(a.0)) as Handler<InboxState, SetCalendarSelected>).id;
-        let toast_id = ctx.bind(ShowToast("".into()), (|s: &mut InboxState, a: ShowToast, _| {
-            s.toast_message = Some(a.0);
-            s.show_toast = true;
-        }) as Handler<InboxState, ShowToast>).id;
+        let meet_camera_id = ctx
+            .bind(
+                SetMeetCameraOn(false),
+                (|s: &mut InboxState, a: SetMeetCameraOn, _| s.meet_camera_on = a.0)
+                    as Handler<InboxState, SetMeetCameraOn>,
+            )
+            .id;
+        let meet_mic_id = ctx
+            .bind(
+                SetMeetMicOn(false),
+                (|s: &mut InboxState, a: SetMeetMicOn, _| s.meet_mic_on = a.0)
+                    as Handler<InboxState, SetMeetMicOn>,
+            )
+            .id;
+        let calendar_id = ctx
+            .bind(
+                SetCalendarSelected(today),
+                (|s: &mut InboxState, a: SetCalendarSelected, _| s.calendar_selected = Some(a.0))
+                    as Handler<InboxState, SetCalendarSelected>,
+            )
+            .id;
+        let toast_id = ctx
+            .bind(
+                ShowToast("".into()),
+                (|s: &mut InboxState, a: ShowToast, _| {
+                    s.toast_message = Some(a.0);
+                    s.show_toast = true;
+                }) as Handler<InboxState, ShowToast>,
+            )
+            .id;
 
         let unread_total = view
             .state
@@ -65,199 +92,433 @@ impl Widget<InboxState> for RightSidebar {
                     }),
                 },
             ],
-            width: Some(252.0),
-            max_height: Some(200.0),
-        }.build(ctx, view);
+            width: None,
+            max_height: Some(if ultra_compact_sidebar {
+                120.0
+            } else if compact_sidebar {
+                144.0
+            } else {
+                200.0
+            }),
+        }
+        .build(ctx, view);
+
+        let sidebar_spacing = if ultra_compact_sidebar {
+            10.0
+        } else if compact_sidebar {
+            12.0
+        } else {
+            16.0
+        };
+        let calendar_cell_size = if ultra_compact_sidebar {
+            26.0
+        } else if compact_sidebar {
+            30.0
+        } else {
+            32.0
+        };
+        let calendar_padding = if ultra_compact_sidebar {
+            8.0
+        } else if compact_sidebar {
+            10.0
+        } else {
+            12.0
+        };
 
         Container::new(
             fission_core::ui::Scroll {
                 direction: fission_ir::op::FlexDirection::Column,
-                show_scrollbar: false,
+                show_scrollbar: true,
                 flex_grow: 1.0,
                 flex_shrink: 1.0,
-                child: Some(Box::new(Column {
-                children: vec![
-                    Card {
-                        child: Box::new(
-                            Row {
-                                gap: Some(12.0),
-                                children: vec![
-                                    VStack {
-                                        spacing: Some(4.0),
+                child: Some(Box::new(
+                    VStack {
+                        spacing: Some(sidebar_spacing),
+                        children: vec![
+                            Card {
+                                child: Box::new(
+                                    Row {
+                                        gap: Some(12.0),
                                         children: vec![
-                                            Spinner {
-                                                id: WidgetNodeId::explicit("sync_spinner"),
-                                                color: Some(tokens.colors.primary),
-                                            }.build(ctx, view),
-                                            Skeleton {
-                                                id: WidgetNodeId::explicit("sync_skeleton"),
-                                                width: Some(20.0),
-                                                height: Some(4.0),
-                                                circle: false,
-                                            }.build(ctx, view),
+                                            VStack {
+                                                spacing: Some(4.0),
+                                                children: vec![
+                                                    Spinner {
+                                                        id: WidgetNodeId::explicit("sync_spinner"),
+                                                        color: Some(tokens.colors.primary),
+                                                        animated: true,
+                                                    }
+                                                    .build(ctx, view),
+                                                    Skeleton {
+                                                        id: WidgetNodeId::explicit("sync_skeleton"),
+                                                        width: Some(20.0),
+                                                        height: Some(4.0),
+                                                        circle: false,
+                                                        animated: true,
+                                                    }
+                                                    .build(ctx, view),
+                                                ],
+                                            }
+                                            .into_node(),
+                                            VStack {
+                                                spacing: Some(4.0),
+                                                children: vec![
+                                                    Text::new(TextContent::Key(
+                                                        "quick.syncing".into(),
+                                                    ))
+                                                    .size(14.0)
+                                                    .into_node(),
+                                                    Text::new(TextContent::Key(
+                                                        "quick.last_update".into(),
+                                                    ))
+                                                    .size(12.0)
+                                                    .color(tokens.colors.text_secondary)
+                                                    .into_node(),
+                                                ],
+                                            }
+                                            .into_node(),
                                         ],
-                                    }.into_node(),
-                                    VStack {
-                                        spacing: Some(4.0),
-                                        children: vec![
-                                            Text::new(TextContent::Key("quick.syncing".into())).size(14.0).into_node(),
-                                            Text::new(TextContent::Key("quick.last_update".into())).size(12.0).color(tokens.colors.text_secondary).into_node(),
-                                        ],
-                                    }.into_node(),
-                                ],
+                                        ..Default::default()
+                                    }
+                                    .into_node(),
+                                ),
                                 ..Default::default()
-                            }.into_node()
-                        ),
-                        ..Default::default()
-                    }.build(ctx, view),
-
-                    Calendar {
-                        year: today.year(),
-                        month: today.month(),
-                        selected_date: view.state.calendar_selected.or(Some(today)),
-                        on_select: Some(std::sync::Arc::new(move |d| {
-                            fission_core::ActionEnvelope {
-                                id: calendar_id,
-                                payload: serde_json::to_vec(&SetCalendarSelected(d)).unwrap(),
                             }
-                        })),
-                        on_navigate: None,
-                    }.build(ctx, view),
-
-                    Card {
-                        child: Box::new(
-                            VStack {
-                                spacing: Some(10.0),
-                                children: vec![
-                                    Text::new(TextContent::Key("quick.actions".into())).size(16.0).into_node(),
-                                    quick_actions,
-                                ],
-                            }.into_node()
-                        ),
-                        ..Default::default()
-                    }.build(ctx, view),
-
-                    Card {
-                        child: Box::new(
-                            VStack {
-                                spacing: Some(10.0),
-                                children: vec![
-                                    Text::new(TextContent::Key("quick.meet".into())).size(16.0).into_node(),
-                                    HStack {
-                                        spacing: Some(8.0),
+                            .build(ctx, view),
+                            Calendar {
+                                year: today.year(),
+                                month: today.month(),
+                                selected_date: view.state.calendar_selected.or(Some(today)),
+                                on_select: Some(std::sync::Arc::new(move |d| {
+                                    fission_core::ActionEnvelope {
+                                        id: calendar_id,
+                                        payload: serde_json::to_vec(&SetCalendarSelected(d))
+                                            .unwrap(),
+                                    }
+                                })),
+                                on_navigate: None,
+                                cell_size: Some(calendar_cell_size),
+                                padding: Some(calendar_padding),
+                            }
+                            .build(ctx, view),
+                            Card {
+                                child: Box::new(
+                                    VStack {
+                                        spacing: Some(10.0),
                                         children: vec![
-                                            Text::new(TextContent::Key("quick.camera".into())).size(14.0).into_node(),
-                                            fission_core::ui::widgets::Spacer { flex_grow: 1.0, ..Default::default() }.into_node(),
-                                            Switch {
-                                                checked: view.state.meet_camera_on,
-                                                on_toggle: Some(fission_core::ActionEnvelope {
-                                                    id: meet_camera_id,
-                                                    payload: serde_json::to_vec(&SetMeetCameraOn(!view.state.meet_camera_on)).unwrap(),
-                                                }),
-                                                ..Default::default()
-                                            }.into_node(),
+                                            Text::new(TextContent::Key("quick.actions".into()))
+                                                .size(16.0)
+                                                .into_node(),
+                                            quick_actions,
                                         ],
-                                    }.into_node(),
-                                    HStack {
-                                        spacing: Some(8.0),
+                                    }
+                                    .into_node(),
+                                ),
+                                ..Default::default()
+                            }
+                            .build(ctx, view),
+                            Card {
+                                child: Box::new(
+                                    VStack {
+                                        spacing: Some(10.0),
                                         children: vec![
-                                            Text::new(TextContent::Key("quick.microphone".into())).size(14.0).into_node(),
-                                            fission_core::ui::widgets::Spacer { flex_grow: 1.0, ..Default::default() }.into_node(),
-                                            Switch {
-                                                checked: view.state.meet_mic_on,
-                                                on_toggle: Some(fission_core::ActionEnvelope {
-                                                    id: meet_mic_id,
-                                                    payload: serde_json::to_vec(&SetMeetMicOn(!view.state.meet_mic_on)).unwrap(),
-                                                }),
-                                                ..Default::default()
-                                            }.into_node(),
-                                        ],
-                                    }.into_node(),
-                                    fission_core::ui::widgets::Spacer { height: Some(4.0), ..Default::default() }.into_node(),
-                                    Button {
-                                        variant: ButtonVariant::Filled,
-                                        child: Some(Box::new(
+                                            Text::new(TextContent::Key("quick.meet".into()))
+                                                .size(16.0)
+                                                .into_node(),
                                             HStack {
                                                 spacing: Some(8.0),
                                                 children: vec![
-                                                    Icon::svg(material::av::video_call::regular()).size(18.0).into_node(),
-                                                    Text::new(TextContent::Key("quick.start_meeting".into())).into_node(),
+                                                    Text::new(TextContent::Key(
+                                                        "quick.camera".into(),
+                                                    ))
+                                                    .size(14.0)
+                                                    .into_node(),
+                                                    fission_core::ui::widgets::Spacer {
+                                                        flex_grow: 1.0,
+                                                        ..Default::default()
+                                                    }
+                                                    .into_node(),
+                                                    Switch {
+                                                        checked: view.state.meet_camera_on,
+                                                        on_toggle: Some(
+                                                            fission_core::ActionEnvelope {
+                                                                id: meet_camera_id,
+                                                                payload: serde_json::to_vec(
+                                                                    &SetMeetCameraOn(
+                                                                        !view.state.meet_camera_on,
+                                                                    ),
+                                                                )
+                                                                .unwrap(),
+                                                            },
+                                                        ),
+                                                        ..Default::default()
+                                                    }
+                                                    .into_node(),
                                                 ],
-                                            }.into_node()
-                                        )),
-                                        on_press: None,
-                                        ..Default::default()
-                                    }.into_node(),
-                                ],
-                            }.into_node()
-                        ),
-                        ..Default::default()
-                    }.build(ctx, view),
-
-                    Card {
-                        child: Box::new(
-                            VStack {
-                                spacing: Some(10.0),
-                                children: vec![
-                                    Text::new(TextContent::Key("quick.mailbox_stats".into())).size(16.0).into_node(),
-                                    HStack {
-                                        spacing: Some(16.0),
-                                        children: vec![
-                                            fission_widgets::CircularProgress {
-                                                value: Some(0.65),
-                                                size: 40.0,
-                                                ..Default::default()
-                                            }.build(ctx, view),
-                                            VStack {
-                                                spacing: Some(2.0),
+                                            }
+                                            .into_node(),
+                                            HStack {
+                                                spacing: Some(8.0),
                                                 children: vec![
-                                                    Text::new("65%").size(16.0).into_node(),
-                                                    Text::new(t("quick.unread")).size(12.0).color(tokens.colors.text_secondary).into_node(),
+                                                    Text::new(TextContent::Key(
+                                                        "quick.microphone".into(),
+                                                    ))
+                                                    .size(14.0)
+                                                    .into_node(),
+                                                    fission_core::ui::widgets::Spacer {
+                                                        flex_grow: 1.0,
+                                                        ..Default::default()
+                                                    }
+                                                    .into_node(),
+                                                    Switch {
+                                                        checked: view.state.meet_mic_on,
+                                                        on_toggle: Some(
+                                                            fission_core::ActionEnvelope {
+                                                                id: meet_mic_id,
+                                                                payload: serde_json::to_vec(
+                                                                    &SetMeetMicOn(
+                                                                        !view.state.meet_mic_on,
+                                                                    ),
+                                                                )
+                                                                .unwrap(),
+                                                            },
+                                                        ),
+                                                        ..Default::default()
+                                                    }
+                                                    .into_node(),
                                                 ],
-                                            }.into_node(),
+                                            }
+                                            .into_node(),
+                                            fission_core::ui::widgets::Spacer {
+                                                height: Some(4.0),
+                                                ..Default::default()
+                                            }
+                                            .into_node(),
+                                            Button {
+                                                variant: ButtonVariant::Filled,
+                                                child: Some(Box::new(
+                                                    HStack {
+                                                        spacing: Some(8.0),
+                                                        children: vec![
+                                                            Icon::svg(
+                                                                material::av::video_call::regular(),
+                                                            )
+                                                            .size(18.0)
+                                                            .into_node(),
+                                                            Text::new(TextContent::Key(
+                                                                "quick.start_meeting".into(),
+                                                            ))
+                                                            .into_node(),
+                                                        ],
+                                                    }
+                                                    .into_node(),
+                                                )),
+                                                on_press: None,
+                                                ..Default::default()
+                                            }
+                                            .into_node(),
                                         ],
-                                    }.into_node(),
-                                    HStack {
-                                        spacing: Some(8.0),
+                                    }
+                                    .into_node(),
+                                ),
+                                ..Default::default()
+                            }
+                            .build(ctx, view),
+                            Card {
+                                child: Box::new(
+                                    VStack {
+                                        spacing: Some(10.0),
                                         children: vec![
-                                            Container::new(Stat { label: t("quick.unread"), value: unread_total.to_string(), help_text: Some(t("quick.in_inbox")) }.build(ctx, view))
-                                                .flex_grow(1.0)
-                                                .into_node(),
-                                            Container::new(Stat { label: t("quick.starred"), value: starred_total.to_string(), help_text: Some(t("quick.all_folders")) }.build(ctx, view))
-                                                .flex_grow(1.0)
-                                                .into_node(),
+                                            Text::new(TextContent::Key(
+                                                "quick.mailbox_stats".into(),
+                                            ))
+                                            .size(16.0)
+                                            .into_node(),
+                                            HStack {
+                                                spacing: Some(if ultra_compact_sidebar {
+                                                    12.0
+                                                } else {
+                                                    16.0
+                                                }),
+                                                children: vec![
+                                                    fission_widgets::CircularProgress {
+                                                        value: Some(0.65),
+                                                        size: if ultra_compact_sidebar {
+                                                            34.0
+                                                        } else {
+                                                            40.0
+                                                        },
+                                                        ..Default::default()
+                                                    }
+                                                    .build(ctx, view),
+                                                    VStack {
+                                                        spacing: Some(2.0),
+                                                        children: vec![
+                                                            Text::new("65%")
+                                                                .size(if ultra_compact_sidebar {
+                                                                    14.0
+                                                                } else {
+                                                                    16.0
+                                                                })
+                                                                .into_node(),
+                                                            Text::new(t("quick.unread"))
+                                                                .size(12.0)
+                                                                .color(tokens.colors.text_secondary)
+                                                                .into_node(),
+                                                        ],
+                                                    }
+                                                    .into_node(),
+                                                ],
+                                            }
+                                            .into_node(),
+                                            if compact_sidebar {
+                                                HStack {
+                                                    spacing: Some(if ultra_compact_sidebar {
+                                                        16.0
+                                                    } else {
+                                                        24.0
+                                                    }),
+                                                    children: vec![
+                                                        VStack {
+                                                            spacing: Some(2.0),
+                                                            children: vec![
+                                                                Text::new(unread_total.to_string())
+                                                                    .size(15.0)
+                                                                    .into_node(),
+                                                                Text::new(t("quick.unread"))
+                                                                    .size(12.0)
+                                                                    .color(
+                                                                        tokens
+                                                                            .colors
+                                                                            .text_secondary,
+                                                                    )
+                                                                    .into_node(),
+                                                            ],
+                                                        }
+                                                        .into_node(),
+                                                        VStack {
+                                                            spacing: Some(2.0),
+                                                            children: vec![
+                                                                Text::new(
+                                                                    starred_total.to_string(),
+                                                                )
+                                                                .size(15.0)
+                                                                .into_node(),
+                                                                Text::new(t("quick.starred"))
+                                                                    .size(12.0)
+                                                                    .color(
+                                                                        tokens
+                                                                            .colors
+                                                                            .text_secondary,
+                                                                    )
+                                                                    .into_node(),
+                                                            ],
+                                                        }
+                                                        .into_node(),
+                                                    ],
+                                                }
+                                                .into_node()
+                                            } else {
+                                                HStack {
+                                                    spacing: Some(20.0),
+                                                    children: vec![
+                                                        VStack {
+                                                            spacing: Some(2.0),
+                                                            children: vec![
+                                                                Text::new(unread_total.to_string())
+                                                                    .size(18.0)
+                                                                    .into_node(),
+                                                                Text::new(t("quick.unread"))
+                                                                    .size(12.0)
+                                                                    .color(
+                                                                        tokens
+                                                                            .colors
+                                                                            .text_secondary,
+                                                                    )
+                                                                    .into_node(),
+                                                                Text::new(t("quick.in_inbox"))
+                                                                    .size(12.0)
+                                                                    .color(
+                                                                        tokens
+                                                                            .colors
+                                                                            .text_secondary,
+                                                                    )
+                                                                    .into_node(),
+                                                            ],
+                                                        }
+                                                        .into_node(),
+                                                        VStack {
+                                                            spacing: Some(2.0),
+                                                            children: vec![
+                                                                Text::new(
+                                                                    starred_total.to_string(),
+                                                                )
+                                                                .size(18.0)
+                                                                .into_node(),
+                                                                Text::new(t("quick.starred"))
+                                                                    .size(12.0)
+                                                                    .color(
+                                                                        tokens
+                                                                            .colors
+                                                                            .text_secondary,
+                                                                    )
+                                                                    .into_node(),
+                                                                Text::new(t("quick.all_folders"))
+                                                                    .size(12.0)
+                                                                    .color(
+                                                                        tokens
+                                                                            .colors
+                                                                            .text_secondary,
+                                                                    )
+                                                                    .into_node(),
+                                                            ],
+                                                        }
+                                                        .into_node(),
+                                                    ],
+                                                }
+                                                .into_node()
+                                            },
                                         ],
-                                    }.into_node(),
-                                ],
-                            }.into_node()
-                        ),
+                                    }
+                                    .into_node(),
+                                ),
+                                ..Default::default()
+                            }
+                            .build(ctx, view),
+                            Card {
+                                child: Box::new(
+                                    VStack {
+                                        spacing: Some(12.0),
+                                        children: vec![
+                                            Text::new(TextContent::Key("quick.setup".into()))
+                                                .size(16.0)
+                                                .into_node(),
+                                            Stepper {
+                                                steps: vec![
+                                                    t("quick.import"),
+                                                    t("quick.customize"),
+                                                    t("quick.invite"),
+                                                ],
+                                                active_index: 1,
+                                            }
+                                            .build(ctx, view),
+                                        ],
+                                    }
+                                    .into_node(),
+                                ),
+                                ..Default::default()
+                            }
+                            .build(ctx, view),
+                        ],
                         ..Default::default()
-                    }.build(ctx, view),
-
-                    Card {
-                        child: Box::new(
-                            VStack {
-                                spacing: Some(12.0),
-                                children: vec![
-                                    Text::new(TextContent::Key("quick.setup".into())).size(16.0).into_node(),
-                                    Stepper {
-                                        steps: vec![t("quick.import"), t("quick.customize"), t("quick.invite")],
-                                        active_index: 1,
-                                    }.build(ctx, view),
-                                ],
-                            }.into_node()
-                        ),
-                        ..Default::default()
-                    }.build(ctx, view),
-                ],
+                    }
+                    .into_node(),
+                )),
                 ..Default::default()
-            }.into_node()
-            )),
-            ..Default::default()
-            }.into_node()
+            }
+            .into_node(),
         )
         .padding_all(8.0)
-        .width(240.0)
         .bg(tokens.colors.surface)
         .into_node()
     }

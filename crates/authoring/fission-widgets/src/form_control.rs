@@ -1,6 +1,5 @@
 use crate::stack::VStack;
-use fission_core::op::Color;
-use fission_core::ui::{Container, Node, Text, TextContent};
+use fission_core::ui::{Node, Text};
 use fission_core::{BuildCtx, View, Widget, WidgetNodeId};
 use serde::{Deserialize, Serialize};
 

@@ -11,9 +11,18 @@ impl TextMeasurer for MockMeasurer {
         let width = text.chars().count() as f32 * 10.0;
         (width, font_size)
     }
-    fn hit_test(&self, text: &str, _font_size: f32, _available_width: Option<f32>, x: f32, _y: f32) -> usize {
+    fn hit_test(
+        &self,
+        text: &str,
+        _font_size: f32,
+        _available_width: Option<f32>,
+        x: f32,
+        _y: f32,
+    ) -> usize {
         let char_width = 10.0;
-        if x <= 0.0 { return 0; }
+        if x <= 0.0 {
+            return 0;
+        }
         let char_idx = (x / char_width).round() as usize;
         let mut byte_offset = 0;
         for (idx, g) in text.grapheme_indices(true).take(char_idx) {
@@ -21,7 +30,12 @@ impl TextMeasurer for MockMeasurer {
         }
         byte_offset
     }
-    fn get_line_metrics(&self, text: &str, font_size: f32, available_width: Option<f32>) -> Vec<fission_layout::LineMetric> {
+    fn get_line_metrics(
+        &self,
+        text: &str,
+        font_size: f32,
+        available_width: Option<f32>,
+    ) -> Vec<fission_layout::LineMetric> {
         vec![fission_layout::LineMetric {
             start_index: 0,
             end_index: text.len(),
@@ -30,9 +44,20 @@ impl TextMeasurer for MockMeasurer {
             width: self.measure(text, font_size, available_width).0,
         }]
     }
-    fn get_caret_position(&self, text: &str, font_size: f32, _available_width: Option<f32>, caret_index: usize) -> (f32, f32) {
+    fn get_caret_position(
+        &self,
+        text: &str,
+        font_size: f32,
+        _available_width: Option<f32>,
+        caret_index: usize,
+    ) -> (f32, f32) {
         let char_width = 10.0;
-        let x = text.graphemes(true).take(caret_index).map(|g| g.len()).sum::<usize>() as f32 * char_width;
+        let x = text
+            .graphemes(true)
+            .take(caret_index)
+            .map(|g| g.len())
+            .sum::<usize>() as f32
+            * char_width;
         let y = font_size; // Baseline
         (x, y)
     }
@@ -57,17 +82,72 @@ fn test_caret_hit_test_precise() {
     // "o" 40-50
 
     // Click at 4.0 (Left of center of 'H') -> 0
-    assert_eq!(runtime.caret_from_point_in_text(text, font_size, viewport_x, viewport_w, content_w, scroll_offset, 4.0), 0);
-    
+    assert_eq!(
+        runtime.caret_from_point_in_text(
+            text,
+            font_size,
+            viewport_x,
+            viewport_w,
+            content_w,
+            scroll_offset,
+            4.0
+        ),
+        0
+    );
+
     // Click at 6.0 (Right of center of 'H') -> 1
-    assert_eq!(runtime.caret_from_point_in_text(text, font_size, viewport_x, viewport_w, content_w, scroll_offset, 6.0), 1);
-    
+    assert_eq!(
+        runtime.caret_from_point_in_text(
+            text,
+            font_size,
+            viewport_x,
+            viewport_w,
+            content_w,
+            scroll_offset,
+            6.0
+        ),
+        1
+    );
+
     // Click at 14.0 (Left of center of 'e') -> 1
-    assert_eq!(runtime.caret_from_point_in_text(text, font_size, viewport_x, viewport_w, content_w, scroll_offset, 14.0), 1);
-    
+    assert_eq!(
+        runtime.caret_from_point_in_text(
+            text,
+            font_size,
+            viewport_x,
+            viewport_w,
+            content_w,
+            scroll_offset,
+            14.0
+        ),
+        1
+    );
+
     // Click at 16.0 (Right of center of 'e') -> 2
-    assert_eq!(runtime.caret_from_point_in_text(text, font_size, viewport_x, viewport_w, content_w, scroll_offset, 16.0), 2);
+    assert_eq!(
+        runtime.caret_from_point_in_text(
+            text,
+            font_size,
+            viewport_x,
+            viewport_w,
+            content_w,
+            scroll_offset,
+            16.0
+        ),
+        2
+    );
 
     // Click at 55.0 (Past end)
-    assert_eq!(runtime.caret_from_point_in_text(text, font_size, viewport_x, viewport_w, content_w, scroll_offset, 55.0), 5);
+    assert_eq!(
+        runtime.caret_from_point_in_text(
+            text,
+            font_size,
+            viewport_x,
+            viewport_w,
+            content_w,
+            scroll_offset,
+            55.0
+        ),
+        5
+    );
 }

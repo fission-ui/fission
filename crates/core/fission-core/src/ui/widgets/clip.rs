@@ -42,15 +42,18 @@ impl Clip {
 impl Lower for Clip {
     fn lower(&self, cx: &mut LoweringContext) -> NodeId {
         let id = self.id.unwrap_or_else(|| cx.next_node_id());
-        
+
         cx.push_scope(id);
         let child_id = self.child.lower(cx);
         cx.pop_scope();
-        
-        let mut builder = NodeBuilder::new(id, Op::Layout(LayoutOp::Clip {
-            path: self.path.clone(),
-        }));
-        
+
+        let mut builder = NodeBuilder::new(
+            id,
+            Op::Layout(LayoutOp::Clip {
+                path: self.path.clone(),
+            }),
+        );
+
         builder.add_child(child_id);
         builder.build(cx)
     }

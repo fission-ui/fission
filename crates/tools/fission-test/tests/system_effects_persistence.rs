@@ -2,7 +2,9 @@ use anyhow::Result;
 use fission_core::action::{Action, ActionEnvelope, ActionId};
 use fission_core::effect::SystemEffect;
 use fission_core::registry::{ActionRegistry, Handler};
-use fission_core::{AppState, BuildCtx, InputEvent, PointerButton, PointerEvent, ReducerContext, View, Widget};
+use fission_core::{
+    AppState, BuildCtx, InputEvent, PointerButton, PointerEvent, ReducerContext, View, Widget,
+};
 use fission_widgets::{Button, ButtonVariant, Container, Node, Text};
 use lazy_static::lazy_static;
 use serde::{Deserialize, Serialize};
@@ -90,4 +92,3 @@ fn persistent_reducers_survive_clear_reducers_frames() -> Result<()> {
 
     Ok(())
 }
-

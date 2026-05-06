@@ -27,10 +27,29 @@ impl TimeScale {
         let year = day * 365.0;
 
         let nice_intervals = [
-            1.0, 5.0, 10.0, 15.0, 30.0,
-            minute, minute * 5.0, minute * 15.0, minute * 30.0,
-            hour, hour * 3.0, hour * 6.0, hour * 12.0,
-            day, day * 2.0, week, month, month * 3.0, month * 6.0, year, year * 2.0, year * 5.0, year * 10.0,
+            1.0,
+            5.0,
+            10.0,
+            15.0,
+            30.0,
+            minute,
+            minute * 5.0,
+            minute * 15.0,
+            minute * 30.0,
+            hour,
+            hour * 3.0,
+            hour * 6.0,
+            hour * 12.0,
+            day,
+            day * 2.0,
+            week,
+            month,
+            month * 3.0,
+            month * 6.0,
+            year,
+            year * 2.0,
+            year * 5.0,
+            year * 10.0,
         ];
 
         let mut best_interval = nice_intervals[0];
@@ -46,7 +65,7 @@ impl TimeScale {
 
         let mut ticks = Vec::new();
         let start_tick = (self.start_ts as f64 / best_interval).ceil() * best_interval;
-        
+
         let mut current_tick = start_tick;
         while current_tick <= self.end_ts as f64 {
             ticks.push(current_tick as i64);
@@ -55,7 +74,7 @@ impl TimeScale {
 
         ticks
     }
-    
+
     pub fn scale(&self, ts: i64, min_pos: f32, max_pos: f32) -> f32 {
         if self.start_ts == self.end_ts {
             return min_pos;

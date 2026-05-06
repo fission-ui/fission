@@ -32,15 +32,10 @@
 //! }
 //! ```
 
-use anyhow::{anyhow, Result};
-use fission_diagnostics::prelude as diag;
-use downcast_rs::Downcast;
-use fission_ir::CoreIR;
+use anyhow::Result;
 use lazy_static::lazy_static;
-use serde_json;
-use std::any::{Any, TypeId};
-use std::collections::{HashMap, HashSet};
-use std::sync::Arc;
+use std::any::TypeId;
+use std::collections::HashMap;
 
 extern crate self as fission_core;
 
@@ -53,7 +48,7 @@ pub mod event;
 pub mod hit_test;
 pub mod input;
 pub mod lowering;
-pub mod media; 
+pub mod media;
 pub mod registry;
 pub mod runtime;
 pub mod time;
@@ -64,28 +59,27 @@ pub mod view;
 #[cfg(test)]
 mod tests;
 
-use crate::env::ActiveAnimation;
 pub use action::{Action, ActionEnvelope, ActionId, AppState};
-pub use context::{ReducerContext, Effects}; // New
-pub use effect::{Effect, EffectEnvelope, EffectPayload, ActionInput, SystemEffect}; // New
-pub use env::{Env, InteractionStateMap, RuntimeState, ScrollStateMap, Clipboard, ImeHandler};
+pub use context::{Effects, ReducerContext}; // New
+pub use effect::{ActionInput, Effect, EffectEnvelope, EffectPayload, SystemEffect}; // New
+pub use env::{Clipboard, Env, ImeHandler, InteractionStateMap, RuntimeState, ScrollStateMap};
 pub use runtime::Runtime;
 
 pub use event::{InputEvent, KeyCode, KeyEvent, LifecycleEvent, PointerButton, PointerEvent};
 pub use fission_ir::op;
 pub use fission_ir::{EmbedKind, NodeId, Op, WidgetNodeId};
 pub use fission_layout::{
-    BoxConstraints, FlexDirection, LayoutEngine, LayoutOp, LayoutPoint, LayoutRect, LayoutSize, LayoutSnapshot, LayoutUnit, TextMeasurer,
+    BoxConstraints, FlexDirection, LayoutEngine, LayoutOp, LayoutPoint, LayoutRect, LayoutSize,
+    LayoutSnapshot, LayoutUnit, TextMeasurer,
 };
-use hit_test::{find_next_focus_node, hit_test, hit_test_with_scroll};
 pub use lowering::{LoweringContext, NodeBuilder};
 pub use registry::{
-    ActionRegistry, AnimationPropertyId, AnimationRequest, AnimationStartValue, BuildCtx, Handler,
-    PortalLayer, VideoRegistration,
+    ActionRegistry, AnimationPropertyId, AnimationRequest, AnimationStartValue, BuildCtx,
+    EasingFunction, Handler, PortalLayer, VideoRegistration,
 };
 pub use time::{Clock, CurrentTime};
 pub use ui::{
-    Builder, Button, Column, CustomNode, CustomEventResult, CustomHitResult, CustomRenderObject,
+    Builder, Button, Column, CustomEventResult, CustomHitResult, CustomNode, CustomRenderObject,
     LayoutBuilder, Lower, LowerDyn, Node, Row, Text,
 };
 pub use view::{Selector, View, Widget};
@@ -152,12 +146,12 @@ lazy_static! {
 /// [`ActionRegistry::register`] instead.
 pub type BoxedReducer = Box<
     dyn FnMut(
-        &mut HashMap<TypeId, Box<dyn AppState>>, 
-        &ActionEnvelope, 
-        NodeId,
-        &mut Vec<EffectEnvelope>,
-        &ActionInput
-    ) -> Result<()>
+            &mut HashMap<TypeId, Box<dyn AppState>>,
+            &ActionEnvelope,
+            NodeId,
+            &mut Vec<EffectEnvelope>,
+            &ActionInput,
+        ) -> Result<()>
         + Send
         + Sync,
 >;

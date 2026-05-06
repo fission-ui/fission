@@ -1,9 +1,8 @@
-use crate::stack::VStack; // Or make a custom Flex?
-use fission_core::ui::Column;
-use fission_core::ui::Row; // Row is Flex Row.
+// Or make a custom Flex?
+// Row is Flex Row.
 use fission_core::ui::{Container, Node};
 use fission_core::{BuildCtx, View, Widget};
-use fission_ir::op::{FlexDirection, FlexWrap};
+use fission_ir::op::FlexWrap;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -14,7 +13,7 @@ pub struct SimpleGrid {
 }
 
 impl<S: fission_core::AppState> Widget<S> for SimpleGrid {
-    fn build(&self, ctx: &mut BuildCtx<S>, view: &View<S>) -> Node {
+    fn build(&self, _ctx: &mut BuildCtx<S>, _view: &View<S>) -> Node {
         let wrapped_children: Vec<Node> = self
             .children
             .iter()

@@ -40,7 +40,7 @@ impl LowerDyn for WebViewLowerer {
     fn lower_dyn(&self, cx: &mut LoweringContext) -> NodeId {
         let id = cx.widget_node_id(self.id);
 
-        let mut builder = NodeBuilder::new(
+        let builder = NodeBuilder::new(
             id,
             Op::Layout(LayoutOp::Embed {
                 kind: EmbedKind::Web,

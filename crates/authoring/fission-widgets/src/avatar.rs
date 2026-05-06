@@ -1,4 +1,3 @@
-use fission_core::op::Color;
 use fission_core::ui::{Container, Image, Node, Text, TextContent};
 use fission_core::{BuildCtx, View, Widget};
 use serde::{Deserialize, Serialize};
@@ -22,7 +21,7 @@ pub struct Avatar {
 }
 
 impl<S: fission_core::AppState> Widget<S> for Avatar {
-    fn build(&self, ctx: &mut BuildCtx<S>, view: &View<S>) -> Node {
+    fn build(&self, _ctx: &mut BuildCtx<S>, view: &View<S>) -> Node {
         let tokens = &view.env.theme.tokens;
         let size = self.size.unwrap_or(40.0);
         let radius = size / 2.0;

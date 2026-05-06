@@ -8,8 +8,12 @@
 use crate::{
     env::VideoState,
     registry::{AnimationPropertyId, VideoRegistration},
-    ui::{Align, Button, Checkbox, Column, Container, Grid, GridItem, Image, LazyColumn, Node, Overlay, Positioned, Radio, Row, Scroll, Slider, Spacer, Switch, Text, TextInput, Video, ZStack},
-    AppState, BuildCtx, Env, RuntimeState, LayoutSnapshot, LayoutRect, LayoutSize,
+    ui::{
+        Align, Button, Checkbox, Column, Container, Grid, GridItem, Image, LazyColumn, Node,
+        Overlay, Positioned, Radio, Row, Scroll, Slider, Spacer, Switch, Text, TextInput, Video,
+        ZStack,
+    },
+    AppState, BuildCtx, Env, LayoutRect, LayoutSize, LayoutSnapshot, RuntimeState,
 };
 use fission_i18n::I18nRegistry;
 use fission_ir::{NodeId, WidgetNodeId};
@@ -46,7 +50,12 @@ pub struct View<'a, S: AppState> {
 }
 
 impl<'a, S: AppState> View<'a, S> {
-    pub fn new(state: &'a S, runtime: &'a RuntimeState, env: &'a Env, layout: Option<&'a LayoutSnapshot>) -> Self {
+    pub fn new(
+        state: &'a S,
+        runtime: &'a RuntimeState,
+        env: &'a Env,
+        layout: Option<&'a LayoutSnapshot>,
+    ) -> Self {
         Self {
             state,
             runtime,

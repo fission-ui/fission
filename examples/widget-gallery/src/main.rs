@@ -1,20 +1,17 @@
 use fission_core::op::Color as IrColor;
 use fission_core::ui::{
-    Button, ButtonVariant, Checkbox, Column, Container, Node, Row, Scroll, Slider, Switch, Text,
-    TextContent, TextInput,
+    Button, ButtonVariant, Checkbox, Container, Node, Scroll, Slider, Switch, Text, TextInput,
 };
 use fission_core::{
-    ActionEnvelope, AppState, BuildCtx, FlexDirection, Handler, ReducerContext, View, Widget,
-    WidgetNodeId,
+    ActionEnvelope, AppState, BuildCtx, FlexDirection, Handler, View, Widget, WidgetNodeId,
 };
 use fission_macros::Action;
 use fission_shell_desktop::DesktopApp;
 use fission_widgets::{
     Accordion, AccordionItem, Alert, AlertKind, Avatar, Badge, Breadcrumb, BreadcrumbItem, Card,
-    CircularProgress, Code, Divider, Drawer, DrawerSide, EmptyState, HStack,
-    Kbd, Link, MenuButton, MenuItem, Modal, ModalAction, NumberInput, Pagination,
-    ProgressBar, SegmentedControl, Select, SelectItem, Skeleton,
-    Spacer, Spinner, Stat, Stepper, TabItem, Tabs, Tag, Timeline,
+    CircularProgress, Code, Divider, Drawer, DrawerSide, EmptyState, HStack, Kbd, Link, MenuButton,
+    MenuItem, Modal, ModalAction, NumberInput, Pagination, ProgressBar, SegmentedControl, Select,
+    SelectItem, Skeleton, Spacer, Spinner, Stat, Stepper, TabItem, Tabs, Tag, Timeline,
     TimelineItem, Toast, ToastKind, Tooltip, TreeItem, TreeView, VStack,
 };
 use serde::{Deserialize, Serialize};
@@ -30,7 +27,6 @@ struct GalleryState {
     range_end: f32,
     checked: bool,
     switch_on: bool,
-    radio_choice: usize,
     text_value: String,
     number_val: f32,
     active_tab: usize,
@@ -41,7 +37,6 @@ struct GalleryState {
     modal_open: bool,
     drawer_open: bool,
     tooltip_vis: bool,
-    popover_open: bool,
     segmented_idx: usize,
     current_page: usize,
     tree_expanded: HashSet<String>,
@@ -59,7 +54,6 @@ impl Default for GalleryState {
             range_end: 0.0,
             checked: true,
             switch_on: true,
-            radio_choice: 0,
             text_value: String::new(),
             number_val: 5.0,
             active_tab: 0,
@@ -70,7 +64,6 @@ impl Default for GalleryState {
             modal_open: false,
             drawer_open: false,
             tooltip_vis: false,
-            popover_open: false,
             segmented_idx: 0,
             current_page: 1,
             tree_expanded,
@@ -93,9 +86,6 @@ struct ToggleChecked;
 
 #[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 struct ToggleSwitch;
-
-#[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
-struct SetRadio(usize);
 
 #[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 #[serde(transparent)]
@@ -127,9 +117,6 @@ struct ToggleModal;
 
 #[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 struct ToggleDrawer;
-
-#[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
-struct TogglePopover;
 
 #[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 struct SetSegmented(usize);
@@ -182,18 +169,16 @@ trait BuildInline {
 
 impl BuildInline for Divider {
     fn build_inline(self) -> Node {
-        Container::new(
-            fission_core::ui::widgets::Spacer::default().into_node(),
-        )
-        .height(1.0)
-        .bg(IrColor {
-            r: 200,
-            g: 200,
-            b: 200,
-            a: 255,
-        })
-        .flex_grow(1.0)
-        .into_node()
+        Container::new(fission_core::ui::widgets::Spacer::default().into_node())
+            .height(1.0)
+            .bg(IrColor {
+                r: 200,
+                g: 200,
+                b: 200,
+                a: 255,
+            })
+            .flex_grow(1.0)
+            .into_node()
     }
 }
 
@@ -205,6 +190,9 @@ impl Widget<GalleryState> for GalleryApp {
     fn build(&self, ctx: &mut BuildCtx<GalleryState>, view: &View<GalleryState>) -> Node {
         let s = view.state;
         let tokens = &view.env.theme.tokens;
+        let viewport_width = view.viewport_size().width.max(0.0);
+        let control_width = (viewport_width - 96.0).clamp(220.0, 420.0);
+        let drawer_width = (viewport_width * 0.42).clamp(220.0, 340.0);
 
         // -- Display Widgets --
         let display_section = section(
@@ -267,10 +255,9 @@ impl Widget<GalleryState> for GalleryApp {
                         Button {
                             variant: ButtonVariant::Filled,
                             child: Some(Box::new(Text::new("Filled").into_node())),
-                            on_press: Some(ctx.bind(
-                                Noop,
-                                (|_, _: Noop, _| {}) as Handler<GalleryState, Noop>,
-                            )),
+                            on_press: Some(
+                                ctx.bind(Noop, (|_, _: Noop, _| {}) as Handler<GalleryState, Noop>),
+                            ),
                             ..Default::default()
                         }
                         .into_node(),
@@ -305,7 +292,7 @@ impl Widget<GalleryState> for GalleryApp {
                         (|s: &mut GalleryState, a: UpdateText, _| s.text_value = a.0)
                             as Handler<GalleryState, UpdateText>,
                     )),
-                    width: Some(300.0),
+                    width: Some(control_width),
                     ..Default::default()
                 }
                 .into_node(),
@@ -356,7 +343,7 @@ impl Widget<GalleryState> for GalleryApp {
                             }
                             .into_node(),
                         )
-                        .width(200.0)
+                        .width(control_width.min(280.0))
                         .into_node(),
                         Text::new(format!("{:.0}", s.slider_val)).into_node(),
                     ],
@@ -412,9 +399,7 @@ impl Widget<GalleryState> for GalleryApp {
                 .build(ctx, view),
                 HStack {
                     spacing: Some(16.0),
-                    children: vec![
-                        ProgressBar { value: 0.65 }.build(ctx, view),
-                    ],
+                    children: vec![ProgressBar { value: 0.65 }.build(ctx, view)],
                 }
                 .into_node(),
                 HStack {
@@ -423,6 +408,7 @@ impl Widget<GalleryState> for GalleryApp {
                         Spinner {
                             id: WidgetNodeId::explicit("spinner1"),
                             color: None,
+                            animated: true,
                         }
                         .build(ctx, view),
                         CircularProgress {
@@ -436,6 +422,7 @@ impl Widget<GalleryState> for GalleryApp {
                             width: Some(120.0),
                             height: Some(20.0),
                             circle: false,
+                            animated: true,
                         }
                         .build(ctx, view),
                     ],
@@ -524,11 +511,9 @@ impl Widget<GalleryState> for GalleryApp {
                             (|s: &mut GalleryState, a: SetSegmented, _| s.segmented_idx = a.0)
                                 as Handler<GalleryState, SetSegmented>,
                         );
-                        move |idx| {
-                            ActionEnvelope {
-                                id: env.id,
-                                payload: serde_json::to_vec(&idx).unwrap(),
-                            }
+                        move |idx| ActionEnvelope {
+                            id: env.id,
+                            payload: serde_json::to_vec(&idx).unwrap(),
                         }
                     })),
                 }
@@ -543,11 +528,9 @@ impl Widget<GalleryState> for GalleryApp {
                             (|s: &mut GalleryState, a: SetPage, _| s.current_page = a.0)
                                 as Handler<GalleryState, SetPage>,
                         );
-                        move |page| {
-                            ActionEnvelope {
-                                id: env.id,
-                                payload: serde_json::to_vec(&page).unwrap(),
-                            }
+                        move |page| ActionEnvelope {
+                            id: env.id,
+                            payload: serde_json::to_vec(&page).unwrap(),
                         }
                     })),
                 }
@@ -677,53 +660,50 @@ impl Widget<GalleryState> for GalleryApp {
                 .build(ctx, view),
                 // TreeView
                 TreeView {
-                    items: vec![
-                        TreeItem {
-                            id: "src".into(),
-                            label: "src/".into(),
-                            icon: None,
-                            children: vec![
-                                TreeItem {
-                                    id: "main".into(),
-                                    label: "main.rs".into(),
-                                    icon: None,
-                                    children: vec![],
-                                    on_toggle: None,
-                                    on_select: Some(ctx.bind(
-                                        SelectTreeNode("main".into()),
-                                        (|s: &mut GalleryState, a: SelectTreeNode, _| {
-                                            s.tree_selected = Some(a.0)
-                                        })
-                                            as Handler<GalleryState, SelectTreeNode>,
-                                    )),
-                                },
-                                TreeItem {
-                                    id: "lib".into(),
-                                    label: "lib.rs".into(),
-                                    icon: None,
-                                    children: vec![],
-                                    on_toggle: None,
-                                    on_select: Some(ctx.bind(
-                                        SelectTreeNode("lib".into()),
-                                        (|s: &mut GalleryState, a: SelectTreeNode, _| {
-                                            s.tree_selected = Some(a.0)
-                                        })
-                                            as Handler<GalleryState, SelectTreeNode>,
-                                    )),
-                                },
-                            ],
-                            on_toggle: Some(ctx.bind(
-                                ToggleTreeNode("src".into()),
-                                (|s: &mut GalleryState, a: ToggleTreeNode, _| {
-                                    if !s.tree_expanded.remove(&a.0) {
-                                        s.tree_expanded.insert(a.0);
-                                    }
-                                })
-                                    as Handler<GalleryState, ToggleTreeNode>,
-                            )),
-                            on_select: None,
-                        },
-                    ],
+                    items: vec![TreeItem {
+                        id: "src".into(),
+                        label: "src/".into(),
+                        icon: None,
+                        children: vec![
+                            TreeItem {
+                                id: "main".into(),
+                                label: "main.rs".into(),
+                                icon: None,
+                                children: vec![],
+                                on_toggle: None,
+                                on_select: Some(ctx.bind(
+                                    SelectTreeNode("main".into()),
+                                    (|s: &mut GalleryState, a: SelectTreeNode, _| {
+                                        s.tree_selected = Some(a.0)
+                                    })
+                                        as Handler<GalleryState, SelectTreeNode>,
+                                )),
+                            },
+                            TreeItem {
+                                id: "lib".into(),
+                                label: "lib.rs".into(),
+                                icon: None,
+                                children: vec![],
+                                on_toggle: None,
+                                on_select: Some(ctx.bind(
+                                    SelectTreeNode("lib".into()),
+                                    (|s: &mut GalleryState, a: SelectTreeNode, _| {
+                                        s.tree_selected = Some(a.0)
+                                    })
+                                        as Handler<GalleryState, SelectTreeNode>,
+                                )),
+                            },
+                        ],
+                        on_toggle: Some(ctx.bind(
+                            ToggleTreeNode("src".into()),
+                            (|s: &mut GalleryState, a: ToggleTreeNode, _| {
+                                if !s.tree_expanded.remove(&a.0) {
+                                    s.tree_expanded.insert(a.0);
+                                }
+                            }) as Handler<GalleryState, ToggleTreeNode>,
+                        )),
+                        on_select: None,
+                    }],
                     expanded_ids: s.tree_expanded.clone(),
                     selected_id: s.tree_selected.clone(),
                 }
@@ -777,9 +757,7 @@ impl Widget<GalleryState> for GalleryApp {
                 // Tooltip
                 Tooltip {
                     id: WidgetNodeId::explicit("gallery_tooltip"),
-                    child: Box::new(
-                        Text::new("Hover me for tooltip").into_node(),
-                    ),
+                    child: Box::new(Text::new("Hover me for tooltip").into_node()),
                     text: "This is a tooltip!".into(),
                     is_visible: false,
                 }
@@ -797,7 +775,8 @@ impl Widget<GalleryState> for GalleryApp {
                                 (|s: &mut GalleryState, a: SelectValue, _| {
                                     s.select_value = Some(a.0);
                                     s.select_open = false;
-                                }) as Handler<GalleryState, SelectValue>,
+                                })
+                                    as Handler<GalleryState, SelectValue>,
                             ),
                         },
                         SelectItem {
@@ -808,7 +787,8 @@ impl Widget<GalleryState> for GalleryApp {
                                 (|s: &mut GalleryState, a: SelectValue, _| {
                                     s.select_value = Some(a.0);
                                     s.select_open = false;
-                                }) as Handler<GalleryState, SelectValue>,
+                                })
+                                    as Handler<GalleryState, SelectValue>,
                             ),
                         },
                     ],
@@ -819,7 +799,7 @@ impl Widget<GalleryState> for GalleryApp {
                             as Handler<GalleryState, ToggleSelect>,
                     )),
                     placeholder: "Choose...".into(),
-                    width: Some(200.0),
+                    width: Some(control_width.min(260.0)),
                 }
                 .build(ctx, view),
             ],
@@ -831,8 +811,7 @@ impl Widget<GalleryState> for GalleryApp {
                 id: WidgetNodeId::explicit("gallery_modal"),
                 title: "Gallery Modal".into(),
                 content: Box::new(
-                    Text::new("This is modal content.\nYou can put any widget here.")
-                        .into_node(),
+                    Text::new("This is modal content.\nYou can put any widget here.").into_node(),
                 ),
                 is_open: true,
                 on_dismiss: Some(ctx.bind(
@@ -885,7 +864,7 @@ impl Widget<GalleryState> for GalleryApp {
                     }
                     .into_node(),
                 ),
-                width: Some(280.0),
+                width: Some(drawer_width),
             }
             .build(ctx, view);
         }
@@ -908,7 +887,6 @@ impl Widget<GalleryState> for GalleryApp {
                 fission_widgets::Positioned {
                     right: Some(20.0),
                     bottom: Some(20.0),
-                    width: Some(320.0),
                     child: Some(Box::new(toast)),
                     ..Default::default()
                 }
@@ -941,10 +919,7 @@ impl Widget<GalleryState> for GalleryApp {
         Scroll {
             direction: FlexDirection::Column,
             child: Some(Box::new(
-                Container::new(all_sections)
-                    .padding_all(24.0)
-                    .flex_grow(1.0)
-                    .into_node(),
+                Container::new(all_sections).padding_all(24.0).into_node(),
             )),
             show_scrollbar: true,
             flex_grow: 1.0,

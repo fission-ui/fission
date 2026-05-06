@@ -1,5 +1,5 @@
 use fission_core::op::Color;
-use fission_core::ui::{Align, Container, Node, Text, TextContent};
+use fission_core::ui::{Align, Container, Node, Text};
 use fission_core::{BuildCtx, View, Widget};
 use serde::{Deserialize, Serialize};
 

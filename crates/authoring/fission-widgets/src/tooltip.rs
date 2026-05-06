@@ -52,7 +52,11 @@ impl<S: fission_core::AppState> Widget<S> for Tooltip {
                 fission_ir::NodeId::derived(self.id.as_u128(), &[]),
                 tooltip_card,
             );
-            ctx.register_portal_with_layer(fission_core::PortalLayer::Flyout, Some(self.id), flyout_node);
+            ctx.register_portal_with_layer(
+                fission_core::PortalLayer::Flyout,
+                Some(self.id),
+                flyout_node,
+            );
         }
 
         trigger

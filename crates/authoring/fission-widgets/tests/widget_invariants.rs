@@ -1,6 +1,6 @@
 use fission_core::{Action as CoreAction, ActionId, Env, RuntimeState};
 use fission_core::{Lower, LoweringContext}; // Import Lower and LoweringContext from core
-use fission_ir::{ActionEntry, ActionSet, LayoutOp, NodeId, Op, Role, Semantics}; // Removed StructuralOp
+use fission_ir::{ActionSet, LayoutOp, Op, Role, Semantics}; // Removed StructuralOp
 use fission_widgets::{Button, Node, Row, Text, TextContent};
 use lazy_static::lazy_static;
 use serde::{Deserialize, Serialize};
@@ -96,15 +96,18 @@ fn test_button_widget_lower_with_child_and_semantics() {
             draggable: false,
             scrollable_x: false,
             scrollable_y: false,
-                                    min_value: None,
-                                    max_value: None,
-                                    current_value: None,
-                                                            is_focus_scope: false,
-                                                                                    is_focus_barrier: false,
-                                                                                                            drag_payload: None,
-                                                                                                            hero_tag: None,
-                                                                                                            focus_index: None, capture_tab: false, auto_indent: false,
-                                                                                                        }),        ..Default::default()
+            min_value: None,
+            max_value: None,
+            current_value: None,
+            is_focus_scope: false,
+            is_focus_barrier: false,
+            drag_payload: None,
+            hero_tag: None,
+            focus_index: None,
+            capture_tab: false,
+            auto_indent: false,
+        }),
+        ..Default::default()
     };
 
     let env = Env::default();

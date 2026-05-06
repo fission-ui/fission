@@ -19,7 +19,7 @@
 use once_cell::sync::OnceCell;
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
-use std::collections::{BTreeSet, HashSet};
+use std::collections::BTreeSet;
 use std::fs::{File, OpenOptions};
 use std::io::Write as _;
 use std::path::PathBuf;
@@ -106,8 +106,12 @@ pub struct DiagEvent {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "kind", content = "payload")]
 pub enum DiagEventKind {
-    FrameStart { root: Option<u128> },
-    FrameEnd { stats: FrameStats },
+    FrameStart {
+        root: Option<u128>,
+    },
+    FrameEnd {
+        stats: FrameStats,
+    },
 
     DiffSummary {
         nodes_total: u32,
@@ -142,7 +146,7 @@ pub enum DiagEventKind {
         h: f32,
         note: Option<String>,
     },
-    
+
     NodeProps {
         node: u128,
         op_tag: String,
@@ -172,7 +176,9 @@ pub enum DiagEventKind {
     },
 
     // Overlay/Portal + Anchor diagnostics (layout investigation helpers)
-    PortalsComposed { portal_count: u32 },
+    PortalsComposed {
+        portal_count: u32,
+    },
     AnchorPlacement {
         widget: u128,
         node: u128,
@@ -309,8 +315,7 @@ struct StdoutSinkImpl;
 impl SinkImpl for StdoutSinkImpl {
     fn write(&self, event: &DiagEvent) {
         // JSONL for stable tooling integration
-        let _ = serde_json::to_string(event)
-            .map(|line| println!("{}", line));
+        let _ = serde_json::to_string(event).map(|line| println!("{}", line));
     }
 }
 
@@ -336,7 +341,9 @@ impl SinkImpl for RingBufferSinkImpl {
     fn write(&self, event: &DiagEvent) {
         if let Ok(s) = serde_json::to_string(event) {
             let mut w = self.buf.write();
-            if w.len() >= self.cap { w.remove(0); }
+            if w.len() >= self.cap {
+                w.remove(0);
+            }
             w.push(s);
         }
     }
@@ -353,8 +360,12 @@ struct DiagnosticsInner {
 
 impl DiagnosticsInner {
     fn should_emit(&self, cat: &DiagCategory, level: DiagLevel) -> bool {
-        if matches!(self.config.sink, DiagSink::Disabled) { return false; }
-        if !self.config.enabled_categories.contains(cat) { return false; }
+        if matches!(self.config.sink, DiagSink::Disabled) {
+            return false;
+        }
+        if !self.config.enabled_categories.contains(cat) {
+            return false;
+        }
         self.config.min_level.allows(level)
     }
 }
@@ -388,7 +399,11 @@ pub fn init_from_env() {
         .collect();
 
     // Level
-    let min_level = match std::env::var("FISSION_DIAG_LEVEL").unwrap_or_default().to_lowercase().as_str() {
+    let min_level = match std::env::var("FISSION_DIAG_LEVEL")
+        .unwrap_or_default()
+        .to_lowercase()
+        .as_str()
+    {
         "error" => DiagLevel::Error,
         "warn" => DiagLevel::Warn,
         "info" => DiagLevel::Info,
@@ -451,10 +466,19 @@ pub fn init(config: DiagnosticsConfig) {
     let sink_impl: Box<dyn SinkImpl> = match &config.sink {
         DiagSink::Stdout => Box::new(StdoutSinkImpl),
         DiagSink::File(path) => {
-            let file = OpenOptions::new().create(true).append(true).open(path).unwrap();
-            Box::new(FileSinkImpl { file: RwLock::new(file) })
+            let file = OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(path)
+                .unwrap();
+            Box::new(FileSinkImpl {
+                file: RwLock::new(file),
+            })
         }
-        DiagSink::RingBuffer(cap) => Box::new(RingBufferSinkImpl { buf: RwLock::new(Vec::with_capacity(*cap)), cap: *cap }),
+        DiagSink::RingBuffer(cap) => Box::new(RingBufferSinkImpl {
+            buf: RwLock::new(Vec::with_capacity(*cap)),
+            cap: *cap,
+        }),
         DiagSink::Disabled => Box::new(StdoutSinkImpl), // won't be used
     };
 
@@ -465,13 +489,6 @@ pub fn init(config: DiagnosticsConfig) {
         timestamp_ns: AtomicU64::new(0),
     };
     let _ = DIAGNOSTICS.set(RwLock::new(inner));
-}
-
-fn with_diag<T>(f: impl FnOnce(&DiagnosticsInner) -> T) -> Option<T> {
-    DIAGNOSTICS.get().map(|cell| {
-        let guard = cell.read();
-        f(&*guard)
-    })
 }
 
 fn with_diag_mut<T>(f: impl FnOnce(&mut DiagnosticsInner) -> T) -> Option<T> {
@@ -526,7 +543,9 @@ pub fn end_frame(stats: FrameStats) {
 /// automatically timestamped and tagged with the current frame number.
 pub fn emit(category: DiagCategory, level: DiagLevel, event: DiagEventKind) {
     let _ = with_diag_mut(|d| {
-        if !d.should_emit(&category, level) { return; }
+        if !d.should_emit(&category, level) {
+            return;
+        }
         let ts = d.timestamp_ns.fetch_add(1, Ordering::Relaxed) + 1;
         let fno = d.frame_no.load(Ordering::Relaxed);
         let ev = DiagEvent {
@@ -543,14 +562,19 @@ pub fn emit(category: DiagCategory, level: DiagLevel, event: DiagEventKind) {
 
 /// Convenience re-exports for common diagnostic operations.
 pub mod prelude {
-    pub use super::{begin_frame, end_frame, emit, DiagCategory, DiagEventKind, DiagLevel, FrameStats, init_from_env};
+    pub use super::{
+        begin_frame, emit, end_frame, init_from_env, DiagCategory, DiagEventKind, DiagLevel,
+        FrameStats,
+    };
 }
 
 // --------- Snapshot Provider (v1 minimal) ---------
 
 /// The type of snapshot that a [`SnapshotProvider`] can produce.
 #[derive(Debug, Clone, Copy)]
-pub enum SnapshotKind { Layout }
+pub enum SnapshotKind {
+    Layout,
+}
 
 /// A serialized snapshot blob containing JSON data.
 #[derive(Debug, Clone)]

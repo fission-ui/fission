@@ -1,9 +1,6 @@
-use crate::stack::{HStack, VStack};
+use crate::stack::HStack;
 use crate::{flyout, Icon, Menu, MenuItem};
-use fission_core::op::{BoxShadow, Color};
-use fission_core::ui::{
-    Button, ButtonContentAlign, ButtonVariant, Container, Node, Positioned, Row, Text, TextContent,
-};
+use fission_core::ui::{Button, ButtonContentAlign, ButtonVariant, Node, Text};
 use fission_core::{ActionEnvelope, BuildCtx, NodeId, View, Widget, WidgetNodeId};
 use fission_icons::material;
 use serde::{Deserialize, Serialize};
@@ -126,7 +123,11 @@ impl<S: fission_core::AppState> Widget<S> for Select {
             .build(ctx, view);
 
             let flyout_node = flyout(anchor_id, menu);
-            ctx.register_portal_with_layer(fission_core::PortalLayer::Flyout, Some(self.id), flyout_node);
+            ctx.register_portal_with_layer(
+                fission_core::PortalLayer::Flyout,
+                Some(self.id),
+                flyout_node,
+            );
         }
 
         trigger

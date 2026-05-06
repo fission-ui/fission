@@ -1,10 +1,12 @@
 use crate::stack::HStack;
-use fission_core::ui::{Container, Node};
+use fission_core::ui::{Composite, Container, Node};
 use fission_core::{
     AnimationPropertyId, AnimationRequest, AnimationStartValue, BuildCtx, View, Widget,
     WidgetNodeId,
 };
 use serde::{Deserialize, Serialize};
+
+const LOW_PRIORITY_REPEAT_FRAME_MS: u64 = 166;
 
 /// A three-dot animated loading indicator.
 ///
@@ -20,6 +22,8 @@ use serde::{Deserialize, Serialize};
 pub struct Spinner {
     pub id: WidgetNodeId,
     pub color: Option<fission_core::op::Color>,
+    #[serde(default = "spinner_default_animated")]
+    pub animated: bool,
 }
 
 impl<S: fission_core::AppState> Widget<S> for Spinner {
@@ -40,28 +44,31 @@ impl<S: fission_core::AppState> Widget<S> for Spinner {
             let sub_id_u128 = self.id.as_u128() ^ (i as u128 + 1);
             let sub_id = WidgetNodeId::from_u128(sub_id_u128);
 
-            // Request Animation
-            ctx.anim_for(sub_id).request(AnimationRequest {
-                property: AnimationPropertyId::Opacity,
-                from: AnimationStartValue::Explicit(0.3),
-                to: 1.0,
-                duration_ms: 600,
-                repeat: true,
-                delay_ms: i as u64 * 200,
-            });
+            let dot = Container::new(fission_core::ui::Row::default().into())
+                .size(dot_size, dot_size)
+                .bg(color)
+                .border_radius(dot_size / 2.0)
+                .into_node();
+            let boundary = Composite::new(dot).repaint_boundary(true).into_node();
 
-            // Apply animated value
-            let opacity = view.animation_value(sub_id, &AnimationPropertyId::Opacity);
-            let mut dot_color = color;
-            dot_color.a = (opacity * 255.0) as u8;
-
-            dots.push(
-                Container::new(fission_core::ui::Row::default().into())
-                    .size(dot_size, dot_size)
-                    .bg(dot_color)
-                    .border_radius(dot_size / 2.0)
-                    .into_node(),
-            );
+            let node = if self.animated {
+                ctx.anim_for(sub_id).request(AnimationRequest {
+                    property: AnimationPropertyId::Opacity,
+                    from: AnimationStartValue::Explicit(0.3),
+                    to: 1.0,
+                    duration_ms: 600,
+                    repeat: true,
+                    delay_ms: i as u64 * 200,
+                    frame_interval_ms: Some(LOW_PRIORITY_REPEAT_FRAME_MS),
+                    easing: Default::default(),
+                });
+                Composite::new(boundary)
+                    .animated_opacity(sub_id, 0.3)
+                    .into_node()
+            } else {
+                boundary
+            };
+            dots.push(node);
         }
 
         HStack {
@@ -70,4 +77,8 @@ impl<S: fission_core::AppState> Widget<S> for Spinner {
         }
         .build(ctx, view)
     }
+}
+
+const fn spinner_default_animated() -> bool {
+    true
 }

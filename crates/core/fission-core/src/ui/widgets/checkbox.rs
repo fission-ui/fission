@@ -2,7 +2,7 @@ use crate::lowering::{LoweringContext, NodeBuilder};
 use crate::ui::traits::Lower;
 use crate::ActionEnvelope;
 use fission_ir::{
-    op::{Color, Fill, LayoutOp, Op, PaintOp, Stroke},
+    op::{LayoutOp, Op, PaintOp},
     NodeId,
 };
 use serde::{Deserialize, Serialize};
@@ -56,7 +56,7 @@ impl Lower for Checkbox {
 
         // Square indicator
         let square_id = cx.next_node_id();
-        
+
         let bg_paint = if self.checked {
             Op::Paint(PaintOp::DrawRect {
                 fill: Some(fission_ir::op::Fill::Solid(active_color)),
@@ -79,63 +79,117 @@ impl Lower for Checkbox {
             })
         };
         let bg_node = NodeBuilder::new(cx.next_node_id(), bg_paint).build(cx);
-        
+
         // Checkmark
         let check_node = if self.checked {
-            let check = NodeBuilder::new(cx.next_node_id(), Op::Paint(PaintOp::DrawRect {
-                fill: Some(fission_ir::op::Fill::Solid(tokens.colors.on_primary)),
-                stroke: None,
-                corner_radius: 1.0,
-                shadow: None,
-            })).build(cx);
-            let mut check_box = NodeBuilder::new(cx.next_node_id(), Op::Layout(LayoutOp::Box {
-                width: Some(10.0), height: Some(10.0), 
-                min_width: None, max_width: None, min_height: None, max_height: None, padding: [0.0;4],
-                flex_grow: 0.0, flex_shrink: 0.0,
-                aspect_ratio: None,
-            }));
+            let check = NodeBuilder::new(
+                cx.next_node_id(),
+                Op::Paint(PaintOp::DrawRect {
+                    fill: Some(fission_ir::op::Fill::Solid(tokens.colors.on_primary)),
+                    stroke: None,
+                    corner_radius: 1.0,
+                    shadow: None,
+                }),
+            )
+            .build(cx);
+            let mut check_box = NodeBuilder::new(
+                cx.next_node_id(),
+                Op::Layout(LayoutOp::Box {
+                    width: Some(10.0),
+                    height: Some(10.0),
+                    min_width: None,
+                    max_width: None,
+                    min_height: None,
+                    max_height: None,
+                    padding: [0.0; 4],
+                    flex_grow: 0.0,
+                    flex_shrink: 0.0,
+                    aspect_ratio: None,
+                }),
+            );
             check_box.add_child(check);
             let check_box_id = check_box.build(cx);
             let mut align = NodeBuilder::new(cx.next_node_id(), Op::Layout(LayoutOp::Align));
             align.add_child(check_box_id);
             Some(align.build(cx))
-        } else { None };
+        } else {
+            None
+        };
 
         let mut square_box = NodeBuilder::new(
             square_id,
-            Op::Layout(LayoutOp::Box { width: Some(size), height: Some(size), min_width: None, max_width: None, min_height: None, max_height: None, padding: [0.0; 4], flex_grow: 0.0, flex_shrink: 0.0, aspect_ratio: None }),
+            Op::Layout(LayoutOp::Box {
+                width: Some(size),
+                height: Some(size),
+                min_width: None,
+                max_width: None,
+                min_height: None,
+                max_height: None,
+                padding: [0.0; 4],
+                flex_grow: 0.0,
+                flex_shrink: 0.0,
+                aspect_ratio: None,
+            }),
         );
         square_box.add_child(bg_node);
-        if let Some(c) = check_node { square_box.add_child(c); }
+        if let Some(c) = check_node {
+            square_box.add_child(c);
+        }
         let square_final = square_box.build(cx);
 
         // Label
         let label_id = if let Some(text) = &self.label {
             let text_id = NodeBuilder::new(
                 cx.next_node_id(),
-                Op::Paint(PaintOp::DrawText { 
-                    text: text.clone(), 
-                    size: tokens.typography.body_medium_size, 
-                    color: text_color, 
-                    underline: false, 
-                    caret_index: None 
+                Op::Paint(PaintOp::DrawText {
+                    text: text.clone(),
+                    size: tokens.typography.body_medium_size,
+                    color: text_color,
+                    underline: false,
+                    wrap: false,
+                    caret_index: None,
                 }),
-            ).build(cx);
+            )
+            .build(cx);
             let mut layout = NodeBuilder::new(
                 cx.next_node_id(),
-                Op::Layout(LayoutOp::Box { width: None, height: None, min_width: None, max_width: None, min_height: None, max_height: None, padding: [tokens.spacing.s, 0.0, 0.0, 0.0], flex_grow: 0.0, flex_shrink: 0.0, aspect_ratio: None }), 
+                Op::Layout(LayoutOp::Box {
+                    width: None,
+                    height: None,
+                    min_width: None,
+                    max_width: None,
+                    min_height: None,
+                    max_height: None,
+                    padding: [tokens.spacing.s, 0.0, 0.0, 0.0],
+                    flex_grow: 0.0,
+                    flex_shrink: 0.0,
+                    aspect_ratio: None,
+                }),
             );
             layout.add_child(text_id);
             Some(layout.build(cx))
-        } else { None };
+        } else {
+            None
+        };
 
         let layout_id = cx.next_node_id();
         let mut row = NodeBuilder::new(
             layout_id,
-            Op::Layout(LayoutOp::Flex { direction: fission_ir::FlexDirection::Row, wrap: fission_ir::op::FlexWrap::NoWrap, flex_grow: 0.0, flex_shrink: 1.0, padding: [0.0; 4], gap: Some(8.0), align_items: fission_ir::op::AlignItems::Center, justify_content: fission_ir::op::JustifyContent::Start }),
+            Op::Layout(LayoutOp::Flex {
+                direction: fission_ir::FlexDirection::Row,
+                wrap: fission_ir::op::FlexWrap::NoWrap,
+                flex_grow: 0.0,
+                flex_shrink: 1.0,
+                padding: [0.0; 4],
+                gap: Some(8.0),
+                align_items: fission_ir::op::AlignItems::Center,
+                justify_content: fission_ir::op::JustifyContent::Start,
+            }),
         );
         row.add_child(square_final);
-        if let Some(l) = label_id { row.add_child(l); }
+        if let Some(l) = label_id {
+            row.add_child(l);
+        }
         row.build(cx);
 
         cx.pop_scope();
@@ -143,7 +197,11 @@ impl Lower for Checkbox {
         let mut semantics = fission_ir::Semantics {
             role: fission_ir::Role::Checkbox,
             label: self.label.clone(),
-            value: Some(if self.checked { "true".into() } else { "false".into() }),
+            value: Some(if self.checked {
+                "true".into()
+            } else {
+                "false".into()
+            }),
             actions: Default::default(),
             focusable: true,
             multiline: false,
@@ -162,16 +220,18 @@ impl Lower for Checkbox {
             is_focus_barrier: false,
             drag_payload: None,
             hero_tag: None,
-            focus_index: None, capture_tab: false, auto_indent: false,
+            focus_index: None,
+            capture_tab: false,
+            auto_indent: false,
         };
         if let Some(action) = &self.on_toggle {
-             semantics.actions.entries.push(fission_ir::ActionEntry { 
-                 trigger: fission_ir::semantics::ActionTrigger::Default,
-                 action_id: action.id.as_u128(), 
-                 payload_data: Some(action.payload.clone()) 
-             });
+            semantics.actions.entries.push(fission_ir::ActionEntry {
+                trigger: fission_ir::semantics::ActionTrigger::Default,
+                action_id: action.id.as_u128(),
+                payload_data: Some(action.payload.clone()),
+            });
         }
-        
+
         let mut sem_node = NodeBuilder::new(id, Op::Semantics(semantics));
         sem_node.add_child(layout_id);
         sem_node.build(cx)

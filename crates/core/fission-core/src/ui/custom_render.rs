@@ -92,6 +92,18 @@ impl CustomEventResult {
 /// Implementors are stored behind `Arc<dyn CustomRenderObject>` so they must
 /// be `Send + Sync`.  The trait is object-safe.
 pub trait CustomRenderObject: Send + Sync + Debug {
+    /// Whether this render object should be treated as runtime-dynamic by the
+    /// retained pipeline even when the surrounding widget tree is otherwise
+    /// static.
+    fn is_runtime_dynamic(&self) -> bool {
+        false
+    }
+
+    /// Whether this custom render object participates in text input / IME.
+    fn accepts_text_input(&self) -> bool {
+        false
+    }
+
     /// Hit-test the custom content.
     ///
     /// `local_point` is relative to the top-left corner of the node's layout
@@ -124,6 +136,16 @@ pub trait CustomRenderObject: Send + Sync + Debug {
         CustomEventResult::ignored()
     }
 
+    /// Platform IME cursor area for this render object, in absolute layout coordinates.
+    fn ime_cursor_area(&self, _node_rect: LayoutRect) -> Option<LayoutRect> {
+        None
+    }
+
+    /// Actions to dispatch if this render object loses focus.
+    fn blur_actions(&self, _node_id: NodeId) -> Vec<(NodeId, ActionEnvelope)> {
+        Vec::new()
+    }
+
     /// Produce paint operations for this custom content.
     ///
     /// The returned `PaintOp`s are appended to the display list at the
@@ -148,9 +170,7 @@ pub struct RenderObjectHolder(pub Arc<dyn CustomRenderObject>);
 /// `AnyRenderObject` stored in `CoreIR::custom_render_objects`.
 ///
 /// Returns `None` when the erased value is not a `RenderObjectHolder`.
-pub fn downcast_render_object(
-    any: &AnyRenderObject,
-) -> Option<&Arc<dyn CustomRenderObject>> {
+pub fn downcast_render_object(any: &AnyRenderObject) -> Option<&Arc<dyn CustomRenderObject>> {
     any.downcast_ref::<RenderObjectHolder>()
         .map(|holder| &holder.0)
 }

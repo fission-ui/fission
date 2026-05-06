@@ -1,13 +1,8 @@
 use anyhow::Result;
-use downcast_rs::Downcast;
-use fission_core::{
-    Action, ActionEnvelope, ActionId, AdvanceTo, AppState, CurrentTime, Runtime, Tick,
-    ADVANCE_TO_ACTION_ID, TICK_ACTION_ID,
-};
+use fission_core::{Action, ActionEnvelope, ActionId, AdvanceTo, AppState, Runtime, Tick};
 use fission_ir::NodeId;
 use lazy_static::lazy_static;
 use serde::{Deserialize, Serialize};
-use std::any::Any;
 
 // --- Test AppState --- //
 #[derive(Debug, Default, PartialEq, Eq, Serialize, Deserialize)]

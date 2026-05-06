@@ -1,59 +1,104 @@
 use anyhow::Result;
-use fission_core::ui::{Grid, GridItem, Node, TextInput};
-use fission_core::{BuildCtx, View, Widget, op::GridTrack, WidgetNodeId, NodeId};
-use fission_widgets::{HStack, VStack, MenuButton, MenuItem};
-use fission_shell_desktop::Pipeline;
 use fission_core::env::Env;
 use fission_core::lowering::LoweringContext;
+use fission_core::ui::{Grid, GridItem, Node, TextInput};
 use fission_core::Runtime;
-use fission_layout::{LayoutEngine, TextMeasurer, LineMetric};
-use fission_render::{DisplayList, Renderer};
+use fission_core::{op::GridTrack, BuildCtx, NodeId, View, Widget, WidgetNodeId};
+use fission_layout::{LayoutEngine, LineMetric, TextMeasurer};
+use fission_render::{RenderScene, Renderer};
+use fission_shell_desktop::Pipeline;
+use fission_widgets::{HStack, MenuButton, MenuItem, VStack};
 use std::sync::Arc;
 
 #[derive(Debug, Default, Clone)]
-struct AppState { open: bool }
+struct AppState {
+    open: bool,
+}
 impl fission_core::action::AppState for AppState {}
 
 struct MockRenderer;
 impl Renderer for MockRenderer {
-    fn render(&mut self, _dl: &DisplayList) -> Result<()> { Ok(()) }
+    fn render_scene(&mut self, _scene: &RenderScene) -> Result<()> {
+        Ok(())
+    }
 }
 
 struct MockMeasurer;
 impl TextMeasurer for MockMeasurer {
-    fn measure(&self, _text: &str, _font_size: f32, _available_width: Option<f32>) -> (f32, f32) { (80.0, 20.0) }
-    fn hit_test(&self, _text: &str, _font_size: f32, _available_width: Option<f32>, _x: f32, _y: f32) -> usize { 0 }
-    fn get_line_metrics(&self, _text: &str, _font_size: f32, _available_width: Option<f32>) -> Vec<LineMetric> { vec![] }
+    fn measure(&self, _text: &str, _font_size: f32, _available_width: Option<f32>) -> (f32, f32) {
+        (80.0, 20.0)
+    }
+    fn hit_test(
+        &self,
+        _text: &str,
+        _font_size: f32,
+        _available_width: Option<f32>,
+        _x: f32,
+        _y: f32,
+    ) -> usize {
+        0
+    }
+    fn get_line_metrics(
+        &self,
+        _text: &str,
+        _font_size: f32,
+        _available_width: Option<f32>,
+    ) -> Vec<LineMetric> {
+        vec![]
+    }
 }
 
 struct Root;
 impl Widget<AppState> for Root {
     fn build(&self, ctx: &mut BuildCtx<AppState>, view: &View<AppState>) -> Node {
         Grid {
-            columns: vec![GridTrack::Points(220.0), GridTrack::Points(380.0), GridTrack::Fr(1.0)],
+            columns: vec![
+                GridTrack::Points(220.0),
+                GridTrack::Points(380.0),
+                GridTrack::Fr(1.0),
+            ],
             rows: vec![GridTrack::Fr(1.0)],
-            children: vec![
-                GridItem::new(
-                    VStack { spacing: Some(0.0), children: vec![
-                        HStack { spacing: Some(8.0), children: vec![
-                            TextInput { width: Some(200.0), ..Default::default() }.into(),
-                    MenuButton {
-                        id: WidgetNodeId::explicit("test_menu"),
-                        label: "Filter".into(),
-                        is_open: true,
-                        on_toggle: None,
-                        items: vec![
-                            MenuItem { label: "All".into(), icon: None, on_select: None },
-                            MenuItem { label: "Unread".into(), icon: None, on_select: None },
+            children: vec![GridItem::new(
+                VStack {
+                    spacing: Some(0.0),
+                    children: vec![HStack {
+                        spacing: Some(8.0),
+                        children: vec![
+                            TextInput {
+                                width: Some(200.0),
+                                ..Default::default()
+                            }
+                            .into(),
+                            MenuButton {
+                                id: WidgetNodeId::explicit("test_menu"),
+                                label: "Filter".into(),
+                                is_open: true,
+                                on_toggle: None,
+                                items: vec![
+                                    MenuItem {
+                                        label: "All".into(),
+                                        icon: None,
+                                        on_select: None,
+                                    },
+                                    MenuItem {
+                                        label: "Unread".into(),
+                                        icon: None,
+                                        on_select: None,
+                                    },
+                                ],
+                            }
+                            .build(ctx, view),
                         ],
                     }
-                    .build(ctx, view),
-                        ]}.build(ctx, view),
-                    ]}.build(ctx, view)
-                ).cell(1, 2).into(),
-            ],
+                    .build(ctx, view)],
+                }
+                .build(ctx, view),
+            )
+            .cell(1, 2)
+            .into()],
             ..Default::default()
-        }.into()
+        }
+        .into()
     }
 }
 
@@ -64,11 +109,16 @@ fn menu_portal_position_near_anchor() -> Result<()> {
     runtime.add_app_state(Box::new(AppState { open: false }))?;
     let mut layout = LayoutEngine::new().with_measurer(Arc::new(MockMeasurer));
     let mut pipe = Pipeline::new();
-    
+
     // Frame 1: closed (to capture anchor rect)
     let (node_tree, portals) = {
         let state = runtime.get_app_state::<AppState>().unwrap();
-        let view = View::new(state, &runtime.runtime_state, &env, pipe.last_snapshot.as_ref());
+        let view = View::new(
+            state,
+            &runtime.runtime_state,
+            &env,
+            pipe.last_snapshot.as_ref(),
+        );
         let mut ctx = BuildCtx::new();
         let node = Root.build(&mut ctx, &view);
         let portals_with_ids = ctx.take_portals();
@@ -76,11 +126,12 @@ fn menu_portal_position_near_anchor() -> Result<()> {
             .into_iter()
             .map(|(id, node)| {
                 if let Some(id) = id {
-                    fission_core::ui::Container::new(node).id(id.into()).into_node()
+                    fission_core::ui::Container::new(node)
+                        .id(id.into())
+                        .into_node()
                 } else {
                     node
                 }
-
             })
             .collect();
         (node, portals)
@@ -102,13 +153,21 @@ fn menu_portal_position_near_anchor() -> Result<()> {
     };
 
     // Lower + layout
-    let mut cx = LoweringContext::new(&env, &runtime.runtime_state, None, pipe.last_snapshot.as_ref());
+    let mut cx = LoweringContext::new(
+        &env,
+        &runtime.runtime_state,
+        None,
+        pipe.last_snapshot.as_ref(),
+    );
     let root_id = final_root.lower(&mut cx);
     cx.ir.root = Some(root_id);
     let ir = cx.ir;
 
     // Layout
-    let viewport = fission_layout::LayoutSize { width: 1024.0, height: 768.0 };
+    let viewport = fission_layout::LayoutSize {
+        width: 1024.0,
+        height: 768.0,
+    };
     let env = fission_core::env::Env::default();
     let _ = pipe.render(
         ir.clone(),
@@ -121,8 +180,7 @@ fn menu_portal_position_near_anchor() -> Result<()> {
         &env,
     )?;
 
-
-    let snap = pipe.last_snapshot.clone().expect("snapshot");
+    let _snap = pipe.last_snapshot.clone().expect("snapshot");
 
     // Frame 2: open (should register a portal positioned by the previous snapshot rect)
     {
@@ -133,7 +191,12 @@ fn menu_portal_position_near_anchor() -> Result<()> {
 
         let (node_tree, portals) = {
             let state = runtime.get_app_state::<AppState>().unwrap();
-            let view = View::new(state, &runtime.runtime_state, &env, pipe.last_snapshot.as_ref());
+            let view = View::new(
+                state,
+                &runtime.runtime_state,
+                &env,
+                pipe.last_snapshot.as_ref(),
+            );
             let mut ctx = BuildCtx::new();
             let node = Root.build(&mut ctx, &view);
             let portals_with_ids = ctx.take_portals();
@@ -141,11 +204,12 @@ fn menu_portal_position_near_anchor() -> Result<()> {
                 .into_iter()
                 .map(|(id, node)| {
                     if let Some(id) = id {
-                        fission_core::ui::Container::new(node).id(id.into()).into_node()
+                        fission_core::ui::Container::new(node)
+                            .id(id.into())
+                            .into_node()
                     } else {
                         node
                     }
-
                 })
                 .collect();
             (node, portals)
@@ -165,7 +229,12 @@ fn menu_portal_position_near_anchor() -> Result<()> {
             })
         };
 
-        let mut cx = LoweringContext::new(&env, &runtime.runtime_state, None, pipe.last_snapshot.as_ref());
+        let mut cx = LoweringContext::new(
+            &env,
+            &runtime.runtime_state,
+            None,
+            pipe.last_snapshot.as_ref(),
+        );
         let root_id = final_root.lower(&mut cx);
         cx.ir.root = Some(root_id);
         let ir2 = cx.ir;
@@ -182,7 +251,6 @@ fn menu_portal_position_near_anchor() -> Result<()> {
             &env,
         )?;
 
-
         let snap2 = pipe.last_snapshot.clone().expect("snapshot2");
 
         let widget_id = WidgetNodeId::explicit("test_menu");
@@ -193,7 +261,11 @@ fn menu_portal_position_near_anchor() -> Result<()> {
         let mut flyout_xs = Vec::new();
         let mut flyout_ys = Vec::new();
         for (_id, n) in &ir2.nodes {
-            if let fission_ir::Op::Layout(fission_ir::LayoutOp::Flyout { anchor: _a, content }) = n.op {
+            if let fission_ir::Op::Layout(fission_ir::LayoutOp::Flyout {
+                anchor: _a,
+                content,
+            }) = n.op
+            {
                 if let Some(r) = snap2.get_node_rect(content) {
                     flyout_xs.push(r.x());
                     flyout_ys.push(r.y());
@@ -203,7 +275,9 @@ fn menu_portal_position_near_anchor() -> Result<()> {
         assert!(!flyout_xs.is_empty(), "no flyout nodes in IR (frame 2)");
 
         // X should match anchor's left within tolerance
-        let ok_x = flyout_xs.iter().any(|x| (*x - anchor_rect.x()).abs() < 20.0);
+        let ok_x = flyout_xs
+            .iter()
+            .any(|x| (*x - anchor_rect.x()).abs() < 20.0);
         if !ok_x {
             eprintln!("anchor_x={}, flyout_xs={:?}", anchor_rect.x(), flyout_xs);
         }

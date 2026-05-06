@@ -10,8 +10,8 @@ pub struct MyTestAppAction {
 
 #[test]
 fn test_derive_action_id_stability() {
-    let action1 = MyTestAppAction { value: 1 };
-    let action2 = MyTestAppAction { value: 2 };
+    let _action1 = MyTestAppAction { value: 1 };
+    let _action2 = MyTestAppAction { value: 2 };
 
     // ID should be static
     assert_eq!(MyTestAppAction::static_id(), MyTestAppAction::static_id());

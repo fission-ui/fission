@@ -1,0 +1,19 @@
+[package]
+name = "animation-gallery"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+fission = { path = "../../crates/authoring/fission" }
+fission-core = { path = "../../crates/core/fission-core" }
+fission-ir = { path = "../../crates/core/fission-ir" }
+fission-macros = { path = "../../crates/authoring/fission-macros" }
+fission-shell-desktop = { path = "../../crates/shell/fission-shell-desktop" }
+fission-widgets = { path = "../../crates/authoring/fission-widgets" }
+lazy_static = "1.4"
+serde = { version = "1.0", features = ["derive"] }
+anyhow = "1.0"
+
+[dev-dependencies]
+fission-test-driver = { path = "../../crates/tools/fission-test-driver" }
+image = "0.25"

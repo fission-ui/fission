@@ -3,9 +3,9 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PieSeries {
     pub name: String,
-    pub data: Vec<(String, f32)>, // Label, value
+    pub data: Vec<(String, f32)>,  // Label, value
     pub rose_type: Option<String>, // "radius" or "area"
-    pub inner_radius: f32, // for donut charts
+    pub inner_radius: f32,         // for donut charts
 }
 
 impl PieSeries {
@@ -17,7 +17,7 @@ impl PieSeries {
             inner_radius: 0.0,
         }
     }
-    
+
     pub fn data(mut self, data: Vec<(&str, f32)>) -> Self {
         self.data = data.into_iter().map(|(l, v)| (l.into(), v)).collect();
         self

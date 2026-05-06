@@ -22,21 +22,56 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "cmd")]
 pub enum TestCommand {
-    Tap { x: f32, y: f32 },
-    TapText { text: String },
-    Scroll { x: f32, y: f32, dx: f32, dy: f32 },
-    TypeText { text: String },
-    PressKey { key: String, modifiers: u8 },
-    Screenshot { path: String },
+    Tap {
+        x: f32,
+        y: f32,
+    },
+    Drag {
+        start_x: f32,
+        start_y: f32,
+        end_x: f32,
+        end_y: f32,
+        steps: u32,
+    },
+    TapText {
+        text: String,
+    },
+    Scroll {
+        x: f32,
+        y: f32,
+        dx: f32,
+        dy: f32,
+    },
+    TypeText {
+        text: String,
+    },
+    PressKey {
+        key: String,
+        modifiers: u8,
+    },
+    Screenshot {
+        path: String,
+    },
     GetText {},
     GetTree {},
-    Wait { ms: u64 },
+    Wait {
+        ms: u64,
+    },
     Pump {},
     Quit {},
     // NEW: simulate real winit-level events for realistic testing
-    SimulateMouseMove { x: f32, y: f32 },
-    SimulateRightClick { x: f32, y: f32 },
-    SimulateResize { width: u32, height: u32 },
+    SimulateMouseMove {
+        x: f32,
+        y: f32,
+    },
+    SimulateRightClick {
+        x: f32,
+        y: f32,
+    },
+    SimulateResize {
+        width: u32,
+        height: u32,
+    },
 }
 
 /// Events injected into the winit event loop via `EventLoopProxy`.
@@ -50,25 +85,59 @@ pub enum TestCommand {
 #[derive(Debug, Clone)]
 pub enum TestEvent {
     // --- Input simulation (mirrors winit WindowEvents) ---
-    MouseMove { x: f32, y: f32 },
-    MouseDown { x: f32, y: f32, button: u8 },   // 0=left, 1=right, 2=middle
-    MouseUp { x: f32, y: f32, button: u8 },
-    KeyDown { key_code: String, modifiers: u8 },
-    KeyUp { key_code: String, modifiers: u8 },
-    TextInput { text: String },
-    Scroll { x: f32, y: f32, dx: f32, dy: f32 },
-    Resize { width: u32, height: u32 },
+    MouseMove {
+        x: f32,
+        y: f32,
+    },
+    MouseDown {
+        x: f32,
+        y: f32,
+        button: u8,
+    }, // 0=left, 1=right, 2=middle
+    MouseUp {
+        x: f32,
+        y: f32,
+        button: u8,
+    },
+    KeyDown {
+        key_code: String,
+        modifiers: u8,
+    },
+    KeyUp {
+        key_code: String,
+        modifiers: u8,
+    },
+    TextInput {
+        text: String,
+    },
+    Scroll {
+        x: f32,
+        y: f32,
+        dx: f32,
+        dy: f32,
+    },
+    Resize {
+        width: u32,
+        height: u32,
+    },
     // --- Queries / control (need response channel) ---
-    Screenshot { path: String },
+    Screenshot {
+        path: String,
+    },
     GetText,
     GetTree,
     Pump,
+    Wake,
     Quit,
     /// Internal: TapText resolves a text label to coordinates; the server
     /// injects this so the main loop can do the lookup with access to the IR.
-    TapText { text: String },
+    TapText {
+        text: String,
+    },
     /// Internal: Wait is handled server-side (sleep) then responds.
-    Wait { ms: u64 },
+    Wait {
+        ms: u64,
+    },
 }
 
 /// A visible text element with its bounding rectangle, returned by [`TestCommand::GetText`].
@@ -174,6 +243,25 @@ impl LiveTestClient {
             text: text.to_string(),
         })?;
         // Pump after to render the result of the tap
+        self.pump()?;
+        Ok(())
+    }
+
+    pub fn drag(
+        &self,
+        start_x: f32,
+        start_y: f32,
+        end_x: f32,
+        end_y: f32,
+        steps: u32,
+    ) -> Result<()> {
+        self.send(TestCommand::Drag {
+            start_x,
+            start_y,
+            end_x,
+            end_y,
+            steps,
+        })?;
         self.pump()?;
         Ok(())
     }

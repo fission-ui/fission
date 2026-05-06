@@ -145,10 +145,10 @@ impl MenuBar {
             s.active_menu = None;
         }) as Handler<EditorState, GoToDefinition>);
 
-        let about = ctx.bind(Noop, (|s: &mut EditorState, _, _| {
-            s.status_message = Some("Fission Editor v0.1.0 — Built with Fission UI Framework".into());
+        let about = ctx.bind(ShowMenuStatus("Fission Editor v0.1.0 — Built with Fission UI Framework".into()), (|s: &mut EditorState, a: ShowMenuStatus, _| {
+            s.status_message = Some(a.0);
             s.active_menu = None;
-        }) as Handler<EditorState, Noop>);
+        }) as Handler<EditorState, ShowMenuStatus>);
 
         let undo_action = ctx.bind(Undo, (|s: &mut EditorState, _, _| {
             s.undo_active();

@@ -2,7 +2,6 @@ use crate::popover::Popover;
 use crate::stack::VStack;
 use fission_core::ui::{Button, ButtonVariant, Container, Node, Scroll, Text, TextInput};
 use fission_core::{ActionEnvelope, BuildCtx, NodeId, View, Widget, WidgetNodeId};
-use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
 /// A searchable dropdown that combines a text input with a filterable item list.
@@ -111,7 +110,9 @@ impl<S: fission_core::AppState> Widget<S> for Combobox {
             .width(popup_width + 8.0)
             .height(popup_height + 8.0)
             .padding_all(4.0)
-            .bg(tokens.colors.surface);
+            .bg(tokens.colors.surface)
+            .border(tokens.colors.border, 1.0)
+            .border_radius(tokens.radii.medium);
 
             if let Some(s) = tokens.elevations.level2 {
                 c = c.shadow(s);

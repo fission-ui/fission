@@ -1,5 +1,7 @@
-use fission_layout::{TextMeasurer, LineMetric};
-use fission_ir::op::{TextRun, LayoutUnit};
+use fission_diagnostics::prelude as diag;
+use fission_ir::op::TextRun;
+use fission_layout::{LineMetric, TextMeasurer};
+use fission_render::TextStyle as RenderTextStyle;
 use parley::layout::{Layout, PositionedLayoutItem};
 use parley::style::{FontStack, StyleProperty};
 use parley::{FontContext, LayoutContext};
@@ -7,14 +9,14 @@ use std::borrow::Cow;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
-use fission_render::TextStyle as RenderTextStyle;
-use fission_diagnostics::prelude as diag;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct ParleyBrush(pub [u8; 4]);
 
 impl Default for ParleyBrush {
-    fn default() -> Self { Self([0, 0, 0, 255]) }
+    fn default() -> Self {
+        Self([0, 0, 0, 255])
+    }
 }
 
 const SIMPLE_CACHE_CAP: usize = 4096;
@@ -59,7 +61,10 @@ impl VelloTextMeasurer {
         }
     }
 
-    pub fn new_with_default_family(font_cx: Arc<Mutex<FontContext>>, family: impl Into<String>) -> Self {
+    pub fn new_with_default_family(
+        font_cx: Arc<Mutex<FontContext>>,
+        family: impl Into<String>,
+    ) -> Self {
         Self {
             font_cx,
             layout_cx: Mutex::new(LayoutContext::new()),
@@ -77,7 +82,12 @@ impl VelloTextMeasurer {
         width.map(|w| ((w * 4.0).round() / 4.0).to_bits())
     }
 
-    pub fn get_layout(&self, text: &str, font_size: f32, width: Option<f32>) -> Arc<Layout<ParleyBrush>> {
+    pub fn get_layout(
+        &self,
+        text: &str,
+        font_size: f32,
+        width: Option<f32>,
+    ) -> Arc<Layout<ParleyBrush>> {
         let start = Instant::now();
         let cache_key = (font_size.to_bits(), Self::width_bits(width));
 
@@ -92,17 +102,19 @@ impl VelloTextMeasurer {
 
         let mut font_cx = self.font_cx.lock().unwrap();
         let mut layout_cx = self.layout_cx.lock().unwrap();
-        
+
         let mut builder = layout_cx.ranged_builder(&mut font_cx, text, 1.0, false);
-        
+
         builder.push_default(StyleProperty::FontSize(font_size));
-        builder.push_default(StyleProperty::FontStack(FontStack::Source(Cow::Owned(self.default_family.clone()))));
-        
+        builder.push_default(StyleProperty::FontStack(FontStack::Source(Cow::Owned(
+            self.default_family.clone(),
+        ))));
+
         let mut layout = builder.build(text);
         layout.break_all_lines(width);
-        
+
         let layout_arc = Arc::new(layout);
-        
+
         let mut cache = self.simple_cache.lock().unwrap();
         let total_entries: usize = cache.values().map(|bucket| bucket.len()).sum();
         if total_entries >= SIMPLE_CACHE_CAP {
@@ -117,7 +129,7 @@ impl VelloTextMeasurer {
             .entry(cache_key)
             .or_default()
             .insert(text.to_string(), layout_arc.clone());
-        
+
         let duration = start.elapsed().as_nanos() as u64;
         diag::emit(
             diag::DiagCategory::Paint,
@@ -223,15 +235,25 @@ impl VelloTextMeasurer {
         }
     }
 
-    pub fn layout_rich(&self, text: &str, base_size: f32, base_color: fission_render::Color, styles: &[(std::ops::Range<usize>, RenderTextStyle)], width: Option<f32>) -> Arc<Layout<ParleyBrush>> {
+    pub fn layout_rich(
+        &self,
+        text: &str,
+        base_size: f32,
+        base_color: fission_render::Color,
+        styles: &[(std::ops::Range<usize>, RenderTextStyle)],
+        width: Option<f32>,
+    ) -> Arc<Layout<ParleyBrush>> {
         let start = Instant::now();
-        let style_keys: Vec<RichStyleKey> = styles.iter().map(|(r, s)| RichStyleKey {
-            range: r.clone(),
-            font_size_bits: s.font_size.to_bits(),
-            color_rgba: [s.color.r, s.color.g, s.color.b, s.color.a],
-            underline: s.underline,
-            background_color: s.background_color.map(|c| [c.r, c.g, c.b, c.a]),
-        }).collect();
+        let style_keys: Vec<RichStyleKey> = styles
+            .iter()
+            .map(|(r, s)| RichStyleKey {
+                range: r.clone(),
+                font_size_bits: s.font_size.to_bits(),
+                color_rgba: [s.color.r, s.color.g, s.color.b, s.color.a],
+                underline: s.underline,
+                background_color: s.background_color.map(|c| [c.r, c.g, c.b, c.a]),
+            })
+            .collect();
 
         let cache_key = RichCacheKey {
             text: text.to_string(),
@@ -260,13 +282,15 @@ impl VelloTextMeasurer {
 
         let mut font_cx = self.font_cx.lock().unwrap();
         let mut layout_cx = self.layout_cx.lock().unwrap();
-        
+
         let mut builder = layout_cx.ranged_builder(&mut font_cx, text, 1.0, false);
         builder.push_default(StyleProperty::FontSize(base_size));
-        builder.push_default(StyleProperty::FontStack(FontStack::Source(Cow::Owned(self.default_family.clone()))));
+        builder.push_default(StyleProperty::FontStack(FontStack::Source(Cow::Owned(
+            self.default_family.clone(),
+        ))));
         let brush = ParleyBrush([base_color.r, base_color.g, base_color.b, base_color.a]);
         builder.push_default(StyleProperty::Brush(brush));
-        
+
         for (range, style) in styles {
             let brush = ParleyBrush([style.color.r, style.color.g, style.color.b, style.color.a]);
             builder.push(StyleProperty::Brush(brush), range.clone());
@@ -275,7 +299,7 @@ impl VelloTextMeasurer {
                 builder.push(StyleProperty::Underline(true), range.clone());
             }
         }
-        
+
         let mut layout = builder.build(text);
         layout.break_all_lines(width);
         let layout_arc = Arc::new(layout);
@@ -315,7 +339,7 @@ impl TextMeasurer for VelloTextMeasurer {
         if runs.is_empty() {
             return (0.0, 0.0);
         }
-        
+
         let start = Instant::now();
         let mut full_text = String::new();
         let mut styles = Vec::new();
@@ -335,7 +359,10 @@ impl TextMeasurer for VelloTextMeasurer {
                     },
                     underline: run.style.underline,
                     background_color: run.style.background_color.map(|c| fission_render::Color {
-                        r: c.r, g: c.g, b: c.b, a: c.a,
+                        r: c.r,
+                        g: c.g,
+                        b: c.b,
+                        a: c.a,
                     }),
                 },
             ));
@@ -343,18 +370,29 @@ impl TextMeasurer for VelloTextMeasurer {
         }
 
         let (base_size, base_color) = if let Some(first) = runs.first() {
-            (first.style.font_size, fission_render::Color {
-                r: first.style.color.r,
-                g: first.style.color.g,
-                b: first.style.color.b,
-                a: first.style.color.a,
-            })
+            (
+                first.style.font_size,
+                fission_render::Color {
+                    r: first.style.color.r,
+                    g: first.style.color.g,
+                    b: first.style.color.b,
+                    a: first.style.color.a,
+                },
+            )
         } else {
-            (16.0, fission_render::Color { r: 0, g: 0, b: 0, a: 255 })
+            (
+                16.0,
+                fission_render::Color {
+                    r: 0,
+                    g: 0,
+                    b: 0,
+                    a: 255,
+                },
+            )
         };
 
         let layout = self.layout_rich(&full_text, base_size, base_color, &styles, available_width);
-        
+
         let duration = start.elapsed().as_nanos() as u64;
         diag::emit(
             diag::DiagCategory::Paint,
@@ -414,7 +452,10 @@ impl TextMeasurer for VelloTextMeasurer {
                     },
                     underline: run.style.underline,
                     background_color: run.style.background_color.map(|c| fission_render::Color {
-                        r: c.r, g: c.g, b: c.b, a: c.a,
+                        r: c.r,
+                        g: c.g,
+                        b: c.b,
+                        a: c.a,
                     }),
                 },
             ));
@@ -422,14 +463,25 @@ impl TextMeasurer for VelloTextMeasurer {
         }
 
         let (base_size, base_color) = if let Some(first) = runs.first() {
-            (first.style.font_size, fission_render::Color {
-                r: first.style.color.r,
-                g: first.style.color.g,
-                b: first.style.color.b,
-                a: first.style.color.a,
-            })
+            (
+                first.style.font_size,
+                fission_render::Color {
+                    r: first.style.color.r,
+                    g: first.style.color.g,
+                    b: first.style.color.b,
+                    a: first.style.color.a,
+                },
+            )
         } else {
-            (13.0, fission_render::Color { r: 212, g: 212, b: 212, a: 255 })
+            (
+                13.0,
+                fission_render::Color {
+                    r: 212,
+                    g: 212,
+                    b: 212,
+                    a: 255,
+                },
+            )
         };
 
         let layout = self.layout_rich(&full_text, base_size, base_color, &styles, available_width);
@@ -438,7 +490,14 @@ impl TextMeasurer for VelloTextMeasurer {
         Self::hit_test_layout_impl(&full_text, &layout, x, y)
     }
 
-    fn hit_test(&self, text: &str, font_size: f32, available_width: Option<f32>, x: f32, y: f32) -> usize {
+    fn hit_test(
+        &self,
+        text: &str,
+        font_size: f32,
+        available_width: Option<f32>,
+        x: f32,
+        y: f32,
+    ) -> usize {
         if text.is_empty() {
             return 0;
         }
@@ -449,21 +508,35 @@ impl TextMeasurer for VelloTextMeasurer {
     /// Shared hit-test logic over any parley Layout (plain or rich).
     // hit_test_layout_impl is in impl VelloTextMeasurer (inherent block)
 
-    fn get_line_metrics(&self, text: &str, font_size: f32, available_width: Option<f32>) -> Vec<LineMetric> {
+    fn get_line_metrics(
+        &self,
+        text: &str,
+        font_size: f32,
+        available_width: Option<f32>,
+    ) -> Vec<LineMetric> {
         let layout = self.get_layout(text, font_size, available_width);
-        layout.lines().map(|line| {
-            let metrics = line.metrics();
-            LineMetric {
-                start_index: line.text_range().start,
-                end_index: line.text_range().end,
-                baseline: metrics.baseline,
-                height: metrics.line_height, 
-                width: metrics.advance, 
-            }
-        }).collect()
+        layout
+            .lines()
+            .map(|line| {
+                let metrics = line.metrics();
+                LineMetric {
+                    start_index: line.text_range().start,
+                    end_index: line.text_range().end,
+                    baseline: metrics.baseline,
+                    height: metrics.line_height,
+                    width: metrics.advance,
+                }
+            })
+            .collect()
     }
 
-    fn get_caret_position(&self, text: &str, font_size: f32, available_width: Option<f32>, caret_index: usize) -> (f32, f32) {
+    fn get_caret_position(
+        &self,
+        text: &str,
+        font_size: f32,
+        available_width: Option<f32>,
+        caret_index: usize,
+    ) -> (f32, f32) {
         if text.is_empty() {
             return (0.0, 0.0);
         }

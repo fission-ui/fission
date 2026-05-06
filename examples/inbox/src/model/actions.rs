@@ -1,7 +1,9 @@
+#![allow(dead_code)]
+
+use super::email::Folder;
+use chrono::NaiveDate;
 use fission_macros::Action;
 use serde::{Deserialize, Serialize};
-use super::email::{Folder, Email};
-use chrono::NaiveDate;
 
 #[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct SetPage(pub usize);

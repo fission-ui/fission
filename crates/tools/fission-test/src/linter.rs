@@ -1,6 +1,5 @@
-use fission_ir::{CoreIR, NodeId, Op, LayoutOp, PaintOp};
-use fission_layout::{LayoutSnapshot, LayoutRect};
-use std::collections::HashSet;
+use fission_ir::{CoreIR, LayoutOp, NodeId, Op};
+use fission_layout::{LayoutRect, LayoutSnapshot};
 
 #[derive(Debug)]
 pub enum LayoutViolation {
@@ -56,16 +55,20 @@ impl<'a> LayoutLinter<'a> {
 
             // Check Containment (if not Scroll or Overflow allowed)
             let allows_overflow = matches!(node.op, Op::Layout(LayoutOp::Scroll { .. }));
-            
+
             // Note: Absolute children (Positioned, AbsoluteFill) are relative to nearest positioned ancestor,
             // not necessarily direct parent. For simple checking, we might skip them or check against the appropriate ancestor.
             // For now, let's check direct flow children.
-            
+
             for child_id in &node.children {
-                if let Some(child_geom) = self.snapshot.get_node_geometry(*child_id) {
+                if let Some(_child_geom) = self.snapshot.get_node_geometry(*child_id) {
                     if let Some(child_node) = self.ir.nodes.get(child_id) {
-                        let is_absolute = matches!(child_node.op, Op::Layout(LayoutOp::Positioned { .. }) | Op::Layout(LayoutOp::AbsoluteFill));
-                        
+                        let is_absolute = matches!(
+                            child_node.op,
+                            Op::Layout(LayoutOp::Positioned { .. })
+                                | Op::Layout(LayoutOp::AbsoluteFill)
+                        );
+
                         if !allows_overflow && !is_absolute {
                             // Check if child is roughly inside parent (allow small float error)
                             // A child can be smaller than parent, but shouldn't exceed bounds unless allowed.

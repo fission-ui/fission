@@ -1,5 +1,5 @@
-use serde::{Deserialize, Serialize};
 use fission_core::op::Color;
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EffectScatterSeries {
@@ -16,7 +16,7 @@ impl EffectScatterSeries {
             color: Color::RED,
         }
     }
-    
+
     pub fn data(mut self, data: Vec<(f32, f32)>) -> Self {
         self.data = data;
         self

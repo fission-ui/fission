@@ -22,7 +22,11 @@ impl TextMeasurer for SimpleMeasurer {
         (width, line_height)
     }
 
-    fn measure_rich_text(&self, runs: &[fission_ir::op::TextRun], available_width: Option<f32>) -> (f32, f32) {
+    fn measure_rich_text(
+        &self,
+        runs: &[fission_ir::op::TextRun],
+        available_width: Option<f32>,
+    ) -> (f32, f32) {
         let text: String = runs.iter().map(|r| r.text.clone()).collect();
         self.measure(&text, 16.0, available_width)
     }
@@ -45,7 +49,12 @@ fn parent_map(ir: &CoreIR) -> HashMap<NodeId, NodeId> {
 fn find_boxes_by_size(ir: &CoreIR, width: f32, height: f32) -> Vec<NodeId> {
     let mut out = Vec::new();
     for (id, node) in &ir.nodes {
-        if let Op::Layout(LayoutOp::Box { width: Some(w), height: Some(h), .. }) = &node.op {
+        if let Op::Layout(LayoutOp::Box {
+            width: Some(w),
+            height: Some(h),
+            ..
+        }) = &node.op
+        {
             if approx_eq(*w, width) && approx_eq(*h, height) {
                 out.push(*id);
             }
@@ -68,18 +77,29 @@ fn layout_from_node(node: Node) -> (CoreIR, fission_layout::LayoutSnapshot) {
     let mut engine = LayoutEngine::new().with_measurer(measurer);
     engine.rebuild(&input_nodes).unwrap();
     let snapshot = engine
-        .compute_layout(&input_nodes, root_id, LayoutSize::new(200.0, 200.0), &|_| 0.0)
+        .compute_layout(
+            &input_nodes,
+            root_id,
+            LayoutSize::new(200.0, 200.0),
+            &|_| 0.0,
+        )
         .unwrap();
     (cx.ir, snapshot)
 }
 
 fn rect_center(rect: fission_layout::LayoutRect) -> (f32, f32) {
-    (rect.x() + rect.width() / 2.0, rect.y() + rect.height() / 2.0)
+    (
+        rect.x() + rect.width() / 2.0,
+        rect.y() + rect.height() / 2.0,
+    )
 }
 
 #[test]
 fn checkbox_checkmark_centered() {
-    let checkbox = Checkbox { checked: true, ..Default::default() };
+    let checkbox = Checkbox {
+        checked: true,
+        ..Default::default()
+    };
     let (ir, snapshot) = layout_from_node(checkbox.into_node());
     let parents = parent_map(&ir);
 
@@ -90,8 +110,11 @@ fn checkbox_checkmark_centered() {
     let mut current = Some(check_id);
     let mut square_id = None;
     while let Some(id) = current {
-        if let Op::Layout(LayoutOp::Box { width: Some(w), height: Some(h), .. }) =
-            &ir.nodes.get(&id).unwrap().op
+        if let Op::Layout(LayoutOp::Box {
+            width: Some(w),
+            height: Some(h),
+            ..
+        }) = &ir.nodes.get(&id).unwrap().op
         {
             if approx_eq(*w, 18.0) && approx_eq(*h, 18.0) {
                 square_id = Some(id);
@@ -108,12 +131,18 @@ fn checkbox_checkmark_centered() {
     let (sx, sy) = rect_center(square_rect);
     let (cx, cy) = rect_center(check_rect);
 
-    assert!(approx_eq(sx, cx) && approx_eq(sy, cy), "checkbox checkmark should be centered");
+    assert!(
+        approx_eq(sx, cx) && approx_eq(sy, cy),
+        "checkbox checkmark should be centered"
+    );
 }
 
 #[test]
 fn radio_dot_centered() {
-    let radio = Radio { checked: true, ..Default::default() };
+    let radio = Radio {
+        checked: true,
+        ..Default::default()
+    };
     let (ir, snapshot) = layout_from_node(radio.into_node());
     let parents = parent_map(&ir);
 
@@ -125,8 +154,11 @@ fn radio_dot_centered() {
     let mut current = Some(dot_id);
     let mut container_id = None;
     while let Some(id) = current {
-        if let Op::Layout(LayoutOp::Box { width: Some(w), height: Some(h), .. }) =
-            &ir.nodes.get(&id).unwrap().op
+        if let Op::Layout(LayoutOp::Box {
+            width: Some(w),
+            height: Some(h),
+            ..
+        }) = &ir.nodes.get(&id).unwrap().op
         {
             if approx_eq(*w, 18.0) && approx_eq(*h, 18.0) {
                 container_id = Some(id);
@@ -143,5 +175,8 @@ fn radio_dot_centered() {
     let (sx, sy) = rect_center(container_rect);
     let (cx, cy) = rect_center(dot_rect);
 
-    assert!(approx_eq(sx, cx) && approx_eq(sy, cy), "radio dot should be centered");
+    assert!(
+        approx_eq(sx, cx) && approx_eq(sy, cy),
+        "radio dot should be centered"
+    );
 }

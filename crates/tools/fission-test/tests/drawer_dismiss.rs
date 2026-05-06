@@ -1,7 +1,7 @@
 use anyhow::Result;
-use fission_core::{AppState, BuildCtx, View, Widget};
 use fission_core::event::{PointerButton, PointerEvent};
 use fission_core::ui::{Node, Text};
+use fission_core::{AppState, BuildCtx, View, Widget};
 use fission_test::TestHarness;
 use fission_widgets::{Drawer, DrawerSide};
 
@@ -11,7 +11,9 @@ struct State {
 }
 impl AppState for State {}
 
-#[derive(fission_macros::Action, serde::Serialize, serde::Deserialize, Debug, Clone, PartialEq, Eq)]
+#[derive(
+    fission_macros::Action, serde::Serialize, serde::Deserialize, Debug, Clone, PartialEq, Eq,
+)]
 struct DismissDrawer;
 
 #[test]
@@ -47,7 +49,10 @@ fn drawer_renders_content_and_backdrop_dismisses() -> Result<()> {
         if let fission_ir::Op::Paint(fission_ir::PaintOp::DrawText { text, .. }) = &node.op {
             if text == "Drawer content" {
                 let r = snap.get_node_rect(*id).unwrap();
-                assert!(r.width() > 0.0 && r.height() > 0.0, "drawer content has zero size");
+                assert!(
+                    r.width() > 0.0 && r.height() > 0.0,
+                    "drawer content has zero size"
+                );
                 found = true;
                 break;
             }
@@ -69,7 +74,10 @@ fn drawer_renders_content_and_backdrop_dismisses() -> Result<()> {
     h.pump()?;
 
     let state = h.runtime.get_app_state::<State>().unwrap();
-    assert!(!state.drawer_open, "drawer should dismiss via backdrop click");
+    assert!(
+        !state.drawer_open,
+        "drawer should dismiss via backdrop click"
+    );
 
     Ok(())
 }

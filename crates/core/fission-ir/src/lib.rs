@@ -10,8 +10,8 @@ use std::sync::Arc;
 
 pub use node_id::NodeId;
 pub use op::{
-    AlignItems, EmbedKind, FlexDirection, FlexWrap, GridPlacement, GridTrack, JustifyContent,
-    LayoutOp, Op, PaintOp, StructuralOp,
+    AlignItems, CompositeScalar, CompositeStyle, EmbedKind, FlexDirection, FlexWrap, GridPlacement,
+    GridTrack, JustifyContent, LayoutOp, Op, PaintOp, StructuralOp,
 };
 pub use semantics::{ActionEntry, ActionSet, Role, Semantics};
 pub use widget_id::WidgetNodeId;
@@ -22,6 +22,7 @@ pub const IR_VERSION: u32 = 1;
 pub struct CoreNode {
     pub id: NodeId,
     pub op: Op,
+    pub composite: CompositeStyle,
     pub children: Vec<NodeId>,
     pub parent: Option<NodeId>,
     pub hash: u64,
@@ -82,9 +83,20 @@ impl CoreIR {
     }
 
     pub fn add_node(&mut self, id: NodeId, op: Op, children: Vec<NodeId>) {
-        let mut core_node = CoreNode {
+        self.add_node_with_composite(id, op, CompositeStyle::default(), children);
+    }
+
+    pub fn add_node_with_composite(
+        &mut self,
+        id: NodeId,
+        op: Op,
+        composite: CompositeStyle,
+        children: Vec<NodeId>,
+    ) {
+        let core_node = CoreNode {
             id,
             op,
+            composite,
             children: children.clone(),
             parent: None,
             hash: 0,

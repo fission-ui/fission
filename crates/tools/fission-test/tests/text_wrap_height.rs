@@ -1,4 +1,4 @@
-use fission_core::ui::{Container, Row, Column, Text, Node};
+use fission_core::ui::{Column, Container, Node, Row, Text};
 use fission_core::{AppState, BuildCtx, View, Widget};
 use fission_test::TestHarness;
 
@@ -21,10 +21,12 @@ fn text_wrap_increases_layout_height() {
             Container::new(
                 Row::default()
                     .children(vec![
-                        Container::new(fission_core::ui::widgets::spacer::Spacer::default().into_node())
-                            .width(40.0)
-                            .height(40.0)
-                            .into_node(),
+                        Container::new(
+                            fission_core::ui::widgets::spacer::Spacer::default().into_node(),
+                        )
+                        .width(40.0)
+                        .height(40.0)
+                        .into_node(),
                         Container::new(
                             Column::default()
                                 .children(vec![

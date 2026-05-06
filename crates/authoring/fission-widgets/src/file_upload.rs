@@ -1,6 +1,6 @@
 use crate::stack::HStack;
 use crate::Icon;
-use fission_core::ui::{Button, ButtonVariant, Container, Node, Text};
+use fission_core::ui::{Button, ButtonVariant, Node, Text};
 use fission_core::{ActionEnvelope, BuildCtx, View, Widget};
 use fission_icons::material;
 use serde::{Deserialize, Serialize};

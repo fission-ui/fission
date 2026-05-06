@@ -57,7 +57,12 @@ fn make_box_node(
     }
 }
 
-fn make_text_node(id: u128, parent_id: NodeId, text: &str, max_width: Option<f32>) -> LayoutInputNode {
+fn make_text_node(
+    id: u128,
+    parent_id: NodeId,
+    text: &str,
+    max_width: Option<f32>,
+) -> LayoutInputNode {
     LayoutInputNode {
         id: NodeId::from_u128(id),
         parent_id: Some(parent_id),

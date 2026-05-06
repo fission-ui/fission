@@ -21,7 +21,7 @@ impl Axis {
             data: data.into_iter().map(|s| s.into()).collect(),
         }
     }
-    
+
     pub fn value() -> Self {
         Self {
             axis_type: AxisType::Value,

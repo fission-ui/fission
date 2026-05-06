@@ -1,4 +1,4 @@
-use crate::lowering::{LoweringContext, NodeBuilder, wrap_zstack_child};
+use crate::lowering::{wrap_zstack_child, LoweringContext, NodeBuilder};
 use crate::ui::traits::Lower;
 use crate::ui::{Node, Text, TextContent};
 use fission_ir::{LayoutOp, NodeId, Op};
@@ -53,7 +53,7 @@ impl Default for Overlay {
 impl Lower for Overlay {
     fn lower(&self, cx: &mut LoweringContext) -> NodeId {
         let id = self.id.unwrap_or_else(|| cx.next_node_id());
-        
+
         cx.push_scope(id);
 
         // Build overlay child in its own scope to avoid ID collisions
@@ -103,7 +103,7 @@ impl Lower for Overlay {
         // Wrap ZStack in a Flex container with flex_grow = 1.0
         // Flex defaults to stretching children, unlike Box which centers.
         let mut root = NodeBuilder::new(
-            id, 
+            id,
             Op::Layout(LayoutOp::Flex {
                 direction: fission_ir::FlexDirection::Column,
                 wrap: fission_ir::FlexWrap::NoWrap,
@@ -113,12 +113,12 @@ impl Lower for Overlay {
                 gap: None,
                 align_items: fission_ir::op::AlignItems::Stretch,
                 justify_content: fission_ir::op::JustifyContent::Start,
-            })
+            }),
         );
         root.add_child(stack_wrapper_id);
-        
+
         cx.pop_scope();
-        
+
         root.build(cx)
     }
 }

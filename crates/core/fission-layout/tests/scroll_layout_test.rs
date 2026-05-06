@@ -93,7 +93,11 @@ fn scroll_children_stretch_cross_axis() {
     let scroll_geom = snap.get_node_geometry(scroll_id).unwrap();
     let child_geom = snap.get_node_geometry(child_id).unwrap();
 
-    assert_eq!(scroll_geom.rect.width(), 200.0, "scroll should stretch to root width");
+    assert_eq!(
+        scroll_geom.rect.width(),
+        200.0,
+        "scroll should stretch to root width"
+    );
     assert_eq!(
         child_geom.rect.width(),
         scroll_geom.rect.width(),

@@ -3,7 +3,6 @@ use crate::stack::HStack;
 use chrono::NaiveDate;
 use fission_core::ui::{Node, Text};
 use fission_core::{ActionEnvelope, BuildCtx, View, Widget, WidgetNodeId};
-use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
 pub struct DateRangePicker {
@@ -43,6 +42,7 @@ impl<S: fission_core::AppState> Widget<S> for DateRangePicker {
                     id: self.id_start,
                     value: self.start,
                     is_open: self.is_start_open,
+                    width: None,
                     on_change: cb.clone().map(|f| {
                         Arc::new(move |d| f(Some(d), e))
                             as Arc<dyn Fn(NaiveDate) -> ActionEnvelope + Send + Sync>
@@ -56,6 +56,7 @@ impl<S: fission_core::AppState> Widget<S> for DateRangePicker {
                     id: self.id_end,
                     value: self.end,
                     is_open: self.is_end_open,
+                    width: None,
                     on_change: cb.map(|f| {
                         Arc::new(move |d| f(s, Some(d)))
                             as Arc<dyn Fn(NaiveDate) -> ActionEnvelope + Send + Sync>
