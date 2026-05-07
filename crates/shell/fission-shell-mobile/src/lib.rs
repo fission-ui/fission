@@ -1,18 +1,18 @@
 use anyhow::Result;
 use fission_core::{AppState, Env, Widget};
-use fission_shell_desktop::DesktopApp;
+use fission_shell_winit::WinitApp;
 
 #[cfg(target_os = "android")]
 pub use winit::platform::android::activity::AndroidApp;
 
 pub struct MobileApp<S: AppState, W: Widget<S>> {
-    inner: DesktopApp<S, W>,
+    inner: WinitApp<S, W>,
 }
 
 impl<S: AppState + Default, W: Widget<S> + 'static> MobileApp<S, W> {
     pub fn new(root_widget: W) -> Self {
         Self {
-            inner: DesktopApp::new(root_widget),
+            inner: WinitApp::new(root_widget),
         }
     }
 

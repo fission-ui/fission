@@ -152,6 +152,8 @@ pub mod prelude {
 
     // Shell
     pub use fission_shell_desktop::DesktopApp;
+    #[cfg(target_os = "android")]
+    pub use fission_shell_mobile::AndroidApp;
     pub use fission_shell_mobile::MobileApp;
 
     // Serde (commonly needed for actions)

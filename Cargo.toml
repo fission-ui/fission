@@ -17,6 +17,7 @@ members = [
     "crates/rendering/fission-render-vello",
     "crates/shell/fission-shell",
     "crates/shell/fission-shell-desktop",
+    "crates/shell/fission-shell-winit",
     "crates/shell/fission-shell-mobile",
     "crates/shell/fission-shell-web",
     "crates/tools/fission-diagnostics",
