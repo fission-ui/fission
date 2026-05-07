@@ -639,6 +639,7 @@ fission/
 ```sh
 git clone https://github.com/worka-ai/fission.git
 cd fission
+git submodule update --init --recursive
 cargo build
 ```
 

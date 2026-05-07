@@ -13,6 +13,10 @@ use vello::peniko::{
     Blob, Brush, Color, Fill, ImageAlphaType, ImageBrush, ImageData, ImageFormat, ImageSampler, Mix,
 };
 
+fn text_style_requires_rich_layout(style: &RenderTextStyle) -> bool {
+    text::text_style_requires_rich_layout(style)
+}
+
 fn map_color(c: &fission_render::Color) -> Color {
     Color::from_rgba8(c.r, c.g, c.b, c.a).into()
 }
@@ -871,7 +875,9 @@ impl<'a> VelloRenderer<'a> {
                     ..
                 } => {
                     if let Some(first) = runs.first() {
-                        if runs.iter().all(|run| run.style == first.style) {
+                        if runs.iter().all(|run| run.style == first.style)
+                            && !text_style_requires_rich_layout(&first.style)
+                        {
                             let mut full_text = String::new();
                             for run in runs {
                                 full_text.push_str(&run.text);

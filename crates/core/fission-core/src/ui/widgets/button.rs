@@ -67,7 +67,7 @@ pub enum ButtonContentAlign {
 ///     ..Default::default()
 /// }
 /// ```
-#[derive(Debug, Default, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Button {
     /// Explicit node identity (auto-generated if `None`).
     pub id: Option<NodeId>,
@@ -81,12 +81,24 @@ pub struct Button {
     pub width: Option<f32>,
     /// Fixed height in layout points.
     pub height: Option<f32>,
+    /// Minimum width constraint.
+    pub min_width: Option<f32>,
+    /// Maximum width constraint.
+    pub max_width: Option<f32>,
+    /// Flex grow factor for parent flex layouts.
+    pub flex_grow: f32,
+    /// Flex shrink factor for parent flex layouts.
+    pub flex_shrink: f32,
     /// Custom padding `[left, right, top, bottom]` (overrides theme defaults).
     pub padding: Option<[f32; 4]>,
     /// Style overrides (reserved for future use).
     pub style: Option<ButtonStyleOverride>,
     /// Visual variant (Filled, Outline, or Ghost).
     pub variant: ButtonVariant,
+    /// Optional fill override for the button background.
+    pub background_fill: Option<Fill>,
+    /// Optional text color override for direct `Text` children.
+    pub text_color: Option<IrColor>,
     /// Horizontal alignment of the child content.
     #[serde(default)]
     pub content_align: ButtonContentAlign,
@@ -96,8 +108,62 @@ pub struct Button {
 }
 
 impl Button {
+    pub fn background_fill(mut self, fill: Fill) -> Self {
+        self.background_fill = Some(fill);
+        self
+    }
+
+    pub fn text_color(mut self, color: IrColor) -> Self {
+        self.text_color = Some(color);
+        self
+    }
+
+    pub fn flex_grow(mut self, grow: f32) -> Self {
+        self.flex_grow = grow;
+        self
+    }
+
+    pub fn flex_shrink(mut self, shrink: f32) -> Self {
+        self.flex_shrink = shrink;
+        self
+    }
+
+    pub fn min_width(mut self, width: f32) -> Self {
+        self.min_width = Some(width);
+        self
+    }
+
+    pub fn max_width(mut self, width: f32) -> Self {
+        self.max_width = Some(width);
+        self
+    }
+
     pub fn into_node(self) -> crate::ui::Node {
         crate::ui::Node::Button(self)
+    }
+}
+
+impl Default for Button {
+    fn default() -> Self {
+        Self {
+            id: None,
+            child: None,
+            on_press: None,
+            semantics: None,
+            width: None,
+            height: None,
+            min_width: None,
+            max_width: None,
+            flex_grow: 0.0,
+            flex_shrink: 1.0,
+            padding: None,
+            style: None,
+            variant: ButtonVariant::Filled,
+            background_fill: None,
+            text_color: None,
+            content_align: ButtonContentAlign::Center,
+            disabled: false,
+        }
     }
 }
 
@@ -105,7 +171,7 @@ impl Button {
 pub struct ButtonStyleOverride {}
 
 struct ButtonStyleResolved {
-    background_color: Option<IrColor>,
+    background_fill: Option<Fill>,
     text_color: IrColor,
     padding_horizontal: f32,
     padding_vertical: f32,
@@ -129,10 +195,10 @@ impl Button {
         let is_pressed = interaction.is_pressed(self_id) && !self.disabled;
         let is_focused = interaction.is_focused(self_id) && !self.disabled;
 
-        let (bg_color, text_color, border_stroke) = if self.disabled {
+        let (background_fill, text_color, border_stroke) = if self.disabled {
             (
                 if self.variant == ButtonVariant::Filled {
-                    Some(tokens.border)
+                    Some(Fill::Solid(tokens.border))
                 } else {
                     None
                 }, // Grey bg or transparent
@@ -152,7 +218,11 @@ impl Button {
         } else {
             match self.variant {
                 ButtonVariant::Filled => (
-                    Some(tokens.primary),
+                    Some(
+                        self.background_fill
+                            .clone()
+                            .unwrap_or(Fill::Solid(tokens.primary)),
+                    ),
                     tokens.on_primary,
                     if is_focused {
                         default_style.focus_stroke.clone()
@@ -162,9 +232,13 @@ impl Button {
                 ),
                 ButtonVariant::Outline => (
                     if is_hovered {
-                        Some(tokens.surface)
+                        Some(
+                            self.background_fill
+                                .clone()
+                                .unwrap_or(Fill::Solid(tokens.surface)),
+                        )
                     } else {
-                        None
+                        self.background_fill.clone()
                     },
                     tokens.primary,
                     Some(Stroke {
@@ -177,9 +251,13 @@ impl Button {
                 ),
                 ButtonVariant::Ghost => (
                     if is_hovered {
-                        Some(tokens.surface)
+                        Some(
+                            self.background_fill
+                                .clone()
+                                .unwrap_or(Fill::Solid(tokens.surface)),
+                        )
                     } else {
-                        None
+                        self.background_fill.clone()
                     },
                     tokens.primary,
                     None,
@@ -200,8 +278,8 @@ impl Button {
         };
 
         ButtonStyleResolved {
-            background_color: bg_color,
-            text_color,
+            background_fill,
+            text_color: self.text_color.unwrap_or(text_color),
             padding_horizontal: default_style.padding_horizontal,
             padding_vertical: default_style.padding_vertical,
             height: default_style.height,
@@ -259,7 +337,7 @@ impl Lower for Button {
         let background_id = NodeBuilder::new(
             cx.next_node_id(),
             Op::Paint(PaintOp::DrawRect {
-                fill: resolved_style.background_color.map(|c| Fill::Solid(c)),
+                fill: resolved_style.background_fill,
                 stroke: resolved_style.stroke,
                 corner_radius: resolved_style.corner_radius,
                 shadow: resolved_style.shadow,
@@ -272,8 +350,8 @@ impl Lower for Button {
             Op::Layout(LayoutOp::Box {
                 width: self.width,
                 height: self.height,
-                min_width: None,
-                max_width: None,
+                min_width: self.min_width,
+                max_width: self.max_width,
                 min_height: if self.height.is_some() {
                     None
                 } else {
@@ -286,8 +364,8 @@ impl Lower for Button {
                     resolved_style.padding_vertical,
                     resolved_style.padding_vertical,
                 ]),
-                flex_grow: 0.0,
-                flex_shrink: 0.0,
+                flex_grow: self.flex_grow,
+                flex_shrink: self.flex_shrink,
                 aspect_ratio: None,
             }),
         );

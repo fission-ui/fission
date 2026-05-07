@@ -724,6 +724,11 @@ fn generate_display_list_with_visited(
                                         a: r.style.color.a,
                                     },
                                     underline: r.style.underline,
+                                    font_family: r.style.font_family.clone(),
+                                    font_weight: r.style.font_weight,
+                                    font_style: r.style.font_style,
+                                    line_height: r.style.line_height,
+                                    letter_spacing: r.style.letter_spacing,
                                     background_color: r.style.background_color.map(|c| {
                                         fission_render::Color {
                                             r: c.r,

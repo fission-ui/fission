@@ -42,4 +42,4 @@ codegen-units = 1
 panic = "abort"
 
 [patch.crates-io]
-android-activity = { path = "third_party/android-activity" }
+android-activity = { path = "third_party/android-activity/android-activity" }

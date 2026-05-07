@@ -1,10 +1,9 @@
 use crate::lowering::{LoweringContext, NodeBuilder};
-use crate::ui::traits::Lower;
-use crate::ui::TextContent;
+use crate::ui::{traits::Lower, Node, TextContent, TextFontStyle};
 use crate::ActionEnvelope;
 use fission_ir::{
-    op::{Color as IrColor, LayoutOp, Op, PaintOp},
-    FlexDirection, NodeId, Role, Semantics,
+    op::{Color as IrColor, Fill, LayoutOp, Op, PaintOp, Stroke},
+    FlexDirection, FlexWrap, NodeId, Role, Semantics,
 };
 use serde::{Deserialize, Serialize};
 use unicode_segmentation::UnicodeSegmentation;
@@ -59,6 +58,8 @@ pub struct TextInput {
     pub width: Option<f32>,
     /// Fixed height in layout points.
     pub height: Option<f32>,
+    /// Custom content padding `[left, right, top, bottom]`.
+    pub padding: Option<[f32; 4]>,
     /// When `true`, the input accepts newlines and scrolls vertically.
     pub multiline: bool,
     /// Minimum number of visible lines (multiline only).
@@ -91,11 +92,114 @@ pub struct TextInput {
     ///
     /// Each entry is `(start_byte, end_byte, background_color)`.
     pub highlight_ranges: Vec<(usize, usize, IrColor)>,
+    /// Optional fill override for the field background.
+    pub background_fill: Option<Fill>,
+    /// Optional border color override when not focused.
+    pub border_color: Option<IrColor>,
+    /// Optional border color override when focused.
+    pub focus_border_color: Option<IrColor>,
+    /// Optional border width override when not focused.
+    pub border_width: Option<f32>,
+    /// Optional border width override when focused.
+    pub focus_border_width: Option<f32>,
+    /// Optional corner radius override.
+    pub border_radius: Option<f32>,
+    /// Optional font size override.
+    pub font_size: Option<f32>,
+    /// Optional text color override.
+    pub text_color: Option<IrColor>,
+    /// Optional placeholder color override.
+    pub placeholder_color: Option<IrColor>,
+    /// Optional selection highlight color override.
+    pub selection_color: Option<IrColor>,
+    /// Optional font family override.
+    pub font_family: Option<String>,
+    /// Optional font weight override.
+    pub font_weight: Option<u16>,
+    /// Optional font style override.
+    pub font_style: TextFontStyle,
+    /// Optional absolute line-height override in layout points.
+    pub line_height: Option<f32>,
+    /// Optional letter-spacing override in layout points.
+    pub letter_spacing: Option<f32>,
+    /// Optional leading decoration node.
+    pub prefix: Option<Box<Node>>,
+    /// Optional trailing decoration node.
+    pub suffix: Option<Box<Node>>,
 }
 
 impl TextInput {
     pub fn value(mut self, v: impl Into<String>) -> Self {
         self.value = v.into();
+        self
+    }
+
+    pub fn padding(mut self, padding: [f32; 4]) -> Self {
+        self.padding = Some(padding);
+        self
+    }
+
+    pub fn background_fill(mut self, fill: Fill) -> Self {
+        self.background_fill = Some(fill);
+        self
+    }
+
+    pub fn text_color(mut self, color: IrColor) -> Self {
+        self.text_color = Some(color);
+        self
+    }
+
+    pub fn placeholder_color(mut self, color: IrColor) -> Self {
+        self.placeholder_color = Some(color);
+        self
+    }
+
+    pub fn selection_color(mut self, color: IrColor) -> Self {
+        self.selection_color = Some(color);
+        self
+    }
+
+    pub fn family(mut self, family: impl Into<String>) -> Self {
+        self.font_family = Some(family.into());
+        self
+    }
+
+    pub fn weight(mut self, weight: u16) -> Self {
+        self.font_weight = Some(weight);
+        self
+    }
+
+    pub fn italic(mut self, italic: bool) -> Self {
+        self.font_style = if italic {
+            TextFontStyle::Italic
+        } else {
+            TextFontStyle::Normal
+        };
+        self
+    }
+
+    pub fn font_size(mut self, size: f32) -> Self {
+        self.font_size = Some(size);
+        self
+    }
+
+    pub fn line_height(mut self, line_height: f32) -> Self {
+        self.line_height = Some(line_height);
+        self
+    }
+
+    pub fn letter_spacing(mut self, letter_spacing: f32) -> Self {
+        self.letter_spacing = Some(letter_spacing);
+        self
+    }
+
+    pub fn prefix(mut self, node: Node) -> Self {
+        self.prefix = Some(Box::new(node));
+        self
+    }
+
+    pub fn suffix(mut self, node: Node) -> Self {
+        self.suffix = Some(Box::new(node));
         self
     }
 
@@ -113,6 +217,7 @@ impl Default for TextInput {
             on_change: None,
             width: None,
             height: None,
+            padding: None,
             multiline: false,
             min_lines: None,
             max_lines: None,
@@ -125,6 +230,23 @@ impl Default for TextInput {
             auto_indent: false,
             on_cursor_change: None,
             highlight_ranges: Vec::new(),
+            background_fill: None,
+            border_color: None,
+            focus_border_color: None,
+            border_width: None,
+            focus_border_width: None,
+            border_radius: None,
+            font_size: None,
+            text_color: None,
+            placeholder_color: None,
+            selection_color: None,
+            font_family: None,
+            font_weight: None,
+            font_style: TextFontStyle::Normal,
+            line_height: None,
+            letter_spacing: None,
+            prefix: None,
+            suffix: None,
         }
     }
 }
@@ -137,15 +259,39 @@ impl Lower for TextInput {
         let theme = &cx.env.theme.components.text_input;
         let tokens = &cx.env.theme.tokens;
 
-        let font_size = theme.font_size;
-        let text_color = theme.text_color;
-        let selection_color = theme.focus_color;
+        let font_size = self.font_size.unwrap_or(theme.font_size);
+        let text_color = self.text_color.unwrap_or(theme.text_color);
+        let selection_color = self.selection_color.unwrap_or(theme.focus_color);
+        let placeholder_color = self.placeholder_color.unwrap_or(theme.placeholder_color);
+        let font_weight = self.font_weight.unwrap_or(400);
+        let line_height = self.line_height;
+        let letter_spacing = self.letter_spacing.unwrap_or(0.0);
         let border_color = if is_focused {
-            theme.focus_color
+            self.focus_border_color.unwrap_or(theme.focus_color)
         } else {
-            theme.border_color
+            self.border_color.unwrap_or(theme.border_color)
         };
-        let border_width = if is_focused { 2.0 } else { theme.border_width };
+        let border_width = if is_focused {
+            self.focus_border_width
+                .unwrap_or(self.border_width.unwrap_or(2.0))
+        } else {
+            self.border_width.unwrap_or(theme.border_width)
+        };
+        let border_radius = self.border_radius.unwrap_or(theme.radius);
+        let content_padding = self
+            .padding
+            .unwrap_or([theme.padding_h, theme.padding_h, 4.0, 4.0]);
+        let base_text_style = fission_ir::op::TextStyle {
+            font_size,
+            color: text_color,
+            underline: false,
+            font_family: self.font_family.clone(),
+            font_weight,
+            font_style: self.font_style.into(),
+            line_height,
+            letter_spacing,
+            background_color: None,
+        };
 
         // Resolve placeholder
         let resolved_placeholder = if let Some(ph) = &self.placeholder {
@@ -171,15 +317,19 @@ impl Lower for TextInput {
                 NodeBuilder::new(
                     cx.next_node_id(),
                     Op::Paint(PaintOp::DrawRect {
-                        fill: Some(fission_ir::op::Fill::Solid(tokens.colors.background)),
-                        stroke: Some(fission_ir::op::Stroke {
-                            fill: fission_ir::op::Fill::Solid(border_color),
+                        fill: Some(
+                            self.background_fill
+                                .clone()
+                                .unwrap_or(Fill::Solid(tokens.colors.background)),
+                        ),
+                        stroke: Some(Stroke {
+                            fill: Fill::Solid(border_color),
                             width: border_width,
                             dash_array: None,
                             line_cap: fission_ir::op::LineCap::Butt,
                             line_join: fission_ir::op::LineJoin::Miter,
                         }),
-                        corner_radius: theme.radius,
+                        corner_radius: border_radius,
                         shadow: None,
                     }),
                 )
@@ -233,48 +383,54 @@ impl Lower for TextInput {
             if s > 0 {
                 runs.push(fission_ir::op::TextRun {
                     text: display_text[..s].to_string(),
-                    style: fission_ir::op::TextStyle {
-                        font_size,
-                        color: text_color,
-                        underline: false,
-                        background_color: None,
-                    },
+                    style: base_text_style.clone(),
                 });
             }
             if s < e {
                 runs.push(fission_ir::op::TextRun {
                     text: display_text[s..e].to_string(),
                     style: fission_ir::op::TextStyle {
-                        font_size,
                         color: selection_color,
                         underline: true,
-                        background_color: None,
+                        ..base_text_style.clone()
                     }, // Visual cue for selection
                 });
             }
             if e < display_text.len() {
                 runs.push(fission_ir::op::TextRun {
                     text: display_text[e..].to_string(),
-                    style: fission_ir::op::TextStyle {
-                        font_size,
-                        color: text_color,
-                        underline: false,
-                        background_color: None,
-                    },
+                    style: base_text_style.clone(),
                 });
             }
         } else if let Some(styled) = &self.styled_runs {
-            // Use pre-styled syntax-highlighted runs
-            runs = styled.clone();
+            // Preserve syntax colouring while letting the widget-level typography
+            // define the default family/weight/spacing.
+            runs = styled
+                .iter()
+                .cloned()
+                .map(|mut run| {
+                    if run.style.font_family.is_none() {
+                        run.style.font_family = base_text_style.font_family.clone();
+                    }
+                    if run.style.font_weight == 400 {
+                        run.style.font_weight = base_text_style.font_weight;
+                    }
+                    if run.style.font_style == fission_ir::op::FontStyle::Normal {
+                        run.style.font_style = base_text_style.font_style;
+                    }
+                    if run.style.line_height.is_none() {
+                        run.style.line_height = base_text_style.line_height;
+                    }
+                    if run.style.letter_spacing == 0.0 {
+                        run.style.letter_spacing = base_text_style.letter_spacing;
+                    }
+                    run
+                })
+                .collect();
         } else {
             runs.push(fission_ir::op::TextRun {
                 text: display_text.clone(),
-                style: fission_ir::op::TextStyle {
-                    font_size,
-                    color: text_color,
-                    underline: false,
-                    background_color: None,
-                },
+                style: base_text_style.clone(),
             });
         }
 
@@ -335,10 +491,8 @@ impl Lower for TextInput {
             runs = vec![fission_ir::op::TextRun {
                 text: resolved_placeholder.unwrap(),
                 style: fission_ir::op::TextStyle {
-                    font_size,
-                    color: theme.placeholder_color,
-                    underline: false,
-                    background_color: None,
+                    color: placeholder_color,
+                    ..base_text_style.clone()
                 },
             }];
         }
@@ -417,7 +571,60 @@ impl Lower for TextInput {
         scroll.add_child(text_layout_id);
         let scroll_id = scroll.build(cx);
 
-        // 4. Wrapper (Border + Padding)
+        // 4. Optional decoration row
+        let content_id = if self.prefix.is_some() || self.suffix.is_some() {
+            let mut content = NodeBuilder::new(
+                cx.next_node_id(),
+                Op::Layout(LayoutOp::Flex {
+                    direction: FlexDirection::Row,
+                    wrap: FlexWrap::NoWrap,
+                    flex_grow: 1.0,
+                    flex_shrink: 1.0,
+                    padding: [0.0; 4],
+                    gap: Some(theme.padding_h * 0.75),
+                    align_items: if self.multiline {
+                        fission_ir::op::AlignItems::Start
+                    } else {
+                        fission_ir::op::AlignItems::Center
+                    },
+                    justify_content: fission_ir::op::JustifyContent::Start,
+                }),
+            );
+            if let Some(prefix) = &self.prefix {
+                content.add_child(prefix.lower(cx));
+            }
+            content.add_child(scroll_id);
+            if let Some(suffix) = &self.suffix {
+                content.add_child(suffix.lower(cx));
+            }
+            content.build(cx)
+        } else {
+            scroll_id
+        };
+
+        let effective_line_height = line_height.unwrap_or((font_size * 1.35).max(font_size + 4.0));
+        let min_height = if self.height.is_some() {
+            None
+        } else if self.multiline {
+            Some(
+                content_padding[2]
+                    + content_padding[3]
+                    + effective_line_height * self.min_lines.unwrap_or(1) as f32,
+            )
+        } else {
+            Some(theme.height.max(
+                content_padding[2] + content_padding[3] + effective_line_height,
+            ))
+        };
+        let max_height = if self.height.is_some() || !self.multiline {
+            None
+        } else {
+            self.max_lines.map(|lines| {
+                content_padding[2] + content_padding[3] + effective_line_height * lines as f32
+            })
+        };
+
+        // 5. Wrapper (Border + Padding)
         let wrapper_id = cx.next_node_id();
         let mut wrapper = NodeBuilder::new(
             wrapper_id,
@@ -430,9 +637,9 @@ impl Lower for TextInput {
                 }),
                 min_width: None,
                 max_width: None,
-                min_height: None,
-                max_height: None,
-                padding: [theme.padding_h, theme.padding_h, 4.0, 4.0], // Padding applied here
+                min_height,
+                max_height,
+                padding: content_padding,
                 flex_grow: if self.width.is_none() { 1.0 } else { 0.0 },
                 flex_shrink: 1.0,
                 aspect_ratio: None,
@@ -441,7 +648,7 @@ impl Lower for TextInput {
         if let Some(bg_id) = background_id {
             wrapper.add_child(bg_id); // Fill
         }
-        wrapper.add_child(scroll_id); // Content
+        wrapper.add_child(content_id); // Content
 
         let final_id = wrapper.build(cx);
 

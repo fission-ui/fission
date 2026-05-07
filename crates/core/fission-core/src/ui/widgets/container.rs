@@ -7,7 +7,7 @@ use fission_ir::{
 };
 use serde::{Deserialize, Serialize};
 
-/// The universal wrapper widget: background colour, border, padding, size
+/// The universal wrapper widget: background fill, border, padding, size
 /// constraints, and box shadow on a single child.
 ///
 /// `Container` is the workhorse of layout composition. Use it whenever you
@@ -52,7 +52,9 @@ pub struct Container {
     pub flex_shrink: f32,
 
     // -- Visual style --
-    /// Background fill colour.
+    /// Background fill.
+    pub background_fill: Option<Fill>,
+    /// Legacy background fill colour.
     pub background_color: Option<Color>,
     /// Border stroke colour.
     pub border_color: Option<Color>,
@@ -78,6 +80,7 @@ impl Default for Container {
             padding: [0.0; 4],
             flex_grow: 0.0,
             flex_shrink: 1.0,
+            background_fill: None,
             background_color: None,
             border_color: None,
             border_width: 0.0,
@@ -151,7 +154,14 @@ impl Container {
     }
 
     pub fn bg(mut self, color: Color) -> Self {
+        self.background_fill = Some(Fill::Solid(color));
         self.background_color = Some(color);
+        self
+    }
+
+    pub fn bg_fill(mut self, fill: Fill) -> Self {
+        self.background_fill = Some(fill);
+        self.background_color = None;
         self
     }
 
@@ -184,11 +194,18 @@ impl Lower for Container {
         let mut children_ids = Vec::new();
 
         // 1. Background Layer (PaintOp -> AbsoluteFill)
-        if self.background_color.is_some() || self.border_color.is_some() || self.shadow.is_some() {
+        if self.background_fill.is_some()
+            || self.background_color.is_some()
+            || self.border_color.is_some()
+            || self.shadow.is_some()
+        {
             let paint = NodeBuilder::new(
                 cx.next_node_id(),
                 Op::Paint(PaintOp::DrawRect {
-                    fill: self.background_color.map(|c| Fill::Solid(c)),
+                    fill: self
+                        .background_fill
+                        .clone()
+                        .or_else(|| self.background_color.map(Fill::Solid)),
                     stroke: self.border_color.map(|c| Stroke {
                         fill: Fill::Solid(c),
                         width: self.border_width,

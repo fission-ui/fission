@@ -403,6 +403,11 @@ pub fn build_layout_tree(ir: &CoreIR, env: &Env) -> Vec<LayoutInputNode> {
                         font_size: *size,
                         color: *color,
                         underline: *underline,
+                        font_family: None,
+                        font_weight: 400,
+                        font_style: fission_ir::op::FontStyle::Normal,
+                        line_height: None,
+                        letter_spacing: 0.0,
                         background_color: None,
                     },
                 }]);

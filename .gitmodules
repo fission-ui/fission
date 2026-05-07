@@ -1,0 +1,4 @@
+[submodule "third_party/android-activity"]
+	path = third_party/android-activity
+	url = git@github.com:worka-ai/android-activity.git
+	branch = worka

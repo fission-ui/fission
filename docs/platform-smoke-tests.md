@@ -2,6 +2,12 @@
 
 This document records the current reproducible target setup for the Fission repository.
 
+If you cloned the repo fresh, initialize submodules first:
+
+```sh
+git submodule update --init --recursive
+```
+
 ## Current status
 
 | Target | Example / shell | Status | Notes |

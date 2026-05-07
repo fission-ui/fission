@@ -603,6 +603,16 @@ pub struct TextStyle {
     pub font_size: LayoutUnit,
     pub color: Color,
     pub underline: bool,
+    #[serde(default)]
+    pub font_family: Option<String>,
+    #[serde(default = "text_weight_default")]
+    pub font_weight: u16,
+    #[serde(default)]
+    pub font_style: FontStyle,
+    #[serde(default)]
+    pub line_height: Option<LayoutUnit>,
+    #[serde(default)]
+    pub letter_spacing: LayoutUnit,
     /// Optional background highlight color for this run (find matches, error squiggles, etc.).
     pub background_color: Option<Color>,
 }
@@ -612,8 +622,24 @@ impl std::hash::Hash for TextStyle {
         self.font_size.to_bits().hash(state);
         self.color.hash(state);
         self.underline.hash(state);
+        self.font_family.hash(state);
+        self.font_weight.hash(state);
+        self.font_style.hash(state);
+        self.line_height.map(f32::to_bits).hash(state);
+        self.letter_spacing.to_bits().hash(state);
         self.background_color.hash(state);
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
+pub enum FontStyle {
+    #[default]
+    Normal,
+    Italic,
+}
+
+const fn text_weight_default() -> u16 {
+    400
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Hash)]

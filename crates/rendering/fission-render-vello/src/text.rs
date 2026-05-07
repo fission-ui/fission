@@ -1,9 +1,12 @@
 use fission_diagnostics::prelude as diag;
+use fission_ir::op::FontStyle as IrFontStyle;
 use fission_ir::op::TextRun;
 use fission_layout::{LineMetric, TextMeasurer};
 use fission_render::TextStyle as RenderTextStyle;
 use parley::layout::{Layout, PositionedLayoutItem};
-use parley::style::{FontStack, StyleProperty};
+use parley::style::{
+    FontStack, FontStyle as ParleyFontStyle, FontWeight, LineHeight, StyleProperty,
+};
 use parley::{FontContext, LayoutContext};
 use std::borrow::Cow;
 use std::collections::HashMap;
@@ -37,7 +40,28 @@ struct RichStyleKey {
     font_size_bits: u32,
     color_rgba: [u8; 4],
     underline: bool,
+    font_family: Option<String>,
+    font_weight: u16,
+    font_style: IrFontStyle,
+    line_height_bits: Option<u32>,
+    letter_spacing_bits: u32,
     background_color: Option<[u8; 4]>,
+}
+
+pub(crate) fn text_style_requires_rich_layout(style: &RenderTextStyle) -> bool {
+    style.font_family.is_some()
+        || style.font_weight != 400
+        || style.font_style != IrFontStyle::Normal
+        || style.line_height.is_some()
+        || style.letter_spacing != 0.0
+        || style.background_color.is_some()
+}
+
+fn parley_font_style(style: IrFontStyle) -> ParleyFontStyle {
+    match style {
+        IrFontStyle::Normal => ParleyFontStyle::Normal,
+        IrFontStyle::Italic => ParleyFontStyle::Italic,
+    }
 }
 
 pub struct VelloTextMeasurer {
@@ -251,6 +275,11 @@ impl VelloTextMeasurer {
                 font_size_bits: s.font_size.to_bits(),
                 color_rgba: [s.color.r, s.color.g, s.color.b, s.color.a],
                 underline: s.underline,
+                font_family: s.font_family.clone(),
+                font_weight: s.font_weight,
+                font_style: s.font_style,
+                line_height_bits: s.line_height.map(f32::to_bits),
+                letter_spacing_bits: s.letter_spacing.to_bits(),
                 background_color: s.background_color.map(|c| [c.r, c.g, c.b, c.a]),
             })
             .collect();
@@ -295,6 +324,32 @@ impl VelloTextMeasurer {
             let brush = ParleyBrush([style.color.r, style.color.g, style.color.b, style.color.a]);
             builder.push(StyleProperty::Brush(brush), range.clone());
             builder.push(StyleProperty::FontSize(style.font_size), range.clone());
+            if let Some(font_family) = &style.font_family {
+                builder.push(
+                    StyleProperty::FontStack(FontStack::Source(Cow::Owned(font_family.clone()))),
+                    range.clone(),
+                );
+            }
+            builder.push(
+                StyleProperty::FontWeight(FontWeight::new(style.font_weight as f32)),
+                range.clone(),
+            );
+            builder.push(
+                StyleProperty::FontStyle(parley_font_style(style.font_style)),
+                range.clone(),
+            );
+            if let Some(line_height) = style.line_height {
+                builder.push(
+                    StyleProperty::LineHeight(LineHeight::Absolute(line_height)),
+                    range.clone(),
+                );
+            }
+            if style.letter_spacing != 0.0 {
+                builder.push(
+                    StyleProperty::LetterSpacing(style.letter_spacing),
+                    range.clone(),
+                );
+            }
             if style.underline {
                 builder.push(StyleProperty::Underline(true), range.clone());
             }
@@ -358,6 +413,11 @@ impl TextMeasurer for VelloTextMeasurer {
                         a: run.style.color.a,
                     },
                     underline: run.style.underline,
+                    font_family: run.style.font_family.clone(),
+                    font_weight: run.style.font_weight,
+                    font_style: run.style.font_style,
+                    line_height: run.style.line_height,
+                    letter_spacing: run.style.letter_spacing,
                     background_color: run.style.background_color.map(|c| fission_render::Color {
                         r: c.r,
                         g: c.g,
@@ -423,7 +483,29 @@ impl TextMeasurer for VelloTextMeasurer {
         // here so we look up the SAME cached Parley Layout the renderer painted
         // with, rather than creating a separate entry in the rich cache.
         if let Some(first) = runs.first() {
-            if runs.iter().all(|r| r.style == first.style) {
+            if runs.iter().all(|r| r.style == first.style)
+                && !text_style_requires_rich_layout(&RenderTextStyle {
+                    font_size: first.style.font_size,
+                    color: fission_render::Color {
+                        r: first.style.color.r,
+                        g: first.style.color.g,
+                        b: first.style.color.b,
+                        a: first.style.color.a,
+                    },
+                    underline: first.style.underline,
+                    font_family: first.style.font_family.clone(),
+                    font_weight: first.style.font_weight,
+                    font_style: first.style.font_style,
+                    line_height: first.style.line_height,
+                    letter_spacing: first.style.letter_spacing,
+                    background_color: first.style.background_color.map(|c| fission_render::Color {
+                        r: c.r,
+                        g: c.g,
+                        b: c.b,
+                        a: c.a,
+                    }),
+                })
+            {
                 let mut full_text = String::new();
                 for run in runs {
                     full_text.push_str(&run.text);
@@ -451,6 +533,11 @@ impl TextMeasurer for VelloTextMeasurer {
                         a: run.style.color.a,
                     },
                     underline: run.style.underline,
+                    font_family: run.style.font_family.clone(),
+                    font_weight: run.style.font_weight,
+                    font_style: run.style.font_style,
+                    line_height: run.style.line_height,
+                    letter_spacing: run.style.letter_spacing,
                     background_color: run.style.background_color.map(|c| fission_render::Color {
                         r: c.r,
                         g: c.g,

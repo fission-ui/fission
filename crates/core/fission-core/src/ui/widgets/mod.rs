@@ -45,7 +45,7 @@ pub use slider::Slider;
 pub use spacer::Spacer;
 pub use stack::ZStack;
 pub use switch::Switch;
-pub use text::{Text, TextContent};
+pub use text::{RichText, RichTextRun, Text, TextContent, TextFontStyle, TextRunStyle};
 pub use text_input::TextInput;
 pub use transform::Transform;
 pub use video::Video;
