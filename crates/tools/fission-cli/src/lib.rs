@@ -159,7 +159,10 @@ fn init_project(
         &root.join("Cargo.toml"),
         &render_cargo_toml(&project, local_path.as_deref()),
     )?;
-    write_file(&root.join("src/main.rs"), &render_app_main(project.app.name.as_str()))?;
+    write_file(
+        &root.join("src/main.rs"),
+        &render_app_main(project.app.name.as_str()),
+    )?;
     write_file(&root.join("src/lib.rs"), APP_LIB)?;
     write_file(&root.join("src/app.rs"), APP_RS)?;
     write_binary_file(&root.join("assets/app-icon.png"), DEFAULT_APP_ICON_PNG)?;
@@ -238,15 +241,21 @@ fn scaffold_target(root: &Path, project: &FissionProject, target: Target) -> Res
                 ],
             )
         }
-        Target::Web => platform_readme(
-            "Web",
-            "Scaffolded target. `fission-shell-web` is still in progress, so WASM/Web scaffolding is generated but not runnable yet.",
-            &[
-                "Install the Rust target: `rustup target add wasm32-unknown-unknown`.",
-                "Install `wasm-pack` for the eventual shell/example path.",
-                "Next work: implement `fission-shell-web` with a wasm entrypoint and WebGPU surface setup.",
-            ],
-        ),
+        Target::Web => {
+            scaffold_web_bundle(root, project)?;
+            platform_readme(
+                "Web",
+                "Runnable browser target. The CLI generates a WASM host page plus helper scripts that build the app with `wasm-pack` and serve it locally.",
+                &[
+                    "Install the Rust target: `rustup target add wasm32-unknown-unknown`.",
+                    "Install `wasm-pack` once: `cargo install wasm-pack`.",
+                    "Run `./platforms/web/run-browser.sh` from the project root to build the wasm package and serve the app locally.",
+                    "Set `FISSION_WEB_PORT=<port>` or `FISSION_WEB_HOST=<host>` if the default `127.0.0.1:8123` does not suit your machine.",
+                    "Set `FISSION_WEB_OPEN=1` if you want the helper script to open a browser tab automatically.",
+                    "The generated page uses `assets/app-icon.png` as its default favicon/app icon seed.",
+                ],
+            )
+        }
         Target::Linux | Target::Macos | Target::Windows => platform_readme(
             match target {
                 Target::Linux => "Linux",
@@ -290,15 +299,15 @@ fn scaffold_android_bundle(root: &Path, project: &FissionProject) -> Result<()> 
     let package_script = render_android_package_script(project);
     let run_script = render_android_run_script(project);
 
-    write_file(&root.join("platforms/android/AndroidManifest.xml"), &manifest)?;
+    write_file(
+        &root.join("platforms/android/AndroidManifest.xml"),
+        &manifest,
+    )?;
     write_file(
         &root.join("platforms/android/package-apk.sh"),
         &package_script,
     )?;
-    write_file(
-        &root.join("platforms/android/run-emulator.sh"),
-        &run_script,
-    )?;
+    write_file(&root.join("platforms/android/run-emulator.sh"), &run_script)?;
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
@@ -307,6 +316,34 @@ fn scaffold_android_bundle(root: &Path, project: &FissionProject) -> Result<()> 
         fs::set_permissions(&package_path, fs::Permissions::from_mode(0o755))?;
         fs::set_permissions(&run_path, fs::Permissions::from_mode(0o755))?;
     }
+    Ok(())
+}
+
+fn scaffold_web_bundle(root: &Path, project: &FissionProject) -> Result<()> {
+    let index_html = render_web_index(project);
+    let bootstrap = render_web_bootstrap(project);
+    let build_script = render_web_build_script();
+    let run_script = render_web_run_script(project);
+
+    write_file(&root.join("platforms/web/index.html"), &index_html)?;
+    write_file(&root.join("platforms/web/bootstrap.mjs"), &bootstrap)?;
+    write_file(&root.join("platforms/web/build-wasm.sh"), &build_script)?;
+    write_file(&root.join("platforms/web/run-browser.sh"), &run_script)?;
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        for relative in [
+            "platforms/web/build-wasm.sh",
+            "platforms/web/run-browser.sh",
+        ] {
+            let path = root.join(relative);
+            let mut perms = fs::metadata(&path)?.permissions();
+            perms.set_mode(0o755);
+            fs::set_permissions(path, perms)?;
+        }
+    }
+
     Ok(())
 }
 
@@ -344,7 +381,7 @@ fn render_cargo_toml(project: &FissionProject, local_path: Option<&Path>) -> Str
     let lib_name = project.app.name.replace('-', "_");
 
     format!(
-        "[package]\nname = \"{}\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[lib]\nname = \"{}\"\ncrate-type = [\"cdylib\", \"rlib\"]\n\n[dependencies]\nanyhow = \"1\"\nserde = {{ version = \"1\", features = [\"derive\"] }}\n{}",
+        "[package]\nname = \"{}\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[lib]\nname = \"{}\"\ncrate-type = [\"cdylib\", \"rlib\"]\n\n[dependencies]\nanyhow = \"1\"\nserde = {{ version = \"1\", features = [\"derive\"] }}\nconsole_error_panic_hook = \"0.1\"\n{}\n[target.'cfg(target_arch = \"wasm32\")'.dependencies]\nwasm-bindgen = \"0.2\"\n",
         project.app.name, lib_name, deps
     )
 }
@@ -355,7 +392,7 @@ fn render_project_readme(project: &FissionProject) -> String {
         targets.push_str(&format!("- `{}`\n", target.as_str()));
     }
     format!(
-        "# {}\n\nGenerated by `fission init`.\n\n## Targets\n\n{}\n## Commands\n\n- `cargo run` -- launch the desktop app\n- `cargo fission add-target web ios android` -- scaffold more targets\n- `cat platforms/<target>/README.md` -- inspect the current prerequisites and status for each target\n\n## Assets\n\n- `assets/app-icon.png` is the default mobile app icon seed copied from Fission's `docs/fission_logo.png`\n\n## Status\n\nDesktop is runnable today. iOS has simulator packaging and launch scaffolding after `cargo fission add-target ios`, but the current Vello path still renders a black frame on CoreSimulator. Android is runnable on the emulator after `cargo fission add-target android` via `./platforms/android/run-emulator.sh`. Web remains scaffold-only until `fission-shell-web` lands.\n",
+        "# {}\n\nGenerated by `fission init`.\n\n## Targets\n\n{}\n## Commands\n\n- `cargo run` -- launch the desktop app\n- `cargo fission add-target web ios android` -- scaffold more targets\n- `cat platforms/<target>/README.md` -- inspect the current prerequisites and status for each target\n\n## Assets\n\n- `assets/app-icon.png` is the default app icon seed copied from Fission's `docs/fission_logo.png`\n\n## Status\n\nDesktop is runnable today. iOS is runnable on the simulator after `cargo fission add-target ios` via `./platforms/ios/run-sim.sh`. Android is runnable on the emulator after `cargo fission add-target android` via `./platforms/android/run-emulator.sh`. Web is runnable in the browser after `cargo fission add-target web` via `./platforms/web/run-browser.sh`.\n",
         project.app.name, targets
     )
 }
@@ -742,10 +779,127 @@ printf 'APK=%s\n' "$APK"
     )
 }
 
+fn render_web_index(project: &FissionProject) -> String {
+    let title = ios_bundle_name(project);
+    format!(
+        r#"<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{title}</title>
+    <link rel="icon" type="image/png" href="../../assets/app-icon.png" />
+    <style>
+      :root {{
+        color-scheme: dark;
+        background: #14171f;
+      }}
+      html, body {{
+        margin: 0;
+        min-height: 100%;
+        background: radial-gradient(circle at top, #243043 0%, #14171f 55%);
+        color: #f6fbff;
+        font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
+      }}
+      body {{
+        display: grid;
+        grid-template-rows: auto 1fr;
+      }}
+      header {{
+        padding: 16px 20px 0;
+      }}
+      h1 {{
+        margin: 0;
+        font-size: 14px;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+        color: #9acdbd;
+      }}
+      p {{
+        margin: 6px 0 0;
+        color: #b8c2d1;
+        font-size: 14px;
+      }}
+      canvas {{
+        display: block;
+        width: 100vw;
+        height: calc(100vh - 64px);
+      }}
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>{title}</h1>
+      <p>Generated by `fission add-target web`.</p>
+    </header>
+    <script type="module" src="./bootstrap.mjs"></script>
+  </body>
+</html>
+"#,
+        title = title,
+    )
+}
+
+fn render_web_bootstrap(project: &FissionProject) -> String {
+    let module_name = project.app.name.replace('-', "_");
+    format!(
+        "import init from \"./pkg/{}.js\";\n\nawait init();\n",
+        module_name
+    )
+}
+
+fn render_web_build_script() -> String {
+    r#"#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR=$(cd -- "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+PROJECT_DIR=$(cd -- "$SCRIPT_DIR/../.." && pwd)
+PROFILE="${FISSION_WEB_PROFILE:-dev}"
+BUILD_ARGS=(build "$PROJECT_DIR" --target web --out-dir "$SCRIPT_DIR/pkg")
+
+if [[ "$PROFILE" == "release" ]]; then
+  BUILD_ARGS+=(--release)
+else
+  BUILD_ARGS+=(--dev)
+fi
+
+wasm-pack "${BUILD_ARGS[@]}"
+"#
+    .to_string()
+}
+
+fn render_web_run_script(_project: &FissionProject) -> String {
+    format!(
+        r#"#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR=$(cd -- "$(dirname "${{BASH_SOURCE[0]}}")" && pwd)
+PROJECT_DIR=$(cd -- "$SCRIPT_DIR/../.." && pwd)
+HOST="${{FISSION_WEB_HOST:-127.0.0.1}}"
+PORT="${{FISSION_WEB_PORT:-8123}}"
+URL="http://${{HOST}}:${{PORT}}/platforms/web/"
+
+"$SCRIPT_DIR/build-wasm.sh"
+
+printf 'Serving %s\n' "$URL"
+printf 'Press Ctrl+C to stop the local server.\n'
+if [[ "${{FISSION_WEB_OPEN:-0}}" == "1" ]]; then
+  open "$URL"
+fi
+
+cd "$PROJECT_DIR"
+python3 -m http.server "$PORT" --bind "$HOST"
+"#
+    )
+}
+
 fn render_app_main(package_name: &str) -> String {
     let lib_name = package_name.replace('-', "_");
     format!(
         r#"#[cfg(target_os = "android")]
+fn main() {{}}
+
+#[cfg(target_arch = "wasm32")]
 fn main() {{}}
 
 #[cfg(target_os = "ios")]
@@ -753,7 +907,7 @@ fn main() -> anyhow::Result<()> {{
     {lib_name}::run_mobile()
 }}
 
-#[cfg(not(any(target_os = "ios", target_os = "android")))]
+#[cfg(not(any(target_arch = "wasm32", target_os = "ios", target_os = "android")))]
 fn main() -> anyhow::Result<()> {{
     {lib_name}::run_desktop()
 }}
@@ -769,6 +923,7 @@ use fission::prelude::*;
 #[cfg(target_os = "android")]
 const ANDROID_TEST_CONTROL_PORT: u16 = 48761;
 
+#[cfg(any(target_os = "android", target_os = "ios"))]
 fn mobile_app() -> MobileApp<CounterState, CounterApp> {
     let app = MobileApp::new(CounterApp).with_title("Fission App");
     #[cfg(target_os = "android")]
@@ -776,10 +931,17 @@ fn mobile_app() -> MobileApp<CounterState, CounterApp> {
     app
 }
 
+#[cfg(target_arch = "wasm32")]
+fn web_app() -> WebApp<CounterState, CounterApp> {
+    WebApp::new(CounterApp).with_title("Fission App")
+}
+
+#[cfg(not(any(target_arch = "wasm32", target_os = "android", target_os = "ios")))]
 pub fn run_desktop() -> anyhow::Result<()> {
     DesktopApp::new(CounterApp).run()
 }
 
+#[cfg(any(target_os = "android", target_os = "ios"))]
 pub fn run_mobile() -> anyhow::Result<()> {
     mobile_app().run()
 }
@@ -788,6 +950,15 @@ pub fn run_mobile() -> anyhow::Result<()> {
 #[no_mangle]
 fn android_main(app_handle: AndroidApp) {
     let _ = mobile_app().run_with_android_app(app_handle);
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen::prelude::wasm_bindgen(start)]
+pub fn run_web() -> Result<(), wasm_bindgen::JsValue> {
+    console_error_panic_hook::set_once();
+    web_app()
+        .run()
+        .map_err(|error| wasm_bindgen::JsValue::from_str(&error.to_string()))
 }
 "#;
 
@@ -885,6 +1056,10 @@ mod tests {
         assert!(project.targets.contains(&Target::Ios));
         assert!(project.targets.contains(&Target::Android));
         assert!(dir.join("platforms/web/README.md").exists());
+        assert!(dir.join("platforms/web/index.html").exists());
+        assert!(dir.join("platforms/web/bootstrap.mjs").exists());
+        assert!(dir.join("platforms/web/build-wasm.sh").exists());
+        assert!(dir.join("platforms/web/run-browser.sh").exists());
         assert!(dir.join("platforms/ios/README.md").exists());
         assert!(dir.join("platforms/ios/Info.plist").exists());
         assert!(dir.join("platforms/ios/package-sim.sh").exists());
@@ -893,12 +1068,21 @@ mod tests {
         assert!(dir.join("platforms/android/AndroidManifest.xml").exists());
         assert!(dir.join("platforms/android/package-apk.sh").exists());
         assert!(dir.join("platforms/android/run-emulator.sh").exists());
-        assert!(std::fs::read_to_string(dir.join("platforms/android/AndroidManifest.xml"))
-            .unwrap()
-            .contains("android:icon=\"@drawable/app_icon\""));
-        assert!(std::fs::read_to_string(dir.join("platforms/ios/package-sim.sh"))
-            .unwrap()
-            .contains("AppIcon.png"));
+        assert!(
+            std::fs::read_to_string(dir.join("platforms/android/AndroidManifest.xml"))
+                .unwrap()
+                .contains("android:icon=\"@drawable/app_icon\"")
+        );
+        assert!(
+            std::fs::read_to_string(dir.join("platforms/ios/package-sim.sh"))
+                .unwrap()
+                .contains("AppIcon.png")
+        );
+        assert!(
+            std::fs::read_to_string(dir.join("platforms/web/index.html"))
+                .unwrap()
+                .contains("../../assets/app-icon.png")
+        );
     }
 
     #[test]

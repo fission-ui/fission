@@ -28,6 +28,8 @@ struct MobileSmokeApp;
 impl Widget<SmokeState> for MobileSmokeApp {
     fn build(&self, ctx: &mut BuildCtx<SmokeState>, view: &View<SmokeState>) -> Node {
         let increment = ctx.bind(Increment, on_increment as Handler<SmokeState, Increment>);
+        let viewport = view.viewport_size();
+        let content_width = (viewport.width - 48.0).clamp(240.0, 420.0);
         let background = Color {
             r: 20,
             g: 23,
@@ -47,27 +49,32 @@ impl Widget<SmokeState> for MobileSmokeApp {
             a: 255,
         };
 
-        Container::new(
+        let content = Container::new(
             Column {
                 gap: Some(16.0),
                 children: vec![
-                    Text::new("Fission mobile smoke")
-                        .size(28.0)
+                    Text::new("Mobile smoke")
+                        .size(24.0)
                         .color(Color::WHITE)
+                        .max_width(content_width)
                         .into_node(),
-                    Text::new(
-                        "This exercises the shared winit + Vello shell path for mobile targets.",
-                    )
-                    .size(16.0)
-                    .color(body)
-                    .into_node(),
+                    Text::new("Fission shell on mobile targets.")
+                        .size(16.0)
+                        .color(body)
+                        .max_width(content_width)
+                        .into_node(),
                     Text::new(format!("Taps: {}", view.state.taps))
                         .size(22.0)
                         .color(accent)
                         .into_node(),
                     Button {
+                        width: Some(content_width),
                         on_press: Some(increment),
-                        child: Some(Box::new(Text::new("Increment").into_node())),
+                        child: Some(Box::new(
+                            Text::new("Tap")
+                                .width((content_width - 96.0).max(120.0))
+                                .into_node(),
+                        )),
                         ..Default::default()
                     }
                     .into_node(),
@@ -76,6 +83,25 @@ impl Widget<SmokeState> for MobileSmokeApp {
             }
             .into_node(),
         )
+        .width(content_width)
+        .into_node();
+
+        Container::new(
+            Column {
+                gap: Some(0.0),
+                children: vec![
+                    content,
+                    Spacer {
+                        flex_grow: 1.0,
+                        ..Default::default()
+                    }
+                    .into_node(),
+                ],
+                ..Default::default()
+            }
+            .into_node(),
+        )
+        .height(viewport.height.max(1.0))
         .padding_all(24.0)
         .bg(background)
         .into_node()

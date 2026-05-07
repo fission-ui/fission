@@ -31,7 +31,7 @@ The generated project contains:
 
 ## Verified flow
 
-This branch now has a verified scaffolding smoke test for the desktop path:
+This branch now has a verified scaffolding smoke test for the desktop and web paths:
 
 ```sh
 cargo run -p fission-cli --bin fission -- init /tmp/demo-app --local-path "$PWD"
@@ -53,7 +53,7 @@ Direct example commands:
 ./examples/mobile-smoke/platforms/ios/run-sim.sh
 ```
 
-Those scripts package and launch correctly, but the current runtime still renders a black frame on CoreSimulator because the simulator Metal device does not expose `DownlevelFlags(INDIRECT_EXECUTION)` for Vello.
+Those scripts package, launch, and render correctly. CoreSimulator still lacks `DownlevelFlags(INDIRECT_EXECUTION)`, so the shared shell now falls back to the software renderer there.
 
 On macOS, Android works end to end with the NDK toolchain environment configured:
 
@@ -73,6 +73,7 @@ Generated-app commands from the scaffolded project root:
 ./platforms/ios/run-sim.sh
 # after exporting the Android env block from below
 ./platforms/android/run-emulator.sh
+./platforms/web/run-browser.sh
 ```
 
 ## Current target status
@@ -82,9 +83,9 @@ Generated-app commands from the scaffolded project root:
 | Windows | yes | yes | yes | Uses the generated desktop entrypoint |
 | macOS | yes | yes | yes | Uses the generated desktop entrypoint |
 | Linux | yes | yes | yes | Uses the generated desktop entrypoint |
-| iOS | yes | yes | no | simulator packaging/launch scripts are generated, but the current Vello path only produces a black frame on CoreSimulator because the simulator Metal device lacks `INDIRECT_EXECUTION` |
+| iOS | yes | yes | yes (simulator) | the shared shell falls back to the software renderer when CoreSimulator cannot satisfy Vello's `INDIRECT_EXECUTION` requirement |
 | Android | yes | yes | yes (emulator) | the checked-in mobile smoke example and a CLI-generated app both package, install, and launch through `platforms/android/run-emulator.sh` |
-| Web | yes | no | no | `fission-shell-web` is still a placeholder; there is no runnable `web-smoke` example yet |
+| Web | yes | yes | yes (browser) | the checked-in `web-smoke` example and CLI-generated apps both build with `wasm-pack` and serve through `platforms/web/run-browser.sh` |
 
 ## Toolchains, env vars, and paths
 
@@ -104,9 +105,10 @@ iOS prerequisites:
 ./examples/mobile-smoke/platforms/ios/run-sim.sh
 ```
 
-Known blocker:
+Renderer note:
 
-- the app currently launches but only renders a black frame inside CoreSimulator because `wgpu` / Vello still requires `DownlevelFlags(INDIRECT_EXECUTION)` there
+- CoreSimulator still does not expose `DownlevelFlags(INDIRECT_EXECUTION)`
+- the shared shell falls back to the software renderer in that case so the simulator path remains usable
 
 Generated app command after `cargo fission add-target ios`:
 
@@ -156,18 +158,30 @@ WASM prerequisites:
 
 - `rustup target add wasm32-unknown-unknown`
 - `cargo install wasm-pack`
-- current status: documentation only; the checked-in web shell/runtime path is still under `crates/shell/fission-shell-web`
+
+Browser run command from the checked-in example:
+
+```sh
+./examples/web-smoke/platforms/web/run-browser.sh
+```
+
+Browser run command from a generated app:
+
+```sh
+./platforms/web/run-browser.sh
+```
 
 Relevant paths:
 
 - mobile shell: `crates/shell/fission-shell-mobile/`
 - web shell: `crates/shell/fission-shell-web/`
 - mobile smoke example: `examples/mobile-smoke/`
+- web smoke example: `examples/web-smoke/`
 - target scaffolding docs in generated apps: `platforms/<target>/README.md`
 
 ## Immediate next work
 
-1. replace the current Vello path on iOS simulator with a renderer/runtime path that does not require `INDIRECT_EXECUTION`
-2. implement `fission-shell-web` with a WASM entrypoint and WebGPU surface
-3. add a first-party `web-smoke` example once `fission-shell-web` exists
+1. add browser-side test control so web can use the same semantic interaction tooling as desktop/mobile
+2. harden the iOS simulator/software renderer path and then validate on physical devices
+3. extend generated host projects beyond smoke-level packaging
 4. add first-party devtools hooks so the CLI can launch apps with widget-tree inspection enabled

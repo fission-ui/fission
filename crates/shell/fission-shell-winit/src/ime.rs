@@ -1,27 +1,42 @@
 use fission_core::env::ImeHandler;
 use fission_render::LayoutRect;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use winit::window::Window;
 
+#[derive(Default)]
 pub struct DesktopImeHandler {
-    window: Arc<Window>,
+    window: Mutex<Option<Arc<Window>>>,
 }
 
 impl DesktopImeHandler {
-    pub fn new(window: Arc<Window>) -> Self {
-        Self { window }
+    pub fn set_window(&self, window: Option<Arc<Window>>) {
+        *self.window.lock().expect("ime handler lock poisoned") = window;
     }
 }
 
 impl ImeHandler for DesktopImeHandler {
     fn set_ime_allowed(&self, allowed: bool) {
-        self.window.set_ime_allowed(allowed);
+        if let Some(window) = self
+            .window
+            .lock()
+            .expect("ime handler lock poisoned")
+            .as_ref()
+        {
+            window.set_ime_allowed(allowed);
+        }
     }
     fn set_ime_cursor_area(&self, rect: LayoutRect) {
-        // Position relative to window
-        self.window.set_ime_cursor_area(
-            winit::dpi::PhysicalPosition::new(rect.x() as f64, rect.y() as f64),
-            winit::dpi::PhysicalSize::new(rect.width() as u32, rect.height() as u32),
-        );
+        if let Some(window) = self
+            .window
+            .lock()
+            .expect("ime handler lock poisoned")
+            .as_ref()
+        {
+            // Position relative to window
+            window.set_ime_cursor_area(
+                winit::dpi::PhysicalPosition::new(rect.x() as f64, rect.y() as f64),
+                winit::dpi::PhysicalSize::new(rect.width() as u32, rect.height() as u32),
+            );
+        }
     }
 }
