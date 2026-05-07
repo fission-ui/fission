@@ -14,7 +14,7 @@ use winit::platform::macos::{ActivationPolicy, EventLoopBuilderExtMacOS};
 use winit::platform::web::WindowBuilderExtWebSys;
 use winit::{
     dpi::PhysicalPosition,
-    event::{Event, Ime, MouseButton, MouseScrollDelta, WindowEvent},
+    event::{Event, Ime, MouseButton, MouseScrollDelta, TouchPhase, WindowEvent},
     event_loop::{ControlFlow, EventLoopBuilder, EventLoopProxy, EventLoopWindowTarget},
     window::{Window, WindowBuilder, WindowId},
 };
@@ -1772,6 +1772,8 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
         let mut players: HashMap<WidgetNodeId, ActivePlayer> = HashMap::new();
 
         let mut last_cursor_position: Option<PhysicalPosition<f64>> = None;
+        let mut active_primary_touch: Option<u64> = None;
+        let mut touch_positions: HashMap<u64, PhysicalPosition<f64>> = HashMap::new();
         let max_fps = std::env::var("FISSION_MAX_FPS")
             .ok()
             .and_then(|v| v.parse::<u32>().ok())
@@ -2248,6 +2250,8 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                             window = None;
                             pending_resize = None;
                             last_cursor_position = None;
+                            active_primary_touch = None;
+                            touch_positions.clear();
                         }
                     }
                     // ═══════════════════════════════════════════════════════
@@ -3340,6 +3344,86 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                         &mut frame_trace,
                                         &mut invalidations,
                                     );
+                                }
+                            }
+                            WindowEvent::Touch(touch) => {
+                                let position = touch.location;
+                                last_cursor_position = Some(position);
+                                touch_positions.insert(touch.id, position);
+
+                                let scale_factor = window.scale_factor();
+                                let x = (position.x / scale_factor) as f32;
+                                let y = (position.y / scale_factor) as f32;
+
+                                match touch.phase {
+                                    TouchPhase::Started => {
+                                        if active_primary_touch.is_none() {
+                                            active_primary_touch = Some(touch.id);
+                                        }
+                                        if active_primary_touch == Some(touch.id) {
+                                            handle_cursor_moved(
+                                                x, y,
+                                                &mut runtime, &pipeline,
+                                                &effect_result_tx, &event_proxy, app_effect_handler.as_ref(),
+                                                &window, elwt,
+                                                &mut last_redraw_at, min_frame, &mut redraw_pending,
+                                                &mut frame_trace,
+                                                &mut invalidations,
+                                            );
+                                            handle_mouse_button(
+                                                x, y, PointerButton::Primary, true,
+                                                &mut runtime, &pipeline,
+                                                &effect_result_tx, &event_proxy, app_effect_handler.as_ref(),
+                                                &window, elwt,
+                                                &mut last_redraw_at, min_frame, &mut redraw_pending,
+                                                text_trace_enabled, &mut pending_text_traces,
+                                                &mut next_text_trace_seq, presented_frames,
+                                                &mut last_blink_toggle,
+                                                &mut frame_trace,
+                                                &mut invalidations,
+                                            );
+                                        }
+                                    }
+                                    TouchPhase::Moved => {
+                                        if active_primary_touch == Some(touch.id) {
+                                            handle_cursor_moved(
+                                                x, y,
+                                                &mut runtime, &pipeline,
+                                                &effect_result_tx, &event_proxy, app_effect_handler.as_ref(),
+                                                &window, elwt,
+                                                &mut last_redraw_at, min_frame, &mut redraw_pending,
+                                                &mut frame_trace,
+                                                &mut invalidations,
+                                            );
+                                        }
+                                    }
+                                    TouchPhase::Ended | TouchPhase::Cancelled => {
+                                        if active_primary_touch == Some(touch.id) {
+                                            handle_cursor_moved(
+                                                x, y,
+                                                &mut runtime, &pipeline,
+                                                &effect_result_tx, &event_proxy, app_effect_handler.as_ref(),
+                                                &window, elwt,
+                                                &mut last_redraw_at, min_frame, &mut redraw_pending,
+                                                &mut frame_trace,
+                                                &mut invalidations,
+                                            );
+                                            handle_mouse_button(
+                                                x, y, PointerButton::Primary, false,
+                                                &mut runtime, &pipeline,
+                                                &effect_result_tx, &event_proxy, app_effect_handler.as_ref(),
+                                                &window, elwt,
+                                                &mut last_redraw_at, min_frame, &mut redraw_pending,
+                                                text_trace_enabled, &mut pending_text_traces,
+                                                &mut next_text_trace_seq, presented_frames,
+                                                &mut last_blink_toggle,
+                                                &mut frame_trace,
+                                                &mut invalidations,
+                                            );
+                                            active_primary_touch = None;
+                                        }
+                                        touch_positions.remove(&touch.id);
+                                    }
                                 }
                             }
                             WindowEvent::ModifiersChanged(modifiers) => {
