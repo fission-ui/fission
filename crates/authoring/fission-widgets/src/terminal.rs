@@ -451,6 +451,11 @@ impl TerminalRenderNode {
                     font_size: self.font_size,
                     color: to_ir_color(self.snapshot.palette.foreground),
                     underline: false,
+                    font_family: None,
+                    font_weight: 400,
+                    font_style: fission_ir::op::FontStyle::Normal,
+                    line_height: None,
+                    letter_spacing: 0.0,
                     background_color: None,
                 },
             });
@@ -1345,6 +1350,11 @@ fn flush_run(
             font_size,
             color: style.fg,
             underline: style.underline,
+            font_family: None,
+            font_weight: 400,
+            font_style: fission_ir::op::FontStyle::Normal,
+            line_height: None,
+            letter_spacing: 0.0,
             background_color: style.bg,
         },
     });

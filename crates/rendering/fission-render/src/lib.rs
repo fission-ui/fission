@@ -68,6 +68,11 @@ pub struct TextStyle {
     pub font_size: LayoutUnit,
     pub color: Color,
     pub underline: bool,
+    pub font_family: Option<String>,
+    pub font_weight: u16,
+    pub font_style: fission_ir::op::FontStyle,
+    pub line_height: Option<LayoutUnit>,
+    pub letter_spacing: LayoutUnit,
     /// Optional background highlight color for this run.
     pub background_color: Option<Color>,
 }

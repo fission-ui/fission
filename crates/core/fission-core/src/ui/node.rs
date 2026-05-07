@@ -2,8 +2,8 @@ use super::custom_render::CustomRenderObject;
 use super::traits::{Lower, LowerDyn};
 use super::widgets::{
     Align, Button, Checkbox, Clip, Column, Composite, Container, FocusScope, GestureDetector, Grid,
-    GridItem, Icon, Image, LazyColumn, Overlay, Positioned, Radio, Row, SafeArea, Scroll, Slider,
-    Spacer, Switch, Text, TextInput, Transform, Video, ZStack,
+    GridItem, Icon, Image, LazyColumn, Overlay, Positioned, Radio, RichText, Row, SafeArea,
+    Scroll, Slider, Spacer, Switch, Text, TextInput, Transform, Video, ZStack,
 };
 use crate::lowering::LoweringContext;
 use fission_ir::{NodeId, Op, StructuralOp};
@@ -18,6 +18,7 @@ pub enum Node {
     FocusScope(FocusScope),
     Clip(Clip),
     Text(Text),
+    RichText(RichText),
     Transform(Transform),
     Button(Button),
     TextInput(TextInput),
@@ -52,6 +53,7 @@ impl Node {
             Node::FocusScope(w) => w.lower(cx),
             Node::Clip(w) => w.lower(cx),
             Node::Text(w) => w.lower(cx),
+            Node::RichText(w) => w.lower(cx),
             Node::Transform(w) => w.lower(cx),
             Node::Button(w) => w.lower(cx),
             Node::TextInput(w) => w.lower(cx),
@@ -148,6 +150,11 @@ impl From<Clip> for Node {
 impl From<Text> for Node {
     fn from(w: Text) -> Self {
         Node::Text(w)
+    }
+}
+impl From<RichText> for Node {
+    fn from(w: RichText) -> Self {
+        Node::RichText(w)
     }
 }
 impl From<Transform> for Node {

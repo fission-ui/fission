@@ -1823,6 +1823,11 @@ fn build_local_paint_list(
                             a: r.style.color.a,
                         },
                         underline: r.style.underline,
+                        font_family: r.style.font_family.clone(),
+                        font_weight: r.style.font_weight,
+                        font_style: r.style.font_style,
+                        line_height: r.style.line_height,
+                        letter_spacing: r.style.letter_spacing,
                         background_color: r.style.background_color.map(|c| RenderColor {
                             r: c.r,
                             g: c.g,
