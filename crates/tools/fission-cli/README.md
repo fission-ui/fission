@@ -29,9 +29,9 @@ cargo fission add-target web ios android --project-dir my-app
 ## Current platform status
 
 - `windows`, `macos`, `linux`: scaffolded and runnable through the generated desktop entrypoint
-- `ios`: scaffolded by the CLI with `platforms/ios/run-sim.sh`, but the current runtime still renders a black frame on CoreSimulator because the simulator Metal device lacks `INDIRECT_EXECUTION` for Vello
+- `ios`: scaffolded by the CLI and runnable on the simulator through `platforms/ios/run-sim.sh`
 - `android`: scaffolded by the CLI and runnable on the emulator through `platforms/android/run-emulator.sh`
-- `web`: scaffolded only; `fission-shell-web` is still pending
+- `web`: scaffolded by the CLI and runnable in a browser through `platforms/web/run-browser.sh`
 
 The CLI writes platform state to `fission.toml` and creates `platforms/<target>/README.md` notes with the current prerequisites and next steps for each target. For iOS it also generates:
 
@@ -46,7 +46,14 @@ For Android it also generates:
 - `platforms/android/package-apk.sh`
 - `platforms/android/run-emulator.sh`
 
-The generated iOS bundle and Android package both use `assets/app-icon.png` as the default app icon.
+For Web it also generates:
+
+- `platforms/web/index.html`
+- `platforms/web/bootstrap.mjs`
+- `platforms/web/build-wasm.sh`
+- `platforms/web/run-browser.sh`
+
+The generated iOS bundle, Android package, and browser host page all use `assets/app-icon.png` as the default app icon seed.
 
 See also:
 

@@ -1496,7 +1496,9 @@ fn render_plan_scene(
             renderer.render_scene(scene)?;
             Ok(encoded)
         })?;
-        vello_renderer.render_to_texture(device, queue, cached_scene, target_view, &params)?;
+        vello_renderer
+            .render_to_texture(device, queue, cached_scene, target_view, &params)
+            .map_err(|error| anyhow::anyhow!("failed to render cached scene: {error}"))?;
         return Ok(());
     }
 
@@ -1504,7 +1506,9 @@ fn render_plan_scene(
     let mut renderer =
         VelloRenderer::new(&mut encoded, measurer, retained_scene_cache, scale_factor);
     renderer.render_scene(scene)?;
-    vello_renderer.render_to_texture(device, queue, &encoded, target_view, &params)?;
+    vello_renderer
+        .render_to_texture(device, queue, &encoded, target_view, &params)
+        .map_err(|error| anyhow::anyhow!("failed to render compositor scene: {error}"))?;
     Ok(())
 }
 

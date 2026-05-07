@@ -693,6 +693,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "console_error_panic_hook"
+version = "0.1.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a06aeb73f470f66dcdbf7223caeebb85984942f22f1adb2a088cf9668146bbbc"
+dependencies = [
+ "cfg-if",
+ "wasm-bindgen",
+]
+
+[[package]]
 name = "constant_time_eq"
 version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1094,6 +1104,7 @@ dependencies = [
  "fission-render",
  "fission-shell-desktop",
  "fission-shell-mobile",
+ "fission-shell-web",
  "fission-test-driver",
  "fission-theme",
  "fission-widgets",
@@ -1339,7 +1350,10 @@ dependencies = [
 name = "fission-shell-web"
 version = "0.1.1"
 dependencies = [
+ "anyhow",
+ "fission-core",
  "fission-shell",
+ "fission-shell-winit",
 ]
 
 [[package]]
@@ -1377,6 +1391,7 @@ dependencies = [
  "serde_json",
  "tiny-skia",
  "vello",
+ "web-time",
  "winit",
 ]
 
@@ -4561,6 +4576,20 @@ dependencies = [
  "log",
  "once_cell",
  "pkg-config",
+]
+
+[[package]]
+name = "web-smoke"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "console_error_panic_hook",
+ "fission",
+ "fission-core",
+ "fission-macros",
+ "lazy_static",
+ "serde",
+ "wasm-bindgen",
 ]
 
 [[package]]

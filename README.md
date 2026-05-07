@@ -5,7 +5,7 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![CI](https://github.com/worka-ai/fission/actions/workflows/ci.yml/badge.svg)](https://github.com/worka-ai/fission/actions/workflows/ci.yml)
 
-Cross-platform, GPU-accelerated UI framework for Rust. Fission uses a Flutter-inspired widget architecture with a deterministic state management model built on serializable actions and reducers. Rendering is powered by [Vello](https://github.com/linebender/vello) and [wgpu](https://wgpu.rs/), delivering high-performance 2D graphics on every platform. Desktop (macOS, Linux, Windows) is fully supported today; iOS, Android, and Web (WASM) targets are in progress.
+Cross-platform, GPU-accelerated UI framework for Rust. Fission uses a Flutter-inspired widget architecture with a deterministic state management model built on serializable actions and reducers. Rendering is powered by [Vello](https://github.com/linebender/vello) and [wgpu](https://wgpu.rs/), delivering high-performance 2D graphics on every platform. Desktop (macOS, Linux, Windows) is fully supported today; iOS simulator, Android emulator, and Web (WASM) smoke paths are now runnable as well.
 
 ---
 
@@ -117,9 +117,9 @@ The CLI currently does three things:
 Current status:
 
 - desktop targets are runnable today through `DesktopApp`
-- iOS now has simulator packaging and launch scaffolding both through `examples/mobile-smoke/` and through CLI-generated apps after `fission add-target ios`, but the current Vello path still renders a black frame on CoreSimulator because the simulator Metal device does not expose `INDIRECT_EXECUTION`
+- iOS now has a verified simulator run path both through `examples/mobile-smoke/` and through CLI-generated apps after `fission add-target ios`
 - Android now has a verified emulator run path through `examples/mobile-smoke/` and through CLI-generated apps after `fission add-target android`
-- web/WASM is still scaffold-only; `fission-shell-web` is not implemented yet
+- web/WASM now has a checked-in `web-smoke` example and CLI-generated browser host projects after `fission add-target web`
 
 If you are developing against a local Fission checkout, use:
 
@@ -139,8 +139,9 @@ More detail lives in:
 The current reproducible smoke path is:
 
 - desktop preview: `cargo run -p mobile-smoke`
-- iOS simulator scaffold: `FISSION_TEST_CONTROL_PORT=48711 ./examples/mobile-smoke/platforms/ios/run-sim.sh`
+- iOS simulator smoke: `FISSION_TEST_CONTROL_PORT=48711 ./examples/mobile-smoke/platforms/ios/run-sim.sh`
 - Android emulator smoke: `FISSION_TEST_CONTROL_PORT=48761 ./examples/mobile-smoke/platforms/android/run-emulator.sh`
+- browser smoke: `./examples/web-smoke/platforms/web/run-browser.sh`
 
 Install the extra Rust targets first:
 
@@ -166,18 +167,18 @@ Android emulator notes:
 - set `ANDROID_EMULATOR_HEADLESS=1` for CI/background runs
 - set `ANDROID_EMULATOR_RESTART=1` if an old hidden emulator is already running and you want the script to relaunch it visibly
 
-iOS simulator note:
-
-- the current `run-sim.sh` path packages and launches the app, but the render path still falls back to a black frame on CoreSimulator because Vello currently requires `DownlevelFlags(INDIRECT_EXECUTION)` there
-
-Web/WASM prerequisites today are:
+Web/WASM prerequisites are:
 
 ```sh
 rustup target add wasm32-unknown-unknown
 cargo install wasm-pack
 ```
 
-There is not yet a runnable checked-in web shell or `web-smoke` example in this branch, so WASM is currently a documented prerequisite rather than a runnable smoke target.
+The browser smoke script builds the wasm package and serves:
+
+- `http://127.0.0.1:8123/examples/web-smoke/platforms/web/`
+
+It does not auto-open a tab unless you set `FISSION_WEB_OPEN=1`.
 
 ## Architecture
 
@@ -574,8 +575,8 @@ Output is structured JSON, suitable for piping into analysis tools, dashboards, 
 | Linux | Supported |
 | Windows | Supported |
 | iOS | Simulator supported, device packaging in progress |
-| Android | In progress |
-| Web (WASM) | In progress |
+| Android | Emulator supported, device packaging in progress |
+| Web (WASM) | Browser smoke path supported |
 
 ## Project structure
 
@@ -600,8 +601,8 @@ fission/
 │   ├── shell/
 │   │   ├── fission-shell/         # Shared shell abstractions
 │   │   ├── fission-shell-desktop/ # Desktop shell (winit + Vello + wgpu)
-│   │   ├── fission-shell-mobile/  # Mobile shell (in progress)
-│   │   └── fission-shell-web/     # Web shell (in progress)
+│   │   ├── fission-shell-mobile/  # Mobile shell (iOS / Android)
+│   │   └── fission-shell-web/     # Web shell (WASM / browser)
 │   └── tools/
 │       ├── fission-cli/           # `fission` / `cargo fission` scaffolding CLI
 │       ├── fission-diagnostics/   # Structured diagnostic logging
@@ -666,9 +667,12 @@ cargo run --example text-lab
 
 # Mobile shell smoke preview on the host
 cargo run -p mobile-smoke
+
+# Browser shell smoke preview on the host
+cargo run -p web-smoke
 ```
 
-For the iOS and Android cross-target smoke commands, see `docs/platform-smoke-tests.md`.
+For the iOS, Android, and browser smoke commands, see `docs/platform-smoke-tests.md`.
 
 ## Crate map
 
@@ -687,10 +691,10 @@ For the iOS and Android cross-target smoke commands, see `docs/platform-smoke-te
 | [`fission-render`](crates/rendering/fission-render) | Rendering primitives -- display list, paint ops, text styles |
 | [`fission-render-vello`](crates/rendering/fission-render-vello) | Vello/wgpu rendering backend |
 | [`fission-shell`](crates/shell/fission-shell) | Shared shell abstractions (event loop, windowing) |
-| [`fission-shell-winit`](crates/shell/fission-shell-winit) | Shared winit + Vello runtime used by desktop and mobile shells |
+| [`fission-shell-winit`](crates/shell/fission-shell-winit) | Shared winit + Vello/runtime layer used by desktop, mobile, and browser shells |
 | [`fission-shell-desktop`](crates/shell/fission-shell-desktop) | Desktop shell wrapper around the shared winit runtime |
-| [`fission-shell-mobile`](crates/shell/fission-shell-mobile) | Mobile shell (iOS / Android) -- iOS simulator path verified, Android packaging still in progress |
-| [`fission-shell-web`](crates/shell/fission-shell-web) | Web shell (WASM + WebGPU) -- in progress |
+| [`fission-shell-mobile`](crates/shell/fission-shell-mobile) | Mobile shell (iOS / Android) -- simulator/emulator smoke paths verified |
+| [`fission-shell-web`](crates/shell/fission-shell-web) | Web shell (WASM + browser) -- checked-in browser smoke path and CLI scaffolding |
 | [`fission-cli`](crates/tools/fission-cli) | Project scaffolding CLI and `cargo fission` entrypoint |
 | [`fission-diagnostics`](crates/tools/fission-diagnostics) | Structured diagnostic logging and performance tracing |
 | [`fission-test`](crates/tools/fission-test) | Test utilities and helpers |

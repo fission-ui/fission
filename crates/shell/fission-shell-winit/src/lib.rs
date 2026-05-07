@@ -5,11 +5,13 @@ use base64::Engine;
 use std::collections::{HashMap, VecDeque};
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 #[cfg(target_os = "android")]
 use winit::platform::android::{activity::AndroidApp, EventLoopBuilderExtAndroid};
 #[cfg(target_os = "macos")]
 use winit::platform::macos::{ActivationPolicy, EventLoopBuilderExtMacOS};
+#[cfg(target_arch = "wasm32")]
+use winit::platform::web::WindowBuilderExtWebSys;
 use winit::{
     dpi::PhysicalPosition,
     event::{Event, Ime, MouseButton, MouseScrollDelta, WindowEvent},
@@ -39,9 +41,13 @@ use fission_test_driver::TestEvent;
 
 // Vello / WGPU
 use pollster::block_on;
+#[cfg(not(target_arch = "wasm32"))]
+use std::time::Instant;
 use vello::util::{RenderContext, RenderSurface};
 use vello::wgpu;
 use vello::{AaSupport, Renderer as VelloSceneRenderer, RendererOptions, Scene};
+#[cfg(target_arch = "wasm32")]
+use web_time::Instant;
 
 mod compositor;
 use compositor::TextureLayerCompositor;
@@ -123,15 +129,14 @@ fn create_render_state<'w>(
         window.inner_size().width,
         window.inner_size().height,
         wgpu::PresentMode::AutoVsync,
-    ))?;
+    ))
+    .map_err(|error| anyhow::anyhow!("failed to create render surface: {error}"))?;
 
     let device_handle = &render_cx.devices[surface.dev_id];
     #[cfg(target_os = "ios")]
-    device_handle
-        .device
-        .on_uncaptured_error(Box::new(|error| {
-            eprintln!("wgpu uncaptured error: {error}");
-        }));
+    device_handle.device.on_uncaptured_error(Box::new(|error| {
+        eprintln!("wgpu uncaptured error: {error}");
+    }));
     let downlevel_caps = device_handle.adapter().get_downlevel_capabilities();
     let force_software_renderer = std::env::var("FISSION_FORCE_SOFTWARE_RENDERER")
         .map(|value| matches!(value.to_ascii_lowercase().as_str(), "1" | "true" | "yes"))
@@ -185,7 +190,8 @@ fn create_render_state<'w>(
                 num_init_threads: None,
                 pipeline_cache: None,
             },
-        )?;
+        )
+        .map_err(|error| anyhow::anyhow!("failed to create vello renderer: {error}"))?;
 
         let texture_compositor =
             TextureLayerCompositor::new(&device_handle.device, wgpu::TextureFormat::Rgba8Unorm);
@@ -1675,6 +1681,10 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
         let event_proxy = event_loop.create_proxy();
 
         let mut window_builder = WindowBuilder::new().with_title(&self.title);
+        #[cfg(target_arch = "wasm32")]
+        {
+            window_builder = window_builder.with_append(true).with_prevent_default(true);
+        }
         if background_test_mode {
             window_builder = window_builder.with_active(false).with_visible(false);
         }

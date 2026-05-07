@@ -2,24 +2,22 @@
 
 Web shell for the Fission UI framework (WebAssembly target).
 
-`fission-shell-web` will provide the platform integration layer for running Fission applications
-in the browser via WebAssembly. This includes DOM event translation, `requestAnimationFrame`
-scheduling, WebGPU surface management, and clipboard / IME interop through the Web APIs.
+`fission-shell-web` is the current browser shell for running Fission applications via WebAssembly.
+It wraps the shared `fission-shell-winit` runtime on the wasm target and appends the generated
+canvas to the page automatically.
 
 ## Status
 
-This crate is still a placeholder.
-
 What is ready today:
 
-- CLI scaffolding for `web`
-- documented wasm toolchain setup
-
-What is not ready yet:
-
-- runnable `fission-shell-web` runtime
-- checked-in `web-smoke` example
+- runnable `WebApp` wrapper backed by the shared winit runtime
+- checked-in `examples/web-smoke/` browser example
 - first-party `fission add-target web` launcher output
+
+What is still missing:
+
+- host-side browser test control equivalent to the desktop/mobile TCP server
+- richer browser integration for clipboard, drag-and-drop, and IME edge cases
 
 ## WASM prerequisites
 
@@ -28,20 +26,29 @@ rustup target add wasm32-unknown-unknown
 cargo install wasm-pack
 ```
 
-The intended source path for web support is:
+Relevant paths:
 
 - `crates/shell/fission-shell-web/`
+- `examples/web-smoke/`
 
 Do not treat `fission-shell-desktop` as the web entrypoint. The desktop shell carries
 desktop-specific runtime and test-driver dependencies that are not the right long-term
 WASM surface.
 
-## Planned scope
+## Verified commands
 
-- WASM entry point and `requestAnimationFrame` event loop.
-- DOM event (pointer, keyboard, wheel, IME) translation to Fission `InputEvent`.
-- WebGPU surface integration for the Vello rendering backend.
-- Clipboard and drag-and-drop interop via the Web Clipboard and Drag APIs.
-- Integration with `fission-shell` shared abstractions (`Platform`, `VideoBackend`).
+Build and serve the checked-in example:
+
+```sh
+rustup target add wasm32-unknown-unknown
+cargo install wasm-pack
+./examples/web-smoke/platforms/web/run-browser.sh
+```
+
+Build a generated app after `cargo fission add-target web`:
+
+```sh
+./platforms/web/run-browser.sh
+```
 
 More setup detail lives in `../../../docs/platform-smoke-tests.md`.

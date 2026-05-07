@@ -10,7 +10,9 @@
 //! The [`LiveTestClient`] connects to `http://127.0.0.1:<port>` and sends
 //! [`TestCommand`] JSON payloads to `/cmd`, receiving [`TestResponse`] replies.
 
+#[cfg(not(target_arch = "wasm32"))]
 use anyhow::{anyhow, Result};
+#[cfg(not(target_arch = "wasm32"))]
 use base64::Engine;
 use serde::{Deserialize, Serialize};
 
@@ -204,10 +206,12 @@ pub enum TestResponse {
 /// client.screenshot("/tmp/result.png").unwrap();
 /// client.quit().unwrap();
 /// ```
+#[cfg(not(target_arch = "wasm32"))]
 pub struct LiveTestClient {
     base_url: String,
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 impl LiveTestClient {
     pub fn connect(port: u16) -> Self {
         Self {

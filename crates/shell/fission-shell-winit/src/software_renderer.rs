@@ -1,11 +1,11 @@
 use anyhow::{anyhow, Result};
-use fontdue::{
-    layout::{CoordinateSystem, Layout, LayoutSettings, TextStyle as FontdueTextStyle},
-    Font, FontSettings,
-};
 use fission_render::{
     Color as RenderColor, DisplayList, DisplayOp, Fill, ImageFit, LineCap, LineJoin, RenderScene,
     Stroke, TextRun,
+};
+use fontdue::{
+    layout::{CoordinateSystem, Layout, LayoutSettings, TextStyle as FontdueTextStyle},
+    Font, FontSettings,
 };
 use std::collections::hash_map::DefaultHasher;
 use std::collections::HashMap;
@@ -342,7 +342,12 @@ impl SoftwareRenderer {
         })
     }
 
-    pub fn render(scene: &RenderScene, width: u32, height: u32, background: RenderColor) -> Result<Vec<u8>> {
+    pub fn render(
+        scene: &RenderScene,
+        width: u32,
+        height: u32,
+        background: RenderColor,
+    ) -> Result<Vec<u8>> {
         let mut renderer = Self::new(width, height, background)?;
         let display_list = scene.flatten();
         renderer.render_ops(&display_list)?;
@@ -354,7 +359,9 @@ impl SoftwareRenderer {
     }
 
     fn current_state(&self) -> &DrawState {
-        self.states.last().expect("software renderer state stack empty")
+        self.states
+            .last()
+            .expect("software renderer state stack empty")
     }
 
     fn current_state_mut(&mut self) -> &mut DrawState {
@@ -453,18 +460,11 @@ impl SoftwareRenderer {
                 }
                 DisplayOp::Translate(point) => {
                     let state = self.current_state_mut();
-                    state.transform = state
-                        .transform
-                        .post_translate(point.x, point.y);
+                    state.transform = state.transform.post_translate(point.x, point.y);
                 }
                 DisplayOp::Transform(matrix) => {
                     let transform = Transform::from_row(
-                        matrix[0],
-                        matrix[1],
-                        matrix[4],
-                        matrix[5],
-                        matrix[12],
-                        matrix[13],
+                        matrix[0], matrix[1], matrix[4], matrix[5], matrix[12], matrix[13],
                     );
                     let state = self.current_state_mut();
                     state.transform = state.transform.post_concat(transform);
@@ -478,7 +478,13 @@ impl SoftwareRenderer {
                     shadow,
                     ..
                 } => {
-                    self.draw_rect(*rect, fill.as_ref(), stroke.as_ref(), *corner_radius, shadow.as_ref())?;
+                    self.draw_rect(
+                        *rect,
+                        fill.as_ref(),
+                        stroke.as_ref(),
+                        *corner_radius,
+                        shadow.as_ref(),
+                    )?;
                 }
                 DisplayOp::DrawText {
                     text,
@@ -502,10 +508,7 @@ impl SoftwareRenderer {
                     self.draw_rich_text(runs, *position, *bounds, *wrap)?;
                 }
                 DisplayOp::DrawImage {
-                    rect,
-                    source,
-                    fit,
-                    ..
+                    rect, source, fit, ..
                 } => {
                     self.draw_image(*rect, source, *fit)?;
                 }
@@ -595,7 +598,13 @@ impl SoftwareRenderer {
 
         if let Some(fill) = fill {
             let paint = fill_paint(fill);
-            surface.fill_path(&path, &paint, TinyFillRule::Winding, transform, clip.as_ref());
+            surface.fill_path(
+                &path,
+                &paint,
+                TinyFillRule::Winding,
+                transform,
+                clip.as_ref(),
+            );
         }
         if let Some(stroke) = stroke {
             let paint = fill_paint(&stroke.fill);
@@ -663,7 +672,11 @@ impl SoftwareRenderer {
                     &run.text,
                     run.style.font_size,
                     0,
-                    (run.style.color, run.style.underline, run.style.background_color),
+                    (
+                        run.style.color,
+                        run.style.underline,
+                        run.style.background_color,
+                    ),
                 ),
             );
         }
@@ -740,7 +753,12 @@ impl SoftwareRenderer {
             let mut rgba = Vec::with_capacity(metrics.width * metrics.height * 4);
             for coverage in bitmap {
                 let premul = rgba_to_premul(color, coverage);
-                rgba.extend_from_slice(&[premul.red(), premul.green(), premul.blue(), premul.alpha()]);
+                rgba.extend_from_slice(&[
+                    premul.red(),
+                    premul.green(),
+                    premul.blue(),
+                    premul.alpha(),
+                ]);
             }
             let size = tiny_skia::IntSize::from_wh(metrics.width as u32, metrics.height as u32)
                 .ok_or_else(|| anyhow!("invalid glyph pixmap size"))?;
@@ -846,7 +864,13 @@ impl SoftwareRenderer {
         let surface = self.current_surface_mut();
         if let Some(fill) = fill {
             let paint = fill_paint(fill);
-            surface.fill_path(&path, &paint, TinyFillRule::Winding, transform, clip.as_ref());
+            surface.fill_path(
+                &path,
+                &paint,
+                TinyFillRule::Winding,
+                transform,
+                clip.as_ref(),
+            );
         }
         if let Some(stroke) = stroke {
             let paint = fill_paint(&stroke.fill);
@@ -864,12 +888,10 @@ impl SoftwareRenderer {
         bounds: fission_render::LayoutRect,
     ) -> Result<()> {
         let entry = svg_cache_entry(content);
-        let (vb_x, vb_y, vb_w, vb_h) = entry.view_box.unwrap_or((
-            0.0,
-            0.0,
-            bounds.width(),
-            bounds.height(),
-        ));
+        let (vb_x, vb_y, vb_w, vb_h) =
+            entry
+                .view_box
+                .unwrap_or((0.0, 0.0, bounds.width(), bounds.height()));
         let rect_w = bounds.width();
         let rect_h = bounds.height();
         let (scale, dx, dy) = if vb_w > 0.0 && vb_h > 0.0 && rect_w > 0.0 && rect_h > 0.0 {
@@ -911,13 +933,7 @@ impl SoftwareRenderer {
                     if let Some(stroke) = stroke {
                         let paint = fill_paint(&stroke.fill);
                         let style = stroke_style(stroke);
-                        surface.stroke_path(
-                            &path,
-                            &paint,
-                            &style,
-                            transform,
-                            clip.as_ref(),
-                        );
+                        surface.stroke_path(&path, &paint, &style, transform, clip.as_ref());
                     }
                 }
                 SvgShape::Rect {
@@ -926,7 +942,9 @@ impl SoftwareRenderer {
                     width,
                     height,
                 } => {
-                    let Some(path) = rect_path(fission_render::LayoutRect::new(*x, *y, *width, *height)) else {
+                    let Some(path) =
+                        rect_path(fission_render::LayoutRect::new(*x, *y, *width, *height))
+                    else {
                         continue;
                     };
                     if let Some(fill) = fill {
@@ -942,13 +960,7 @@ impl SoftwareRenderer {
                     if let Some(stroke) = stroke {
                         let paint = fill_paint(&stroke.fill);
                         let style = stroke_style(stroke);
-                        surface.stroke_path(
-                            &path,
-                            &paint,
-                            &style,
-                            transform,
-                            clip.as_ref(),
-                        );
+                        surface.stroke_path(&path, &paint, &style, transform, clip.as_ref());
                     }
                 }
             }

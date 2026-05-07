@@ -7,6 +7,9 @@ repository = "https://github.com/worka-ai/fission"
 description = "Shell Web"
 
 [dependencies]
+anyhow = "1.0"
+fission-core = { path = "../../core/fission-core", version = "0.1.1" }
 fission-shell = { path = "../fission-shell", version = "0.1.1" }
+fission-shell-winit = { path = "../fission-shell-winit", version = "0.1.1" }
 
 [dev-dependencies]

@@ -7,9 +7,9 @@ This document records the current reproducible target setup for the Fission repo
 | Target | Example / shell | Status | Notes |
 |---|---|---|---|
 | Desktop | `examples/mobile-smoke` + `fission-shell-mobile` | runnable | `cargo run -p mobile-smoke` uses the shared winit + Vello path on the host |
-| iOS | `examples/mobile-smoke` + `fission-shell-mobile` | scaffolded, not runnable end to end | the checked-in example and a CLI-generated app both build and launch a simulator app bundle, but the current Vello path only produces a black frame on CoreSimulator because the simulator Metal device lacks `INDIRECT_EXECUTION` |
+| iOS | `examples/mobile-smoke` + `fission-shell-mobile` | runnable on simulator | CoreSimulator now falls back to the shared software renderer when Vello cannot use `INDIRECT_EXECUTION`; the app renders, responds to taps, and serves test control |
 | Android | `examples/mobile-smoke` + `fission-shell-mobile` | runnable on emulator | requires Android SDK + NDK env vars; both the checked-in example and a CLI-generated app package, install, and launch through `run-emulator.sh` |
-| Web/WASM | `crates/shell/fission-shell-web` | not runnable yet | toolchain setup is documented, but there is no checked-in web shell/runtime or `web-smoke` example yet |
+| Web/WASM | `examples/web-smoke` + `fission-shell-web` | runnable in browser | `wasm-pack` builds a real browser target, the checked-in `web-smoke` example serves locally, and CLI-generated apps now scaffold the same host project layout |
 
 ## Rust targets
 
@@ -32,7 +32,7 @@ Sanity check:
 xcrun --sdk iphonesimulator --show-sdk-path
 ```
 
-Scaffold/launch command:
+Launch command:
 
 ```sh
 ./examples/mobile-smoke/platforms/ios/run-sim.sh
@@ -45,11 +45,11 @@ FISSION_TEST_CONTROL_PORT=48711 ./examples/mobile-smoke/platforms/ios/run-sim.sh
 curl http://127.0.0.1:48711/health
 ```
 
-Current blocker:
+What changed:
 
-- the simulator runtime currently logs `wgpu` / Vello validation errors for missing `DownlevelFlags(INDIRECT_EXECUTION)`
-- the app stays up and exposes test control, but the rendered output is a black frame
-- this means the iOS host-project generation is in place, but the current renderer path is not yet simulator-safe
+- CoreSimulator still lacks `DownlevelFlags(INDIRECT_EXECUTION)`
+- `fission-shell-winit` now detects that case and falls back to the shared software renderer
+- the simulator path now renders visible pixels, responds to tap input, and returns non-black screenshots through test control
 
 Relevant paths:
 
@@ -104,21 +104,29 @@ Relevant paths:
 
 ## Web / WASM
 
-Required tools today:
+Required tools:
 
 ```sh
 rustup target add wasm32-unknown-unknown
 cargo install wasm-pack
 ```
 
-Current state:
+Smoke command:
 
-- `crates/shell/fission-shell-web/` exists, but is still a placeholder
-- there is no checked-in `web-smoke` example yet
-- `fission add-target web` only scaffolds the target and records it in `fission.toml`
+```sh
+./examples/web-smoke/platforms/web/run-browser.sh
+```
 
-This means the web path is not yet reproducibly runnable for third-party developers. The toolchain
-instructions are here now so the eventual shell/example can land against a documented setup.
+This script:
+
+- builds the wasm package with `wasm-pack`
+- serves the repository root at `http://127.0.0.1:8123/examples/web-smoke/platforms/web/`
+- leaves the server in the foreground so you can open that URL in any browser
+
+Relevant paths:
+
+- shell: `crates/shell/fission-shell-web/`
+- example: `examples/web-smoke/`
 
 ## Generated app smoke
 
@@ -131,6 +139,11 @@ cd /tmp/demo-app
 ./platforms/ios/run-sim.sh
 # after exporting the Android env block from the Android section above
 ./platforms/android/run-emulator.sh
+./platforms/web/run-browser.sh
 ```
 
-The generated app now gets both Android launcher/package scripts and iOS simulator packaging scripts. Android is runnable on the emulator. iOS is still blocked at runtime by the Vello/CoreSimulator issue above.
+The generated app now gets:
+
+- iOS simulator packaging and launch scripts
+- Android launcher/package/install scripts
+- a real web host page plus `wasm-pack` build and local browser serve scripts
