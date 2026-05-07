@@ -47,6 +47,8 @@ mod compositor;
 use compositor::TextureLayerCompositor;
 mod pipeline;
 pub use pipeline::{InvalidationSet, Pipeline};
+mod software_renderer;
+use software_renderer::SoftwareRenderer;
 mod video_backend;
 #[cfg(target_os = "macos")]
 use video_backend::MacVideoBackend;
@@ -101,8 +103,15 @@ struct RenderState<'w> {
     surface: RenderSurface<'w>,
     target_texture_size: (u32, u32),
     scene3d_renderer: fission_3d::render::Scene3DRenderer,
-    vello_renderer: VelloSceneRenderer,
-    texture_compositor: TextureLayerCompositor,
+    main_renderer: MainRenderer,
+}
+
+enum MainRenderer {
+    Vello {
+        renderer: VelloSceneRenderer,
+        texture_compositor: TextureLayerCompositor,
+    },
+    Software,
 }
 
 fn create_render_state<'w>(
@@ -124,13 +133,23 @@ fn create_render_state<'w>(
             eprintln!("wgpu uncaptured error: {error}");
         }));
     let downlevel_caps = device_handle.adapter().get_downlevel_capabilities();
+    let force_software_renderer = std::env::var("FISSION_FORCE_SOFTWARE_RENDERER")
+        .map(|value| matches!(value.to_ascii_lowercase().as_str(), "1" | "true" | "yes"))
+        .unwrap_or(false);
+    let supports_indirect_execution = downlevel_caps
+        .flags
+        .contains(wgpu::DownlevelFlags::INDIRECT_EXECUTION);
+    let use_software_renderer =
+        force_software_renderer || (cfg!(target_os = "ios") && !supports_indirect_execution);
     let use_cpu_vello = std::env::var("FISSION_VELLO_USE_CPU")
         .map(|value| matches!(value.to_ascii_lowercase().as_str(), "1" | "true" | "yes"))
         .unwrap_or(false)
-        || !downlevel_caps
-            .flags
-            .contains(wgpu::DownlevelFlags::INDIRECT_EXECUTION);
-    if use_cpu_vello {
+        || !supports_indirect_execution;
+    if use_software_renderer {
+        eprintln!(
+            "fission-shell-winit: using software renderer fallback (missing INDIRECT_EXECUTION support)"
+        );
+    } else if use_cpu_vello {
         eprintln!(
             "fission-shell-winit: using Vello CPU fallback (missing INDIRECT_EXECUTION support)"
         );
@@ -155,25 +174,32 @@ fn create_render_state<'w>(
         wgpu::TextureFormat::Rgba8Unorm,
     );
 
-    let vello_renderer = VelloSceneRenderer::new(
-        &device_handle.device,
-        RendererOptions {
-            use_cpu: use_cpu_vello,
-            antialiasing_support: AaSupport::all(),
-            num_init_threads: None,
-            pipeline_cache: None,
-        },
-    )?;
+    let main_renderer = if use_software_renderer {
+        MainRenderer::Software
+    } else {
+        let renderer = VelloSceneRenderer::new(
+            &device_handle.device,
+            RendererOptions {
+                use_cpu: use_cpu_vello,
+                antialiasing_support: AaSupport::all(),
+                num_init_threads: None,
+                pipeline_cache: None,
+            },
+        )?;
 
-    let texture_compositor =
-        TextureLayerCompositor::new(&device_handle.device, wgpu::TextureFormat::Rgba8Unorm);
+        let texture_compositor =
+            TextureLayerCompositor::new(&device_handle.device, wgpu::TextureFormat::Rgba8Unorm);
+        MainRenderer::Vello {
+            renderer,
+            texture_compositor,
+        }
+    };
 
     Ok(RenderState {
         surface,
         target_texture_size,
         scene3d_renderer,
-        vello_renderer,
-        texture_compositor,
+        main_renderer,
     })
 }
 
@@ -2790,91 +2816,168 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                         let device_handle =
                                             &render_cx.devices[render_state.surface.dev_id];
 
-                                        let texture_plans = pipeline.texture_compositor_plans();
                                         let clear_color = vello::wgpu::Color {
                                             r: env.theme.tokens.colors.background.r as f64 / 255.0,
                                             g: env.theme.tokens.colors.background.g as f64 / 255.0,
                                             b: env.theme.tokens.colors.background.b as f64 / 255.0,
                                             a: env.theme.tokens.colors.background.a as f64 / 255.0,
                                         };
-                                        let texture_plans_fit_limits = texture_plans_fit_device_limits(
-                                            texture_plans,
-                                            scale_factor,
-                                            device_handle.device.limits().max_texture_dimension_2d,
-                                        );
-                                        let has_active_scroll_offsets = runtime
-                                            .runtime_state
-                                            .scroll
-                                            .offsets
-                                            .values()
-                                            .any(|offset| offset.abs() > 0.5);
-                                        let enable_texture_compositor =
-                                            std::env::var("FISSION_ENABLE_TEXTURE_COMPOSITOR")
-                                                .ok()
-                                                .as_deref()
-                                                == Some("1");
-                                        if !enable_texture_compositor
-                                            || texture_plans.is_empty()
-                                            || !texture_plans_fit_limits
-                                            || has_active_scroll_offsets
-                                        {
-                                            let render_params = vello::RenderParams {
-                                                base_color: vello::peniko::Color::from_rgba8(
-                                                    env.theme.tokens.colors.background.r,
-                                                    env.theme.tokens.colors.background.g,
-                                                    env.theme.tokens.colors.background.b,
-                                                    env.theme.tokens.colors.background.a,
-                                                ),
-                                                width: render_target_size.0,
-                                                height: render_target_size.1,
-                                                antialiasing_method: vello::AaConfig::Area,
-                                            };
+                                        match &mut render_state.main_renderer {
+                                            MainRenderer::Vello {
+                                                renderer,
+                                                texture_compositor,
+                                            } => {
+                                                let texture_plans =
+                                                    pipeline.texture_compositor_plans();
+                                                let texture_plans_fit_limits =
+                                                    texture_plans_fit_device_limits(
+                                                        texture_plans,
+                                                        scale_factor,
+                                                        device_handle
+                                                            .device
+                                                            .limits()
+                                                            .max_texture_dimension_2d,
+                                                    );
+                                                let has_active_scroll_offsets = runtime
+                                                    .runtime_state
+                                                    .scroll
+                                                    .offsets
+                                                    .values()
+                                                    .any(|offset| offset.abs() > 0.5);
+                                                let enable_texture_compositor =
+                                                    std::env::var(
+                                                        "FISSION_ENABLE_TEXTURE_COMPOSITOR",
+                                                    )
+                                                    .ok()
+                                                    .as_deref()
+                                                        == Some("1");
+                                                if !enable_texture_compositor
+                                                    || texture_plans.is_empty()
+                                                    || !texture_plans_fit_limits
+                                                    || has_active_scroll_offsets
+                                                {
+                                                    let render_params = vello::RenderParams {
+                                                        base_color:
+                                                            vello::peniko::Color::from_rgba8(
+                                                                env.theme.tokens.colors
+                                                                    .background
+                                                                    .r,
+                                                                env.theme.tokens.colors
+                                                                    .background
+                                                                    .g,
+                                                                env.theme.tokens.colors
+                                                                    .background
+                                                                    .b,
+                                                                env.theme.tokens.colors
+                                                                    .background
+                                                                    .a,
+                                                            ),
+                                                        width: render_target_size.0,
+                                                        height: render_target_size.1,
+                                                        antialiasing_method:
+                                                            vello::AaConfig::Area,
+                                                    };
 
-                                            scene.reset();
-                                            let retained_scene = pipeline
-                                                .retained_scene()
-                                                .expect("retained render scene missing before render");
-                                            let mut renderer_wrapper = VelloRenderer::new(
-                                                &mut scene,
-                                                measurer.clone(),
-                                                &mut retained_scene_cache,
-                                                scale_factor,
-                                            );
-                                            renderer_wrapper
-                                                .render_scene(retained_scene)
-                                                .expect("failed to encode retained scene");
-                                            render_state
-                                                .vello_renderer
-                                                .render_to_texture(
-                                                    &device_handle.device,
-                                                    &device_handle.queue,
-                                                    &scene,
-                                                    &render_state.surface.target_view,
-                                                    &render_params,
-                                                )
-                                                .expect("failed to render");
-                                        } else {
-                                            let force_full_compositor_redraw = invalidations.build
-                                                || invalidations.layout
-                                                || invalidations.paint;
-                                            let _compositor_stats = render_state
-                                                .texture_compositor
-                                                .render_layers(
-                                                    &device_handle.device,
-                                                    &device_handle.queue,
-                                                    &mut render_state.vello_renderer,
-                                                    &mut retained_scene_cache,
-                                                    measurer.clone(),
-                                                    scale_factor,
+                                                    scene.reset();
+                                                    let retained_scene = pipeline
+                                                        .retained_scene()
+                                                        .expect(
+                                                            "retained render scene missing before render",
+                                                        );
+                                                    let mut renderer_wrapper =
+                                                        VelloRenderer::new(
+                                                            &mut scene,
+                                                            measurer.clone(),
+                                                            &mut retained_scene_cache,
+                                                            scale_factor,
+                                                        );
+                                                    renderer_wrapper
+                                                        .render_scene(retained_scene)
+                                                        .expect(
+                                                            "failed to encode retained scene",
+                                                        );
+                                                    renderer
+                                                        .render_to_texture(
+                                                            &device_handle.device,
+                                                            &device_handle.queue,
+                                                            &scene,
+                                                            &render_state.surface.target_view,
+                                                            &render_params,
+                                                        )
+                                                        .expect("failed to render");
+                                                } else {
+                                                    let force_full_compositor_redraw =
+                                                        invalidations.build
+                                                            || invalidations.layout
+                                                            || invalidations.paint;
+                                                    let _compositor_stats = texture_compositor
+                                                        .render_layers(
+                                                            &device_handle.device,
+                                                            &device_handle.queue,
+                                                            renderer,
+                                                            &mut retained_scene_cache,
+                                                            measurer.clone(),
+                                                            scale_factor,
+                                                            render_target_size.0,
+                                                            render_target_size.1,
+                                                            pipeline
+                                                                .texture_compositor_root_transform(),
+                                                            texture_plans,
+                                                            force_full_compositor_redraw,
+                                                            clear_color,
+                                                            &render_state.surface.target_view,
+                                                        )
+                                                        .expect(
+                                                            "failed to composite texture layers",
+                                                        );
+                                                }
+                                            }
+                                            MainRenderer::Software => {
+                                                let retained_scene = pipeline
+                                                    .retained_scene()
+                                                    .expect(
+                                                        "retained render scene missing before render",
+                                                    );
+                                                let rgba = SoftwareRenderer::render(
+                                                    retained_scene,
                                                     render_target_size.0,
                                                     render_target_size.1,
-                                                    pipeline.texture_compositor_root_transform(),
-                                                    texture_plans,
-                                                    force_full_compositor_redraw,
-                                                    clear_color,
-                                                    &render_state.surface.target_view,
+                                                    fission_render::Color {
+                                                        r: env.theme.tokens.colors.background.r,
+                                                        g: env.theme.tokens.colors.background.g,
+                                                        b: env.theme.tokens.colors.background.b,
+                                                        a: env.theme.tokens.colors.background.a,
+                                                    },
                                                 )
-                                                .expect("failed to composite texture layers");
+                                                .expect(
+                                                    "failed to rasterize software frame",
+                                                );
+                                                device_handle.queue.write_texture(
+                                                    wgpu::TexelCopyTextureInfo {
+                                                        texture: &render_state
+                                                            .surface
+                                                            .target_texture,
+                                                        mip_level: 0,
+                                                        origin: wgpu::Origin3d::ZERO,
+                                                        aspect: wgpu::TextureAspect::All,
+                                                    },
+                                                    &rgba,
+                                                    wgpu::TexelCopyBufferLayout {
+                                                        offset: 0,
+                                                        bytes_per_row: Some(
+                                                            render_target_size.0 * 4,
+                                                        ),
+                                                        rows_per_image: Some(
+                                                            render_target_size.1,
+                                                        ),
+                                                    },
+                                                    wgpu::Extent3d {
+                                                        width: render_target_size.0,
+                                                        height: render_target_size.1,
+                                                        depth_or_array_layers: 1,
+                                                    },
+                                                );
+                                            }
                                         }
 
                                         for (_, _rect, payload) in &pipeline.scene_3d_surfaces {
@@ -3312,7 +3415,8 @@ fn recreate_target_texture(
         usage: wgpu::TextureUsages::STORAGE_BINDING
             | wgpu::TextureUsages::TEXTURE_BINDING
             | wgpu::TextureUsages::RENDER_ATTACHMENT
-            | wgpu::TextureUsages::COPY_SRC,
+            | wgpu::TextureUsages::COPY_SRC
+            | wgpu::TextureUsages::COPY_DST,
         view_formats: &[],
     });
     let new_view = new_texture.create_view(&wgpu::TextureViewDescriptor::default());
