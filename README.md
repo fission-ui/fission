@@ -166,6 +166,13 @@ Android emulator notes:
 - `run-emulator.sh` launches a visible emulator when it has to boot a new AVD
 - set `ANDROID_EMULATOR_HEADLESS=1` for CI/background runs
 - set `ANDROID_EMULATOR_RESTART=1` if an old hidden emulator is already running and you want the script to relaunch it visibly
+- the shell forces `WGPU_BACKEND=gl` on Android when `WGPU_BACKEND` is unset; this avoids the emulator's unstable Vulkan/SwiftShader path
+- set `WGPU_BACKEND=vulkan` explicitly only if you want to test a real-device Vulkan path yourself
+- when `FISSION_TEST_CONTROL_PORT` is set on Android, the shell keeps the event loop polling so test-control commands can wake and drain reliably inside the emulator
+
+iOS simulator note:
+
+- CoreSimulator still lacks `DownlevelFlags(INDIRECT_EXECUTION)`, so the shell falls back to the shared software renderer automatically on the simulator
 
 Web/WASM prerequisites are:
 

@@ -53,6 +53,12 @@ export AR_aarch64_linux_android="$ANDROID_TOOLCHAIN/llvm-ar"
 If your NDK uses a different host prebuilt directory, replace `darwin-x86_64` with the matching
 folder on your machine.
 
+Android emulator notes:
+
+- `fission-shell-winit` forces `WGPU_BACKEND=gl` on Android when `WGPU_BACKEND` is unset so the emulator avoids the unstable Vulkan/SwiftShader path
+- set `WGPU_BACKEND=vulkan` explicitly only if you want to audit that backend on a real device
+- when `FISSION_TEST_CONTROL_PORT` is set, the Android shell keeps the event loop polling so semantic test-control commands stay responsive through `adb forward`
+
 ## Current scope
 
 - `MobileApp` wrapper for the shared `fission-shell-winit` runtime

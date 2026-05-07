@@ -58,3 +58,6 @@ Android emulator controls:
 - visible by default when the script has to boot a new AVD
 - `ANDROID_EMULATOR_HEADLESS=1` for background/CI runs
 - `ANDROID_EMULATOR_RESTART=1` to kill an already-running hidden emulator and relaunch it visibly
+- `WGPU_BACKEND` defaults to `gl` on Android when unset so the emulator stays off the unstable Vulkan/SwiftShader path
+- set `WGPU_BACKEND=vulkan` explicitly only if you want to audit that backend on a real device
+- when `FISSION_TEST_CONTROL_PORT` is set, the Android shell keeps the event loop polling so semantic test-control commands stay responsive through `adb forward`

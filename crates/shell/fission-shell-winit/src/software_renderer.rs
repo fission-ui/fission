@@ -299,6 +299,16 @@ fn svg_cache_entry(content: &str) -> Arc<SvgCacheEntry> {
     parsed
 }
 
+fn wrap_max_width(bounds_width: f32, font_size: f32, wrap: bool) -> Option<f32> {
+    if !wrap || bounds_width <= 0.0 {
+        return None;
+    }
+    // The retained text bounds track ink-box width more closely than advance width.
+    // Give the software layout a small amount of slack so short labels do not wrap
+    // spuriously when their final advance slightly exceeds the reported bounds.
+    Some(bounds_width.ceil() + font_size * 0.5)
+}
+
 fn cached_image(path: &str) -> Option<Arc<Pixmap>> {
     if let Some(image) = image_cache().lock().unwrap().get(path) {
         return Some(Arc::clone(image));
@@ -347,15 +357,43 @@ impl SoftwareRenderer {
         width: u32,
         height: u32,
         background: RenderColor,
+        scale_factor: f32,
     ) -> Result<Vec<u8>> {
-        let mut renderer = Self::new(width, height, background)?;
+        let logical_width = ((width.max(1) as f32) / scale_factor.max(1.0)).round() as u32;
+        let logical_height = ((height.max(1) as f32) / scale_factor.max(1.0)).round() as u32;
+        let mut renderer = Self::new(logical_width.max(1), logical_height.max(1), background)?;
         let display_list = scene.flatten();
         renderer.render_ops(&display_list)?;
-        Ok(renderer.finish())
+        if scale_factor <= 1.0 {
+            return Ok(renderer.finish());
+        }
+
+        let logical = renderer.finish_pixmap();
+        let mut output = Pixmap::new(width.max(1), height.max(1))
+            .ok_or_else(|| anyhow!("failed to allocate upscaled software render target"))?;
+        output.fill(tiny_color(background));
+        let mut paint = PixmapPaint::default();
+        paint.quality = FilterQuality::Bilinear;
+        output.draw_pixmap(
+            0,
+            0,
+            logical.as_ref(),
+            &paint,
+            Transform::from_scale(
+                width.max(1) as f32 / logical.width() as f32,
+                height.max(1) as f32 / logical.height() as f32,
+            ),
+            None,
+        );
+        Ok(output.take())
     }
 
     fn finish(self) -> Vec<u8> {
-        self.surfaces.into_iter().next().unwrap().take()
+        self.finish_pixmap().take()
+    }
+
+    fn finish_pixmap(self) -> Pixmap {
+        self.surfaces.into_iter().next().unwrap()
     }
 
     fn current_state(&self) -> &DrawState {
@@ -630,11 +668,7 @@ impl SoftwareRenderer {
         layout.reset(&LayoutSettings {
             x: position.x,
             y: position.y,
-            max_width: if wrap && bounds.width() > 0.0 {
-                Some(bounds.width())
-            } else {
-                None
-            },
+            max_width: wrap_max_width(bounds.width(), size, wrap),
             ..LayoutSettings::default()
         });
         layout.append(&fonts, &FontdueTextStyle::new(text, size, 0));
@@ -658,11 +692,11 @@ impl SoftwareRenderer {
         layout.reset(&LayoutSettings {
             x: position.x,
             y: position.y,
-            max_width: if wrap && bounds.width() > 0.0 {
-                Some(bounds.width())
-            } else {
-                None
-            },
+            max_width: wrap_max_width(
+                bounds.width(),
+                runs.first().map(|run| run.style.font_size).unwrap_or(14.0),
+                wrap,
+            ),
             ..LayoutSettings::default()
         });
         for run in runs {

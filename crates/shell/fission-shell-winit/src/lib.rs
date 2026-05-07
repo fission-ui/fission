@@ -16,15 +16,15 @@ use winit::{
     dpi::PhysicalPosition,
     event::{Event, Ime, MouseButton, MouseScrollDelta, WindowEvent},
     event_loop::{ControlFlow, EventLoopBuilder, EventLoopProxy, EventLoopWindowTarget},
-    window::{Window, WindowBuilder},
+    window::{Window, WindowBuilder, WindowId},
 };
 
 use fission_core::env::VideoStatus;
 use fission_core::lowering::LoweringContext;
 use fission_core::ui::custom_render::downcast_render_object;
 use fission_core::{
-    ActionId, AppState, BuildCtx, Env, ImeHandler, InputEvent, KeyCode,
-    KeyEvent as FissionKeyEvent, PointerButton, PointerEvent, Runtime, View, Widget,
+    ActionId, AppState, BuildCtx, Env, InputEvent, KeyCode, KeyEvent as FissionKeyEvent,
+    PointerButton, PointerEvent, Runtime, View, Widget,
 };
 use fission_core::{ActionInput, Effect, EffectPayload, SystemEffect};
 use fission_diagnostics::prelude as diag;
@@ -144,8 +144,8 @@ fn create_render_state<'w>(
     let supports_indirect_execution = downlevel_caps
         .flags
         .contains(wgpu::DownlevelFlags::INDIRECT_EXECUTION);
-    let use_software_renderer =
-        force_software_renderer || (cfg!(target_os = "ios") && !supports_indirect_execution);
+    let use_software_renderer = force_software_renderer
+        || (cfg!(any(target_os = "ios", target_os = "android")) && !supports_indirect_execution);
     let use_cpu_vello = std::env::var("FISSION_VELLO_USE_CPU")
         .map(|value| matches!(value.to_ascii_lowercase().as_str(), "1" | "true" | "yes"))
         .unwrap_or(false)
@@ -159,7 +159,19 @@ fn create_render_state<'w>(
             "fission-shell-winit: using Vello CPU fallback (missing INDIRECT_EXECUTION support)"
         );
     }
-    surface.config.alpha_mode = wgpu::CompositeAlphaMode::PostMultiplied;
+    let surface_caps = surface.surface.get_capabilities(device_handle.adapter());
+    surface.config.alpha_mode = surface_caps
+        .alpha_modes
+        .iter()
+        .copied()
+        .find(|mode| *mode == wgpu::CompositeAlphaMode::PostMultiplied)
+        .unwrap_or_else(|| {
+            surface_caps
+                .alpha_modes
+                .first()
+                .copied()
+                .unwrap_or(wgpu::CompositeAlphaMode::Opaque)
+        });
     surface
         .surface
         .configure(&device_handle.device, &surface.config);
@@ -207,6 +219,44 @@ fn create_render_state<'w>(
         scene3d_renderer,
         main_renderer,
     })
+}
+
+fn build_window(
+    title: &str,
+    background_test_mode: bool,
+    target: &EventLoopWindowTarget<TestEvent>,
+) -> anyhow::Result<Arc<Window>> {
+    let mut window_builder = WindowBuilder::new().with_title(title);
+    #[cfg(target_arch = "wasm32")]
+    {
+        window_builder = window_builder.with_append(true).with_prevent_default(true);
+    }
+    if background_test_mode {
+        window_builder = window_builder.with_active(false).with_visible(false);
+    }
+    Ok(Arc::new(window_builder.build(target).map_err(|e| {
+        anyhow::anyhow!("Window build error: {}", e)
+    })?))
+}
+
+#[cfg(target_os = "android")]
+fn current_window(window: &Option<Arc<Window>>) -> Option<&Arc<Window>> {
+    window.as_ref()
+}
+
+#[cfg(not(target_os = "android"))]
+fn current_window(window: &Arc<Window>) -> Option<&Arc<Window>> {
+    Some(window)
+}
+
+#[cfg(target_os = "android")]
+fn current_window_id(window: &Option<Arc<Window>>) -> Option<WindowId> {
+    window.as_ref().map(|window| window.id())
+}
+
+#[cfg(not(target_os = "android"))]
+fn current_window_id(window: &Arc<Window>) -> Option<WindowId> {
+    Some(window.id())
 }
 
 fn request_redraw_throttled(
@@ -1679,31 +1729,30 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
             .build()
             .map_err(|e| anyhow::anyhow!("Event loop error: {}", e))?;
         let event_proxy = event_loop.create_proxy();
+        let window_title = self.title.clone();
+        let ime_handler = Arc::new(DesktopImeHandler::default());
+        self.runtime = self.runtime.with_ime_handler(ime_handler.clone());
 
-        let mut window_builder = WindowBuilder::new().with_title(&self.title);
-        #[cfg(target_arch = "wasm32")]
-        {
-            window_builder = window_builder.with_append(true).with_prevent_default(true);
-        }
-        if background_test_mode {
-            window_builder = window_builder.with_active(false).with_visible(false);
-        }
-        let window = Arc::new(
-            window_builder
-                .build(&event_loop)
-                .map_err(|e| anyhow::anyhow!("Window build error: {}", e))?,
-        );
-
-        let ime_handler: Arc<dyn ImeHandler> = Arc::new(DesktopImeHandler::new(window.clone()));
-        self.runtime = self.runtime.with_ime_handler(ime_handler);
+        #[cfg(not(target_os = "android"))]
+        let window = build_window(&window_title, background_test_mode, &event_loop)?;
+        #[cfg(not(target_os = "android"))]
+        ime_handler.set_window(Some(window.clone()));
+        #[cfg(target_os = "android")]
+        let mut window: Option<Arc<Window>> = None;
 
         // Rendering state is created lazily so Android can wait for a valid
         // native surface after the first resume event.
+        #[cfg(target_os = "android")]
+        if std::env::var_os("WGPU_BACKEND").is_none() {
+            eprintln!("fission-shell-winit: forcing WGPU_BACKEND=gl on Android");
+            std::env::set_var("WGPU_BACKEND", "gl");
+        }
         let mut render_cx = RenderContext::new();
         let mut render_state: Option<RenderState<'_>> = None;
         let mut scene = Scene::new();
         let mut retained_scene_cache = RetainedSceneCache::default();
 
+        #[cfg(not(target_os = "android"))]
         window.request_redraw();
 
         let mut runtime = self.runtime;
@@ -1774,7 +1823,6 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
         let mut presented_frames: u64 = 0;
         let mut next_text_trace_seq: u64 = 0;
         let mut pending_text_traces: VecDeque<PendingTextTrace> = VecDeque::new();
-
         let mut current_mods: u8 = 0;
 
         // Test control (enabled via FISSION_TEST_CONTROL_PORT env var).
@@ -1785,10 +1833,19 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                 .ok()
                 .and_then(|v| v.parse::<u16>().ok())
         });
+        #[cfg(target_os = "android")]
+        let pending_test_events = test_control::create_pending_event_queue();
         let test_response_tx: Option<test_control::ResponseSender> =
             test_control_port.map(|port| {
                 let (resp_tx, resp_rx) = test_control::create_response_channel();
-                test_control::spawn_server(port, event_proxy.clone(), resp_rx);
+                #[cfg(target_os = "android")]
+                let injector = test_control::EventInjector::Queue {
+                    queue: pending_test_events.clone(),
+                    wake_proxy: Some(event_proxy.clone()),
+                };
+                #[cfg(not(target_os = "android"))]
+                let injector = test_control::EventInjector::Proxy(event_proxy.clone());
+                test_control::spawn_server(port, injector, resp_rx);
                 resp_tx
             });
         // Pending screenshot/pump: path + whether it needs a screenshot (vs pump).
@@ -1796,7 +1853,10 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
         // Simulated viewport size override for test resize events.
         // When set, layout uses these dimensions instead of window.inner_size().
         let mut simulated_viewport: Option<(u32, u32)> = None;
+        #[cfg(not(target_os = "android"))]
         let mut pending_resize = Some(window.inner_size());
+        #[cfg(target_os = "android")]
+        let mut pending_resize = None;
         let mut live_resize = LiveResizeController::new(resize_settle_delay);
         let mut invalidations = InvalidationSet {
             build: true,
@@ -1808,13 +1868,370 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
         event_loop
             .run(move |event, elwt| {
                 elwt.set_control_flow(ControlFlow::Wait);
+                let debug_android_events = cfg!(target_os = "android")
+                    && std::env::var_os("FISSION_DEBUG_ANDROID_EVENTS").is_some();
+
+                let mut handle_test_event = |test_event: TestEvent| {
+                    if debug_android_events {
+                        eprintln!("[android-events] user_event={test_event:?}");
+                    }
+                    match test_event {
+                        TestEvent::MouseMove { x, y } => {
+                            let Some(window) = current_window(&window) else {
+                                return;
+                            };
+                            let scale_factor = window.scale_factor();
+                            last_cursor_position = Some(PhysicalPosition::new(
+                                (x as f64) * scale_factor,
+                                (y as f64) * scale_factor,
+                            ));
+                            handle_cursor_moved(
+                                x, y,
+                                &mut runtime, &pipeline,
+                                &effect_result_tx, &event_proxy, app_effect_handler.as_ref(),
+                                window, elwt,
+                                &mut last_redraw_at, min_frame, &mut redraw_pending,
+                                &mut frame_trace,
+                                &mut invalidations,
+                            );
+                        }
+                        TestEvent::MouseDown { x, y, button } => {
+                            let Some(window) = current_window(&window) else {
+                                return;
+                            };
+                            let btn = map_test_button(button);
+                            handle_mouse_button(
+                                x, y, btn, true,
+                                &mut runtime, &pipeline,
+                                &effect_result_tx, &event_proxy, app_effect_handler.as_ref(),
+                                window, elwt,
+                                &mut last_redraw_at, min_frame, &mut redraw_pending,
+                                text_trace_enabled, &mut pending_text_traces,
+                                &mut next_text_trace_seq, presented_frames,
+                                &mut last_blink_toggle,
+                                &mut frame_trace,
+                                &mut invalidations,
+                            );
+                        }
+                        TestEvent::MouseUp { x, y, button } => {
+                            let Some(window) = current_window(&window) else {
+                                return;
+                            };
+                            let btn = map_test_button(button);
+                            handle_mouse_button(
+                                x, y, btn, false,
+                                &mut runtime, &pipeline,
+                                &effect_result_tx, &event_proxy, app_effect_handler.as_ref(),
+                                window, elwt,
+                                &mut last_redraw_at, min_frame, &mut redraw_pending,
+                                text_trace_enabled, &mut pending_text_traces,
+                                &mut next_text_trace_seq, presented_frames,
+                                &mut last_blink_toggle,
+                                &mut frame_trace,
+                                &mut invalidations,
+                            );
+                        }
+                        TestEvent::KeyDown { key_code, modifiers } => {
+                            let Some(window) = current_window(&window) else {
+                                return;
+                            };
+                            let code = parse_key_code(&key_code);
+                            handle_key_down::<S>(
+                                code, modifiers,
+                                &mut runtime, &pipeline,
+                                &effect_result_tx, &event_proxy, app_effect_handler.as_ref(),
+                                window, elwt,
+                                &mut last_redraw_at, min_frame, &mut redraw_pending,
+                                text_trace_enabled, &mut pending_text_traces,
+                                &mut next_text_trace_seq, presented_frames,
+                                &mut last_blink_toggle,
+                                self.key_handler.as_ref(),
+                                &mut frame_trace,
+                                &mut invalidations,
+                            );
+                        }
+                        TestEvent::KeyUp { .. } => {
+                            let Some(window) = current_window(&window) else {
+                                return;
+                            };
+                            request_redraw_logged(
+                                window,
+                                elwt,
+                                &mut last_redraw_at,
+                                min_frame,
+                                &mut redraw_pending,
+                                &mut frame_trace,
+                                "test_key_up",
+                            );
+                        }
+                        TestEvent::TextInput { text } => {
+                            let Some(window) = current_window(&window) else {
+                                return;
+                            };
+                            if let (Some(ir), Some(layout)) =
+                                (&pipeline.prev_ir, &pipeline.last_snapshot)
+                            {
+                                let target =
+                                    focused_text_input_id(&runtime, pipeline.prev_ir.as_ref());
+                                if target.is_some()
+                                    || focused_custom_text_input(
+                                        &runtime,
+                                        pipeline.prev_ir.as_ref(),
+                                    )
+                                {
+                                    let trace_seq = start_text_trace(
+                                        text_trace_enabled && target.is_some(),
+                                        &mut pending_text_traces,
+                                        &mut next_text_trace_seq,
+                                        format!("test_text_input:{}", text.chars().count()),
+                                        target,
+                                        presented_frames,
+                                    );
+                                    runtime
+                                        .handle_input(
+                                            InputEvent::Ime(
+                                                fission_core::event::ImeEvent::Commit {
+                                                    text: text.clone(),
+                                                },
+                                            ),
+                                            ir,
+                                            layout,
+                                        )
+                                        .ok();
+                                    invalidations.mark_build();
+                                    mark_text_trace_handled(
+                                        &mut pending_text_traces,
+                                        trace_seq,
+                                    );
+                                    if process_pending_effects(
+                                        &mut runtime,
+                                        &effect_result_tx,
+                                        &event_proxy,
+                                        app_effect_handler.as_ref(),
+                                    ) {
+                                        mark_text_trace_effects(
+                                            &mut pending_text_traces,
+                                            trace_seq,
+                                        );
+                                        invalidations.mark_build();
+                                    }
+                                    request_redraw_logged(
+                                        window,
+                                        elwt,
+                                        &mut last_redraw_at,
+                                        min_frame,
+                                        &mut redraw_pending,
+                                        &mut frame_trace,
+                                        "test_text_input",
+                                    );
+                                } else {
+                                    for ch in text.chars() {
+                                        let key = if ch == ' ' {
+                                            KeyCode::Space
+                                        } else if ch == '\n' {
+                                            KeyCode::Enter
+                                        } else {
+                                            KeyCode::Char(ch)
+                                        };
+                                        handle_key_down::<S>(
+                                            key,
+                                            0,
+                                            &mut runtime,
+                                            &pipeline,
+                                            &effect_result_tx,
+                                            &event_proxy,
+                                            app_effect_handler.as_ref(),
+                                            window,
+                                            elwt,
+                                            &mut last_redraw_at,
+                                            min_frame,
+                                            &mut redraw_pending,
+                                            text_trace_enabled,
+                                            &mut pending_text_traces,
+                                            &mut next_text_trace_seq,
+                                            presented_frames,
+                                            &mut last_blink_toggle,
+                                            self.key_handler.as_ref(),
+                                            &mut frame_trace,
+                                            &mut invalidations,
+                                        );
+                                    }
+                                }
+                            }
+                        }
+                        TestEvent::Scroll { x, y, dx, dy } => {
+                            let Some(window) = current_window(&window) else {
+                                return;
+                            };
+                            handle_scroll(
+                                x, y, dx, dy,
+                                &mut runtime, &pipeline,
+                                &effect_result_tx, &event_proxy, app_effect_handler.as_ref(),
+                                window, elwt,
+                                &mut last_redraw_at, min_frame, &mut redraw_pending,
+                                &mut frame_trace,
+                                &mut invalidations,
+                            );
+                        }
+                        TestEvent::Resize { width, height } => {
+                            let Some(window) = current_window(&window) else {
+                                return;
+                            };
+                            if width > 0 && height > 0 {
+                                simulated_viewport = Some((width, height));
+                                pending_resize = Some(window.inner_size());
+                                live_resize.note_resize(Instant::now());
+                                invalidations.mark_composite();
+                                request_redraw_logged(
+                                    window,
+                                    elwt,
+                                    &mut last_redraw_at,
+                                    resize_frame,
+                                    &mut redraw_pending,
+                                    &mut frame_trace,
+                                    "test_resize",
+                                );
+                            }
+                        }
+                        TestEvent::TapText { text } => {
+                            let Some(window) = current_window(&window) else {
+                                if let Some(ref tx) = test_response_tx {
+                                    let _ = tx.send(fission_test_driver::TestResponse::Error {
+                                        message: "window not ready".into(),
+                                    });
+                                }
+                                return;
+                            };
+                            let resp = handle_tap_text(&text, &mut runtime, &pipeline);
+                            if matches!(resp, fission_test_driver::TestResponse::Ok { .. }) {
+                                invalidations.mark_build();
+                                if process_pending_effects(
+                                    &mut runtime,
+                                    &effect_result_tx,
+                                    &event_proxy,
+                                    app_effect_handler.as_ref(),
+                                ) {
+                                    invalidations.mark_build();
+                                }
+                            }
+                            if let Some(ref tx) = test_response_tx {
+                                let _ = tx.send(resp);
+                            }
+                            request_redraw_logged(
+                                window,
+                                elwt,
+                                &mut last_redraw_at,
+                                min_frame,
+                                &mut redraw_pending,
+                                &mut frame_trace,
+                                "test_tap_text",
+                            );
+                        }
+                        TestEvent::Screenshot { path } => {
+                            let Some(window) = current_window(&window) else {
+                                if let Some(ref tx) = test_response_tx {
+                                    let _ = tx.send(fission_test_driver::TestResponse::Error {
+                                        message: "window not ready".into(),
+                                    });
+                                }
+                                return;
+                            };
+                            pending_screenshot_path = Some(path);
+                            window.request_redraw();
+                        }
+                        TestEvent::CaptureScreenshot => {
+                            let Some(window) = current_window(&window) else {
+                                if let Some(ref tx) = test_response_tx {
+                                    let _ = tx.send(fission_test_driver::TestResponse::Error {
+                                        message: "window not ready".into(),
+                                    });
+                                }
+                                return;
+                            };
+                            pending_screenshot_path = Some("__capture__".into());
+                            window.request_redraw();
+                        }
+                        TestEvent::GetText => {
+                            let resp = build_get_text_response(&pipeline);
+                            if let Some(ref tx) = test_response_tx {
+                                let _ = tx.send(resp);
+                            }
+                        }
+                        TestEvent::GetTree => {
+                            let resp = build_get_tree_response(&pipeline);
+                            if let Some(ref tx) = test_response_tx {
+                                let _ = tx.send(resp);
+                            }
+                        }
+                        TestEvent::Pump => {
+                            let Some(window) = current_window(&window) else {
+                                if let Some(ref tx) = test_response_tx {
+                                    let _ = tx.send(fission_test_driver::TestResponse::Error {
+                                        message: "window not ready".into(),
+                                    });
+                                }
+                                return;
+                            };
+                            pending_screenshot_path = Some("__pump__".into());
+                            window.request_redraw();
+                        }
+                        TestEvent::Wake => {}
+                        TestEvent::Wait { ms: _ } => {
+                            if let Some(ref tx) = test_response_tx {
+                                let _ = tx.send(fission_test_driver::TestResponse::Ok {});
+                            }
+                        }
+                        TestEvent::Quit => {
+                            elwt.exit();
+                        }
+                    }
+                };
+
+                #[cfg(target_os = "android")]
+                let mut drain_pending_test_events = || {
+                    loop {
+                        let pending = {
+                            let mut pending = pending_test_events
+                                .lock()
+                                .expect("pending test events lock poisoned");
+                            pending.pop_front()
+                        };
+                        let Some(test_event) = pending else {
+                            break;
+                        };
+                        if debug_android_events {
+                            eprintln!("[android-debug] draining_test_queue");
+                        }
+                        handle_test_event(test_event);
+                    }
+                };
 
                 match event {
                     Event::Resumed => {
+                        if debug_android_events {
+                            eprintln!("[android-events] resumed");
+                        }
+                        #[cfg(target_os = "android")]
+                        if window.is_none() {
+                            match build_window(&window_title, background_test_mode, elwt) {
+                                Ok(new_window) => {
+                                    ime_handler.set_window(Some(new_window.clone()));
+                                    window = Some(new_window);
+                                }
+                                Err(err) => {
+                                    eprintln!("window build error: {err}");
+                                    elwt.exit();
+                                    return;
+                                }
+                            }
+                        }
+                        let Some(window) = current_window(&window) else {
+                            return;
+                        };
                         pending_resize = Some(window.inner_size());
                         invalidations.mark_composite();
                         request_redraw_logged(
-                            &window,
+                            window,
                             elwt,
                             &mut last_redraw_at,
                             min_frame,
@@ -1825,282 +2242,39 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                     }
                     Event::Suspended => {
                         render_state = None;
+                        #[cfg(target_os = "android")]
+                        {
+                            ime_handler.set_window(None);
+                            window = None;
+                            pending_resize = None;
+                            last_cursor_position = None;
+                        }
                     }
                     // ═══════════════════════════════════════════════════════
                     // UserEvent — injected by test control server via proxy
                     // ═══════════════════════════════════════════════════════
                     Event::UserEvent(test_event) => {
-                        match test_event {
-                            TestEvent::MouseMove { x, y } => {
-                                // Update cursor position for subsequent button events
-                                let scale_factor = window.scale_factor();
-                                last_cursor_position = Some(PhysicalPosition::new(
-                                    (x as f64) * scale_factor,
-                                    (y as f64) * scale_factor,
-                                ));
-                                handle_cursor_moved(
-                                    x, y,
-                                    &mut runtime, &pipeline,
-                                    &effect_result_tx, &event_proxy, app_effect_handler.as_ref(),
-                                    &window, elwt,
-                                    &mut last_redraw_at, min_frame, &mut redraw_pending,
-                                    &mut frame_trace,
-                                    &mut invalidations,
-                                );
+                        #[cfg(target_os = "android")]
+                        if matches!(test_event, TestEvent::Wake) {
+                            if debug_android_events {
+                                eprintln!("[android-debug] wake_received");
                             }
-                            TestEvent::MouseDown { x, y, button } => {
-                                let btn = map_test_button(button);
-                                handle_mouse_button(
-                                    x, y, btn, true,
-                                    &mut runtime, &pipeline,
-                                    &effect_result_tx, &event_proxy, app_effect_handler.as_ref(),
-                                    &window, elwt,
-                                    &mut last_redraw_at, min_frame, &mut redraw_pending,
-                                    text_trace_enabled, &mut pending_text_traces,
-                                    &mut next_text_trace_seq, presented_frames,
-                                    &mut last_blink_toggle,
-                                    &mut frame_trace,
-                                    &mut invalidations,
-                                );
-                            }
-                            TestEvent::MouseUp { x, y, button } => {
-                                let btn = map_test_button(button);
-                                handle_mouse_button(
-                                    x, y, btn, false,
-                                    &mut runtime, &pipeline,
-                                    &effect_result_tx, &event_proxy, app_effect_handler.as_ref(),
-                                    &window, elwt,
-                                    &mut last_redraw_at, min_frame, &mut redraw_pending,
-                                    text_trace_enabled, &mut pending_text_traces,
-                                    &mut next_text_trace_seq, presented_frames,
-                                    &mut last_blink_toggle,
-                                    &mut frame_trace,
-                                    &mut invalidations,
-                                );
-                            }
-                            TestEvent::KeyDown { key_code, modifiers } => {
-                                let code = parse_key_code(&key_code);
-                                handle_key_down::<S>(
-                                    code, modifiers,
-                                    &mut runtime, &pipeline,
-                                    &effect_result_tx, &event_proxy, app_effect_handler.as_ref(),
-                                        &window, elwt,
-                                        &mut last_redraw_at, min_frame, &mut redraw_pending,
-                                        text_trace_enabled, &mut pending_text_traces,
-                                        &mut next_text_trace_seq, presented_frames,
-                                        &mut last_blink_toggle,
-                                        self.key_handler.as_ref(),
-                                        &mut frame_trace,
-                                        &mut invalidations,
-                                    );
-                            }
-                            TestEvent::KeyUp { .. } => {
-                                // Key-up is currently a no-op in the framework
-                                // (only key-down dispatches actions), but we request
-                                // a redraw so any state changes are rendered.
-                                request_redraw_logged(
-                                    &window,
-                                    elwt,
-                                    &mut last_redraw_at,
-                                    min_frame,
-                                    &mut redraw_pending,
-                                    &mut frame_trace,
-                                    "test_key_up",
-                                );
-                            }
-                            TestEvent::TextInput { text } => {
-                                // Route test typing through IME when the focus target accepts
-                                // real text input; otherwise fall back to key events so
-                                // app-level rename handlers and similar shortcuts still work.
-                                if let (Some(ir), Some(layout)) =
-                                    (&pipeline.prev_ir, &pipeline.last_snapshot)
-                                {
-                                    let target =
-                                        focused_text_input_id(&runtime, pipeline.prev_ir.as_ref());
-                                    if target.is_some()
-                                        || focused_custom_text_input(
-                                            &runtime,
-                                            pipeline.prev_ir.as_ref(),
-                                        )
-                                    {
-                                        let trace_seq = start_text_trace(
-                                            text_trace_enabled && target.is_some(),
-                                            &mut pending_text_traces,
-                                            &mut next_text_trace_seq,
-                                            format!("test_text_input:{}", text.chars().count()),
-                                            target,
-                                            presented_frames,
-                                        );
-                                        runtime
-                                            .handle_input(
-                                                InputEvent::Ime(
-                                                    fission_core::event::ImeEvent::Commit {
-                                                        text: text.clone(),
-                                                    },
-                                                ),
-                                                ir,
-                                                layout,
-                                            )
-                                            .ok();
-                                        invalidations.mark_build();
-                                        mark_text_trace_handled(
-                                            &mut pending_text_traces,
-                                            trace_seq,
-                                        );
-                                        if process_pending_effects(
-                                            &mut runtime,
-                                            &effect_result_tx,
-                                            &event_proxy,
-                                            app_effect_handler.as_ref(),
-                                        ) {
-                                            mark_text_trace_effects(
-                                                &mut pending_text_traces,
-                                                trace_seq,
-                                            );
-                                            invalidations.mark_build();
-                                        }
-                                        request_redraw_logged(
-                                            &window,
-                                            elwt,
-                                            &mut last_redraw_at,
-                                            min_frame,
-                                            &mut redraw_pending,
-                                            &mut frame_trace,
-                                            "test_text_input",
-                                        );
-                                    } else {
-                                        for ch in text.chars() {
-                                            let key = if ch == ' ' {
-                                                KeyCode::Space
-                                            } else if ch == '\n' {
-                                                KeyCode::Enter
-                                            } else {
-                                                KeyCode::Char(ch)
-                                            };
-                                            handle_key_down::<S>(
-                                                key,
-                                                0,
-                                                &mut runtime,
-                                                &pipeline,
-                                                &effect_result_tx,
-                                                &event_proxy,
-                                                app_effect_handler.as_ref(),
-                                                &window,
-                                                elwt,
-                                                &mut last_redraw_at,
-                                                min_frame,
-                                                &mut redraw_pending,
-                                                text_trace_enabled,
-                                                &mut pending_text_traces,
-                                                &mut next_text_trace_seq,
-                                                presented_frames,
-                                                &mut last_blink_toggle,
-                                                self.key_handler.as_ref(),
-                                                &mut frame_trace,
-                                                &mut invalidations,
-                                            );
-                                        }
-                                    }
-                                }
-                            }
-                            TestEvent::Scroll { x, y, dx, dy } => {
-                                handle_scroll(
-                                    x, y, dx, dy,
-                                    &mut runtime, &pipeline,
-                                    &effect_result_tx, &event_proxy, app_effect_handler.as_ref(),
-                                    &window, elwt,
-                                    &mut last_redraw_at, min_frame, &mut redraw_pending,
-                                    &mut frame_trace,
-                                    &mut invalidations,
-                                );
-                            }
-                            TestEvent::Resize { width, height } => {
-                                if width > 0 && height > 0 {
-                                    simulated_viewport = Some((width, height));
-                                    pending_resize = Some(window.inner_size());
-                                    live_resize.note_resize(Instant::now());
-                                    invalidations.mark_composite();
-                                    request_redraw_logged(
-                                        &window,
-                                        elwt,
-                                        &mut last_redraw_at,
-                                        resize_frame,
-                                        &mut redraw_pending,
-                                        &mut frame_trace,
-                                        "test_resize",
-                                    );
-                                }
-                            }
-                            TestEvent::TapText { text } => {
-                                let resp = handle_tap_text(&text, &mut runtime, &pipeline);
-                                if matches!(resp, fission_test_driver::TestResponse::Ok { .. }) {
-                                    invalidations.mark_build();
-                                    if process_pending_effects(
-                                        &mut runtime,
-                                        &effect_result_tx,
-                                        &event_proxy,
-                                        app_effect_handler.as_ref(),
-                                    ) {
-                                        invalidations.mark_build();
-                                    }
-                                }
-                                if let Some(ref tx) = test_response_tx {
-                                    let _ = tx.send(resp);
-                                }
-                                request_redraw_logged(
-                                    &window,
-                                    elwt,
-                                    &mut last_redraw_at,
-                                    min_frame,
-                                    &mut redraw_pending,
-                                    &mut frame_trace,
-                                    "test_tap_text",
-                                );
-                            }
-                            TestEvent::Screenshot { path } => {
-                                pending_screenshot_path = Some(path);
-                                window.request_redraw();
-                            }
-                            TestEvent::CaptureScreenshot => {
-                                pending_screenshot_path = Some("__capture__".into());
-                                window.request_redraw();
-                            }
-                            TestEvent::GetText => {
-                                let resp = build_get_text_response(&pipeline);
-                                if let Some(ref tx) = test_response_tx {
-                                    let _ = tx.send(resp);
-                                }
-                            }
-                            TestEvent::GetTree => {
-                                let resp = build_get_tree_response(&pipeline);
-                                if let Some(ref tx) = test_response_tx {
-                                    let _ = tx.send(resp);
-                                }
-                            }
-                            TestEvent::Pump => {
-                                // Schedule a frame and respond after it renders.
-                                pending_screenshot_path = Some("__pump__".into());
-                                window.request_redraw();
-                            }
-                            TestEvent::Wake => {}
-                            TestEvent::Wait { ms: _ } => {
-                                // Wait is handled on the server thread; this
-                                // should not arrive here. If it does, just
-                                // respond OK.
-                                if let Some(ref tx) = test_response_tx {
-                                    let _ = tx.send(fission_test_driver::TestResponse::Ok {});
-                                }
-                            }
-                            TestEvent::Quit => {
-                                elwt.exit();
-                            }
+                            drain_pending_test_events();
+                            return;
                         }
+                        handle_test_event(test_event)
                     }
 
                     // ═══════════════════════════════════════════════════════
                     // AboutToWait — idle / animation / blink / effects
                     // ═══════════════════════════════════════════════════════
                     Event::AboutToWait => {
+                        let Some(window) = current_window(&window) else {
+                            elwt.set_control_flow(ControlFlow::Wait);
+                            return;
+                        };
+                        #[cfg(target_os = "android")]
+                        drain_pending_test_events();
                         let now = Instant::now();
 
                         // Video Logic
@@ -2504,6 +2678,15 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                 &reasons,
                                 "schedule=idle pending_resize=false redraw_pending=false highest=none",
                             );
+                            #[cfg(target_os = "android")]
+                            if test_response_tx.is_some() {
+                                elwt.set_control_flow(ControlFlow::Poll);
+                            } else {
+                                elwt.set_control_flow(ControlFlow::WaitUntil(
+                                    now + Duration::from_millis(16),
+                                ));
+                            }
+                            #[cfg(not(target_os = "android"))]
                             elwt.set_control_flow(ControlFlow::Wait);
                         }
                     }
@@ -2511,7 +2694,12 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                     // ═══════════════════════════════════════════════════════
                     // WindowEvent — real user interaction
                     // ═══════════════════════════════════════════════════════
-                    Event::WindowEvent { window_id, event } if window_id == window.id() => {
+                    Event::WindowEvent { window_id, event }
+                        if current_window_id(&window) == Some(window_id) =>
+                    {
+                        let Some(window) = current_window(&window) else {
+                            return;
+                        };
                         match event {
                             WindowEvent::Resized(size) => {
                                 if size.width > 0 && size.height > 0 {
@@ -2544,6 +2732,9 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                 );
                             }
                             WindowEvent::RedrawRequested => {
+                                if debug_android_events {
+                                    eprintln!("[android-events] redraw_requested");
+                                }
                                 redraw_pending = false;
                                 diag::begin_frame(None);
                                 let now = Instant::now();
@@ -2958,6 +3149,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                                         b: env.theme.tokens.colors.background.b,
                                                         a: env.theme.tokens.colors.background.a,
                                                     },
+                                                    scale_factor as f32,
                                                 )
                                                 .expect(
                                                     "failed to rasterize software frame",

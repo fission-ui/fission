@@ -96,6 +96,9 @@ Notes:
 - the script launches a visible emulator when it boots a fresh AVD
 - set `ANDROID_EMULATOR_HEADLESS=1` for background/CI runs
 - set `ANDROID_EMULATOR_RESTART=1` if a hidden emulator is already running and you want the script to relaunch it visibly
+- `fission-shell-winit` forces `WGPU_BACKEND=gl` on Android when `WGPU_BACKEND` is unset so the emulator avoids the unstable Vulkan/SwiftShader path
+- set `WGPU_BACKEND=vulkan` explicitly only if you are auditing that backend on a real device
+- when `FISSION_TEST_CONTROL_PORT` is set, the Android shell keeps the event loop polling so `GetText`, `TapText`, and screenshot commands stay responsive through `adb forward`
 
 Relevant paths:
 
