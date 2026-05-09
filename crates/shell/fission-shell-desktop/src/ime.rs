@@ -9,6 +9,8 @@ use winit::window::{ImePurpose, Window};
 pub(crate) struct TextInputConfig {
     pub text_input_type: TextInputType,
     pub text_input_action: TextInputAction,
+    pub read_only: bool,
+    pub disabled: bool,
     pub autocorrect: bool,
     pub enable_suggestions: bool,
     pub spell_check: bool,
@@ -23,6 +25,8 @@ impl TextInputConfig {
         Self {
             text_input_type: semantics.text_input_type,
             text_input_action: semantics.text_input_action,
+            read_only: semantics.read_only,
+            disabled: semantics.disabled,
             autocorrect: semantics.autocorrect,
             enable_suggestions: semantics.enable_suggestions,
             spell_check: semantics.spell_check,
@@ -31,6 +35,10 @@ impl TextInputConfig {
             autofill_hints: semantics.autofill_hints.clone(),
             ime_purpose: ime_purpose_for_semantics(semantics),
         }
+    }
+
+    fn allows_platform_editing(&self) -> bool {
+        !self.read_only && !self.disabled
     }
 }
 
@@ -55,6 +63,7 @@ fn ime_purpose_for_semantics(semantics: &Semantics) -> ImePurpose {
 struct ImeHandlerState {
     window: Arc<Window>,
     text_input_config: Option<TextInputConfig>,
+    ime_allowed_requested: bool,
     #[cfg(target_os = "macos")]
     mac_view_id: Option<usize>,
 }
@@ -69,6 +78,7 @@ impl DesktopImeHandler {
             state: Mutex::new(ImeHandlerState {
                 window,
                 text_input_config: None,
+                ime_allowed_requested: false,
                 #[cfg(target_os = "macos")]
                 mac_view_id: None,
             }),
@@ -96,11 +106,12 @@ impl Drop for DesktopImeHandler {
 
 impl ImeHandler for DesktopImeHandler {
     fn set_ime_allowed(&self, allowed: bool) {
-        self.state
-            .lock()
-            .expect("ime handler lock poisoned")
-            .window
-            .set_ime_allowed(allowed);
+        let mut state = self.state.lock().expect("ime handler lock poisoned");
+        if state.ime_allowed_requested == allowed {
+            return;
+        }
+        state.ime_allowed_requested = allowed;
+        sync_text_input_config(&mut state);
     }
 
     fn set_ime_cursor_area(&self, rect: LayoutRect) {
@@ -117,12 +128,27 @@ impl ImeHandler for DesktopImeHandler {
 }
 
 fn sync_text_input_config(state: &mut ImeHandlerState) {
+    state.window.set_ime_allowed(effective_ime_allowed(
+        state.ime_allowed_requested,
+        state.text_input_config.as_ref(),
+    ));
     apply_text_input_config(
         &state.window,
-        state.text_input_config.as_ref(),
+        active_platform_config(state.text_input_config.as_ref()),
         #[cfg(target_os = "macos")]
         &mut state.mac_view_id,
     );
+}
+
+fn effective_ime_allowed(requested: bool, config: Option<&TextInputConfig>) -> bool {
+    requested
+        && config
+            .map(TextInputConfig::allows_platform_editing)
+            .unwrap_or(true)
+}
+
+fn active_platform_config(config: Option<&TextInputConfig>) -> Option<&TextInputConfig> {
+    config.filter(|config| config.allows_platform_editing())
 }
 
 fn apply_text_input_config(
@@ -340,7 +366,7 @@ mod macos {
 
 #[cfg(test)]
 mod tests {
-    use super::TextInputConfig;
+    use super::{active_platform_config, effective_ime_allowed, TextInputConfig};
     use fission_ir::semantics::{TextInputAction, TextInputType};
     use fission_ir::Semantics;
     use winit::window::ImePurpose;
@@ -351,6 +377,7 @@ mod tests {
             masked: false,
             text_input_type: TextInputType::EmailAddress,
             text_input_action: TextInputAction::Search,
+            read_only: true,
             autocorrect: false,
             enable_suggestions: false,
             spell_check: false,
@@ -363,6 +390,8 @@ mod tests {
         let config = TextInputConfig::from_semantics(&semantics);
         assert_eq!(config.text_input_type, TextInputType::EmailAddress);
         assert_eq!(config.text_input_action, TextInputAction::Search);
+        assert!(config.read_only);
+        assert!(!config.disabled);
         assert!(!config.autocorrect);
         assert!(!config.enable_suggestions);
         assert!(!config.spell_check);
@@ -381,5 +410,32 @@ mod tests {
 
         let config = TextInputConfig::from_semantics(&semantics);
         assert_eq!(config.ime_purpose, ImePurpose::Password);
+    }
+
+    #[test]
+    fn platform_editing_is_disabled_for_non_editable_fields() {
+        let read_only = TextInputConfig::from_semantics(&Semantics {
+            read_only: true,
+            ..Semantics::default()
+        });
+        let disabled = TextInputConfig::from_semantics(&Semantics {
+            disabled: true,
+            ..Semantics::default()
+        });
+        let editable = TextInputConfig::from_semantics(&Semantics::default());
+
+        assert!(!read_only.allows_platform_editing());
+        assert!(!disabled.allows_platform_editing());
+        assert!(editable.allows_platform_editing());
+
+        assert!(!effective_ime_allowed(true, Some(&read_only)));
+        assert!(!effective_ime_allowed(true, Some(&disabled)));
+        assert!(effective_ime_allowed(true, Some(&editable)));
+        assert!(!effective_ime_allowed(false, Some(&editable)));
+        assert!(effective_ime_allowed(true, None));
+
+        assert!(active_platform_config(Some(&read_only)).is_none());
+        assert!(active_platform_config(Some(&disabled)).is_none());
+        assert!(active_platform_config(Some(&editable)).is_some());
     }
 }
