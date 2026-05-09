@@ -1,5 +1,8 @@
 use anyhow::Result;
-use fission_render::{DisplayList, DisplayOp, LayoutRect, RenderScene, Renderer};
+use fission_render::{
+    Color, DisplayList, DisplayOp, LayoutPoint, LayoutRect, RenderScene, Renderer, TextRun,
+    TextStyle,
+};
 
 // A mock renderer that captures what it was asked to render.
 #[derive(Default)]
@@ -63,4 +66,51 @@ fn test_renderer_consumes_display_list() {
     assert!(renderer.captured_list.is_some());
     let captured = renderer.captured_list.unwrap();
     assert_eq!(captured.ops.len(), 1);
+}
+
+#[test]
+fn test_rich_text_display_ops_preserve_caret_metadata() {
+    let bounds = LayoutRect::new(0.0, 0.0, 200.0, 48.0);
+    let op = DisplayOp::DrawRichText {
+        runs: vec![TextRun {
+            text: "Paragraph".into(),
+            style: TextStyle {
+                font_size: 16.0,
+                color: Color {
+                    r: 10,
+                    g: 20,
+                    b: 30,
+                    a: 255,
+                },
+                underline: false,
+                font_family: Some("Inter".into()),
+                font_weight: 500,
+                font_style: fission_ir::op::FontStyle::Normal,
+                line_height: Some(20.0),
+                letter_spacing: 0.25,
+                background_color: None,
+            },
+        }],
+        position: LayoutPoint::new(8.0, 12.0),
+        bounds,
+        node_id: None,
+        wrap: true,
+        caret_index: Some(4),
+        caret_color: Some(Color {
+            r: 255,
+            g: 0,
+            b: 0,
+            a: 255,
+        }),
+        caret_width: Some(-137.0),
+    };
+
+    let mut list = DisplayList::new(bounds);
+    list.push(op.clone());
+
+    let serialized = serde_json::to_string(&list).expect("Failed to serialize rich text list");
+    let deserialized: DisplayList =
+        serde_json::from_str(&serialized).expect("Failed to deserialize rich text list");
+
+    assert_eq!(deserialized.ops[0], op);
 }
