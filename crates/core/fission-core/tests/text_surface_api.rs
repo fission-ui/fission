@@ -7,7 +7,8 @@ use fission_core::ui::widgets::text_input::{
 use fission_core::ui::{Button, Container, Node, RichText, RichTextRun, Spacer, Text, TextInput};
 use fission_core::{ActionEnvelope, ActionId};
 use fission_ir::op::{
-    decode_inline_widget_marker, Color, Fill, LayoutOp, Op, PaintOp, TextAlign, TextOverflow,
+    decode_inline_widget_marker, Color, Fill, LayoutOp, Op, PaintOp, TextAlign, TextDirection,
+    TextHeightBehavior, TextOverflow,
 };
 use fission_ir::semantics::ActionTrigger;
 use fission_ir::{CoreIR, FlexDirection};
@@ -346,9 +347,11 @@ fn text_input_lowers_cursor_and_semantics_overrides() {
         .entries
         .iter()
         .any(|entry| entry.trigger == fission_ir::semantics::ActionTrigger::Submit));
-    assert!(semantics.actions.entries.iter().any(|entry| {
-        entry.trigger == fission_ir::semantics::ActionTrigger::TapOutside
-    }));
+    assert!(semantics
+        .actions
+        .entries
+        .iter()
+        .any(|entry| { entry.trigger == fission_ir::semantics::ActionTrigger::TapOutside }));
 
     let caret = paint_ops(&ir)
         .find_map(|op| match op {
@@ -388,18 +391,28 @@ fn text_input_lowers_cursor_and_semantics_overrides() {
             text_align: TextAlign::Center,
             max_lines: None,
             overflow: TextOverflow::Visible,
+            text_direction: TextDirection::Auto,
+            strut_line_height: None,
+            text_height_behavior: TextHeightBehavior::default(),
         })
     );
 }
 
 #[test]
 fn text_lowers_paragraph_controls_for_alignment_and_ellipsis() {
+    let height_behavior = TextHeightBehavior {
+        apply_height_to_first_ascent: false,
+        apply_height_to_last_descent: true,
+    };
     let ir = lower_node(
         Text::new("Paragraph parity")
             .size(16.0)
             .text_align(TextAlign::Center)
+            .text_direction(TextDirection::Rtl)
             .max_lines(2)
             .overflow(TextOverflow::Ellipsis)
+            .strut_line_height(24.0)
+            .text_height_behavior(height_behavior)
             .into_node(),
     );
 
@@ -416,6 +429,9 @@ fn text_lowers_paragraph_controls_for_alignment_and_ellipsis() {
     assert_eq!(paragraph.text_align, TextAlign::Center);
     assert_eq!(paragraph.max_lines, Some(2));
     assert_eq!(paragraph.overflow, TextOverflow::Ellipsis);
+    assert_eq!(paragraph.text_direction, TextDirection::Rtl);
+    assert_eq!(paragraph.strut_line_height, Some(24.0));
+    assert_eq!(paragraph.text_height_behavior, height_behavior);
 
     let clipped_box = ir
         .nodes
@@ -427,7 +443,7 @@ fn text_lowers_paragraph_controls_for_alignment_and_ellipsis() {
                     Op::Layout(LayoutOp::Box {
                         max_height: Some(height),
                         ..
-                    }) if (height - 38.4).abs() < 0.001
+                    }) if (height - 48.0).abs() < 0.001
                 )
         })
         .expect("clipped layout box");
@@ -437,14 +453,21 @@ fn text_lowers_paragraph_controls_for_alignment_and_ellipsis() {
 
 #[test]
 fn rich_text_lowers_paragraph_controls_for_line_capping() {
+    let height_behavior = TextHeightBehavior {
+        apply_height_to_first_ascent: false,
+        apply_height_to_last_descent: false,
+    };
     let ir = lower_node(
         RichText::new(vec![
             RichTextRun::new("Hello ").size(14.0).line_height(18.0),
             RichTextRun::new("world").size(20.0).line_height(24.0),
         ])
         .text_align(TextAlign::End)
+        .text_direction(TextDirection::Ltr)
         .max_lines(3)
         .overflow(TextOverflow::Clip)
+        .strut_line_height(28.0)
+        .text_height_behavior(height_behavior)
         .into_node(),
     );
 
@@ -461,6 +484,9 @@ fn rich_text_lowers_paragraph_controls_for_line_capping() {
     assert_eq!(paragraph.text_align, TextAlign::End);
     assert_eq!(paragraph.max_lines, Some(3));
     assert_eq!(paragraph.overflow, TextOverflow::Clip);
+    assert_eq!(paragraph.text_direction, TextDirection::Ltr);
+    assert_eq!(paragraph.strut_line_height, Some(28.0));
+    assert_eq!(paragraph.text_height_behavior, height_behavior);
 
     let clipped_box = ir
         .nodes
@@ -472,7 +498,7 @@ fn rich_text_lowers_paragraph_controls_for_line_capping() {
                     Op::Layout(LayoutOp::Box {
                         max_height: Some(height),
                         ..
-                    }) if (height - 72.0).abs() < 0.001
+                    }) if (height - 84.0).abs() < 0.001
                 )
         })
         .expect("clipped layout box");

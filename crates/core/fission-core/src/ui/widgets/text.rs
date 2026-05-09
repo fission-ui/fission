@@ -5,6 +5,7 @@ use fission_ir::{
     op::{
         decode_inline_widget_marker, encode_inline_widget_marker, Color as IrColor,
         FontStyle as IrFontStyle, LayoutOp, Op, PaintOp, TextAlign as IrTextAlign,
+        TextDirection as IrTextDirection, TextHeightBehavior as IrTextHeightBehavior,
         TextOverflow as IrTextOverflow, TextParagraphStyle as IrTextParagraphStyle,
         TextRun as IrTextRun,
     },
@@ -535,8 +536,11 @@ pub struct Text {
     pub text_scale: Option<f32>,
     pub wrap: bool,
     pub text_align: IrTextAlign,
+    pub text_direction: IrTextDirection,
     pub max_lines: Option<usize>,
     pub overflow: IrTextOverflow,
+    pub strut_line_height: Option<f32>,
+    pub text_height_behavior: IrTextHeightBehavior,
     pub selection_range: Option<(usize, usize)>,
     pub selection_color: Option<IrColor>,
     pub selection_text_color: Option<IrColor>,
@@ -657,6 +661,11 @@ impl Text {
         self
     }
 
+    pub fn text_direction(mut self, text_direction: IrTextDirection) -> Self {
+        self.text_direction = text_direction;
+        self
+    }
+
     pub fn max_lines(mut self, max_lines: usize) -> Self {
         self.max_lines = Some(max_lines);
         self
@@ -664,6 +673,16 @@ impl Text {
 
     pub fn overflow(mut self, overflow: IrTextOverflow) -> Self {
         self.overflow = overflow;
+        self
+    }
+
+    pub fn strut_line_height(mut self, line_height: f32) -> Self {
+        self.strut_line_height = Some(line_height);
+        self
+    }
+
+    pub fn text_height_behavior(mut self, behavior: IrTextHeightBehavior) -> Self {
+        self.text_height_behavior = behavior;
         self
     }
 
@@ -793,8 +812,11 @@ pub struct RichText {
     pub max_height: Option<f32>,
     pub wrap: bool,
     pub text_align: IrTextAlign,
+    pub text_direction: IrTextDirection,
     pub max_lines: Option<usize>,
     pub overflow: IrTextOverflow,
+    pub strut_line_height: Option<f32>,
+    pub text_height_behavior: IrTextHeightBehavior,
     pub selection_range: Option<(usize, usize)>,
     pub selection_color: Option<IrColor>,
     pub selection_text_color: Option<IrColor>,
@@ -953,6 +975,11 @@ impl RichText {
         self
     }
 
+    pub fn text_direction(mut self, text_direction: IrTextDirection) -> Self {
+        self.text_direction = text_direction;
+        self
+    }
+
     pub fn max_lines(mut self, max_lines: usize) -> Self {
         self.max_lines = Some(max_lines);
         self
@@ -960,6 +987,16 @@ impl RichText {
 
     pub fn overflow(mut self, overflow: IrTextOverflow) -> Self {
         self.overflow = overflow;
+        self
+    }
+
+    pub fn strut_line_height(mut self, line_height: f32) -> Self {
+        self.strut_line_height = Some(line_height);
+        self
+    }
+
+    pub fn text_height_behavior(mut self, behavior: IrTextHeightBehavior) -> Self {
+        self.text_height_behavior = behavior;
         self
     }
 
@@ -1212,15 +1249,25 @@ fn cap_max_height(
     }
 }
 
+fn paragraph_line_height(line_height: f32, strut_line_height: Option<f32>) -> f32 {
+    strut_line_height.map_or(line_height, |strut| line_height.max(strut))
+}
+
 fn paragraph_style_metadata(
     text_align: IrTextAlign,
+    text_direction: IrTextDirection,
     max_lines: Option<usize>,
     overflow: IrTextOverflow,
+    strut_line_height: Option<f32>,
+    text_height_behavior: IrTextHeightBehavior,
 ) -> Option<IrTextParagraphStyle> {
     let style = IrTextParagraphStyle {
         text_align,
+        text_direction,
         max_lines,
         overflow,
+        strut_line_height,
+        text_height_behavior,
     };
     if style == IrTextParagraphStyle::default() {
         None
@@ -1233,16 +1280,26 @@ fn should_clip_paragraph(max_lines: Option<usize>, overflow: IrTextOverflow) -> 
     max_lines.is_some() || overflow != IrTextOverflow::Visible
 }
 
-fn rich_text_line_height(runs: &[IrTextRun], fallback_size: f32) -> f32 {
+fn rich_text_line_height(
+    runs: &[IrTextRun],
+    fallback_size: f32,
+    strut_line_height: Option<f32>,
+) -> f32 {
     runs.iter()
         .map(|run| {
             if let Some(marker) = decode_inline_widget_marker(run.style.font_family.as_deref()) {
                 marker.height
             } else {
-                resolve_line_height(run.style.font_size, run.style.line_height)
+                paragraph_line_height(
+                    resolve_line_height(run.style.font_size, run.style.line_height),
+                    strut_line_height,
+                )
             }
         })
-        .fold(resolve_line_height(fallback_size, None), f32::max)
+        .fold(
+            paragraph_line_height(resolve_line_height(fallback_size, None), strut_line_height),
+            f32::max,
+        )
 }
 
 fn maybe_wrap_semantics(
@@ -1274,12 +1331,21 @@ impl Lower for Text {
         let layout_node_id = self.id.unwrap_or_else(|| cx.next_node_id());
         let resolved_text = self.resolve_text(cx);
         let style = self.resolved_style(cx);
-        let paragraph_style =
-            paragraph_style_metadata(self.text_align, self.max_lines, self.overflow);
+        let paragraph_style = paragraph_style_metadata(
+            self.text_align,
+            self.text_direction,
+            self.max_lines,
+            self.overflow,
+            self.strut_line_height,
+            self.text_height_behavior,
+        );
         let max_height = cap_max_height(
             self.max_height,
             self.max_lines,
-            resolve_line_height(style.font_size, style.line_height),
+            paragraph_line_height(
+                resolve_line_height(style.font_size, style.line_height),
+                self.strut_line_height,
+            ),
         );
         let clip_to_bounds = should_clip_paragraph(self.max_lines, self.overflow);
 
@@ -1356,12 +1422,22 @@ impl Lower for RichText {
             self.selection_color,
             self.selection_text_color,
         );
-        let paragraph_style =
-            paragraph_style_metadata(self.text_align, self.max_lines, self.overflow);
+        let paragraph_style = paragraph_style_metadata(
+            self.text_align,
+            self.text_direction,
+            self.max_lines,
+            self.overflow,
+            self.strut_line_height,
+            self.text_height_behavior,
+        );
         let max_height = cap_max_height(
             self.max_height,
             self.max_lines,
-            rich_text_line_height(&runs, cx.env.theme.tokens.typography.body_medium_size),
+            rich_text_line_height(
+                &runs,
+                cx.env.theme.tokens.typography.body_medium_size,
+                self.strut_line_height,
+            ),
         );
         let clip_to_bounds = should_clip_paragraph(self.max_lines, self.overflow);
         let mut paint_builder = NodeBuilder::new(

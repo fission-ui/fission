@@ -1884,49 +1884,32 @@ impl TextInputController {
     }
 
     fn prev_word_boundary(value: &str, idx: usize) -> usize {
-        let mut at = idx.min(value.len());
-        while at > 0 {
-            let prev = Self::prev_grapheme_boundary(value, at);
-            let ch = value[prev..].chars().next().unwrap_or('\0');
-            if !ch.is_whitespace() {
-                at = prev;
-                break;
+        let at = idx.min(value.len());
+        let segments: Vec<(usize, &str)> = value.split_word_bound_indices().collect();
+        for (start, segment) in segments.into_iter().rev() {
+            let end = start + segment.len();
+            if end > at {
+                continue;
             }
-            at = prev;
-        }
-        while at > 0 {
-            let prev = Self::prev_grapheme_boundary(value, at);
-            let ch = value[prev..].chars().next().unwrap_or('\0');
-            if ch.is_alphanumeric() || ch == '_' {
-                at = prev;
-            } else {
-                break;
+            if segment.chars().any(|ch| ch.is_alphanumeric() || ch == '_') {
+                return start;
             }
         }
-        at
+        0
     }
 
     fn next_word_boundary(value: &str, idx: usize) -> usize {
-        let mut at = idx.min(value.len());
-        while at < value.len() {
-            let next = Self::next_grapheme_boundary(value, at);
-            let ch = value[at..].chars().next().unwrap_or('\0');
-            if !ch.is_whitespace() {
-                at = next;
-                break;
+        let at = idx.min(value.len());
+        for (start, segment) in value.split_word_bound_indices() {
+            let end = start + segment.len();
+            if end <= at {
+                continue;
             }
-            at = next;
-        }
-        while at < value.len() {
-            let next = Self::next_grapheme_boundary(value, at);
-            let ch = value[at..].chars().next().unwrap_or('\0');
-            if ch.is_alphanumeric() || ch == '_' {
-                at = next;
-            } else {
-                break;
+            if segment.chars().any(|ch| ch.is_alphanumeric() || ch == '_') {
+                return end;
             }
         }
-        at
+        value.len()
     }
 
     fn find_scroll_container_and_text_op(

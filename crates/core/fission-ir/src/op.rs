@@ -102,10 +102,63 @@ pub enum TextOverflow {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Hash, Default)]
+pub enum TextDirection {
+    #[default]
+    Auto,
+    Ltr,
+    Rtl,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Hash)]
+pub struct TextHeightBehavior {
+    pub apply_height_to_first_ascent: bool,
+    pub apply_height_to_last_descent: bool,
+}
+
+impl Default for TextHeightBehavior {
+    fn default() -> Self {
+        Self {
+            apply_height_to_first_ascent: true,
+            apply_height_to_last_descent: true,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, Default)]
 pub struct TextParagraphStyle {
     pub text_align: TextAlign,
     pub max_lines: Option<usize>,
     pub overflow: TextOverflow,
+    #[serde(default)]
+    pub text_direction: TextDirection,
+    #[serde(default)]
+    pub strut_line_height: Option<LayoutUnit>,
+    #[serde(default)]
+    pub text_height_behavior: TextHeightBehavior,
+}
+
+impl PartialEq for TextParagraphStyle {
+    fn eq(&self, other: &Self) -> bool {
+        self.text_align == other.text_align
+            && self.max_lines == other.max_lines
+            && self.overflow == other.overflow
+            && self.text_direction == other.text_direction
+            && self.strut_line_height.map(f32::to_bits) == other.strut_line_height.map(f32::to_bits)
+            && self.text_height_behavior == other.text_height_behavior
+    }
+}
+
+impl Eq for TextParagraphStyle {}
+
+impl std::hash::Hash for TextParagraphStyle {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.text_align.hash(state);
+        self.max_lines.hash(state);
+        self.overflow.hash(state);
+        self.text_direction.hash(state);
+        self.strut_line_height.map(f32::to_bits).hash(state);
+        self.text_height_behavior.hash(state);
+    }
 }
 
 const TEXT_PARAGRAPH_ALIGN_BITS: u32 = 0b111;
@@ -158,6 +211,12 @@ pub fn encode_text_paragraph_style(style: TextParagraphStyle) -> Option<LayoutUn
     if style == TextParagraphStyle::default() {
         return None;
     }
+    if style.text_direction != TextDirection::Auto
+        || style.strut_line_height.is_some()
+        || style.text_height_behavior != TextHeightBehavior::default()
+    {
+        return None;
+    }
 
     let max_lines = style
         .max_lines
@@ -196,6 +255,9 @@ pub fn decode_text_paragraph_style(
         text_align,
         max_lines,
         overflow,
+        text_direction: TextDirection::Auto,
+        strut_line_height: None,
+        text_height_behavior: TextHeightBehavior::default(),
     })
 }
 
@@ -778,11 +840,7 @@ pub struct InlineWidgetMarker {
     pub height: LayoutUnit,
 }
 
-pub fn encode_inline_widget_marker(
-    id: u64,
-    width: LayoutUnit,
-    height: LayoutUnit,
-) -> String {
+pub fn encode_inline_widget_marker(id: u64, width: LayoutUnit, height: LayoutUnit) -> String {
     format!("{INLINE_WIDGET_MARKER_PREFIX}{id}:{width}:{height}")
 }
 
@@ -952,8 +1010,8 @@ impl std::hash::Hash for PaintOp {
 mod tests {
     use super::{
         decode_inline_widget_marker, decode_text_paragraph_style, encode_inline_widget_marker,
-        encode_text_paragraph_style, InlineWidgetMarker, TextAlign, TextOverflow,
-        TextParagraphStyle, TEXT_PARAGRAPH_MAX_ENCODED_LINES,
+        encode_text_paragraph_style, InlineWidgetMarker, TextAlign, TextDirection,
+        TextHeightBehavior, TextOverflow, TextParagraphStyle, TEXT_PARAGRAPH_MAX_ENCODED_LINES,
     };
 
     #[test]
@@ -962,6 +1020,9 @@ mod tests {
             text_align: TextAlign::Justify,
             max_lines: Some(3),
             overflow: TextOverflow::Fade,
+            text_direction: TextDirection::Auto,
+            strut_line_height: None,
+            text_height_behavior: TextHeightBehavior::default(),
         };
 
         let encoded = encode_text_paragraph_style(style);
@@ -974,6 +1035,9 @@ mod tests {
             text_align: TextAlign::End,
             max_lines: Some(TEXT_PARAGRAPH_MAX_ENCODED_LINES + 99),
             overflow: TextOverflow::Ellipsis,
+            text_direction: TextDirection::Auto,
+            strut_line_height: None,
+            text_height_behavior: TextHeightBehavior::default(),
         });
 
         assert_eq!(
@@ -982,7 +1046,28 @@ mod tests {
                 text_align: TextAlign::End,
                 max_lines: Some(TEXT_PARAGRAPH_MAX_ENCODED_LINES),
                 overflow: TextOverflow::Ellipsis,
+                text_direction: TextDirection::Auto,
+                strut_line_height: None,
+                text_height_behavior: TextHeightBehavior::default(),
             })
+        );
+    }
+
+    #[test]
+    fn paragraph_style_compact_encoding_rejects_extended_fields() {
+        assert_eq!(
+            encode_text_paragraph_style(TextParagraphStyle {
+                text_align: TextAlign::Start,
+                max_lines: Some(2),
+                overflow: TextOverflow::Visible,
+                text_direction: TextDirection::Rtl,
+                strut_line_height: Some(24.0),
+                text_height_behavior: TextHeightBehavior {
+                    apply_height_to_first_ascent: false,
+                    apply_height_to_last_descent: true,
+                },
+            }),
+            None
         );
     }
 

@@ -1,10 +1,10 @@
+use crate::env::TextSelectionHandleKind;
 use crate::lowering::{LoweringContext, NodeBuilder};
 use crate::ui::{
     traits::Lower, Button, ButtonContentAlign, ButtonVariant, Container, Node, Positioned, Row,
     Spacer, Text, TextContent, TextFontStyle,
 };
 use crate::ActionEnvelope;
-use crate::env::TextSelectionHandleKind;
 use fission_ir::{
     op::{
         Color as IrColor, Fill, LayoutOp, Op, PaintOp, Stroke, TextAlign as IrTextAlign,
@@ -1114,6 +1114,9 @@ impl Lower for TextInput {
             text_align: self.text_align,
             max_lines: None,
             overflow: paragraph_overflow,
+            text_direction: fission_ir::op::TextDirection::Auto,
+            strut_line_height: None,
+            text_height_behavior: fission_ir::op::TextHeightBehavior::default(),
         })
         .filter(|style| {
             *style
@@ -1121,6 +1124,9 @@ impl Lower for TextInput {
                     text_align: IrTextAlign::Start,
                     max_lines: None,
                     overflow: paragraph_overflow,
+                    text_direction: fission_ir::op::TextDirection::Auto,
+                    strut_line_height: None,
+                    text_height_behavior: fission_ir::op::TextHeightBehavior::default(),
                 }
         });
 
@@ -1234,9 +1240,11 @@ impl Lower for TextInput {
                     + effective_line_height * self.min_lines.unwrap_or(1) as f32,
             )
         } else {
-            Some(theme.height.max(
-                content_padding[2] + content_padding[3] + effective_line_height,
-            ))
+            Some(
+                theme
+                    .height
+                    .max(content_padding[2] + content_padding[3] + effective_line_height),
+            )
         };
         let max_height = if self.height.is_some() || !self.multiline || self.expands {
             None
@@ -1316,9 +1324,11 @@ impl Lower for TextInput {
 
                 if self.context_menu.enabled && affordances.toolbar_visible {
                     if let Some(anchor_point) = affordances.toolbar_anchor {
-                        overlay_children.push(
-                            self.build_toolbar_overlay(cx, input_id, anchor_point),
-                        );
+                        overlay_children.push(self.build_toolbar_overlay(
+                            cx,
+                            input_id,
+                            anchor_point,
+                        ));
                     }
                 }
 
@@ -1335,7 +1345,8 @@ impl Lower for TextInput {
                 }
 
                 if !overlay_children.is_empty() {
-                    let mut stack = NodeBuilder::new(cx.next_node_id(), Op::Layout(LayoutOp::ZStack));
+                    let mut stack =
+                        NodeBuilder::new(cx.next_node_id(), Op::Layout(LayoutOp::ZStack));
                     stack.add_child(wrapper_visual_id);
                     for child in overlay_children {
                         stack.add_child(child);

@@ -1,14 +1,12 @@
 use fission_diagnostics::prelude as diag;
-use fission_ir::op::{
-    decode_inline_widget_marker, FontStyle as IrFontStyle, TextRun,
-};
+use fission_ir::op::{decode_inline_widget_marker, FontStyle as IrFontStyle, TextRun};
 use fission_layout::{LineMetric, RichTextInlineBox, RichTextLayoutInfo, TextMeasurer};
 use fission_render::TextStyle as RenderTextStyle;
-use parley::InlineBox;
 use parley::layout::{Layout, PositionedLayoutItem};
 use parley::style::{
     FontStack, FontStyle as ParleyFontStyle, FontWeight, LineHeight, StyleProperty,
 };
+use parley::InlineBox;
 use parley::{FontContext, LayoutContext};
 use std::borrow::Cow;
 use std::collections::HashMap;
@@ -154,7 +152,8 @@ impl VelloTextMeasurer {
 
         for run in runs {
             if run.text.is_empty() {
-                if let Some(marker) = decode_inline_widget_marker(run.style.font_family.as_deref()) {
+                if let Some(marker) = decode_inline_widget_marker(run.style.font_family.as_deref())
+                {
                     inline_boxes.push(RichInlineBox {
                         id: marker.id,
                         index: start,
@@ -171,20 +170,20 @@ impl VelloTextMeasurer {
             start = end;
         }
 
-        let (base_size, base_color) = if let Some(first) = runs.iter().find(|run| !run.text.is_empty())
-        {
-            (first.style.font_size, first.style.color)
-        } else {
-            (
-                14.0,
-                fission_render::Color {
-                    r: 0,
-                    g: 0,
-                    b: 0,
-                    a: 255,
-                },
-            )
-        };
+        let (base_size, base_color) =
+            if let Some(first) = runs.iter().find(|run| !run.text.is_empty()) {
+                (first.style.font_size, first.style.color)
+            } else {
+                (
+                    14.0,
+                    fission_render::Color {
+                        r: 0,
+                        g: 0,
+                        b: 0,
+                        a: 255,
+                    },
+                )
+            };
 
         RichLayoutInput {
             text,

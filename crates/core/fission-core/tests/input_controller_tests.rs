@@ -895,6 +895,47 @@ fn test_word_navigation() {
 }
 
 #[test]
+fn test_word_navigation_skips_non_word_segments() {
+    let node_id = NodeId::derived(35, &[0]);
+    let initial_text = "hi 👩‍💻 world";
+    let ir = create_text_node(node_id, initial_text, false);
+    let layout = LayoutSnapshot::new(LayoutSize::new(100.0, 100.0));
+    let mut text_edit = TextEditStateMap::default();
+    let mut interaction = InteractionStateMap::default();
+    let mut scroll = ScrollStateMap::default();
+    let mut gesture = fission_core::env::GestureState::default();
+    let clipboard: Arc<dyn Clipboard> = Arc::new(MockClipboard::new());
+    let measurer: Arc<dyn TextMeasurer> = Arc::new(MockTextMeasurer);
+
+    interaction.set_focused(Some(node_id));
+    let len = initial_text.len();
+    text_edit.set_caret(node_id, len, Some(len));
+
+    let mut controller = TextInputController;
+
+    let world_start = initial_text.find("world").unwrap();
+    for expected in [world_start, 0] {
+        let mut ctx = setup_ctx(
+            &ir,
+            &layout,
+            &mut text_edit,
+            &mut interaction,
+            &mut scroll,
+            &mut gesture,
+            &clipboard,
+            Some(&measurer),
+        );
+        let event = InputEvent::Keyboard(KeyEvent::Down {
+            key_code: KeyCode::Left,
+            modifiers: 2,
+        });
+        assert!(controller.handle_event(&mut ctx, &event));
+        let st = ctx.text_edit.get(node_id).unwrap();
+        assert_eq!(st.caret, expected);
+    }
+}
+
+#[test]
 fn test_selection_mechanics() {
     let node_id = NodeId::derived(1, &[0]);
     let initial_text = "ABCD";

@@ -1,5 +1,7 @@
 use anyhow::Result;
-use fission_ir::op::{TextAlign, TextOverflow, TextParagraphStyle};
+use fission_ir::op::{
+    TextAlign, TextDirection, TextHeightBehavior, TextOverflow, TextParagraphStyle,
+};
 use fission_render::{
     Color, DisplayList, DisplayOp, LayoutPoint, LayoutRect, RenderScene, Renderer, TextRun,
     TextStyle,
@@ -111,6 +113,12 @@ fn test_rich_text_display_ops_preserve_caret_metadata() {
             text_align: TextAlign::Center,
             max_lines: Some(2),
             overflow: TextOverflow::Ellipsis,
+            text_direction: TextDirection::Rtl,
+            strut_line_height: Some(24.0),
+            text_height_behavior: TextHeightBehavior {
+                apply_height_to_first_ascent: false,
+                apply_height_to_last_descent: true,
+            },
         }),
     };
 
