@@ -1,7 +1,7 @@
 use fission_diagnostics::prelude as diag;
 use fission_ir::op::{
-    decode_inline_widget_marker, FontStyle as IrFontStyle, RichTextAnnotation,
-    TextParagraphStyle, TextRun,
+    decode_inline_widget_marker, FontStyle as IrFontStyle, RichTextAnnotation, TextParagraphStyle,
+    TextRun,
 };
 use fission_ir::ActionEntry;
 use fission_layout::{LineMetric, RichTextInlineBox, RichTextLayoutInfo, TextMeasurer};
@@ -625,6 +625,7 @@ pub(crate) fn resolve_rich_text_annotation_at_index(
         range: matches.last().expect("matched annotation").range.clone(),
         semantics_label: None,
         semantics_identifier: None,
+        spell_out: None,
         mouse_cursor: None,
         actions: Vec::new(),
     };
@@ -635,6 +636,9 @@ pub(crate) fn resolve_rich_text_annotation_at_index(
         }
         if annotation.semantics_identifier.is_some() {
             resolved.semantics_identifier = annotation.semantics_identifier.clone();
+        }
+        if annotation.spell_out.is_some() {
+            resolved.spell_out = annotation.spell_out;
         }
         if annotation.mouse_cursor.is_some() {
             resolved.mouse_cursor = annotation.mouse_cursor;

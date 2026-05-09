@@ -4,7 +4,8 @@ use crate::event::{
     InputEvent, KeyCode, KeyEvent, PointerEvent, MOD_ALT, MOD_CTRL, MOD_SHIFT, MOD_SUPER,
 };
 use crate::ui::widgets::text_input::{
-    text_input_selection_handle_id, text_input_toolbar_button_id, TextContextMenuAction,
+    downcast_text_input_runtime_config, text_input_selection_handle_id,
+    text_input_toolbar_button_id, DragStartBehavior, TextContextMenuAction,
 };
 use crate::ActionEnvelope;
 use crate::ActionId;
@@ -33,7 +34,8 @@ impl InputController for TextInputController {
                 modifiers,
                 ..
             }) => {
-                let hit = crate::hit_test::hit_test_with_scroll(ctx.ir, ctx.layout, ctx.scroll, *point);
+                let hit =
+                    crate::hit_test::hit_test_with_scroll(ctx.ir, ctx.layout, ctx.scroll, *point);
 
                 if let Some(focused_id) = ctx.interaction.focused {
                     if let Some(node) = ctx.ir.nodes.get(&focused_id) {
@@ -45,22 +47,15 @@ impl InputController for TextInputController {
                                     {
                                         return self.execute_toolbar_action(ctx, action);
                                     }
-                                    if let Some(handle_kind) = Self::selection_handle_hit(
-                                        ctx.ir,
-                                        focused_id,
-                                        hit_node_id,
-                                    ) {
+                                    if let Some(handle_kind) =
+                                        Self::selection_handle_hit(ctx.ir, focused_id, hit_node_id)
+                                    {
                                         let value = sem.value.as_deref().unwrap_or("").to_string();
                                         let state = ctx.text_edit.get_mut_or_default(focused_id);
                                         state.affordances.active_handle = Some(handle_kind);
                                         state.affordances.toolbar_visible = false;
                                         Self::sync_text_input_affordances(
-                                            ctx,
-                                            focused_id,
-                                            sem,
-                                            &value,
-                                            false,
-                                            None,
+                                            ctx, focused_id, sem, &value, false, None,
                                         );
                                         return true;
                                     }
@@ -68,8 +63,8 @@ impl InputController for TextInputController {
 
                                 if matches!(button, crate::event::PointerButton::Secondary) {
                                     let value = sem.value.as_deref().unwrap_or("").to_string();
-                                    let wrapper_anchor = Self::input_wrapper_geometry(ctx, focused_id)
-                                        .map(|geom| {
+                                    let wrapper_anchor =
+                                        Self::input_wrapper_geometry(ctx, focused_id).map(|geom| {
                                             fission_layout::LayoutPoint::new(
                                                 (point.x - geom.rect.origin.x).max(0.0),
                                                 (point.y - geom.rect.origin.y).max(0.0),
@@ -116,7 +111,9 @@ impl InputController for TextInputController {
                                         sem,
                                         focused_id,
                                         fission_ir::semantics::ActionTrigger::TapOutside,
-                                        Some(serde_json::to_vec(&current_value.to_string()).unwrap()),
+                                        Some(
+                                            serde_json::to_vec(&current_value.to_string()).unwrap(),
+                                        ),
                                     );
                                 }
                             }
@@ -309,8 +306,7 @@ impl InputController for TextInputController {
                                             )
                                         };
                                         let anchor = {
-                                            let st =
-                                                ctx.text_edit.get_mut_or_default(focused_id);
+                                            let st = ctx.text_edit.get_mut_or_default(focused_id);
                                             st.caret = caret;
                                             if !Self::has_shift(*modifiers) {
                                                 st.anchor = caret;
@@ -321,12 +317,7 @@ impl InputController for TextInputController {
                                             ctx, sem, focused_id, caret, anchor,
                                         );
                                         Self::sync_text_input_affordances(
-                                            ctx,
-                                            focused_id,
-                                            sem,
-                                            value,
-                                            false,
-                                            None,
+                                            ctx, focused_id, sem, value, false, None,
                                         );
                                     }
                                 }
@@ -359,8 +350,9 @@ impl InputController for TextInputController {
                                             ctx.layout.get_node_geometry(scroll_id)
                                         {
                                             let value = sem.value.as_deref().unwrap_or("");
-                                            let display_value =
-                                                Self::display_value_for_metrics(ctx, focused_id, value);
+                                            let display_value = Self::display_value_for_metrics(
+                                                ctx, focused_id, value,
+                                            );
                                             let metric_text = if sem.masked {
                                                 Self::mask_text_for_metrics(&display_value)
                                             } else {
@@ -423,12 +415,7 @@ impl InputController for TextInputController {
                                                 ctx, sem, focused_id, caret, anchor,
                                             );
                                             Self::sync_text_input_affordances(
-                                                ctx,
-                                                focused_id,
-                                                sem,
-                                                value,
-                                                false,
-                                                None,
+                                                ctx, focused_id, sem, value, false, None,
                                             );
                                         }
                                     }
@@ -436,14 +423,22 @@ impl InputController for TextInputController {
                                 }
 
                                 if !ctx.interaction.pressed.is_empty() {
-                                    let mut moved_enough = true;
-                                    if let Some(start) = ctx.interaction.last_down_point {
-                                        let dx = point.x - start.x;
-                                        let dy = point.y - start.y;
-                                        if dx * dx + dy * dy < 4.0 {
-                                            moved_enough = false;
-                                        }
-                                    }
+                                    let moved_enough =
+                                        match Self::drag_start_behavior(ctx, focused_id) {
+                                            DragStartBehavior::Down => true,
+                                            DragStartBehavior::Start => {
+                                                let mut moved_enough = true;
+                                                if let Some(start) = ctx.interaction.last_down_point
+                                                {
+                                                    let dx = point.x - start.x;
+                                                    let dy = point.y - start.y;
+                                                    if dx * dx + dy * dy < 4.0 {
+                                                        moved_enough = false;
+                                                    }
+                                                }
+                                                moved_enough
+                                            }
+                                        };
                                     if moved_enough {
                                         if let Some((
                                             scroll_id,
@@ -459,9 +454,7 @@ impl InputController for TextInputController {
                                             {
                                                 let value = sem.value.as_deref().unwrap_or("");
                                                 let display_value = Self::display_value_for_metrics(
-                                                    ctx,
-                                                    focused_id,
-                                                    value,
+                                                    ctx, focused_id, value,
                                                 );
                                                 let metric_text = if sem.masked {
                                                     Self::mask_text_for_metrics(&display_value)
@@ -563,12 +556,7 @@ impl InputController for TextInputController {
                                                     current_anchor,
                                                 );
                                                 Self::sync_text_input_affordances(
-                                                    ctx,
-                                                    focused_id,
-                                                    sem,
-                                                    value,
-                                                    false,
-                                                    None,
+                                                    ctx, focused_id, sem, value, false, None,
                                                 );
                                             }
                                         }
@@ -587,19 +575,21 @@ impl InputController for TextInputController {
                         if let Op::Semantics(sem) = &node.op {
                             if sem.role == fission_ir::semantics::Role::TextInput {
                                 let value = sem.value.as_deref().unwrap_or("").to_string();
-                                let toolbar_anchor = Self::input_wrapper_geometry(ctx, focused_id).map(|geom| {
-                                    fission_layout::LayoutPoint::new(
-                                        (point.x - geom.rect.origin.x).max(0.0),
-                                        (point.y - geom.rect.origin.y).max(0.0),
-                                    )
-                                });
-                                let show_toolbar = matches!(button, crate::event::PointerButton::Secondary)
-                                    || ctx
-                                        .text_edit
-                                        .states
-                                        .get(&focused_id)
-                                        .map(|state| state.caret != state.anchor)
-                                        .unwrap_or(false);
+                                let toolbar_anchor = Self::input_wrapper_geometry(ctx, focused_id)
+                                    .map(|geom| {
+                                        fission_layout::LayoutPoint::new(
+                                            (point.x - geom.rect.origin.x).max(0.0),
+                                            (point.y - geom.rect.origin.y).max(0.0),
+                                        )
+                                    });
+                                let show_toolbar =
+                                    matches!(button, crate::event::PointerButton::Secondary)
+                                        || ctx
+                                            .text_edit
+                                            .states
+                                            .get(&focused_id)
+                                            .map(|state| state.caret != state.anchor)
+                                            .unwrap_or(false);
                                 if let Some(state) = ctx.text_edit.states.get_mut(&focused_id) {
                                     state.affordances.active_handle = None;
                                     state.affordances.magnifier_visible = false;
@@ -798,15 +788,17 @@ impl TextInputController {
                 {
                     match lower {
                         'a' => {
-                            let (line_start, _) =
-                                Self::current_line_bounds(ctx, focused_id, semantics, &value, caret);
+                            let (line_start, _) = Self::current_line_bounds(
+                                ctx, focused_id, semantics, &value, caret,
+                            );
                             next_caret = line_start;
                             next_anchor = if shift { anchor } else { line_start };
                             handled = true;
                         }
                         'e' => {
-                            let (_, line_end) =
-                                Self::current_line_bounds(ctx, focused_id, semantics, &value, caret);
+                            let (_, line_end) = Self::current_line_bounds(
+                                ctx, focused_id, semantics, &value, caret,
+                            );
                             next_caret = line_end;
                             next_anchor = if shift { anchor } else { line_end };
                             handled = true;
@@ -871,13 +863,9 @@ impl TextInputController {
                         handled = true;
                     } else {
                         let (s, e) = sel.unwrap_or((caret, caret));
-                        if let Some(inserted) = Self::prepare_inserted_text(
-                            semantics,
-                            &value,
-                            s,
-                            e,
-                            &ch.to_string(),
-                        ) {
+                        if let Some(inserted) =
+                            Self::prepare_inserted_text(semantics, &value, s, e, &ch.to_string())
+                        {
                             next_caret = s + inserted.len();
                             next_anchor = next_caret;
                             next_edit = Some((s..e, inserted));
@@ -972,9 +960,7 @@ impl TextInputController {
                 handled = true;
             }
             KeyCode::Home => {
-                next_caret = if semantics.multiline
-                    && !(Self::has_ctrl(modifiers) && !is_apple)
-                {
+                next_caret = if semantics.multiline && !(Self::has_ctrl(modifiers) && !is_apple) {
                     Self::current_line_bounds(ctx, focused_id, semantics, &value, caret).0
                 } else {
                     0
@@ -983,9 +969,7 @@ impl TextInputController {
                 handled = true;
             }
             KeyCode::End => {
-                next_caret = if semantics.multiline
-                    && !(Self::has_ctrl(modifiers) && !is_apple)
-                {
+                next_caret = if semantics.multiline && !(Self::has_ctrl(modifiers) && !is_apple) {
                     Self::current_line_bounds(ctx, focused_id, semantics, &value, caret).1
                 } else {
                     value.len()
@@ -1046,13 +1030,17 @@ impl TextInputController {
             }
             KeyCode::PageUp => {
                 if semantics.multiline {
-                    self.handle_page_navigation(ctx, focused_id, semantics, &value, caret, modifiers, true);
+                    self.handle_page_navigation(
+                        ctx, focused_id, semantics, &value, caret, modifiers, true,
+                    );
                     return true;
                 }
             }
             KeyCode::PageDown => {
                 if semantics.multiline {
-                    self.handle_page_navigation(ctx, focused_id, semantics, &value, caret, modifiers, false);
+                    self.handle_page_navigation(
+                        ctx, focused_id, semantics, &value, caret, modifiers, false,
+                    );
                     return true;
                 }
             }
@@ -1079,7 +1067,14 @@ impl TextInputController {
             // Apply undo/redo result
             self.dispatch_change(ctx, semantics, focused_id, v);
             Self::dispatch_cursor_change(ctx, semantics, focused_id, c, a);
-            Self::sync_text_input_affordances(ctx, focused_id, semantics, value.as_str(), false, None);
+            Self::sync_text_input_affordances(
+                ctx,
+                focused_id,
+                semantics,
+                value.as_str(),
+                false,
+                None,
+            );
             return true;
         }
 
@@ -1089,7 +1084,14 @@ impl TextInputController {
             let txt = st.apply_edit(range, &replacement, next_caret, next_anchor);
             self.dispatch_change(ctx, semantics, focused_id, txt);
             Self::dispatch_cursor_change(ctx, semantics, focused_id, next_caret, next_anchor);
-            Self::sync_text_input_affordances(ctx, focused_id, semantics, value.as_str(), false, None);
+            Self::sync_text_input_affordances(
+                ctx,
+                focused_id,
+                semantics,
+                value.as_str(),
+                false,
+                None,
+            );
         } else if handled {
             // Cursor movement only
             let st = ctx.text_edit.get_mut_or_default(focused_id);
@@ -1098,7 +1100,14 @@ impl TextInputController {
             st.clear_preedit();
             Self::auto_scroll_textinput(ctx, focused_id);
             Self::dispatch_cursor_change(ctx, semantics, focused_id, next_caret, next_anchor);
-            Self::sync_text_input_affordances(ctx, focused_id, semantics, value.as_str(), false, None);
+            Self::sync_text_input_affordances(
+                ctx,
+                focused_id,
+                semantics,
+                value.as_str(),
+                false,
+                None,
+            );
         }
 
         handled
@@ -1106,6 +1115,47 @@ impl TextInputController {
 
     fn is_apple_platform() -> bool {
         cfg!(target_os = "macos") || cfg!(target_os = "ios")
+    }
+
+    fn runtime_config(
+        ctx: &ControllerContext,
+        focused_id: NodeId,
+    ) -> Option<crate::ui::widgets::text_input::TextInputRuntimeConfig> {
+        ctx.ir
+            .custom_render_objects
+            .get(&focused_id)
+            .and_then(downcast_text_input_runtime_config)
+            .cloned()
+    }
+
+    fn drag_start_behavior(ctx: &ControllerContext, focused_id: NodeId) -> DragStartBehavior {
+        Self::runtime_config(ctx, focused_id)
+            .map(|cfg| cfg.drag_start_behavior)
+            .unwrap_or_default()
+    }
+
+    fn sync_runtime_state(ctx: &mut ControllerContext, focused_id: NodeId, semantic_value: &str) {
+        let runtime = Self::runtime_config(ctx, focused_id);
+        ctx.text_edit.sync_from_runtime(
+            focused_id,
+            semantic_value,
+            runtime
+                .as_ref()
+                .and_then(|cfg| cfg.restoration_id.as_deref()),
+            runtime
+                .as_ref()
+                .and_then(|cfg| cfg.undo_controller.as_ref().map(|undo| undo.capacity)),
+        );
+    }
+
+    fn persist_runtime_state(ctx: &mut ControllerContext, focused_id: NodeId) {
+        let runtime = Self::runtime_config(ctx, focused_id);
+        ctx.text_edit.persist_restoration(
+            focused_id,
+            runtime
+                .as_ref()
+                .and_then(|cfg| cfg.restoration_id.as_deref()),
+        );
     }
 
     fn has_shift(modifiers: u8) -> bool {
@@ -1213,29 +1263,17 @@ impl TextInputController {
     ) -> bool {
         match action {
             TextContextMenuAction::Copy => {
-                self.handle_key(
-                    ctx,
-                    KeyCode::Char('c'),
-                    Self::primary_shortcut_modifier(),
-                )
+                self.handle_key(ctx, KeyCode::Char('c'), Self::primary_shortcut_modifier())
             }
             TextContextMenuAction::Cut => {
-                self.handle_key(
-                    ctx,
-                    KeyCode::Char('x'),
-                    Self::primary_shortcut_modifier(),
-                )
+                self.handle_key(ctx, KeyCode::Char('x'), Self::primary_shortcut_modifier())
             }
-            TextContextMenuAction::Paste => self.handle_key(
-                ctx,
-                KeyCode::Char('v'),
-                Self::primary_shortcut_modifier(),
-            ),
-            TextContextMenuAction::SelectAll => self.handle_key(
-                ctx,
-                KeyCode::Char('a'),
-                Self::primary_shortcut_modifier(),
-            ),
+            TextContextMenuAction::Paste => {
+                self.handle_key(ctx, KeyCode::Char('v'), Self::primary_shortcut_modifier())
+            }
+            TextContextMenuAction::SelectAll => {
+                self.handle_key(ctx, KeyCode::Char('a'), Self::primary_shortcut_modifier())
+            }
         }
     }
 
@@ -1282,7 +1320,8 @@ impl TextInputController {
         let (line_index, line_metric) = Self::line_metric_for_index(&line_metrics, metric_index)?;
         let is_last_line = line_index + 1 == line_metrics.len();
         if let Some(width) = render_width {
-            caret_x += Self::paragraph_line_x_offset(paragraph, width, line_metric.width, is_last_line);
+            caret_x +=
+                Self::paragraph_line_x_offset(paragraph, width, line_metric.width, is_last_line);
         }
 
         let visible_x = if scroll_direction == FlexDirection::Row {
@@ -1394,10 +1433,12 @@ impl TextInputController {
             Some(override_point)
         } else {
             match (caret_point, anchor_point, selection_range) {
-                (Some(caret_point), Some(anchor_point), Some(_)) => Some(fission_layout::LayoutPoint::new(
-                    (caret_point.x + anchor_point.x) * 0.5,
-                    caret_point.y.min(anchor_point.y),
-                )),
+                (Some(caret_point), Some(anchor_point), Some(_)) => {
+                    Some(fission_layout::LayoutPoint::new(
+                        (caret_point.x + anchor_point.x) * 0.5,
+                        caret_point.y.min(anchor_point.y),
+                    ))
+                }
                 (Some(point), _, None) => Some(point),
                 _ => None,
             }
@@ -1453,8 +1494,11 @@ impl TextInputController {
                 {
                     if let Some(scroll_geom) = ctx.layout.get_node_geometry(scroll_id) {
                         let font_size = Self::extract_font_size(ctx.ir, focused_id).unwrap_or(16.0);
-                        let line_metrics =
-                            measurer.get_line_metrics(value, font_size, Some(scroll_geom.rect.size.width));
+                        let line_metrics = measurer.get_line_metrics(
+                            value,
+                            font_size,
+                            Some(scroll_geom.rect.size.width),
+                        );
                         if let Some(line) = line_metrics
                             .iter()
                             .find(|line| caret >= line.start_index && caret <= line.end_index)
@@ -1483,11 +1527,7 @@ impl TextInputController {
         text.chars().take(max_chars).collect()
     }
 
-    fn apply_text_capitalization(
-        mode: TextCapitalization,
-        prefix: &str,
-        inserted: &str,
-    ) -> String {
+    fn apply_text_capitalization(mode: TextCapitalization, prefix: &str, inserted: &str) -> String {
         match mode {
             TextCapitalization::None => inserted.to_string(),
             TextCapitalization::Characters => inserted.to_uppercase(),
@@ -1596,17 +1636,15 @@ impl TextInputController {
         let replace_start = replace_start.min(current_value.len());
         let replace_end = replace_end.min(current_value.len()).max(replace_start);
 
-        let mut inserted = Self::apply_input_type_filter(
-            semantics.text_input_type,
-            raw_text,
-            semantics.multiline,
-        );
+        let mut inserted =
+            Self::apply_input_type_filter(semantics.text_input_type, raw_text, semantics.multiline);
         inserted = Self::apply_text_capitalization(
             semantics.text_capitalization,
             &current_value[..replace_start],
             &inserted,
         );
-        inserted = Self::apply_formatters(&inserted, &semantics.input_formatters, semantics.multiline);
+        inserted =
+            Self::apply_formatters(&inserted, &semantics.input_formatters, semantics.multiline);
 
         if let Some(mask) = &semantics.input_mask {
             inserted = inserted
@@ -1619,7 +1657,8 @@ impl TextInputController {
             if let Some(max_length) = semantics.max_length {
                 let current_chars = current_value.chars().count();
                 let replaced_chars = current_value[replace_start..replace_end].chars().count();
-                let available = max_length.saturating_sub(current_chars.saturating_sub(replaced_chars));
+                let available =
+                    max_length.saturating_sub(current_chars.saturating_sub(replaced_chars));
                 inserted = Self::truncate_to_chars(&inserted, available);
             }
         }
@@ -1658,7 +1697,12 @@ impl TextInputController {
                                     Self::prepare_inserted_text(semantics, &value, start, end, text)
                                 {
                                     let new_caret = start + filtered_text.len();
-                                    let new_text = st.apply_edit(start..end, &filtered_text, new_caret, new_caret);
+                                    let new_text = st.apply_edit(
+                                        start..end,
+                                        &filtered_text,
+                                        new_caret,
+                                        new_caret,
+                                    );
                                     self.dispatch_change(ctx, semantics, focused_id, new_text);
                                     Self::dispatch_cursor_change(
                                         ctx, semantics, focused_id, new_caret, new_caret,
@@ -1699,6 +1743,7 @@ impl TextInputController {
         node_id: NodeId,
         new_text: String,
     ) {
+        Self::persist_runtime_state(ctx, node_id);
         if let Some(action_entry) = semantics
             .actions
             .entries
@@ -1734,6 +1779,8 @@ impl TextInputController {
                 return;
             }
         }
+
+        Self::persist_runtime_state(ctx, node_id);
 
         if let Some(action_entry) = semantics
             .actions
@@ -1789,7 +1836,12 @@ impl TextInputController {
         trigger: fission_ir::semantics::ActionTrigger,
         fallback_payload: Option<Vec<u8>>,
     ) -> bool {
-        let Some(action_entry) = semantics.actions.entries.iter().find(|e| e.trigger == trigger) else {
+        let Some(action_entry) = semantics
+            .actions
+            .entries
+            .iter()
+            .find(|e| e.trigger == trigger)
+        else {
             return false;
         };
         let payload = action_entry
@@ -1811,8 +1863,8 @@ impl TextInputController {
         focused_id: NodeId,
         semantic_value: &str,
     ) -> (String, usize, usize) {
+        Self::sync_runtime_state(ctx, focused_id, semantic_value);
         let st = ctx.text_edit.get_mut_or_default(focused_id);
-        st.sync_from_model(semantic_value);
         let value = st.committed_text();
         (value, st.caret, st.anchor)
     }
@@ -1822,8 +1874,8 @@ impl TextInputController {
         focused_id: NodeId,
         semantic_value: &str,
     ) -> String {
+        Self::sync_runtime_state(ctx, focused_id, semantic_value);
         let state = ctx.text_edit.get_mut_or_default(focused_id);
-        state.sync_from_model(semantic_value);
         state.display_text().0
     }
 
@@ -1835,7 +1887,11 @@ impl TextInputController {
         masked
     }
 
-    fn masked_byte_offset_from_source(source: &str, masked: &str, source_byte_offset: usize) -> usize {
+    fn masked_byte_offset_from_source(
+        source: &str,
+        masked: &str,
+        source_byte_offset: usize,
+    ) -> usize {
         let clamped = source_byte_offset.min(source.len());
         let grapheme_count = source[..clamped].graphemes(true).count();
         masked
@@ -1845,7 +1901,11 @@ impl TextInputController {
             .unwrap_or(masked.len())
     }
 
-    fn source_byte_offset_from_masked(source: &str, masked: &str, masked_byte_offset: usize) -> usize {
+    fn source_byte_offset_from_masked(
+        source: &str,
+        masked: &str,
+        masked_byte_offset: usize,
+    ) -> usize {
         let clamped = masked_byte_offset.min(masked.len());
         let grapheme_count = masked[..clamped].graphemes(true).count();
         source
@@ -2127,7 +2187,8 @@ impl TextInputController {
                     } else {
                         current_caret_idx
                     };
-                    let paragraph = Self::extract_paragraph_style(ctx.ir, text_root).unwrap_or_default();
+                    let paragraph =
+                        Self::extract_paragraph_style(ctx.ir, text_root).unwrap_or_default();
                     let measurer_width = if scroll_direction == op::FlexDirection::Column {
                         Some(viewport_size.width)
                     } else {
@@ -2344,10 +2405,14 @@ impl TextInputController {
                             current_caret_x,
                             target_y,
                         );
-                        let target_end =
-                            Self::trim_line_end(value, target_line.end_index.max(target_line.start_index));
-                        new_caret_pos =
-                            new_caret_pos.clamp(target_line.start_index, target_end.max(target_line.start_index));
+                        let target_end = Self::trim_line_end(
+                            value,
+                            target_line.end_index.max(target_line.start_index),
+                        );
+                        new_caret_pos = new_caret_pos.clamp(
+                            target_line.start_index,
+                            target_end.max(target_line.start_index),
+                        );
 
                         let st = ctx.text_edit.get_mut_or_default(focused_id);
                         st.caret = new_caret_pos;

@@ -804,6 +804,7 @@ mod tests {
                 range: 0..13,
                 semantics_label: None,
                 semantics_identifier: None,
+                spell_out: None,
                 mouse_cursor: Some(MouseCursor::Pointer),
                 actions: vec![ActionEntry {
                     trigger: ActionTrigger::Default,
@@ -815,6 +816,7 @@ mod tests {
                 range: 5..9,
                 semantics_label: Some("documentation".into()),
                 semantics_identifier: Some("docs-link".into()),
+                spell_out: Some(true),
                 mouse_cursor: None,
                 actions: vec![ActionEntry {
                     trigger: ActionTrigger::HoverEnter,

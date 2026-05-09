@@ -1834,7 +1834,9 @@ fn build_local_paint_list(
             let annotations = ir
                 .custom_render_objects
                 .get(&node_id)
-                .and_then(|sidecar| sidecar.downcast_ref::<Vec<fission_ir::op::RichTextAnnotation>>())
+                .and_then(|sidecar| {
+                    sidecar.downcast_ref::<Vec<fission_ir::op::RichTextAnnotation>>()
+                })
                 .cloned()
                 .unwrap_or_default();
             let render_runs = runs
@@ -2265,6 +2267,7 @@ mod tests {
                 range: 0..4,
                 semantics_label: Some("Documentation".into()),
                 semantics_identifier: Some("docs-link".into()),
+                spell_out: Some(true),
                 mouse_cursor: Some(fission_ir::op::MouseCursor::Pointer),
                 actions: vec![ActionEntry {
                     trigger: ActionTrigger::Default,
@@ -2275,8 +2278,9 @@ mod tests {
         );
 
         let node = ir.nodes.get(&node_id).expect("paint node");
-        let list = build_local_paint_list(&ir, node_id, node, LayoutRect::new(0.0, 0.0, 160.0, 40.0))
-            .expect("display list");
+        let list =
+            build_local_paint_list(&ir, node_id, node, LayoutRect::new(0.0, 0.0, 160.0, 40.0))
+                .expect("display list");
         match list.ops.first() {
             Some(DisplayOp::DrawRichText { annotations, .. }) => {
                 assert_eq!(annotations.len(), 1);

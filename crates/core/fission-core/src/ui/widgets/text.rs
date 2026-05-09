@@ -57,6 +57,38 @@ impl From<TextFontStyle> for IrFontStyle {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct TextScaler(f32);
+
+impl TextScaler {
+    pub fn linear(scale_factor: f32) -> Self {
+        Self(scale_factor)
+    }
+
+    pub fn scale_factor(self) -> f32 {
+        self.0
+    }
+}
+
+impl Default for TextScaler {
+    fn default() -> Self {
+        Self::linear(1.0)
+    }
+}
+
+impl From<f32> for TextScaler {
+    fn from(value: f32) -> Self {
+        Self::linear(value)
+    }
+}
+
+impl From<TextScaler> for f32 {
+    fn from(value: TextScaler) -> Self {
+        value.scale_factor()
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct TextRunStyle {
     pub font_size: Option<f32>,
@@ -110,6 +142,8 @@ pub struct RichTextRun {
     pub style: TextRunStyle,
     pub semantics_label: Option<String>,
     pub semantics_identifier: Option<String>,
+    #[serde(default)]
+    pub spell_out: Option<bool>,
 }
 
 impl RichTextRun {
@@ -119,6 +153,7 @@ impl RichTextRun {
             style: TextRunStyle::default(),
             semantics_label: None,
             semantics_identifier: None,
+            spell_out: None,
         }
     }
 
@@ -176,6 +211,11 @@ impl RichTextRun {
         self
     }
 
+    pub fn text_scaler(mut self, text_scaler: impl Into<TextScaler>) -> Self {
+        self.style.text_scale = Some(text_scaler.into().scale_factor());
+        self
+    }
+
     pub fn background_color(mut self, color: IrColor) -> Self {
         self.style.background_color = Some(color);
         self
@@ -188,6 +228,11 @@ impl RichTextRun {
 
     pub fn semantics_identifier(mut self, identifier: impl Into<String>) -> Self {
         self.semantics_identifier = Some(identifier.into());
+        self
+    }
+
+    pub fn spell_out(mut self, spell_out: bool) -> Self {
+        self.spell_out = Some(spell_out);
         self
     }
 
@@ -252,12 +297,15 @@ pub struct RichTextSpan {
     pub semantics_label: Option<String>,
     pub semantics_identifier: Option<String>,
     #[serde(default)]
+    pub spell_out: Option<bool>,
+    #[serde(default)]
     pub mouse_cursor: Option<IrMouseCursor>,
     #[serde(default)]
     pub actions: Vec<ActionEntry>,
 }
 
 pub type TextSpan = RichTextSpan;
+pub type WidgetSpan = InlineWidgetSpan;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct InlineWidgetSpan {
@@ -360,6 +408,11 @@ impl RichTextSpan {
         self
     }
 
+    pub fn text_scaler(mut self, text_scaler: impl Into<TextScaler>) -> Self {
+        self.style.text_scale = Some(text_scaler.into().scale_factor());
+        self
+    }
+
     pub fn background_color(mut self, color: IrColor) -> Self {
         self.style.background_color = Some(color);
         self
@@ -372,6 +425,11 @@ impl RichTextSpan {
 
     pub fn semantics_identifier(mut self, identifier: impl Into<String>) -> Self {
         self.semantics_identifier = Some(identifier.into());
+        self
+    }
+
+    pub fn spell_out(mut self, spell_out: bool) -> Self {
+        self.spell_out = Some(spell_out);
         self
     }
 
@@ -463,6 +521,7 @@ impl RichTextSpan {
                         },
                         semantics_label: None,
                         semantics_identifier: None,
+                        spell_out: None,
                     });
                 }
             }
@@ -515,6 +574,7 @@ impl RichTextSpan {
         if range.start >= range.end
             || (self.semantics_label.is_none()
                 && self.semantics_identifier.is_none()
+                && self.spell_out.is_none()
                 && self.mouse_cursor.is_none()
                 && self.actions.is_empty())
         {
@@ -525,6 +585,7 @@ impl RichTextSpan {
             range,
             semantics_label: self.semantics_label.clone(),
             semantics_identifier: self.semantics_identifier.clone(),
+            spell_out: self.spell_out,
             mouse_cursor: self.mouse_cursor,
             actions: self.actions.clone(),
         })
@@ -551,6 +612,7 @@ impl From<RichTextRun> for RichTextSpan {
             children: Vec::new(),
             semantics_label: value.semantics_label,
             semantics_identifier: value.semantics_identifier,
+            spell_out: value.spell_out,
             mouse_cursor: None,
             actions: Vec::new(),
         }
@@ -711,6 +773,11 @@ impl Text {
 
     pub fn text_scale(mut self, text_scale: f32) -> Self {
         self.text_scale = Some(text_scale);
+        self
+    }
+
+    pub fn text_scaler(mut self, text_scaler: impl Into<TextScaler>) -> Self {
+        self.text_scale = Some(text_scaler.into().scale_factor());
         self
     }
 
@@ -897,10 +964,11 @@ pub struct RichText {
 
 impl RichText {
     pub fn new(runs: Vec<RichTextRun>) -> Self {
-        if runs
-            .iter()
-            .any(|run| run.semantics_label.is_some() || run.semantics_identifier.is_some())
-        {
+        if runs.iter().any(|run| {
+            run.semantics_label.is_some()
+                || run.semantics_identifier.is_some()
+                || run.spell_out.is_some()
+        }) {
             return Self::from_spans(runs);
         }
 
@@ -977,6 +1045,7 @@ impl RichText {
                         },
                         semantics_label: None,
                         semantics_identifier: None,
+                        spell_out: None,
                     });
                     if let Some(label) = &widget.semantics_label {
                         semantics_text.push_str(label);
@@ -1177,6 +1246,7 @@ fn push_rich_text_run(runs: &mut Vec<RichTextRun>, text: &str, style: &TextRunSt
         style: style.clone(),
         semantics_label: None,
         semantics_identifier: None,
+        spell_out: None,
     });
 }
 

@@ -14,9 +14,10 @@ use fission_ir::{
         InputFormatter, MaxLengthEnforcement, MouseCursor as SemanticsMouseCursor,
         TextCapitalization, TextInputAction, TextInputType,
     },
-    FlexDirection, FlexWrap, NodeId, Role, Semantics,
+    AnyRenderObject, FlexDirection, FlexWrap, NodeId, Role, Semantics,
 };
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 use unicode_segmentation::UnicodeSegmentation;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -25,6 +26,62 @@ pub enum TextAlignVertical {
     #[default]
     Center,
     Bottom,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub enum DragStartBehavior {
+    #[default]
+    Start,
+    Down,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TextUndoController {
+    pub capacity: usize,
+}
+
+impl Default for TextUndoController {
+    fn default() -> Self {
+        Self { capacity: 100 }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SpellCheckConfiguration {
+    pub enabled: bool,
+    pub underline_color: Option<IrColor>,
+    pub show_suggestions: bool,
+}
+
+impl Default for SpellCheckConfiguration {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            underline_color: Some(IrColor {
+                r: 255,
+                g: 59,
+                b: 48,
+                a: 255,
+            }),
+            show_suggestions: true,
+        }
+    }
+}
+
+#[doc(hidden)]
+#[derive(Debug, Clone, PartialEq)]
+pub struct TextInputRuntimeConfig {
+    pub drag_start_behavior: DragStartBehavior,
+    pub undo_controller: Option<TextUndoController>,
+    pub restoration_id: Option<String>,
+    pub spell_check_configuration: Option<SpellCheckConfiguration>,
+}
+
+#[doc(hidden)]
+pub fn downcast_text_input_runtime_config(
+    any: &AnyRenderObject,
+) -> Option<&TextInputRuntimeConfig> {
+    any.downcast_ref::<TextInputRuntimeConfig>()
 }
 
 impl TextAlignVertical {
@@ -375,12 +432,20 @@ pub struct TextInput {
     pub autofill_hints: Vec<String>,
     /// Extra padding to keep around the caret when auto-scrolling `[left, right, top, bottom]`.
     pub scroll_padding: Option<[f32; 4]>,
+    /// Whether selection drags become active on pointer-down or only after slop is crossed.
+    pub drag_start_behavior: DragStartBehavior,
     /// Built-in context menu configuration for pointer and touch editing affordances.
     pub context_menu: TextContextMenuConfig,
     /// Selection-handle visual configuration.
     pub selection_controls: TextSelectionControls,
     /// Magnifier visual configuration shown while dragging selection handles.
     pub magnifier_configuration: TextMagnifierConfiguration,
+    /// Optional undo-controller configuration for edit history.
+    pub undo_controller: Option<TextUndoController>,
+    /// Structured spell-check preferences.
+    pub spell_check_configuration: Option<SpellCheckConfiguration>,
+    /// Stable restoration identifier for rehydrating local edit state.
+    pub restoration_id: Option<String>,
 }
 
 impl TextInput {
@@ -574,6 +639,11 @@ impl TextInput {
         self
     }
 
+    pub fn drag_start_behavior(mut self, drag_start_behavior: DragStartBehavior) -> Self {
+        self.drag_start_behavior = drag_start_behavior;
+        self
+    }
+
     pub fn selection_controls(mut self, selection_controls: TextSelectionControls) -> Self {
         self.selection_controls = selection_controls;
         self
@@ -589,6 +659,24 @@ impl TextInput {
 
     pub fn on_tap_outside(mut self, action: ActionEnvelope) -> Self {
         self.on_tap_outside = Some(action);
+        self
+    }
+
+    pub fn undo_controller(mut self, undo_controller: TextUndoController) -> Self {
+        self.undo_controller = Some(undo_controller);
+        self
+    }
+
+    pub fn spell_check_configuration(
+        mut self,
+        spell_check_configuration: SpellCheckConfiguration,
+    ) -> Self {
+        self.spell_check_configuration = Some(spell_check_configuration);
+        self
+    }
+
+    pub fn restoration_id(mut self, restoration_id: impl Into<String>) -> Self {
+        self.restoration_id = Some(restoration_id.into());
         self
     }
 
@@ -759,9 +847,13 @@ impl Default for TextInput {
             smart_quotes: true,
             autofill_hints: Vec::new(),
             scroll_padding: None,
+            drag_start_behavior: DragStartBehavior::Start,
             context_menu: TextContextMenuConfig::default(),
             selection_controls: TextSelectionControls::default(),
             magnifier_configuration: TextMagnifierConfiguration::default(),
+            undo_controller: None,
+            spell_check_configuration: None,
+            restoration_id: None,
         }
     }
 }
@@ -797,14 +889,17 @@ impl TextInput {
             .unwrap_or(masked.len())
     }
 
-    fn supporting_counter_text(&self, cx: &LoweringContext<'_>, current_text: &str) -> Option<String> {
+    fn supporting_counter_text(
+        &self,
+        cx: &LoweringContext<'_>,
+        current_text: &str,
+    ) -> Option<String> {
         self.counter_text
             .as_ref()
             .map(|content| Self::resolve_text_content(content, cx))
             .or_else(|| {
-                self.max_length.map(|max_length| {
-                    format!("{}/{}", current_text.chars().count(), max_length)
-                })
+                self.max_length
+                    .map(|max_length| format!("{}/{}", current_text.chars().count(), max_length))
             })
     }
 
@@ -1510,74 +1605,89 @@ impl Lower for TextInput {
             });
         let counter_text = self.supporting_counter_text(cx, &self.value);
 
-        let field_body_id = if resolved_label.is_some() || supporting_text.is_some() || counter_text.is_some() {
-            let label_color = self
-                .label_color
-                .unwrap_or(if is_focused {
+        let field_body_id =
+            if resolved_label.is_some() || supporting_text.is_some() || counter_text.is_some() {
+                let label_color = self.label_color.unwrap_or(if is_focused {
                     theme.focus_color
                 } else {
                     tokens.colors.text_secondary
                 });
-            let supporting_color = if self.error_text.is_some() {
-                self.error_color.unwrap_or(tokens.colors.error)
-            } else {
-                self.helper_color.unwrap_or(tokens.colors.text_secondary)
-            };
-            let counter_color = self.counter_color.unwrap_or(tokens.colors.text_secondary);
-            let mut column = NodeBuilder::new(
-                cx.next_node_id(),
-                Op::Layout(LayoutOp::Flex {
-                    direction: FlexDirection::Column,
-                    wrap: FlexWrap::NoWrap,
-                    flex_grow: 0.0,
-                    flex_shrink: 1.0,
-                    padding: [0.0; 4],
-                    gap: Some(6.0),
-                    align_items: fission_ir::op::AlignItems::Stretch,
-                    justify_content: fission_ir::op::JustifyContent::Start,
-                }),
-            );
-
-            if let Some(label) = &resolved_label {
-                column.add_child(
-                    Text::new(label.clone())
-                        .size(tokens.typography.label_large_size)
-                        .color(label_color)
-                        .lower(cx),
+                let supporting_color = if self.error_text.is_some() {
+                    self.error_color.unwrap_or(tokens.colors.error)
+                } else {
+                    self.helper_color.unwrap_or(tokens.colors.text_secondary)
+                };
+                let counter_color = self.counter_color.unwrap_or(tokens.colors.text_secondary);
+                let mut column = NodeBuilder::new(
+                    cx.next_node_id(),
+                    Op::Layout(LayoutOp::Flex {
+                        direction: FlexDirection::Column,
+                        wrap: FlexWrap::NoWrap,
+                        flex_grow: 0.0,
+                        flex_shrink: 1.0,
+                        padding: [0.0; 4],
+                        gap: Some(6.0),
+                        align_items: fission_ir::op::AlignItems::Stretch,
+                        justify_content: fission_ir::op::JustifyContent::Start,
+                    }),
                 );
-            }
 
-            column.add_child(final_visual_id);
-
-            if supporting_text.is_some() || counter_text.is_some() {
-                let mut row = Row::default().gap(8.0);
-                if let Some(supporting_text) = supporting_text {
-                    row.children.push(
-                        Text::new(supporting_text)
+                if let Some(label) = &resolved_label {
+                    column.add_child(
+                        Text::new(label.clone())
                             .size(tokens.typography.label_large_size)
-                            .color(supporting_color)
-                            .into_node(),
+                            .color(label_color)
+                            .lower(cx),
                     );
                 }
-                row.children
-                    .push(Spacer { flex_grow: 1.0, ..Default::default() }.into_node());
-                if let Some(counter_text) = counter_text {
-                    row.children.push(
-                        Text::new(counter_text)
-                            .size(tokens.typography.label_large_size)
-                            .color(counter_color)
-                            .into_node(),
-                    );
-                }
-                column.add_child(row.lower(cx));
-            }
 
-            column.build(cx)
-        } else {
-            final_visual_id
-        };
+                column.add_child(final_visual_id);
+
+                if supporting_text.is_some() || counter_text.is_some() {
+                    let mut row = Row::default().gap(8.0);
+                    if let Some(supporting_text) = supporting_text {
+                        row.children.push(
+                            Text::new(supporting_text)
+                                .size(tokens.typography.label_large_size)
+                                .color(supporting_color)
+                                .into_node(),
+                        );
+                    }
+                    row.children.push(
+                        Spacer {
+                            flex_grow: 1.0,
+                            ..Default::default()
+                        }
+                        .into_node(),
+                    );
+                    if let Some(counter_text) = counter_text {
+                        row.children.push(
+                            Text::new(counter_text)
+                                .size(tokens.typography.label_large_size)
+                                .color(counter_color)
+                                .into_node(),
+                        );
+                    }
+                    column.add_child(row.lower(cx));
+                }
+
+                column.build(cx)
+            } else {
+                final_visual_id
+            };
 
         // 5. Semantics
+        let spell_check_enabled = self
+            .spell_check_configuration
+            .as_ref()
+            .map_or(self.spell_check, |cfg| cfg.enabled);
+        let suggestions_enabled = self
+            .spell_check_configuration
+            .as_ref()
+            .map_or(self.enable_suggestions, |cfg| {
+                self.enable_suggestions && cfg.show_suggestions
+            });
+
         let mut semantics = Semantics {
             role: Role::TextInput,
             label: resolved_label.clone().or(resolved_placeholder.clone()),
@@ -1615,8 +1725,8 @@ impl Lower for TextInput {
             max_length_enforcement: self.max_length_enforcement,
             input_formatters: self.input_formatters.clone(),
             autocorrect: self.autocorrect,
-            enable_suggestions: self.enable_suggestions,
-            spell_check: self.spell_check,
+            enable_suggestions: suggestions_enabled,
+            spell_check: spell_check_enabled,
             smart_dashes: self.smart_dashes,
             smart_quotes: self.smart_quotes,
             autofill_hints: self.autofill_hints.clone(),
@@ -1667,6 +1777,16 @@ impl Lower for TextInput {
         }
         let mut semantics_builder = NodeBuilder::new(input_id, Op::Semantics(semantics));
         semantics_builder.add_child(field_body_id);
-        semantics_builder.build(cx)
+        let semantics_id = semantics_builder.build(cx);
+        cx.ir.custom_render_objects.insert(
+            semantics_id,
+            Arc::new(TextInputRuntimeConfig {
+                drag_start_behavior: self.drag_start_behavior,
+                undo_controller: self.undo_controller.clone(),
+                restoration_id: self.restoration_id.clone(),
+                spell_check_configuration: self.spell_check_configuration.clone(),
+            }),
+        );
+        semantics_id
     }
 }

@@ -1,15 +1,15 @@
 use fission_core::env::{Env, RuntimeState, TextSelectionHandleKind};
 use fission_core::lowering::LoweringContext;
-use fission_core::ui::widgets::text::{InlineWidgetSpan, RichTextChild, RichTextSpan};
+use fission_core::ui::widgets::text::{RichTextChild, RichTextSpan, TextScaler, WidgetSpan};
 use fission_core::ui::widgets::text_input::{
-    TextAlignVertical, TextContextMenuAction, TextMagnifierConfiguration,
+    DragStartBehavior, SpellCheckConfiguration, TextAlignVertical, TextContextMenuAction,
+    TextInputRuntimeConfig, TextMagnifierConfiguration, TextUndoController,
 };
 use fission_core::ui::{Button, Container, Node, RichText, RichTextRun, Spacer, Text, TextInput};
 use fission_core::{ActionEnvelope, ActionId};
 use fission_ir::op::{
     decode_inline_widget_marker, Color, Fill, LayoutOp, MouseCursor, Op, PaintOp,
-    RichTextAnnotation, TextAlign, TextDirection, TextHeightBehavior, TextOverflow,
-    TextWidthBasis,
+    RichTextAnnotation, TextAlign, TextDirection, TextHeightBehavior, TextOverflow, TextWidthBasis,
 };
 use fission_ir::semantics::ActionTrigger;
 use fission_ir::{CoreIR, FlexDirection};
@@ -127,7 +127,8 @@ fn rich_text_widget_lowers_multiple_runs() {
             RichTextRun::new("Hello ").family("Inter").weight(600),
             RichTextRun::new("world")
                 .family("Space Grotesk")
-                .italic(true),
+                .italic(true)
+                .text_scaler(TextScaler::linear(1.25)),
         ])
         .into_node(),
     );
@@ -144,6 +145,10 @@ fn rich_text_widget_lowers_multiple_runs() {
     assert_eq!(runs[0].style.font_weight, 600);
     assert_eq!(runs[1].style.font_family.as_deref(), Some("Space Grotesk"));
     assert_eq!(runs[1].style.font_style, fission_ir::op::FontStyle::Italic);
+    assert_eq!(
+        runs[1].style.font_size,
+        Env::default().theme.tokens.typography.body_medium_size * 1.25
+    );
 }
 
 #[test]
@@ -316,11 +321,24 @@ fn text_input_lowers_cursor_and_semantics_overrides() {
             max_length: Some(24),
             input_formatters: vec![fission_ir::semantics::InputFormatter::AsciiOnly],
             autocorrect: false,
-            enable_suggestions: false,
-            spell_check: false,
+            enable_suggestions: true,
+            spell_check: true,
             smart_dashes: true,
             smart_quotes: true,
             autofill_hints: Vec::new(),
+            drag_start_behavior: DragStartBehavior::Down,
+            undo_controller: Some(TextUndoController { capacity: 7 }),
+            spell_check_configuration: Some(SpellCheckConfiguration {
+                enabled: false,
+                underline_color: Some(Color {
+                    r: 255,
+                    g: 59,
+                    b: 48,
+                    a: 255,
+                }),
+                show_suggestions: false,
+            }),
+            restoration_id: Some("email-field".into()),
             on_submit: Some(fission_core::ActionEnvelope {
                 id: fission_core::ActionId::from_name("tests::submit"),
                 payload: br#""payload""#.to_vec(),
@@ -387,6 +405,7 @@ fn text_input_lowers_cursor_and_semantics_overrides() {
     );
     assert!(!semantics.autocorrect);
     assert!(!semantics.enable_suggestions);
+    assert!(!semantics.spell_check);
     assert!(semantics
         .actions
         .entries
@@ -402,6 +421,36 @@ fn text_input_lowers_cursor_and_semantics_overrides() {
         .entries
         .iter()
         .any(|entry| { entry.trigger == fission_ir::semantics::ActionTrigger::TapOutside }));
+
+    let semantics_id = ir
+        .nodes
+        .iter()
+        .find_map(|(id, node)| match &node.op {
+            Op::Semantics(semantics) if semantics.role == fission_ir::Role::TextInput => Some(*id),
+            _ => None,
+        })
+        .expect("text input id");
+    let runtime_config = ir
+        .custom_render_objects
+        .get(&semantics_id)
+        .and_then(|sidecar| sidecar.as_ref().downcast_ref::<TextInputRuntimeConfig>())
+        .expect("text input runtime config");
+    assert_eq!(runtime_config.drag_start_behavior, DragStartBehavior::Down);
+    assert_eq!(
+        runtime_config.undo_controller,
+        Some(TextUndoController { capacity: 7 })
+    );
+    assert_eq!(
+        runtime_config.restoration_id.as_deref(),
+        Some("email-field")
+    );
+    assert_eq!(
+        runtime_config
+            .spell_check_configuration
+            .as_ref()
+            .map(|cfg| cfg.show_suggestions),
+        Some(false)
+    );
 
     let caret = paint_ops(&ir)
         .find_map(|op| match op {
@@ -666,7 +715,7 @@ fn rich_text_inline_widgets_lower_marker_runs_and_child_nodes() {
         RichText::from_spans(vec![
             RichTextChild::from(RichTextSpan::new("Before ")),
             RichTextChild::from(
-                InlineWidgetSpan::new(
+                WidgetSpan::new(
                     Spacer {
                         width: Some(18.0),
                         height: Some(10.0),
@@ -800,6 +849,56 @@ fn rich_text_span_interactions_lower_to_annotation_sidecar() {
 }
 
 #[test]
+fn rich_text_run_spell_out_lowers_to_annotation_sidecar() {
+    let ir = lower_node(
+        RichText::new(vec![
+            RichTextRun::new("NASA").spell_out(true),
+            RichTextRun::new(" launch"),
+        ])
+        .into_node(),
+    );
+
+    let runs = paint_ops(&ir)
+        .find_map(|op| match op {
+            PaintOp::DrawRichText { runs, .. } => Some(runs),
+            _ => None,
+        })
+        .expect("rich text paint op");
+    assert_eq!(runs.len(), 1);
+    assert_eq!(runs[0].text, "NASA launch");
+
+    let (_, annotations) = rich_text_annotations(&ir).expect("annotation sidecar");
+    assert_eq!(annotations.len(), 1);
+    assert_eq!(annotations[0].range, 0..4);
+    assert_eq!(annotations[0].spell_out, Some(true));
+}
+
+#[test]
+fn rich_text_span_spell_out_preserves_nested_overrides() {
+    let ir = lower_node(
+        RichText::from_span(
+            RichTextSpan::new("Call ")
+                .spell_out(true)
+                .child(RichTextSpan::new("911").spell_out(false)),
+        )
+        .into_node(),
+    );
+
+    let (_, annotations) = rich_text_annotations(&ir).expect("annotation sidecar");
+    let parent = annotations
+        .iter()
+        .find(|annotation| annotation.range == (0..8))
+        .expect("parent annotation");
+    let child = annotations
+        .iter()
+        .find(|annotation| annotation.range == (5..8))
+        .expect("child annotation");
+
+    assert_eq!(parent.spell_out, Some(true));
+    assert_eq!(child.spell_out, Some(false));
+}
+
+#[test]
 fn text_semantics_actions_keep_text_role_and_focusability() {
     let tap = test_action("tests::text_tap", br#""tap""#);
     let hover = test_action("tests::text_hover", br#""hover""#);
@@ -844,7 +943,7 @@ fn text_locale_scale_selection_and_identifier_lower_to_rich_text() {
     let ir = lower_node(
         Text::new("Visible text")
             .locale("fr-FR")
-            .text_scale(1.25)
+            .text_scaler(TextScaler::linear(1.25))
             .selection_range((0, 7))
             .selection_color(Color {
                 r: 1,
@@ -900,7 +999,7 @@ fn rich_text_identifier_and_locale_propagate_from_nested_spans() {
             RichTextSpan::new("")
                 .locale("en-GB")
                 .semantics_identifier("nested-copy")
-                .child(RichTextSpan::new("Hello ").text_scale(1.5))
+                .child(RichTextSpan::new("Hello ").text_scaler(TextScaler::linear(1.5)))
                 .child(RichTextSpan::new("world")),
         )
         .into_node(),

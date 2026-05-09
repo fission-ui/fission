@@ -127,6 +127,7 @@ fn test_rich_text_display_ops_preserve_caret_metadata() {
             range: 0..8,
             semantics_label: Some("Paragraph".into()),
             semantics_identifier: Some("hero-copy".into()),
+            spell_out: Some(true),
             mouse_cursor: Some(MouseCursor::Pointer),
             actions: vec![
                 ActionEntry {

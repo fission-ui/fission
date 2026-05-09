@@ -4,7 +4,9 @@ use fission_core::event::{
 };
 use fission_core::input::text::TextInputController;
 use fission_core::input::{ControllerContext, InputController};
-use fission_core::ui::widgets::text_input::TextContextMenuAction;
+use fission_core::ui::widgets::text_input::{
+    DragStartBehavior, TextContextMenuAction, TextInputRuntimeConfig, TextUndoController,
+};
 use fission_ir::op::{Color, TextRun, TextStyle};
 use fission_ir::{
     semantics::{
@@ -254,6 +256,65 @@ impl TextMeasurer for MockTextMeasurer {
     }
 }
 
+struct FineTextMeasurer;
+
+impl TextMeasurer for FineTextMeasurer {
+    fn measure(&self, text: &str, _font_size: f32, _available_width: Option<f32>) -> (f32, f32) {
+        (text.graphemes(true).count() as f32, 20.0)
+    }
+
+    fn hit_test(
+        &self,
+        text: &str,
+        _font_size: f32,
+        _available_width: Option<f32>,
+        x: f32,
+        _y: f32,
+    ) -> usize {
+        let target = x.max(0.0).floor() as usize;
+        let mut byte_offset = 0;
+        for (index, (idx, grapheme)) in text.grapheme_indices(true).enumerate() {
+            if index >= target {
+                break;
+            }
+            byte_offset = idx + grapheme.len();
+        }
+        byte_offset
+    }
+
+    fn get_line_metrics(
+        &self,
+        text: &str,
+        _font_size: f32,
+        _available_width: Option<f32>,
+    ) -> Vec<LineMetric> {
+        vec![LineMetric {
+            start_index: 0,
+            end_index: text.len(),
+            baseline: 16.0,
+            height: 20.0,
+            width: text.graphemes(true).count() as f32,
+        }]
+    }
+
+    fn get_caret_position(
+        &self,
+        text: &str,
+        _font_size: f32,
+        _available_width: Option<f32>,
+        caret_index: usize,
+    ) -> (f32, f32) {
+        let mut x = 0.0;
+        for (idx, _) in text.grapheme_indices(true) {
+            if idx >= caret_index {
+                break;
+            }
+            x += 1.0;
+        }
+        (x, 0.0)
+    }
+}
+
 fn setup_ctx<'a>(
     ir: &'a CoreIR,
     layout: &'a LayoutSnapshot,
@@ -318,17 +379,17 @@ fn create_text_node(id: NodeId, val: &str, multiline: bool) -> CoreIR {
                 hero_tag: None,
                 focus_index: None,
                 text_input_type: fission_ir::semantics::TextInputType::Text,
-                            text_input_action: fission_ir::semantics::TextInputAction::Done,
-                            text_capitalization: fission_ir::semantics::TextCapitalization::None,
-                            max_length: None,
-                            max_length_enforcement: fission_ir::semantics::MaxLengthEnforcement::Enforced,
-                            input_formatters: Vec::new(),
-                            autocorrect: true,
-                            enable_suggestions: true,
-                        spell_check: true,
-                        smart_dashes: true,
-                        smart_quotes: true,
-                        autofill_hints: Vec::new(),
+                text_input_action: fission_ir::semantics::TextInputAction::Done,
+                text_capitalization: fission_ir::semantics::TextCapitalization::None,
+                max_length: None,
+                max_length_enforcement: fission_ir::semantics::MaxLengthEnforcement::Enforced,
+                input_formatters: Vec::new(),
+                autocorrect: true,
+                enable_suggestions: true,
+                spell_check: true,
+                smart_dashes: true,
+                smart_quotes: true,
+                autofill_hints: Vec::new(),
                 scroll_padding: None,
                 capture_tab: false,
                 auto_indent: false,
@@ -461,17 +522,17 @@ fn create_rich_text_input_tree(
                 hero_tag: None,
                 focus_index: None,
                 text_input_type: fission_ir::semantics::TextInputType::Text,
-                            text_input_action: fission_ir::semantics::TextInputAction::Done,
-                            text_capitalization: fission_ir::semantics::TextCapitalization::None,
-                            max_length: None,
-                            max_length_enforcement: fission_ir::semantics::MaxLengthEnforcement::Enforced,
-                            input_formatters: Vec::new(),
-                            autocorrect: true,
-                            enable_suggestions: true,
-                        spell_check: true,
-                        smart_dashes: true,
-                        smart_quotes: true,
-                        autofill_hints: Vec::new(),
+                text_input_action: fission_ir::semantics::TextInputAction::Done,
+                text_capitalization: fission_ir::semantics::TextCapitalization::None,
+                max_length: None,
+                max_length_enforcement: fission_ir::semantics::MaxLengthEnforcement::Enforced,
+                input_formatters: Vec::new(),
+                autocorrect: true,
+                enable_suggestions: true,
+                spell_check: true,
+                smart_dashes: true,
+                smart_quotes: true,
+                autofill_hints: Vec::new(),
                 scroll_padding: None,
                 capture_tab: false,
                 auto_indent: false,
@@ -546,6 +607,14 @@ fn create_rich_text_input_tree(
 
     ir.root = Some(input_id);
     ir
+}
+
+fn attach_text_input_runtime_config(
+    ir: &mut CoreIR,
+    input_id: NodeId,
+    config: TextInputRuntimeConfig,
+) {
+    ir.custom_render_objects.insert(input_id, Arc::new(config));
 }
 
 fn attach_focusable_overlay_node(
@@ -1261,7 +1330,8 @@ fn test_apple_meta_delete_shortcuts_trim_current_line() {
             modifiers: MOD_SUPER,
         });
         assert!(controller.handle_event(&mut ctx, &event));
-        let new_text: String = serde_json::from_slice(&ctx.dispatched_actions[0].1.payload).unwrap();
+        let new_text: String =
+            serde_json::from_slice(&ctx.dispatched_actions[0].1.payload).unwrap();
         assert_eq!(new_text, " world");
         let st = ctx.text_edit.get(node_id).unwrap();
         assert_eq!(st.caret, 0);
@@ -1285,7 +1355,8 @@ fn test_apple_meta_delete_shortcuts_trim_current_line() {
             modifiers: MOD_SUPER,
         });
         assert!(controller.handle_event(&mut ctx, &event));
-        let new_text: String = serde_json::from_slice(&ctx.dispatched_actions[0].1.payload).unwrap();
+        let new_text: String =
+            serde_json::from_slice(&ctx.dispatched_actions[0].1.payload).unwrap();
         assert_eq!(new_text, "hello ");
         let st = ctx.text_edit.get(node_id).unwrap();
         assert_eq!(st.caret, 6);
@@ -1558,8 +1629,14 @@ fn test_single_line_enter_dispatches_editing_complete_before_submit() {
     assert!(controller.handle_event(&mut ctx, &event));
 
     assert_eq!(ctx.dispatched_actions.len(), 2);
-    assert_eq!(ctx.dispatched_actions[0].1.id, fission_core::ActionId::from_u128(3));
-    assert_eq!(ctx.dispatched_actions[1].1.id, fission_core::ActionId::from_u128(2));
+    assert_eq!(
+        ctx.dispatched_actions[0].1.id,
+        fission_core::ActionId::from_u128(3)
+    );
+    assert_eq!(
+        ctx.dispatched_actions[1].1.id,
+        fission_core::ActionId::from_u128(2)
+    );
 }
 
 #[test]
@@ -1632,7 +1709,10 @@ fn test_max_length_enforced_on_typing() {
     });
     assert!(controller.handle_event(&mut ctx, &event));
     assert!(ctx.dispatched_actions.is_empty());
-    assert_eq!(ctx.text_edit.get(node_id).unwrap().buffer.to_string(), "abcd");
+    assert_eq!(
+        ctx.text_edit.get(node_id).unwrap().buffer.to_string(),
+        "abcd"
+    );
 }
 
 #[test]
@@ -1852,6 +1932,186 @@ fn test_single_line_auto_scroll_respects_scroll_padding() {
 }
 
 #[test]
+fn test_drag_start_behavior_down_skips_pointer_slop() {
+    let input_id = NodeId::derived(211, &[0]);
+    let scroll_id = NodeId::derived(211, &[1]);
+    let text_id = NodeId::derived(211, &[2]);
+    let value = "abcdef";
+    let mut ir = create_rich_text_input_tree(input_id, scroll_id, text_id, value, false);
+    attach_text_input_runtime_config(
+        &mut ir,
+        input_id,
+        TextInputRuntimeConfig {
+            drag_start_behavior: DragStartBehavior::Down,
+            undo_controller: None,
+            restoration_id: None,
+            spell_check_configuration: None,
+        },
+    );
+
+    let mut layout = LayoutSnapshot::new(LayoutSize::new(800.0, 600.0));
+    layout.nodes.insert(
+        scroll_id,
+        LayoutNodeGeometry {
+            rect: LayoutRect::new(200.0, 40.0, 120.0, 24.0),
+            content_size: LayoutSize::new(120.0, 24.0),
+        },
+    );
+    layout.nodes.insert(
+        input_id,
+        LayoutNodeGeometry {
+            rect: LayoutRect::new(180.0, 30.0, 180.0, 44.0),
+            content_size: LayoutSize::new(180.0, 44.0),
+        },
+    );
+
+    let mut text_edit = TextEditStateMap::default();
+    let mut interaction = InteractionStateMap::default();
+    let mut scroll = ScrollStateMap::default();
+    let mut gesture = fission_core::env::GestureState::default();
+    let clipboard: Arc<dyn Clipboard> = Arc::new(MockClipboard::new());
+    let measurer: Arc<dyn TextMeasurer> = Arc::new(FineTextMeasurer);
+
+    interaction.set_focused(Some(input_id));
+    text_edit.set_caret(input_id, 0, Some(0));
+
+    let mut controller = TextInputController;
+    let mut ctx = setup_ctx(
+        &ir,
+        &layout,
+        &mut text_edit,
+        &mut interaction,
+        &mut scroll,
+        &mut gesture,
+        &clipboard,
+        Some(&measurer),
+    );
+
+    let down = InputEvent::Pointer(PointerEvent::Down {
+        point: LayoutPoint::new(200.0, 44.0),
+        button: PointerButton::Primary,
+        modifiers: 0,
+    });
+    assert!(controller.handle_event(&mut ctx, &down));
+    ctx.interaction.pressed.insert(input_id, true);
+    ctx.interaction.last_down_point = Some(LayoutPoint::new(200.0, 44.0));
+
+    let drag = InputEvent::Pointer(PointerEvent::Move {
+        point: LayoutPoint::new(201.0, 44.0),
+        modifiers: 0,
+    });
+    assert!(controller.handle_event(&mut ctx, &drag));
+
+    let state = ctx.text_edit.get(input_id).expect("text state");
+    assert_eq!(state.caret, 1);
+}
+
+#[test]
+fn test_restoration_id_restores_local_edit_state() {
+    let first_id = NodeId::derived(212, &[0]);
+    let second_id = NodeId::derived(212, &[1]);
+    let mut text_edit = TextEditStateMap::default();
+
+    text_edit.sync_from_runtime(first_id, "", Some("search-box"), Some(8));
+    let first_state = text_edit.get_mut_or_default(first_id);
+    let restored = first_state.apply_edit(0..0, "restored", 8, 8);
+    assert_eq!(restored, "restored");
+    text_edit.persist_restoration(first_id, Some("search-box"));
+
+    text_edit.sync_from_runtime(second_id, "", Some("search-box"), Some(8));
+    let second_state = text_edit.get(second_id).expect("restored state");
+    assert_eq!(second_state.committed_text(), "restored");
+    assert_eq!(second_state.caret, 8);
+    assert_eq!(second_state.anchor, 8);
+}
+
+#[test]
+fn test_undo_controller_capacity_limits_history_depth() {
+    let input_id = NodeId::derived(213, &[0]);
+    let scroll_id = NodeId::derived(213, &[1]);
+    let text_id = NodeId::derived(213, &[2]);
+    let mut ir = create_rich_text_input_tree(input_id, scroll_id, text_id, "", false);
+    attach_text_input_runtime_config(
+        &mut ir,
+        input_id,
+        TextInputRuntimeConfig {
+            drag_start_behavior: DragStartBehavior::Start,
+            undo_controller: Some(TextUndoController { capacity: 1 }),
+            restoration_id: None,
+            spell_check_configuration: None,
+        },
+    );
+
+    let mut layout = LayoutSnapshot::new(LayoutSize::new(800.0, 600.0));
+    layout.nodes.insert(
+        scroll_id,
+        LayoutNodeGeometry {
+            rect: LayoutRect::new(200.0, 40.0, 120.0, 24.0),
+            content_size: LayoutSize::new(120.0, 24.0),
+        },
+    );
+
+    let mut text_edit = TextEditStateMap::default();
+    let mut interaction = InteractionStateMap::default();
+    let mut scroll = ScrollStateMap::default();
+    let mut gesture = fission_core::env::GestureState::default();
+    let clipboard: Arc<dyn Clipboard> = Arc::new(MockClipboard::new());
+    let measurer: Arc<dyn TextMeasurer> = Arc::new(MockTextMeasurer);
+
+    interaction.set_focused(Some(input_id));
+    text_edit.set_caret(input_id, 0, Some(0));
+
+    let mut controller = TextInputController;
+    let mut ctx = setup_ctx(
+        &ir,
+        &layout,
+        &mut text_edit,
+        &mut interaction,
+        &mut scroll,
+        &mut gesture,
+        &clipboard,
+        Some(&measurer),
+    );
+
+    for ch in ['a', 'b', 'c'] {
+        let event = InputEvent::Keyboard(KeyEvent::Down {
+            key_code: KeyCode::Char(ch),
+            modifiers: 0,
+        });
+        assert!(controller.handle_event(&mut ctx, &event));
+    }
+    assert_eq!(
+        ctx.text_edit
+            .get(input_id)
+            .expect("text state")
+            .committed_text(),
+        "abc"
+    );
+
+    let undo = InputEvent::Keyboard(KeyEvent::Down {
+        key_code: KeyCode::Char('z'),
+        modifiers: MOD_SUPER,
+    });
+    assert!(controller.handle_event(&mut ctx, &undo));
+    assert_eq!(
+        ctx.text_edit
+            .get(input_id)
+            .expect("text state")
+            .committed_text(),
+        "ab"
+    );
+
+    assert!(controller.handle_event(&mut ctx, &undo));
+    assert_eq!(
+        ctx.text_edit
+            .get(input_id)
+            .expect("text state")
+            .committed_text(),
+        "ab"
+    );
+}
+
+#[test]
 fn test_pointer_hit_test_handles_draw_rich_text_single_line() {
     let input_id = NodeId::derived(11, &[0]);
     let scroll_id = NodeId::derived(11, &[1]);
@@ -1961,7 +2221,10 @@ fn test_shift_click_extends_selection_from_existing_anchor() {
 
     let state = ctx.text_edit.get(input_id).unwrap();
     assert_eq!(state.anchor, 2);
-    assert!(state.caret >= 7, "shift-click should extend selection to the clicked caret");
+    assert!(
+        state.caret >= 7,
+        "shift-click should extend selection to the clicked caret"
+    );
 }
 
 #[test]
@@ -2018,7 +2281,10 @@ fn test_secondary_click_shows_text_toolbar_affordance() {
 
     let affordances = &ctx.text_edit.get(input_id).expect("text state").affordances;
     assert!(affordances.toolbar_visible);
-    assert_eq!(affordances.toolbar_anchor, Some(LayoutPoint::new(48.0, 10.0)));
+    assert_eq!(
+        affordances.toolbar_anchor,
+        Some(LayoutPoint::new(48.0, 10.0))
+    );
     assert!(!affordances.magnifier_visible);
 }
 
@@ -2248,7 +2514,10 @@ fn test_selection_handle_drag_updates_selection_and_toolbar_lifecycle() {
     assert_eq!(state.anchor, 1);
     assert_eq!(state.caret, 8);
     assert!(state.affordances.magnifier_visible);
-    assert_eq!(state.affordances.magnifier_anchor, state.affordances.selection_start_handle);
+    assert_eq!(
+        state.affordances.magnifier_anchor,
+        state.affordances.selection_start_handle
+    );
 
     let up = InputEvent::Pointer(PointerEvent::Up {
         point: LayoutPoint::new(212.0, 50.0),
@@ -2316,7 +2585,10 @@ fn test_masked_pointer_hit_testing_maps_back_to_source_offsets() {
     assert!(controller.handle_event(&mut ctx, &event));
 
     let caret = ctx.text_edit.get(input_id).map(|s| s.caret).unwrap_or(0);
-    assert_eq!(caret, 3, "masked hit testing should map back to the second grapheme boundary");
+    assert_eq!(
+        caret, 3,
+        "masked hit testing should map back to the second grapheme boundary"
+    );
 }
 
 #[test]

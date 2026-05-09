@@ -860,6 +860,8 @@ pub struct RichTextAnnotation {
     #[serde(default)]
     pub semantics_identifier: Option<String>,
     #[serde(default)]
+    pub spell_out: Option<bool>,
+    #[serde(default)]
     pub mouse_cursor: Option<MouseCursor>,
     #[serde(default)]
     pub actions: Vec<ActionEntry>,
