@@ -81,6 +81,124 @@ pub struct CompositeStyle {
 
 pub type LayoutUnit = f32;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Hash, Default)]
+pub enum TextAlign {
+    Left,
+    Right,
+    Center,
+    Justify,
+    #[default]
+    Start,
+    End,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Hash, Default)]
+pub enum TextOverflow {
+    Clip,
+    Ellipsis,
+    Fade,
+    #[default]
+    Visible,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Hash, Default)]
+pub struct TextParagraphStyle {
+    pub text_align: TextAlign,
+    pub max_lines: Option<usize>,
+    pub overflow: TextOverflow,
+}
+
+const TEXT_PARAGRAPH_ALIGN_BITS: u32 = 0b111;
+const TEXT_PARAGRAPH_OVERFLOW_BITS: u32 = 0b111 << 3;
+const TEXT_PARAGRAPH_MAX_LINES_SHIFT: u32 = 6;
+const TEXT_PARAGRAPH_SENTINEL: u32 = 1;
+const TEXT_PARAGRAPH_MAX_ENCODED_LINES: usize = ((1 << 24) - 1) >> TEXT_PARAGRAPH_MAX_LINES_SHIFT;
+
+const fn text_align_code(align: TextAlign) -> u32 {
+    match align {
+        TextAlign::Start => 0,
+        TextAlign::Left => 1,
+        TextAlign::Center => 2,
+        TextAlign::Right => 3,
+        TextAlign::End => 4,
+        TextAlign::Justify => 5,
+    }
+}
+
+const fn text_overflow_code(overflow: TextOverflow) -> u32 {
+    match overflow {
+        TextOverflow::Visible => 0,
+        TextOverflow::Clip => 1,
+        TextOverflow::Ellipsis => 2,
+        TextOverflow::Fade => 3,
+    }
+}
+
+const fn decode_text_align(code: u32) -> TextAlign {
+    match code {
+        1 => TextAlign::Left,
+        2 => TextAlign::Center,
+        3 => TextAlign::Right,
+        4 => TextAlign::End,
+        5 => TextAlign::Justify,
+        _ => TextAlign::Start,
+    }
+}
+
+const fn decode_text_overflow(code: u32) -> TextOverflow {
+    match code {
+        1 => TextOverflow::Clip,
+        2 => TextOverflow::Ellipsis,
+        3 => TextOverflow::Fade,
+        _ => TextOverflow::Visible,
+    }
+}
+
+pub fn encode_text_paragraph_style(style: TextParagraphStyle) -> Option<LayoutUnit> {
+    if style == TextParagraphStyle::default() {
+        return None;
+    }
+
+    let max_lines = style
+        .max_lines
+        .unwrap_or(0)
+        .min(TEXT_PARAGRAPH_MAX_ENCODED_LINES) as u32;
+    let encoded = TEXT_PARAGRAPH_SENTINEL
+        + text_align_code(style.text_align)
+        + (text_overflow_code(style.overflow) << 3)
+        + (max_lines << TEXT_PARAGRAPH_MAX_LINES_SHIFT);
+
+    Some(-(encoded as LayoutUnit))
+}
+
+pub fn decode_text_paragraph_style(
+    encoded_width: Option<LayoutUnit>,
+) -> Option<TextParagraphStyle> {
+    let encoded_width = encoded_width?;
+    if !encoded_width.is_finite() || encoded_width >= 0.0 {
+        return None;
+    }
+
+    let raw = (-encoded_width).round();
+    if raw < TEXT_PARAGRAPH_SENTINEL as f32 {
+        return None;
+    }
+
+    let bits = raw as u32 - TEXT_PARAGRAPH_SENTINEL;
+    let text_align = decode_text_align(bits & TEXT_PARAGRAPH_ALIGN_BITS);
+    let overflow = decode_text_overflow((bits & TEXT_PARAGRAPH_OVERFLOW_BITS) >> 3);
+    let max_lines = match bits >> TEXT_PARAGRAPH_MAX_LINES_SHIFT {
+        0 => None,
+        lines => Some(lines as usize),
+    };
+
+    Some(TextParagraphStyle {
+        text_align,
+        max_lines,
+        overflow,
+    })
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, Hash)]
 pub enum FlexDirection {
     Row,
@@ -668,12 +786,20 @@ pub enum PaintOp {
         #[serde(default = "text_wrap_default")]
         wrap: bool,
         caret_index: Option<usize>,
+        #[serde(default)]
+        caret_color: Option<Color>,
+        #[serde(default)]
+        caret_width: Option<LayoutUnit>,
     },
     DrawRichText {
         runs: Vec<TextRun>,
         #[serde(default = "text_wrap_default")]
         wrap: bool,
         caret_index: Option<usize>,
+        #[serde(default)]
+        caret_color: Option<Color>,
+        #[serde(default)]
+        caret_width: Option<LayoutUnit>,
     },
     DrawImage {
         source: String,
@@ -713,6 +839,8 @@ impl std::hash::Hash for PaintOp {
                 underline,
                 wrap,
                 caret_index,
+                caret_color,
+                caret_width,
             } => {
                 1.hash(state);
                 text.hash(state);
@@ -721,16 +849,22 @@ impl std::hash::Hash for PaintOp {
                 underline.hash(state);
                 wrap.hash(state);
                 caret_index.hash(state);
+                caret_color.hash(state);
+                caret_width.map(|w| w.to_bits()).hash(state);
             }
             Self::DrawRichText {
                 runs,
                 wrap,
                 caret_index,
+                caret_color,
+                caret_width,
             } => {
                 2.hash(state);
                 runs.hash(state);
                 wrap.hash(state);
                 caret_index.hash(state);
+                caret_color.hash(state);
+                caret_width.map(|w| w.to_bits()).hash(state);
             }
             Self::DrawImage { source, fit } => {
                 3.hash(state);
@@ -754,5 +888,43 @@ impl std::hash::Hash for PaintOp {
                 stroke.hash(state);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        decode_text_paragraph_style, encode_text_paragraph_style, TextAlign, TextOverflow,
+        TextParagraphStyle, TEXT_PARAGRAPH_MAX_ENCODED_LINES,
+    };
+
+    #[test]
+    fn paragraph_style_round_trips_alignment_overflow_and_line_cap() {
+        let style = TextParagraphStyle {
+            text_align: TextAlign::Justify,
+            max_lines: Some(3),
+            overflow: TextOverflow::Fade,
+        };
+
+        let encoded = encode_text_paragraph_style(style);
+        assert_eq!(decode_text_paragraph_style(encoded), Some(style));
+    }
+
+    #[test]
+    fn paragraph_style_clamps_line_count_to_precise_encoding_budget() {
+        let encoded = encode_text_paragraph_style(TextParagraphStyle {
+            text_align: TextAlign::End,
+            max_lines: Some(TEXT_PARAGRAPH_MAX_ENCODED_LINES + 99),
+            overflow: TextOverflow::Ellipsis,
+        });
+
+        assert_eq!(
+            decode_text_paragraph_style(encoded),
+            Some(TextParagraphStyle {
+                text_align: TextAlign::End,
+                max_lines: Some(TEXT_PARAGRAPH_MAX_ENCODED_LINES),
+                overflow: TextOverflow::Ellipsis,
+            })
+        );
     }
 }

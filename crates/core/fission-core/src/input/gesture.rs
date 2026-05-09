@@ -11,7 +11,7 @@ impl InputController for GestureController {
         match event {
             InputEvent::Pointer(pe) => {
                 match pe {
-                    PointerEvent::Down { point, button } => {
+                    PointerEvent::Down { point, button, .. } => {
                         ctx.gesture.start_point = Some(*point);
                         ctx.gesture.last_point = Some(*point);
                         ctx.gesture.is_panning = false;
@@ -27,7 +27,7 @@ impl InputController for GestureController {
                             ctx.gesture.dragging_payload = None;
                         }
                     }
-                    PointerEvent::Move { point } => {
+                    PointerEvent::Move { point, .. } => {
                         if let Some(start) = ctx.gesture.start_point {
                             let dx = point.x - start.x;
                             let dy = point.y - start.y;

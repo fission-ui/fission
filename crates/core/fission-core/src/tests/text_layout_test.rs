@@ -63,6 +63,8 @@ fn test_text_wrapping_in_constrained_flex() {
             underline: false,
             wrap: true,
             caret_index: None,
+            caret_color: None,
+            caret_width: None,
         }),
     );
     let text_final = text_builder.build(&mut cx);

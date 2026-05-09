@@ -123,6 +123,8 @@ impl Lower for GestureDetector {
             ime_preedit_range: None,
             checked: None,
             disabled: false,
+            read_only: false,
+            autofocus: false,
             draggable: self.on_drag_start.is_some()
                 || self.on_drag_update.is_some()
                 || self.drag_payload.is_some(),
@@ -136,6 +138,18 @@ impl Lower for GestureDetector {
             drag_payload: self.drag_payload.clone(),
             hero_tag: None,
             focus_index: None,
+            text_input_type: fission_ir::semantics::TextInputType::Text,
+                        text_input_action: fission_ir::semantics::TextInputAction::Done,
+                        text_capitalization: fission_ir::semantics::TextCapitalization::None,
+                        max_length: None,
+                        max_length_enforcement: fission_ir::semantics::MaxLengthEnforcement::Enforced,
+                        input_formatters: Vec::new(),
+                        autocorrect: true,
+                        enable_suggestions: true,
+                        spell_check: true,
+                        smart_dashes: true,
+                        smart_quotes: true,
+                        autofill_hints: Vec::new(),
             capture_tab: false,
             auto_indent: false,
         };

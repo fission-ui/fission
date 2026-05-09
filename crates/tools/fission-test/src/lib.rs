@@ -687,6 +687,8 @@ fn generate_display_list_with_visited(
                     underline,
                     wrap,
                     caret_index,
+                    caret_color,
+                    caret_width,
                 }) => {
                     list.push(DisplayOp::DrawText {
                         text: text.clone(),
@@ -703,12 +705,21 @@ fn generate_display_list_with_visited(
                         underline: *underline,
                         wrap: *wrap,
                         caret_index: *caret_index,
+                        caret_color: caret_color.map(|color| fission_render::Color {
+                            r: color.r,
+                            g: color.g,
+                            b: color.b,
+                            a: color.a,
+                        }),
+                        caret_width: *caret_width,
                     });
                 }
                 fission_ir::Op::Paint(fission_ir::PaintOp::DrawRichText {
                     runs,
                     wrap,
                     caret_index,
+                    caret_color,
+                    caret_width,
                 }) => {
                     list.push(DisplayOp::DrawRichText {
                         runs: runs
@@ -745,6 +756,13 @@ fn generate_display_list_with_visited(
                         node_id: Some(node_id),
                         wrap: *wrap,
                         caret_index: *caret_index,
+                        caret_color: caret_color.map(|color| fission_render::Color {
+                            r: color.r,
+                            g: color.g,
+                            b: color.b,
+                            a: color.a,
+                        }),
+                        caret_width: *caret_width,
                     });
                 }
                 fission_ir::Op::Paint(fission_ir::PaintOp::DrawSvg {

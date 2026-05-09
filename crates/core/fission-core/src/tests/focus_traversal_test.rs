@@ -3,8 +3,10 @@ use crate::hit_test::find_next_focus_node;
 use crate::lowering::LoweringContext;
 use crate::ui::traits::Lower;
 use crate::ui::Node;
+use crate::{InputEvent, KeyCode, KeyEvent, Runtime};
 use fission_core::Op;
 use fission_ir::{semantics::Role, Semantics};
+use fission_layout::{LayoutSize, LayoutSnapshot};
 
 #[test]
 fn test_explicit_focus_order() {
@@ -33,6 +35,18 @@ fn test_explicit_focus_order() {
                 role: Role::Button,
                 focusable: true,
                 focus_index: Some(self.index),
+                text_input_type: fission_ir::semantics::TextInputType::Text,
+                            text_input_action: fission_ir::semantics::TextInputAction::Done,
+                            text_capitalization: fission_ir::semantics::TextCapitalization::None,
+                            max_length: None,
+                            max_length_enforcement: fission_ir::semantics::MaxLengthEnforcement::Enforced,
+                            input_formatters: Vec::new(),
+                            autocorrect: true,
+                            enable_suggestions: true,
+                        spell_check: true,
+                        smart_dashes: true,
+                        smart_quotes: true,
+                        autofill_hints: Vec::new(),
                 capture_tab: false,
                 auto_indent: false,
                 ..Default::default()
@@ -99,4 +113,65 @@ fn test_explicit_focus_order() {
         Some(b_index1_id),
         "Tab from B(3) should cycle to B(1)"
     );
+}
+
+#[test]
+fn test_autofocus_assigns_initial_focus() {
+    let env = Env::default();
+    let runtime_state = RuntimeState::default();
+
+    #[derive(Debug)]
+    struct AutofocusTextInput;
+
+    impl fission_core::LowerDyn for AutofocusTextInput {
+        fn lower_dyn(&self, cx: &mut fission_core::LoweringContext) -> fission_ir::NodeId {
+            let id = cx.next_node_id();
+            let semantics = Semantics {
+                role: Role::TextInput,
+                focusable: true,
+                autofocus: true,
+                ..Default::default()
+            };
+            fission_core::NodeBuilder::new(id, Op::Semantics(semantics)).build(cx)
+        }
+
+        fn stable_key(&self) -> u64 {
+            0
+        }
+    }
+
+    let root = Node::Custom(fission_core::ui::CustomNode {
+        debug_tag: "AutofocusTextInput".into(),
+        lowerer: Some(std::sync::Arc::new(AutofocusTextInput)),
+        render_object: None,
+    });
+
+    let mut cx = LoweringContext::new(&env, &runtime_state, None, None);
+    let root_id = root.lower(&mut cx);
+    cx.ir.root = Some(root_id);
+    let layout = LayoutSnapshot::new(LayoutSize::new(100.0, 50.0));
+
+    let text_input_id = cx
+        .ir
+        .nodes
+        .iter()
+        .find_map(|(id, node)| match &node.op {
+            Op::Semantics(semantics) if semantics.autofocus => Some(*id),
+            _ => None,
+        })
+        .expect("autofocus node");
+
+    let mut runtime = Runtime::default();
+    runtime
+        .handle_input(
+            InputEvent::Keyboard(KeyEvent::Down {
+                key_code: KeyCode::Right,
+                modifiers: 0,
+            }),
+            &cx.ir,
+            &layout,
+        )
+        .unwrap();
+
+    assert_eq!(runtime.runtime_state.interaction.focused, Some(text_input_id));
 }

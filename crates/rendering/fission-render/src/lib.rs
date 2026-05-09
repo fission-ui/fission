@@ -122,6 +122,8 @@ pub enum DisplayOp {
         underline: bool,
         wrap: bool,
         caret_index: Option<usize>,
+        caret_color: Option<Color>,
+        caret_width: Option<LayoutUnit>,
     },
     DrawRichText {
         runs: Vec<TextRun>,
@@ -130,6 +132,8 @@ pub enum DisplayOp {
         node_id: Option<NodeId>,
         wrap: bool,
         caret_index: Option<usize>,
+        caret_color: Option<Color>,
+        caret_width: Option<LayoutUnit>,
     },
     DrawImage {
         rect: LayoutRect,

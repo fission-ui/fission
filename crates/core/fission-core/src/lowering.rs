@@ -381,6 +381,8 @@ pub fn build_layout_tree(ir: &CoreIR, env: &Env) -> Vec<LayoutInputNode> {
                 underline,
                 wrap: _,
                 caret_index: _,
+                caret_color: _,
+                caret_width: _,
             }) => {
                 let (
                     inherit_width,
@@ -435,6 +437,8 @@ pub fn build_layout_tree(ir: &CoreIR, env: &Env) -> Vec<LayoutInputNode> {
                 runs,
                 wrap: _,
                 caret_index: _,
+                caret_color: _,
+                caret_width: _,
             }) => {
                 let (
                     inherit_width,

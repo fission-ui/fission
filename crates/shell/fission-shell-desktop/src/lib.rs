@@ -852,6 +852,7 @@ fn map_test_button(button: u8) -> PointerButton {
 fn handle_cursor_moved(
     x: f32,
     y: f32,
+    modifiers: u8,
     runtime: &mut Runtime,
     pipeline: &Pipeline,
     effect_result_tx: &mpsc::Sender<EffectResult>,
@@ -867,7 +868,7 @@ fn handle_cursor_moved(
 ) {
     if let (Some(ir), Some(layout)) = (&pipeline.prev_ir, &pipeline.last_snapshot) {
         let point = LayoutPoint { x, y };
-        let event = InputEvent::Pointer(PointerEvent::Move { point });
+        let event = InputEvent::Pointer(PointerEvent::Move { point, modifiers });
         if let Err(e) = runtime.handle_input(event, ir, layout) {
             eprintln!("Input handling error: {:?}", e);
         }
@@ -903,6 +904,7 @@ fn handle_mouse_button(
     y: f32,
     button: PointerButton,
     is_pressed: bool,
+    modifiers: u8,
     runtime: &mut Runtime,
     pipeline: &Pipeline,
     effect_result_tx: &mpsc::Sender<EffectResult>,
@@ -924,9 +926,17 @@ fn handle_mouse_button(
     if let (Some(ir), Some(layout)) = (&pipeline.prev_ir, &pipeline.last_snapshot) {
         let point = LayoutPoint { x, y };
         let pointer_event = if is_pressed {
-            PointerEvent::Down { point, button }
+            PointerEvent::Down {
+                point,
+                button,
+                modifiers,
+            }
         } else {
-            PointerEvent::Up { point, button }
+            PointerEvent::Up {
+                point,
+                button,
+                modifiers,
+            }
         };
         let input_event = InputEvent::Pointer(pointer_event);
 
@@ -997,6 +1007,7 @@ fn handle_scroll(
     point_y: f32,
     delta_x: f32,
     delta_y: f32,
+    modifiers: u8,
     runtime: &mut Runtime,
     pipeline: &Pipeline,
     effect_result_tx: &mpsc::Sender<EffectResult>,
@@ -1022,6 +1033,7 @@ fn handle_scroll(
         let event = InputEvent::Pointer(PointerEvent::Scroll {
             point,
             delta: scroll_delta,
+            modifiers,
         });
         if let Err(e) = runtime.handle_input(event, ir, layout) {
             eprintln!("Scroll error: {:?}", e);
@@ -1061,12 +1073,15 @@ fn parse_key_code(key: &str) -> KeyCode {
         "Escape" => KeyCode::Escape,
         "Tab" => KeyCode::Tab,
         "Backspace" => KeyCode::Backspace,
+        "Delete" => KeyCode::Delete,
         "Left" => KeyCode::Left,
         "Right" => KeyCode::Right,
         "Up" => KeyCode::Up,
         "Down" => KeyCode::Down,
         "Home" => KeyCode::Home,
         "End" => KeyCode::End,
+        "PageUp" => KeyCode::PageUp,
+        "PageDown" => KeyCode::PageDown,
         "Space" => KeyCode::Space,
         s if s.len() == 1 => KeyCode::Char(s.chars().next().unwrap()),
         _ => KeyCode::Space,
@@ -1296,6 +1311,7 @@ fn handle_tap_text(
                 InputEvent::Pointer(PointerEvent::Down {
                     point,
                     button: PointerButton::Primary,
+                    modifiers: 0,
                 }),
                 ir,
                 snap,
@@ -1304,6 +1320,7 @@ fn handle_tap_text(
                 InputEvent::Pointer(PointerEvent::Up {
                     point,
                     button: PointerButton::Primary,
+                    modifiers: 0,
                 }),
                 ir,
                 snap,
@@ -1750,7 +1767,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                     (y as f64) * scale_factor,
                                 ));
                                 handle_cursor_moved(
-                                    x, y,
+                                    x, y, 0,
                                     &mut runtime, &pipeline,
                                     &effect_result_tx, &event_proxy, app_effect_handler.as_ref(),
                                     &window, elwt,
@@ -1762,7 +1779,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                             TestEvent::MouseDown { x, y, button } => {
                                 let btn = map_test_button(button);
                                 handle_mouse_button(
-                                    x, y, btn, true,
+                                    x, y, btn, true, 0,
                                     &mut runtime, &pipeline,
                                     &effect_result_tx, &event_proxy, app_effect_handler.as_ref(),
                                     &window, elwt,
@@ -1777,7 +1794,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                             TestEvent::MouseUp { x, y, button } => {
                                 let btn = map_test_button(button);
                                 handle_mouse_button(
-                                    x, y, btn, false,
+                                    x, y, btn, false, 0,
                                     &mut runtime, &pipeline,
                                     &effect_result_tx, &event_proxy, app_effect_handler.as_ref(),
                                     &window, elwt,
@@ -1916,7 +1933,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                             }
                             TestEvent::Scroll { x, y, dx, dy } => {
                                 handle_scroll(
-                                    x, y, dx, dy,
+                                    x, y, dx, dy, 0,
                                     &mut runtime, &pipeline,
                                     &effect_result_tx, &event_proxy, app_effect_handler.as_ref(),
                                     &window, elwt,
@@ -2901,7 +2918,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                 let x = (position.x / scale_factor) as f32;
                                 let y = (position.y / scale_factor) as f32;
                                 handle_cursor_moved(
-                                    x, y,
+                                    x, y, current_mods,
                                     &mut runtime, &pipeline,
                                     &effect_result_tx, &event_proxy, app_effect_handler.as_ref(),
                                     &window, elwt,
@@ -2918,7 +2935,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                     if let Some(btn) = map_mouse_button(button) {
                                         let is_pressed = state.is_pressed();
                                         handle_mouse_button(
-                                            x, y, btn, is_pressed,
+                                            x, y, btn, is_pressed, current_mods,
                                             &mut runtime, &pipeline,
                                             &effect_result_tx, &event_proxy, app_effect_handler.as_ref(),
                                             &window, elwt,
@@ -2953,7 +2970,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                         );
                                     }
                                     handle_scroll(
-                                        point_x, point_y, dx, dy,
+                                        point_x, point_y, dx, dy, current_mods,
                                         &mut runtime, &pipeline,
                                         &effect_result_tx, &event_proxy, app_effect_handler.as_ref(),
                                         &window, elwt,
@@ -2978,6 +2995,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                         Key::Named(NamedKey::Enter) => Some(KeyCode::Enter),
                                         Key::Named(NamedKey::Escape) => Some(KeyCode::Escape),
                                         Key::Named(NamedKey::Backspace) => Some(KeyCode::Backspace),
+                                        Key::Named(NamedKey::Delete) => Some(KeyCode::Delete),
                                         Key::Named(NamedKey::Tab) => Some(KeyCode::Tab),
                                         Key::Named(NamedKey::ArrowLeft) => Some(KeyCode::Left),
                                         Key::Named(NamedKey::ArrowRight) => Some(KeyCode::Right),
@@ -2985,6 +3003,8 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                         Key::Named(NamedKey::ArrowDown) => Some(KeyCode::Down),
                                         Key::Named(NamedKey::Home) => Some(KeyCode::Home),
                                         Key::Named(NamedKey::End) => Some(KeyCode::End),
+                                        Key::Named(NamedKey::PageUp) => Some(KeyCode::PageUp),
+                                        Key::Named(NamedKey::PageDown) => Some(KeyCode::PageDown),
                                         _ => {
                                             if let Some(text) = &event.text {
                                                 text.chars().next().map(KeyCode::Char)

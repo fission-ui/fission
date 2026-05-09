@@ -3,6 +3,9 @@ use crate::ui::{traits::Lower, Node, TextContent, TextFontStyle};
 use crate::ActionEnvelope;
 use fission_ir::{
     op::{Color as IrColor, Fill, LayoutOp, Op, PaintOp, Stroke},
+    semantics::{
+        InputFormatter, MaxLengthEnforcement, TextCapitalization, TextInputAction, TextInputType,
+    },
     FlexDirection, FlexWrap, NodeId, Role, Semantics,
 };
 use serde::{Deserialize, Serialize};
@@ -54,6 +57,11 @@ pub struct TextInput {
     pub placeholder: Option<TextContent>,
     /// Action dispatched when the text changes.
     pub on_change: Option<ActionEnvelope>,
+    /// Action dispatched when the user submits the field (for example by pressing Enter
+    /// on a single-line input).
+    pub on_submit: Option<ActionEnvelope>,
+    /// Action dispatched when editing is explicitly completed.
+    pub on_editing_complete: Option<ActionEnvelope>,
     /// Fixed width in layout points.
     pub width: Option<f32>,
     /// Fixed height in layout points.
@@ -62,6 +70,12 @@ pub struct TextInput {
     pub padding: Option<[f32; 4]>,
     /// When `true`, the input accepts newlines and scrolls vertically.
     pub multiline: bool,
+    /// When `true`, the input requests focus automatically when mounted.
+    pub autofocus: bool,
+    /// When `false`, the field is non-interactive and does not receive focus.
+    pub enabled: bool,
+    /// When `true`, the field can be focused and selected but not edited.
+    pub read_only: bool,
     /// Minimum number of visible lines (multiline only).
     pub min_lines: Option<usize>,
     /// Maximum number of visible lines (multiline only).
@@ -112,6 +126,12 @@ pub struct TextInput {
     pub placeholder_color: Option<IrColor>,
     /// Optional selection highlight color override.
     pub selection_color: Option<IrColor>,
+    /// Optional selected text color override.
+    pub selection_text_color: Option<IrColor>,
+    /// Optional caret color override.
+    pub cursor_color: Option<IrColor>,
+    /// Optional caret width override.
+    pub cursor_width: Option<f32>,
     /// Optional font family override.
     pub font_family: Option<String>,
     /// Optional font weight override.
@@ -126,6 +146,30 @@ pub struct TextInput {
     pub prefix: Option<Box<Node>>,
     /// Optional trailing decoration node.
     pub suffix: Option<Box<Node>>,
+    /// Preferred software keyboard / input modality.
+    pub keyboard_type: TextInputType,
+    /// Preferred return/submit action.
+    pub text_input_action: TextInputAction,
+    /// Automatic capitalization strategy for inserted text.
+    pub text_capitalization: TextCapitalization,
+    /// Maximum number of Unicode scalar values allowed in the field.
+    pub max_length: Option<usize>,
+    /// Whether `max_length` is enforced during editing.
+    pub max_length_enforcement: MaxLengthEnforcement,
+    /// Structured input formatters applied to inserted text.
+    pub input_formatters: Vec<InputFormatter>,
+    /// Hint whether platform autocorrect should be enabled.
+    pub autocorrect: bool,
+    /// Hint whether platform suggestions should be enabled.
+    pub enable_suggestions: bool,
+    /// Hint whether platform spell checking should be enabled.
+    pub spell_check: bool,
+    /// Hint whether smart dashes should be enabled.
+    pub smart_dashes: bool,
+    /// Hint whether smart quotes should be enabled.
+    pub smart_quotes: bool,
+    /// Platform autofill categories associated with this field.
+    pub autofill_hints: Vec<String>,
 }
 
 impl TextInput {
@@ -156,6 +200,96 @@ impl TextInput {
 
     pub fn selection_color(mut self, color: IrColor) -> Self {
         self.selection_color = Some(color);
+        self
+    }
+
+    pub fn selection_text_color(mut self, color: IrColor) -> Self {
+        self.selection_text_color = Some(color);
+        self
+    }
+
+    pub fn cursor_color(mut self, color: IrColor) -> Self {
+        self.cursor_color = Some(color);
+        self
+    }
+
+    pub fn cursor_width(mut self, width: f32) -> Self {
+        self.cursor_width = Some(width);
+        self
+    }
+
+    pub fn enabled(mut self, enabled: bool) -> Self {
+        self.enabled = enabled;
+        self
+    }
+
+    pub fn autofocus(mut self, autofocus: bool) -> Self {
+        self.autofocus = autofocus;
+        self
+    }
+
+    pub fn read_only(mut self, read_only: bool) -> Self {
+        self.read_only = read_only;
+        self
+    }
+
+    pub fn keyboard_type(mut self, keyboard_type: TextInputType) -> Self {
+        self.keyboard_type = keyboard_type;
+        self
+    }
+
+    pub fn text_input_action(mut self, action: TextInputAction) -> Self {
+        self.text_input_action = action;
+        self
+    }
+
+    pub fn text_capitalization(mut self, capitalization: TextCapitalization) -> Self {
+        self.text_capitalization = capitalization;
+        self
+    }
+
+    pub fn max_length(mut self, max_length: usize) -> Self {
+        self.max_length = Some(max_length);
+        self
+    }
+
+    pub fn max_length_enforcement(mut self, enforcement: MaxLengthEnforcement) -> Self {
+        self.max_length_enforcement = enforcement;
+        self
+    }
+
+    pub fn input_formatters(mut self, input_formatters: Vec<InputFormatter>) -> Self {
+        self.input_formatters = input_formatters;
+        self
+    }
+
+    pub fn autocorrect(mut self, autocorrect: bool) -> Self {
+        self.autocorrect = autocorrect;
+        self
+    }
+
+    pub fn enable_suggestions(mut self, enable_suggestions: bool) -> Self {
+        self.enable_suggestions = enable_suggestions;
+        self
+    }
+
+    pub fn spell_check(mut self, spell_check: bool) -> Self {
+        self.spell_check = spell_check;
+        self
+    }
+
+    pub fn smart_dashes(mut self, smart_dashes: bool) -> Self {
+        self.smart_dashes = smart_dashes;
+        self
+    }
+
+    pub fn smart_quotes(mut self, smart_quotes: bool) -> Self {
+        self.smart_quotes = smart_quotes;
+        self
+    }
+
+    pub fn autofill_hints(mut self, autofill_hints: Vec<String>) -> Self {
+        self.autofill_hints = autofill_hints;
         self
     }
 
@@ -215,10 +349,15 @@ impl Default for TextInput {
             value: String::new(),
             placeholder: None,
             on_change: None,
+            on_submit: None,
+            on_editing_complete: None,
             width: None,
             height: None,
             padding: None,
             multiline: false,
+            autofocus: false,
+            enabled: true,
+            read_only: false,
             min_lines: None,
             max_lines: None,
             obscure_text: false,
@@ -240,6 +379,9 @@ impl Default for TextInput {
             text_color: None,
             placeholder_color: None,
             selection_color: None,
+            selection_text_color: None,
+            cursor_color: None,
+            cursor_width: None,
             font_family: None,
             font_weight: None,
             font_style: TextFontStyle::Normal,
@@ -247,7 +389,39 @@ impl Default for TextInput {
             letter_spacing: None,
             prefix: None,
             suffix: None,
+            keyboard_type: TextInputType::Text,
+            text_input_action: TextInputAction::Done,
+            text_capitalization: TextCapitalization::None,
+            max_length: None,
+            max_length_enforcement: MaxLengthEnforcement::Enforced,
+            input_formatters: Vec::new(),
+            autocorrect: true,
+            enable_suggestions: true,
+            spell_check: true,
+            smart_dashes: true,
+            smart_quotes: true,
+            autofill_hints: Vec::new(),
         }
+    }
+}
+
+impl TextInput {
+    fn mask_text(text: &str, obscuring_character: char) -> String {
+        let mut masked = String::new();
+        for _ in text.graphemes(true) {
+            masked.push(obscuring_character);
+        }
+        masked
+    }
+
+    fn masked_byte_offset(source: &str, masked: &str, source_byte_offset: usize) -> usize {
+        let clamped = source_byte_offset.min(source.len());
+        let grapheme_count = source[..clamped].graphemes(true).count();
+        masked
+            .grapheme_indices(true)
+            .nth(grapheme_count)
+            .map(|(idx, _)| idx)
+            .unwrap_or(masked.len())
     }
 }
 
@@ -261,8 +435,13 @@ impl Lower for TextInput {
 
         let font_size = self.font_size.unwrap_or(theme.font_size);
         let text_color = self.text_color.unwrap_or(theme.text_color);
-        let selection_color = self.selection_color.unwrap_or(theme.focus_color);
+        let selection_color = self
+            .selection_color
+            .unwrap_or(tokens.colors.primary.with_alpha(52));
+        let selection_text_color = self.selection_text_color.unwrap_or(text_color);
         let placeholder_color = self.placeholder_color.unwrap_or(theme.placeholder_color);
+        let cursor_color = self.cursor_color.unwrap_or(theme.focus_color);
+        let cursor_width = self.cursor_width.unwrap_or(2.0);
         let font_weight = self.font_weight.unwrap_or(400);
         let line_height = self.line_height;
         let letter_spacing = self.letter_spacing.unwrap_or(0.0);
@@ -346,16 +525,15 @@ impl Lower for TextInput {
         };
 
         let (display_text, preedit_range, caret, anchor) = if self.obscure_text {
-            let obs = self.obscuring_character.to_string();
             let mut combined = self.value.clone();
             if let Some((display, _)) = &session_display {
                 combined = display.clone();
             }
-            let g_count = combined.graphemes(true).count();
-            let masked = obs.repeat(g_count);
-
-            // Caret mapping not implemented for masked yet, defaulting to end
-            (masked, None, 0, 0)
+            let (caret, anchor) = session.map(|st| (st.caret, st.anchor)).unwrap_or((0, 0));
+            let masked = Self::mask_text(&combined, self.obscuring_character);
+            let mapped_caret = Self::masked_byte_offset(&combined, &masked, caret);
+            let mapped_anchor = Self::masked_byte_offset(&combined, &masked, anchor);
+            (masked, None, mapped_caret, mapped_anchor)
         } else {
             match session_display {
                 Some((combined, preedit_range)) => {
@@ -390,10 +568,10 @@ impl Lower for TextInput {
                 runs.push(fission_ir::op::TextRun {
                     text: display_text[s..e].to_string(),
                     style: fission_ir::op::TextStyle {
-                        color: selection_color,
-                        underline: true,
+                        color: selection_text_color,
+                        background_color: Some(selection_color),
                         ..base_text_style.clone()
-                    }, // Visual cue for selection
+                    },
                 });
             }
             if e < display_text.len() {
@@ -489,7 +667,7 @@ impl Lower for TextInput {
 
         if display_text.is_empty() && resolved_placeholder.is_some() {
             runs = vec![fission_ir::op::TextRun {
-                text: resolved_placeholder.unwrap(),
+                text: resolved_placeholder.clone().unwrap(),
                 style: fission_ir::op::TextStyle {
                     color: placeholder_color,
                     ..base_text_style.clone()
@@ -497,7 +675,7 @@ impl Lower for TextInput {
             }];
         }
 
-        let caret_idx = if is_focused && !self.obscure_text {
+        let caret_idx = if is_focused {
             let show = cx
                 .runtime_state
                 .caret_visible
@@ -524,6 +702,8 @@ impl Lower for TextInput {
                 runs,
                 wrap: self.multiline,
                 caret_index: caret_idx,
+                caret_color: Some(cursor_color),
+                caret_width: Some(cursor_width),
             }),
         )
         .build(cx);
@@ -655,16 +835,18 @@ impl Lower for TextInput {
         // 5. Semantics
         let mut semantics = Semantics {
             role: Role::TextInput,
-            label: None,
+            label: resolved_placeholder.clone(),
             value: Some(self.value.clone()),
             actions: Default::default(),
-            focusable: true,
+            focusable: self.enabled,
             multiline: self.multiline,
             masked: self.obscure_text,
             input_mask: self.mask.clone(),
             ime_preedit_range: preedit_range,
             checked: None,
-            disabled: false,
+            disabled: !self.enabled,
+            read_only: self.read_only,
+            autofocus: self.autofocus,
             draggable: false,
             scrollable_x: false,
             scrollable_y: false,
@@ -676,6 +858,22 @@ impl Lower for TextInput {
             drag_payload: None,
             hero_tag: None,
             focus_index: None,
+            text_input_type: if self.multiline {
+                TextInputType::Multiline
+            } else {
+                self.keyboard_type
+            },
+            text_input_action: self.text_input_action,
+            text_capitalization: self.text_capitalization,
+            max_length: self.max_length,
+            max_length_enforcement: self.max_length_enforcement,
+            input_formatters: self.input_formatters.clone(),
+            autocorrect: self.autocorrect,
+            enable_suggestions: self.enable_suggestions,
+            spell_check: self.spell_check,
+            smart_dashes: self.smart_dashes,
+            smart_quotes: self.smart_quotes,
+            autofill_hints: self.autofill_hints.clone(),
             capture_tab: self.capture_tab,
             auto_indent: self.auto_indent,
         };
@@ -691,6 +889,20 @@ impl Lower for TextInput {
                 trigger: fission_ir::semantics::ActionTrigger::CursorChange,
                 action_id: env.id.as_u128(),
                 payload_data: None,
+            });
+        }
+        if let Some(env) = &self.on_submit {
+            semantics.actions.entries.push(fission_ir::ActionEntry {
+                trigger: fission_ir::semantics::ActionTrigger::Submit,
+                action_id: env.id.as_u128(),
+                payload_data: Some(env.payload.clone()),
+            });
+        }
+        if let Some(env) = &self.on_editing_complete {
+            semantics.actions.entries.push(fission_ir::ActionEntry {
+                trigger: fission_ir::semantics::ActionTrigger::EditingComplete,
+                action_id: env.id.as_u128(),
+                payload_data: Some(env.payload.clone()),
             });
         }
         let mut semantics_builder = NodeBuilder::new(input_id, Op::Semantics(semantics));

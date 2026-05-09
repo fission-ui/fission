@@ -330,6 +330,10 @@ impl TextEditState {
         next_caret: usize,
         next_anchor: usize,
     ) -> String {
+        let buffer_len = self.buffer.len_bytes();
+        let start = range.start.min(buffer_len);
+        let end = range.end.min(buffer_len).max(start);
+        let range = start..end;
         let old_text = self.buffer.slice(range.clone()).to_string();
         let mut txn = EditTransaction::new();
         txn.push(TextEdit::new(range, new_text, old_text));

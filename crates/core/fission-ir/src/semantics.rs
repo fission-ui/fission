@@ -66,6 +66,10 @@ pub enum ActionTrigger {
     Blur,
     /// The node's value changed (sliders, text inputs, etc.).
     Change,
+    /// Text editing was explicitly completed by the current input method.
+    EditingComplete,
+    /// The user submitted a text field.
+    Submit,
     /// The caret or selection anchor position changed in a text field.
     CursorChange,
     /// A dragged payload was dropped onto this node.
@@ -82,6 +86,65 @@ impl Default for ActionTrigger {
     fn default() -> Self {
         ActionTrigger::Default
     }
+}
+
+/// Preferred software keyboard / input modality for a text field.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
+pub enum TextInputType {
+    #[default]
+    Text,
+    Multiline,
+    Number,
+    EmailAddress,
+    Url,
+    Phone,
+    Name,
+}
+
+/// Preferred action for the return/submit key on software keyboards.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
+pub enum TextInputAction {
+    #[default]
+    Done,
+    Go,
+    Search,
+    Send,
+    Next,
+    Previous,
+    Continue,
+    Join,
+    Route,
+    EmergencyCall,
+    Newline,
+}
+
+/// Automatic capitalization strategy for inserted text.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
+pub enum TextCapitalization {
+    #[default]
+    None,
+    Characters,
+    Words,
+    Sentences,
+}
+
+/// Whether the framework should enforce `max_length` during editing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
+pub enum MaxLengthEnforcement {
+    None,
+    #[default]
+    Enforced,
+}
+
+/// Structured formatter primitives applied to inserted text.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum InputFormatter {
+    DigitsOnly,
+    AsciiOnly,
+    Lowercase,
+    Uppercase,
+    TrimWhitespace,
+    SingleLine,
 }
 
 /// A single action binding: a trigger, an action ID, and optional payload.
@@ -162,6 +225,10 @@ pub struct Semantics {
     pub checked: Option<bool>,
     /// Whether the node is disabled (grayed out, non-interactive).
     pub disabled: bool,
+    /// Whether the node can be focused and selected but not edited.
+    pub read_only: bool,
+    /// Whether this node should receive focus automatically when mounted.
+    pub autofocus: bool,
     /// Whether this node can be dragged.
     pub draggable: bool,
     /// Whether the node scrolls horizontally.
@@ -185,6 +252,30 @@ pub struct Semantics {
     /// Explicit tab order index. Lower values receive focus first. `None` means
     /// the node follows document order.
     pub focus_index: Option<i32>,
+    /// Preferred keyboard/input modality for text entry.
+    pub text_input_type: TextInputType,
+    /// Preferred submit/return key action.
+    pub text_input_action: TextInputAction,
+    /// Automatic capitalization strategy for inserted text.
+    pub text_capitalization: TextCapitalization,
+    /// Maximum number of Unicode scalar values allowed in the field.
+    pub max_length: Option<usize>,
+    /// Whether `max_length` should be enforced during editing.
+    pub max_length_enforcement: MaxLengthEnforcement,
+    /// Structured input formatters applied to inserted text.
+    pub input_formatters: Vec<InputFormatter>,
+    /// Hint to the platform IME whether autocorrect should be enabled.
+    pub autocorrect: bool,
+    /// Hint to the platform IME whether suggestions should be enabled.
+    pub enable_suggestions: bool,
+    /// Hint to the platform IME whether spell checking should be enabled.
+    pub spell_check: bool,
+    /// Hint to the platform IME whether smart dashes should be enabled.
+    pub smart_dashes: bool,
+    /// Hint to the platform IME whether smart quotes should be enabled.
+    pub smart_quotes: bool,
+    /// Platform autofill categories associated with this field.
+    pub autofill_hints: Vec<String>,
     /// When true, Tab key inserts spaces instead of moving focus.
     pub capture_tab: bool,
     /// When true, Enter copies leading whitespace from the current line.
@@ -204,6 +295,8 @@ impl std::hash::Hash for Semantics {
         self.ime_preedit_range.hash(state);
         self.checked.hash(state);
         self.disabled.hash(state);
+        self.read_only.hash(state);
+        self.autofocus.hash(state);
         self.draggable.hash(state);
         self.scrollable_x.hash(state);
         self.scrollable_y.hash(state);
@@ -215,6 +308,18 @@ impl std::hash::Hash for Semantics {
         self.drag_payload.hash(state);
         self.hero_tag.hash(state);
         self.focus_index.hash(state);
+        self.text_input_type.hash(state);
+        self.text_input_action.hash(state);
+        self.text_capitalization.hash(state);
+        self.max_length.hash(state);
+        self.max_length_enforcement.hash(state);
+        self.input_formatters.hash(state);
+        self.autocorrect.hash(state);
+        self.enable_suggestions.hash(state);
+        self.spell_check.hash(state);
+        self.smart_dashes.hash(state);
+        self.smart_quotes.hash(state);
+        self.autofill_hints.hash(state);
         self.capture_tab.hash(state);
         self.auto_indent.hash(state);
     }
@@ -234,6 +339,8 @@ impl Default for Semantics {
             ime_preedit_range: None,
             checked: None,
             disabled: false,
+            read_only: false,
+            autofocus: false,
             draggable: false,
             scrollable_x: false,
             scrollable_y: false,
@@ -245,6 +352,18 @@ impl Default for Semantics {
             drag_payload: None,
             hero_tag: None,
             focus_index: None,
+            text_input_type: TextInputType::Text,
+            text_input_action: TextInputAction::Done,
+            text_capitalization: TextCapitalization::None,
+            max_length: None,
+            max_length_enforcement: MaxLengthEnforcement::Enforced,
+            input_formatters: Vec::new(),
+            autocorrect: true,
+            enable_suggestions: true,
+            spell_check: true,
+            smart_dashes: true,
+            smart_quotes: true,
+            autofill_hints: Vec::new(),
             capture_tab: false,
             auto_indent: false,
         }

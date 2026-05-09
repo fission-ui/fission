@@ -43,19 +43,29 @@ pub enum PointerEvent {
     Down {
         point: LayoutPoint,
         button: PointerButton,
+        /// Modifier bitmask (Shift=1, Alt=2, Ctrl=4, Super=8).
+        modifiers: u8,
     },
     /// A button was released at the given point.
     Up {
         point: LayoutPoint,
         button: PointerButton,
+        /// Modifier bitmask (Shift=1, Alt=2, Ctrl=4, Super=8).
+        modifiers: u8,
     },
     /// The pointer moved (no button state change).
-    Move { point: LayoutPoint },
+    Move {
+        point: LayoutPoint,
+        /// Modifier bitmask (Shift=1, Alt=2, Ctrl=4, Super=8).
+        modifiers: u8,
+    },
     /// A scroll (mouse wheel or trackpad) gesture.
     Scroll {
         point: LayoutPoint,
         /// Scroll delta in layout units (positive = scroll down / right).
         delta: LayoutPoint,
+        /// Modifier bitmask (Shift=1, Alt=2, Ctrl=4, Super=8).
+        modifiers: u8,
     },
 }
 
@@ -78,6 +88,7 @@ pub enum KeyCode {
     Enter,
     Escape,
     Backspace,
+    Delete,
     Tab,
     Left,
     Right,
@@ -85,20 +96,31 @@ pub enum KeyCode {
     Down,
     Home,
     End,
+    PageUp,
+    PageDown,
     /// A printable character.
     Char(char),
 }
 
+/// Shift modifier bit.
+pub const MOD_SHIFT: u8 = 1;
+/// Alt/Option modifier bit.
+pub const MOD_ALT: u8 = 2;
+/// Control modifier bit.
+pub const MOD_CTRL: u8 = 4;
+/// Super/Meta/Command modifier bit.
+pub const MOD_SUPER: u8 = 8;
+
 /// A keyboard key press or release event.
 ///
-/// The `modifiers` field is a bitmask: bit 0 = Shift, bit 1 = Ctrl,
-/// bit 2 = Alt, bit 3 = Super/Meta.
+/// The `modifiers` field is a bitmask: bit 0 = Shift, bit 1 = Alt,
+/// bit 2 = Ctrl, bit 3 = Super/Meta.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum KeyEvent {
     /// A key was pressed.
     Down {
         key_code: KeyCode,
-        /// Modifier bitmask (Shift=1, Ctrl=2, Alt=4, Super=8).
+        /// Modifier bitmask (Shift=1, Alt=2, Ctrl=4, Super=8).
         modifiers: u8,
     },
     /// A key was released.

@@ -566,6 +566,25 @@ impl Runtime {
         use crate::input::{ControllerContext, InputController};
         use crate::ui::custom_render::downcast_render_object;
 
+        if self.runtime_state.interaction.focused.is_none() {
+            if let Some(autofocus_id) = Self::find_autofocus_node(ir) {
+                self.runtime_state.interaction.set_focused(Some(autofocus_id));
+                if let Some(ime_handler) = &self.ime_handler {
+                    let accepts_text = ir
+                        .nodes
+                        .get(&autofocus_id)
+                        .and_then(|node| match &node.op {
+                            Op::Semantics(semantics) => Some(
+                                semantics.role == fission_ir::semantics::Role::TextInput,
+                            ),
+                            _ => None,
+                        })
+                        .unwrap_or(false);
+                    ime_handler.set_ime_allowed(accepts_text);
+                }
+            }
+        }
+
         // --- Custom render object event handling (runs first) ----------------
         // For pointer events we hit-test, then walk up from the hit node to
         // check whether any ancestor carries a custom render object.  The
@@ -733,7 +752,7 @@ impl Runtime {
         }
 
         match event {
-            InputEvent::Pointer(PointerEvent::Scroll { point, delta }) => {
+            InputEvent::Pointer(PointerEvent::Scroll { point, delta, .. }) => {
                 let trace_scroll =
                     std::env::var("FISSION_SCROLL_TRACE").ok().as_deref() == Some("1");
                 if trace_scroll {
@@ -1192,5 +1211,24 @@ impl Runtime {
             | InputEvent::Pointer(PointerEvent::Scroll { point, .. }) => Some(*point),
             _ => None,
         }
+    }
+
+    fn find_autofocus_node(ir: &CoreIR) -> Option<NodeId> {
+        fn walk(ir: &CoreIR, node_id: NodeId) -> Option<NodeId> {
+            let node = ir.nodes.get(&node_id)?;
+            if let Op::Semantics(semantics) = &node.op {
+                if semantics.autofocus && semantics.focusable && !semantics.disabled {
+                    return Some(node_id);
+                }
+            }
+            for child_id in &node.children {
+                if let Some(found) = walk(ir, *child_id) {
+                    return Some(found);
+                }
+            }
+            None
+        }
+
+        ir.root.and_then(|root| walk(ir, root))
     }
 }

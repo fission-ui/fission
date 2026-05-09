@@ -32,7 +32,7 @@ impl InputController for SliderController {
                     }
                 }
             }
-            InputEvent::Pointer(PointerEvent::Move { point }) => {
+            InputEvent::Pointer(PointerEvent::Move { point, .. }) => {
                 if let Some(focused_id) = ctx.interaction.focused {
                     if ctx.interaction.is_pressed(focused_id) {
                         if let Some(node) = ctx.ir.nodes.get(&focused_id) {

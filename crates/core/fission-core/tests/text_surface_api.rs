@@ -1,9 +1,10 @@
 use fission_core::env::{Env, RuntimeState};
 use fission_core::lowering::LoweringContext;
-use fission_core::ui::{
-    Button, Container, Node, RichText, RichTextRun, Spacer, Text, TextInput,
+use fission_core::ui::widgets::text::RichTextSpan;
+use fission_core::ui::{Button, Container, Node, RichText, RichTextRun, Spacer, Text, TextInput};
+use fission_ir::op::{
+    decode_text_paragraph_style, Color, Fill, LayoutOp, Op, PaintOp, TextAlign, TextOverflow,
 };
-use fission_ir::op::{Color, Fill, LayoutOp, Op, PaintOp};
 use fission_ir::{CoreIR, FlexDirection};
 
 fn lower_node(node: Node) -> CoreIR {
@@ -61,7 +62,9 @@ fn rich_text_widget_lowers_multiple_runs() {
     let ir = lower_node(
         RichText::new(vec![
             RichTextRun::new("Hello ").family("Inter").weight(600),
-            RichTextRun::new("world").family("Space Grotesk").italic(true),
+            RichTextRun::new("world")
+                .family("Space Grotesk")
+                .italic(true),
         ])
         .into_node(),
     );
@@ -212,4 +215,281 @@ fn text_input_supports_decorations_and_typography_overrides() {
     assert_eq!(value_run.style.font_weight, 500);
     assert_eq!(value_run.style.line_height, Some(22.0));
     assert_eq!(value_run.style.letter_spacing, 0.25);
+}
+
+#[test]
+fn text_input_lowers_cursor_and_semantics_overrides() {
+    let ir = lower_node(
+        TextInput {
+            value: "hello".into(),
+            placeholder: Some("Email".into()),
+            read_only: true,
+            enabled: false,
+            autofocus: true,
+            keyboard_type: fission_ir::semantics::TextInputType::EmailAddress,
+            text_input_action: fission_ir::semantics::TextInputAction::Search,
+            text_capitalization: fission_ir::semantics::TextCapitalization::Words,
+            max_length: Some(24),
+            input_formatters: vec![fission_ir::semantics::InputFormatter::AsciiOnly],
+            autocorrect: false,
+            enable_suggestions: false,
+            spell_check: false,
+            smart_dashes: true,
+            smart_quotes: true,
+            autofill_hints: Vec::new(),
+            on_submit: Some(fission_core::ActionEnvelope {
+                id: fission_core::ActionId::from_name("tests::submit"),
+                payload: br#""payload""#.to_vec(),
+            }),
+            cursor_color: Some(Color {
+                r: 255,
+                g: 0,
+                b: 0,
+                a: 255,
+            }),
+            cursor_width: Some(3.0),
+            ..Default::default()
+        }
+        .into_node(),
+    );
+
+    let semantics = ir
+        .nodes
+        .values()
+        .find_map(|node| match &node.op {
+            Op::Semantics(semantics) if semantics.role == fission_ir::Role::TextInput => {
+                Some(semantics)
+            }
+            _ => None,
+        })
+        .expect("text input semantics");
+
+    assert_eq!(semantics.label.as_deref(), Some("Email"));
+    assert!(semantics.read_only);
+    assert!(semantics.disabled);
+    assert!(!semantics.focusable);
+    assert!(semantics.autofocus);
+    assert_eq!(
+        semantics.text_input_type,
+        fission_ir::semantics::TextInputType::EmailAddress
+    );
+    assert_eq!(
+        semantics.text_input_action,
+        fission_ir::semantics::TextInputAction::Search
+    );
+    assert_eq!(
+        semantics.text_capitalization,
+        fission_ir::semantics::TextCapitalization::Words
+    );
+    assert_eq!(semantics.max_length, Some(24));
+    assert_eq!(
+        semantics.input_formatters,
+        vec![fission_ir::semantics::InputFormatter::AsciiOnly]
+    );
+    assert!(!semantics.autocorrect);
+    assert!(!semantics.enable_suggestions);
+    assert!(semantics
+        .actions
+        .entries
+        .iter()
+        .any(|entry| entry.trigger == fission_ir::semantics::ActionTrigger::Submit));
+
+    let caret = paint_ops(&ir)
+        .find_map(|op| match op {
+            PaintOp::DrawRichText {
+                caret_color,
+                caret_width,
+                ..
+            } => Some((caret_color, caret_width)),
+            _ => None,
+        })
+        .expect("input paint op");
+
+    assert_eq!(
+        caret.0,
+        &Some(Color {
+            r: 255,
+            g: 0,
+            b: 0,
+            a: 255,
+        })
+    );
+    assert_eq!(caret.1, &Some(3.0));
+}
+
+#[test]
+fn text_lowers_paragraph_controls_for_alignment_and_ellipsis() {
+    let ir = lower_node(
+        Text::new("Paragraph parity")
+            .size(16.0)
+            .text_align(TextAlign::Center)
+            .max_lines(2)
+            .overflow(TextOverflow::Ellipsis)
+            .into_node(),
+    );
+
+    let paragraph = paint_ops(&ir)
+        .find_map(|op| match op {
+            PaintOp::DrawText { caret_width, .. } => decode_text_paragraph_style(*caret_width),
+            _ => None,
+        })
+        .expect("paragraph metadata");
+
+    assert_eq!(paragraph.text_align, TextAlign::Center);
+    assert_eq!(paragraph.max_lines, Some(2));
+    assert_eq!(paragraph.overflow, TextOverflow::Ellipsis);
+
+    let clipped_box = ir
+        .nodes
+        .values()
+        .find(|node| {
+            node.composite.clip_to_bounds
+                && matches!(
+                    node.op,
+                    Op::Layout(LayoutOp::Box {
+                        max_height: Some(height),
+                        ..
+                    }) if (height - 38.4).abs() < 0.001
+                )
+        })
+        .expect("clipped layout box");
+
+    assert!(matches!(clipped_box.op, Op::Layout(LayoutOp::Box { .. })));
+}
+
+#[test]
+fn rich_text_lowers_paragraph_controls_for_line_capping() {
+    let ir = lower_node(
+        RichText::new(vec![
+            RichTextRun::new("Hello ").size(14.0).line_height(18.0),
+            RichTextRun::new("world").size(20.0).line_height(24.0),
+        ])
+        .text_align(TextAlign::End)
+        .max_lines(3)
+        .overflow(TextOverflow::Clip)
+        .into_node(),
+    );
+
+    let paragraph = paint_ops(&ir)
+        .find_map(|op| match op {
+            PaintOp::DrawRichText { caret_width, .. } => decode_text_paragraph_style(*caret_width),
+            _ => None,
+        })
+        .expect("paragraph metadata");
+
+    assert_eq!(paragraph.text_align, TextAlign::End);
+    assert_eq!(paragraph.max_lines, Some(3));
+    assert_eq!(paragraph.overflow, TextOverflow::Clip);
+
+    let clipped_box = ir
+        .nodes
+        .values()
+        .find(|node| {
+            node.composite.clip_to_bounds
+                && matches!(
+                    node.op,
+                    Op::Layout(LayoutOp::Box {
+                        max_height: Some(height),
+                        ..
+                    }) if (height - 72.0).abs() < 0.001
+                )
+        })
+        .expect("clipped layout box");
+
+    assert!(matches!(clipped_box.op, Op::Layout(LayoutOp::Box { .. })));
+}
+
+#[test]
+fn nested_rich_text_spans_flatten_styles_in_order() {
+    let ir = lower_node(
+        RichText::from_span(
+            RichTextSpan::new("Hello ")
+                .color(Color {
+                    r: 12,
+                    g: 34,
+                    b: 56,
+                    a: 255,
+                })
+                .weight(600)
+                .child(RichTextSpan::new("world").italic(true)),
+        )
+        .into_node(),
+    );
+
+    let runs = paint_ops(&ir)
+        .find_map(|op| match op {
+            PaintOp::DrawRichText { runs, .. } => Some(runs),
+            _ => None,
+        })
+        .expect("rich text paint op");
+
+    assert_eq!(runs.len(), 2);
+    assert_eq!(runs[0].text, "Hello ");
+    assert_eq!(
+        runs[0].style.color,
+        Color {
+            r: 12,
+            g: 34,
+            b: 56,
+            a: 255
+        }
+    );
+    assert_eq!(runs[0].style.font_weight, 600);
+    assert_eq!(runs[1].text, "world");
+    assert_eq!(
+        runs[1].style.color,
+        Color {
+            r: 12,
+            g: 34,
+            b: 56,
+            a: 255
+        }
+    );
+    assert_eq!(runs[1].style.font_weight, 600);
+    assert_eq!(runs[1].style.font_style, fission_ir::op::FontStyle::Italic);
+}
+
+#[test]
+fn rich_text_span_semantics_labels_wrap_accessible_text() {
+    let ir = lower_node(
+        RichText::from_span(
+            RichTextSpan::new("FYI")
+                .semantics_label("For your information")
+                .child(RichTextSpan::new("!")),
+        )
+        .into_node(),
+    );
+
+    let semantics = ir
+        .nodes
+        .values()
+        .find_map(|node| match &node.op {
+            Op::Semantics(semantics) if semantics.label.is_some() => Some(semantics),
+            _ => None,
+        })
+        .expect("rich text semantics");
+
+    assert_eq!(semantics.label.as_deref(), Some("For your information!"));
+    assert!(semantics.multiline);
+}
+
+#[test]
+fn text_semantics_label_builder_sets_label() {
+    let ir = lower_node(
+        Text::new("Visible")
+            .semantics_label("Screen reader")
+            .into_node(),
+    );
+
+    let semantics = ir
+        .nodes
+        .values()
+        .find_map(|node| match &node.op {
+            Op::Semantics(semantics) if semantics.label.is_some() => Some(semantics),
+            _ => None,
+        })
+        .expect("text semantics");
+
+    assert_eq!(semantics.label.as_deref(), Some("Screen reader"));
+    assert!(!semantics.multiline);
 }

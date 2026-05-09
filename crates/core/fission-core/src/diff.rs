@@ -188,6 +188,8 @@ mod tests {
                 underline: false,
                 wrap: true,
                 caret_index: None,
+                caret_color: None,
+                caret_width: None,
             }),
             vec![],
         );
@@ -217,6 +219,8 @@ mod tests {
                 underline: false,
                 wrap: true,
                 caret_index: None,
+                caret_color: None,
+                caret_width: None,
             });
         }
         let diff = diff_ir(&prev, &next);

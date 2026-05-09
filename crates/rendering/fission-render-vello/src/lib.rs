@@ -3,6 +3,7 @@ pub use parley;
 pub use text::VelloTextMeasurer;
 
 use anyhow::Result;
+use fission_ir::op::{decode_text_paragraph_style, TextAlign, TextOverflow, TextParagraphStyle};
 use fission_render::{
     Color as RenderColor, DisplayList, DisplayOp, LayerClip, RenderLayer, RenderNode, RenderScene,
     Renderer, TextStyle as RenderTextStyle,
@@ -84,6 +85,20 @@ fn map_stroke(s: &fission_render::Stroke) -> (vello::kurbo::Stroke, Brush) {
     }
 
     (stroke, map_fill_to_brush(&s.fill))
+}
+
+fn paragraph_line_x_offset(text_align: TextAlign, bounds_width: f32, line_width: f32) -> f32 {
+    if bounds_width <= 0.0 {
+        return 0.0;
+    }
+
+    match text_align {
+        TextAlign::Left | TextAlign::Start => 0.0,
+        TextAlign::Center => (bounds_width - line_width) * 0.5,
+        TextAlign::Right | TextAlign::End => bounds_width - line_width,
+        // Parley's justification hooks are not wired through yet, so fall back to start.
+        TextAlign::Justify => 0.0,
+    }
 }
 use crate::text::ParleyBrush;
 use lazy_static::lazy_static;
@@ -220,7 +235,8 @@ fn parse_svg_entry(content: &str) -> SvgCacheEntry {
 
 #[cfg(test)]
 mod tests {
-    use super::{parse_svg_entry, SvgShape};
+    use super::{paragraph_line_x_offset, parse_svg_entry, SvgShape};
+    use fission_ir::op::TextAlign;
 
     #[test]
     fn svg_parser_skips_fill_none_rect_placeholders() {
@@ -231,6 +247,20 @@ mod tests {
         let entry = parse_svg_entry(svg);
         assert_eq!(entry.shapes.len(), 1);
         assert!(matches!(entry.shapes[0], SvgShape::Path(_)));
+    }
+
+    #[test]
+    fn paragraph_alignment_offsets_track_visible_bounds() {
+        assert_eq!(paragraph_line_x_offset(TextAlign::Start, 120.0, 40.0), 0.0);
+        assert_eq!(
+            paragraph_line_x_offset(TextAlign::Center, 120.0, 40.0),
+            40.0
+        );
+        assert_eq!(paragraph_line_x_offset(TextAlign::End, 120.0, 40.0), 80.0);
+        assert_eq!(
+            paragraph_line_x_offset(TextAlign::Right, 120.0, 140.0),
+            -20.0
+        );
     }
 }
 
@@ -373,6 +403,289 @@ impl<'a> VelloRenderer<'a> {
         Affine::new([m00, m10, m01, m11, m03, m13])
     }
 
+    fn with_clip_rect<F>(&mut self, rect: Rect, draw: F)
+    where
+        F: FnOnce(&mut Self),
+    {
+        self.scene
+            .push_layer(Mix::Normal, 1.0, self.current_transform, &rect);
+        draw(self);
+        self.scene.pop_layer();
+    }
+
+    fn paragraph_base_style(
+        base_size: f32,
+        base_color: RenderColor,
+        underline: bool,
+    ) -> RenderTextStyle {
+        RenderTextStyle {
+            font_size: base_size,
+            color: base_color,
+            underline,
+            font_family: None,
+            font_weight: 400,
+            font_style: fission_ir::op::FontStyle::Normal,
+            line_height: None,
+            letter_spacing: 0.0,
+            background_color: None,
+        }
+    }
+
+    fn resolve_ellipsis_style(
+        &self,
+        line_range: std::ops::Range<usize>,
+        base_style: &RenderTextStyle,
+        styles: &[(std::ops::Range<usize>, RenderTextStyle)],
+    ) -> RenderTextStyle {
+        styles
+            .iter()
+            .rev()
+            .find(|(range, _)| range.start < line_range.end && range.end > line_range.start)
+            .map(|(_, style)| style.clone())
+            .unwrap_or_else(|| base_style.clone())
+    }
+
+    fn ellipsis_metrics(&self, style: &RenderTextStyle) -> (f32, f32) {
+        let ellipsis = "...";
+        if text_style_requires_rich_layout(style) {
+            let layout = self.measurer.layout_rich(
+                ellipsis,
+                style.font_size,
+                style.color,
+                &[(0..ellipsis.len(), style.clone())],
+                None,
+            );
+            let metrics = layout
+                .lines()
+                .next()
+                .map(|line| (line.metrics().advance, line.metrics().baseline));
+            if let Some(metrics) = metrics {
+                return metrics;
+            }
+        } else {
+            let layout = self.measurer.get_layout(ellipsis, style.font_size, None);
+            let metrics = layout
+                .lines()
+                .next()
+                .map(|line| (line.metrics().advance, line.metrics().baseline));
+            if let Some(metrics) = metrics {
+                return metrics;
+            }
+        }
+
+        (style.font_size, style.font_size)
+    }
+
+    fn render_paragraph_text(
+        &mut self,
+        text: &str,
+        base_style: &RenderTextStyle,
+        wrap: bool,
+        position: fission_render::LayoutPoint,
+        bounds: fission_render::LayoutRect,
+        paragraph: TextParagraphStyle,
+        styles: &[(std::ops::Range<usize>, RenderTextStyle)],
+    ) {
+        let layout = self.measurer.layout_rich(
+            text,
+            base_style.font_size,
+            base_style.color,
+            styles,
+            if wrap && bounds.width() > 0.0 {
+                Some(bounds.width() as f32)
+            } else {
+                None
+            },
+        );
+
+        let total_lines = layout.lines().count();
+        let visible_lines = paragraph
+            .max_lines
+            .map(|lines| lines.min(total_lines))
+            .unwrap_or(total_lines);
+
+        for (line_idx, line) in layout.lines().enumerate() {
+            if line_idx >= visible_lines {
+                break;
+            }
+
+            let metrics = line.metrics();
+            let line_height = metrics
+                .line_height
+                .max(metrics.ascent + metrics.descent)
+                .max(1.0);
+            let top_y = metrics.baseline - metrics.ascent;
+            let line_width = metrics.advance;
+            let x_offset =
+                paragraph_line_x_offset(paragraph.text_align, bounds.width(), line_width);
+            let is_last_visible_line = line_idx + 1 == visible_lines;
+            let has_more_lines = line_idx + 1 < total_lines;
+            let overflows_horizontally = bounds.width() > 0.0 && line_width > bounds.width();
+            let show_ellipsis = matches!(paragraph.overflow, TextOverflow::Ellipsis)
+                && is_last_visible_line
+                && (has_more_lines || overflows_horizontally);
+
+            let ellipsis = show_ellipsis.then(|| {
+                let style = self.resolve_ellipsis_style(line.text_range(), base_style, styles);
+                let (width, baseline) = self.ellipsis_metrics(&style);
+                let line_end = if bounds.width() > 0.0 {
+                    (x_offset + line_width).min(bounds.width()).max(0.0)
+                } else {
+                    (x_offset + line_width).max(0.0)
+                };
+                let left = (line_end - width).max(0.0);
+                (style, width, baseline, left)
+            });
+
+            let draw_line = |this: &mut Self| {
+                for item in line.items() {
+                    if let PositionedLayoutItem::GlyphRun(glyph_run) = item {
+                        let style = glyph_run.style();
+                        let run = glyph_run.run();
+                        let font = run.font();
+                        let font_size = run.font_size();
+                        let brush_data = style.brush.clone();
+                        let color = Color::from_rgba8(
+                            brush_data.0[0],
+                            brush_data.0[1],
+                            brush_data.0[2],
+                            brush_data.0[3],
+                        );
+
+                        let run_text_range = run.text_range();
+                        for (range, style) in styles.iter() {
+                            if let Some(bg) = &style.background_color {
+                                let overlap_start = range.start.max(run_text_range.start);
+                                let overlap_end = range.end.min(run_text_range.end);
+                                if overlap_start < overlap_end {
+                                    let bg_color = Color::from_rgba8(bg.r, bg.g, bg.b, bg.a);
+                                    let x0 = position.x as f64
+                                        + x_offset as f64
+                                        + glyph_run.offset() as f64;
+                                    let x1 = x0 + glyph_run.advance() as f64;
+                                    let y0 = position.y as f64 + top_y as f64;
+                                    let bg_rect = Rect::new(x0, y0, x1, y0 + line_height as f64);
+                                    this.scene.fill(
+                                        Fill::NonZero,
+                                        this.current_transform,
+                                        bg_color,
+                                        None,
+                                        &bg_rect,
+                                    );
+                                    break;
+                                }
+                            }
+                        }
+
+                        let mut x = glyph_run.offset();
+                        let y = glyph_run.baseline();
+                        let glyphs = glyph_run.glyphs().map(|g| {
+                            let gx = x + g.x + x_offset;
+                            let gy = y - g.y;
+                            x += g.advance;
+                            Glyph {
+                                id: g.id as u32,
+                                x: gx,
+                                y: gy,
+                            }
+                        });
+
+                        this.scene
+                            .draw_glyphs(font)
+                            .font_size(font_size)
+                            .transform(
+                                this.current_transform
+                                    * Affine::translate((position.x as f64, position.y as f64)),
+                            )
+                            .brush(color)
+                            .draw(Fill::NonZero, glyphs);
+
+                        if let Some(decoration) = &style.underline {
+                            let metrics = run.metrics();
+                            let offset = decoration.offset.unwrap_or(metrics.underline_offset);
+                            let size = decoration.size.unwrap_or(metrics.underline_size).max(1.0);
+                            let deco_brush = decoration.brush.clone();
+                            let deco_color = Color::from_rgba8(
+                                deco_brush.0[0],
+                                deco_brush.0[1],
+                                deco_brush.0[2],
+                                deco_brush.0[3],
+                            );
+
+                            let x0 =
+                                position.x as f64 + x_offset as f64 + glyph_run.offset() as f64;
+                            let x1 = x0 + glyph_run.advance() as f64;
+                            let y0 = position.y as f64 + (glyph_run.baseline() + offset) as f64;
+                            let rect = Rect::new(x0, y0, x1, y0 + size as f64);
+                            this.scene.fill(
+                                Fill::NonZero,
+                                this.current_transform,
+                                deco_color,
+                                None,
+                                &rect,
+                            );
+                        }
+                    }
+                }
+            };
+
+            if let Some((_, _, _, ellipsis_left)) = ellipsis.as_ref() {
+                let clip_rect = Rect::new(
+                    bounds.x() as f64,
+                    position.y as f64 + top_y as f64,
+                    (position.x + *ellipsis_left).max(bounds.x()) as f64,
+                    position.y as f64 + top_y as f64 + line_height as f64,
+                );
+                self.with_clip_rect(clip_rect, draw_line);
+            } else {
+                draw_line(self);
+            }
+
+            if let Some((style, width, baseline, ellipsis_left)) = ellipsis {
+                let ellipsis_position = fission_render::LayoutPoint::new(
+                    position.x + ellipsis_left,
+                    position.y + metrics.baseline - baseline,
+                );
+                let ellipsis_bounds = fission_render::LayoutRect::new(
+                    ellipsis_position.x,
+                    ellipsis_position.y,
+                    width,
+                    line_height,
+                );
+                if text_style_requires_rich_layout(&style) {
+                    let ellipsis_styles = vec![(0..3, style.clone())];
+                    self.render_text(
+                        "...",
+                        style.font_size,
+                        style.color,
+                        style.underline,
+                        false,
+                        ellipsis_position,
+                        ellipsis_bounds,
+                        None,
+                        None,
+                        None,
+                        &ellipsis_styles,
+                    );
+                } else {
+                    self.render_text(
+                        "...",
+                        style.font_size,
+                        style.color,
+                        style.underline,
+                        false,
+                        ellipsis_position,
+                        ellipsis_bounds,
+                        None,
+                        None,
+                        None,
+                        &[],
+                    );
+                }
+            }
+        }
+    }
+
     fn render_text(
         &mut self,
         text: &str,
@@ -383,8 +696,38 @@ impl<'a> VelloRenderer<'a> {
         position: fission_render::LayoutPoint,
         bounds: fission_render::LayoutRect,
         caret_index: Option<usize>,
+        caret_color: Option<RenderColor>,
+        caret_width: Option<f32>,
         styles: &[(std::ops::Range<usize>, RenderTextStyle)],
     ) {
+        let paragraph = if caret_index.is_none() {
+            decode_text_paragraph_style(caret_width)
+        } else {
+            None
+        }
+        .unwrap_or_default();
+
+        if paragraph != TextParagraphStyle::default() {
+            let base_style = Self::paragraph_base_style(base_size, base_color, underline);
+            let owned_styles;
+            let paragraph_styles = if styles.is_empty() && !text.is_empty() {
+                owned_styles = vec![(0..text.len(), base_style.clone())];
+                owned_styles.as_slice()
+            } else {
+                styles
+            };
+            self.render_paragraph_text(
+                text,
+                &base_style,
+                wrap,
+                position,
+                bounds,
+                paragraph,
+                paragraph_styles,
+            );
+            return;
+        }
+
         // Fast path for simple text using cache
         if styles.is_empty() {
             let layout = self.measurer.get_layout(
@@ -457,7 +800,15 @@ impl<'a> VelloRenderer<'a> {
                 }
             }
             if let Some(idx) = caret_index {
-                self.draw_caret(&layout, idx, position, text, base_size);
+                self.draw_caret(
+                    &layout,
+                    idx,
+                    position,
+                    text,
+                    base_size,
+                    caret_color.unwrap_or(base_color),
+                    caret_width.unwrap_or(2.0),
+                );
             }
             return;
         }
@@ -575,7 +926,15 @@ impl<'a> VelloRenderer<'a> {
         }
 
         if let Some(idx) = caret_index {
-            self.draw_caret(&layout, idx, position, text, base_size);
+            self.draw_caret(
+                &layout,
+                idx,
+                position,
+                text,
+                base_size,
+                caret_color.unwrap_or(base_color),
+                caret_width.unwrap_or(2.0),
+            );
         }
     }
 
@@ -602,6 +961,8 @@ impl<'a> VelloRenderer<'a> {
         position: fission_render::LayoutPoint,
         text: &str,
         base_size: f32,
+        caret_color: RenderColor,
+        caret_width: f32,
     ) {
         let mut caret_drawn = false;
         let lines_count = layout.lines().count();
@@ -654,14 +1015,14 @@ impl<'a> VelloRenderer<'a> {
                 let caret_rect = Rect::new(
                     position.x as f64 + x_pos as f64,
                     position.y as f64 + top_y as f64,
-                    position.x as f64 + x_pos as f64 + 2.0,
+                    position.x as f64 + x_pos as f64 + caret_width as f64,
                     position.y as f64 + top_y as f64 + line_height as f64,
                 );
 
                 self.scene.fill(
                     Fill::NonZero,
                     self.current_transform,
-                    Color::BLACK,
+                    Color::from_rgba8(caret_color.r, caret_color.g, caret_color.b, caret_color.a),
                     None,
                     &caret_rect,
                 );
@@ -683,13 +1044,13 @@ impl<'a> VelloRenderer<'a> {
             let caret_rect = Rect::new(
                 position.x as f64,
                 top_y,
-                position.x as f64 + 2.0,
+                position.x as f64 + caret_width as f64,
                 top_y + height,
             );
             self.scene.fill(
                 Fill::NonZero,
                 self.current_transform,
-                Color::BLACK,
+                Color::from_rgba8(caret_color.r, caret_color.g, caret_color.b, caret_color.a),
                 None,
                 &caret_rect,
             );
@@ -852,6 +1213,8 @@ impl<'a> VelloRenderer<'a> {
                     position,
                     bounds,
                     caret_index,
+                    caret_color,
+                    caret_width,
                     ..
                 } => {
                     self.render_text(
@@ -863,6 +1226,8 @@ impl<'a> VelloRenderer<'a> {
                         *position,
                         *bounds,
                         *caret_index,
+                        *caret_color,
+                        *caret_width,
                         &[],
                     );
                 }
@@ -872,6 +1237,8 @@ impl<'a> VelloRenderer<'a> {
                     bounds,
                     wrap,
                     caret_index,
+                    caret_color,
+                    caret_width,
                     ..
                 } => {
                     if let Some(first) = runs.first() {
@@ -891,6 +1258,8 @@ impl<'a> VelloRenderer<'a> {
                                 *position,
                                 *bounds,
                                 *caret_index,
+                                *caret_color,
+                                *caret_width,
                                 &[],
                             );
                             continue;
@@ -929,6 +1298,8 @@ impl<'a> VelloRenderer<'a> {
                         *position,
                         *bounds,
                         *caret_index,
+                        *caret_color,
+                        *caret_width,
                         &styles,
                     );
                 }

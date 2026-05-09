@@ -145,11 +145,13 @@ impl<S: AppState> TestDriver<S> {
             .send_event(InputEvent::Pointer(PointerEvent::Down {
                 point,
                 button: PointerButton::Primary,
+                modifiers: 0,
             }))?;
         self.harness
             .send_event(InputEvent::Pointer(PointerEvent::Up {
                 point,
                 button: PointerButton::Primary,
+                modifiers: 0,
             }))?;
         if self.auto_pump {
             self.harness.pump()?;
@@ -171,6 +173,7 @@ impl<S: AppState> TestDriver<S> {
             .send_event(InputEvent::Pointer(PointerEvent::Scroll {
                 point: at,
                 delta,
+                modifiers: 0,
             }))?;
         if self.auto_pump {
             self.harness.pump()?;
