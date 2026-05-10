@@ -2,8 +2,8 @@ use super::custom_render::CustomRenderObject;
 use super::traits::{Lower, LowerDyn};
 use super::widgets::{
     Align, Button, Checkbox, Clip, Column, Composite, Container, FocusScope, GestureDetector, Grid,
-    GridItem, Icon, Image, LazyColumn, Overlay, Positioned, Radio, RichText, Row, SafeArea,
-    Scroll, Slider, Spacer, Switch, Text, TextInput, Transform, Video, ZStack,
+    GridItem, Icon, Image, LazyColumn, Overlay, Positioned, Radio, RichText, Row, SafeArea, Scroll,
+    Slider, Spacer, Switch, Text, TextInput, Transform, Video, ZStack,
 };
 use crate::lowering::LoweringContext;
 use fission_ir::{NodeId, Op, StructuralOp};

@@ -1,6 +1,6 @@
 use fission_core::{
-    BoxFuture, JobCtx, JobRef, JobSpec, ServiceCtx, ServiceRunner, ServiceSlot, ServiceSpec,
-    ServiceType,
+    BoxFuture, CapabilityCtx, CapabilityType, JobCtx, JobRef, JobSpec, OperationCapability,
+    ServiceCtx, ServiceRunner, ServiceSlot, ServiceSpec, ServiceType,
 };
 use fission_shell::async_host::{AsyncMessage, AsyncRegistry, ServiceControlMessage};
 use serde::{Deserialize, Serialize};
@@ -129,6 +129,31 @@ impl ServiceSpec for StreamingService {
 }
 
 const STREAMING_TYPE: ServiceType<StreamingService> = ServiceType::new("streaming-service");
+
+#[derive(Debug)]
+struct UploadEchoCapability;
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+struct UploadEchoRequest {
+    path: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+struct UploadEchoOk;
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+struct UploadEchoErr {
+    message: String,
+}
+
+impl OperationCapability for UploadEchoCapability {
+    type Request = UploadEchoRequest;
+    type Ok = UploadEchoOk;
+    type Err = UploadEchoErr;
+}
+
+const UPLOAD_ECHO_CAPABILITY: CapabilityType<UploadEchoCapability> =
+    CapabilityType::new("upload-echo");
 
 struct StreamingRunner {
     ready_task: Option<tokio::task::JoinHandle<()>>,
@@ -315,4 +340,46 @@ fn registered_services_can_emit_from_spawned_background_tasks() {
     handle.control_tx.send(ServiceControlMessage::Stop).unwrap();
     let stopped = rx.recv_timeout(Duration::from_secs(1)).expect("stopped");
     assert!(matches!(stopped, AsyncMessage::ServiceStopped { .. }));
+}
+
+#[test]
+fn registered_operation_capabilities_emit_typed_results() {
+    let mut registry = AsyncRegistry::new();
+    registry.register_operation_capability(
+        UPLOAD_ECHO_CAPABILITY,
+        |_request: UploadEchoRequest, _ctx: CapabilityCtx| async move {
+            Ok::<_, UploadEchoErr>(UploadEchoOk)
+        },
+    );
+
+    let (tx, rx) = mpsc::channel();
+    let spawned = registry.spawn_capability(
+        UPLOAD_ECHO_CAPABILITY.name,
+        13,
+        serde_json::to_vec(&UploadEchoRequest {
+            path: "/tmp/asset.bin".into(),
+        })
+        .unwrap(),
+        None,
+        None,
+        None,
+        &tx,
+        Arc::new(|| {}),
+    );
+
+    assert!(spawned);
+    let message = rx
+        .recv_timeout(Duration::from_secs(1))
+        .expect("capability result");
+    match message {
+        AsyncMessage::CapabilityOk {
+            req_id,
+            capability_name,
+            ..
+        } => {
+            assert_eq!(req_id, 13);
+            assert_eq!(capability_name, UPLOAD_ECHO_CAPABILITY.name);
+        }
+        other => panic!("unexpected message: {:?}", other),
+    }
 }

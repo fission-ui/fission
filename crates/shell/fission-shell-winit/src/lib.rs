@@ -23,10 +23,11 @@ use fission_core::env::VideoStatus;
 use fission_core::lowering::LoweringContext;
 use fission_core::ui::custom_render::downcast_render_object;
 use fission_core::{
-    Action, ActionId, AppState, BuildCtx, Env, InputEvent, KeyCode, KeyEvent as FissionKeyEvent,
-    PointerButton, PointerEvent, Runtime, ServiceBindings, View, Widget,
+    Action, ActionId, AlertRequest, AppState, AuthenticateRequest, AUTHENTICATE, BuildCtx, Env,
+    InputEvent, KeyCode, KeyEvent as FissionKeyEvent, OPEN_URL, OpenUrlRequest, PointerButton,
+    PointerEvent, Runtime, RuntimeEffect, ServiceBindings, SHOW_ALERT, View, Widget,
 };
-use fission_core::{ActionInput, Effect, EffectPayload, SystemEffect};
+use fission_core::{ActionInput, CapabilityInvocationPayload, Effect};
 use fission_diagnostics::prelude as diag;
 use fission_ir::semantics::MouseCursor;
 use fission_ir::{CoreIR, NodeId, Op, WidgetNodeId};
@@ -73,23 +74,6 @@ pub mod test_control;
 
 use fission_core::action::ActionEnvelope;
 
-/// Callback signature for application-specific effect handlers.
-///
-/// The handler receives the opaque `Vec<u8>` payload from `Effect::App(...)`,
-/// plus the envelope metadata needed to send a result back on the channel and
-/// an event-loop proxy it can use to wake the shell after background work
-/// completes.
-pub type AppEffectHandler = Box<
-    dyn Fn(
-            Vec<u8>,
-            u64,
-            Option<ActionEnvelope>,
-            Option<ActionEnvelope>,
-            mpsc::Sender<AsyncMessage>,
-            EventLoopProxy<TestEvent>,
-        ) + Send
-        + Sync,
->;
 
 type EffectResult = AsyncMessage;
 
@@ -98,6 +82,48 @@ type ServiceBindingKey = (String, String, u64);
 
 struct ActiveServiceHandle {
     runtime: RunningServiceHandle,
+}
+
+fn open_host_url(url: &str) -> std::io::Result<()> {
+    if cfg!(target_os = "macos") {
+        std::process::Command::new("open").arg(url).spawn().map(|_| ())
+    } else if cfg!(target_os = "windows") {
+        std::process::Command::new("cmd")
+            .args(["/C", "start", url])
+            .spawn()
+            .map(|_| ())
+    } else {
+        std::process::Command::new("xdg-open")
+            .arg(url)
+            .spawn()
+            .map(|_| ())
+    }
+}
+
+fn register_builtin_operation_capabilities(async_registry: &mut AsyncRegistry) {
+    async_registry.register_operation_capability(
+        OPEN_URL,
+        |request: OpenUrlRequest, _| async move {
+            let _ = request.in_app;
+            open_host_url(&request.url).map_err(|error| error.to_string())?;
+            Ok(())
+        },
+    );
+    async_registry.register_operation_capability(
+        AUTHENTICATE,
+        |request: AuthenticateRequest, _| async move {
+            let _ = request.callback_scheme;
+            open_host_url(&request.url).map_err(|error| error.to_string())?;
+            Ok(())
+        },
+    );
+    async_registry.register_operation_capability(
+        SHOW_ALERT,
+        |request: AlertRequest, _| async move {
+            eprintln!("[alert] {}: {}", request.title, request.message);
+            Ok(())
+        },
+    );
 }
 
 struct ActivePlayer {
@@ -489,29 +515,25 @@ impl LiveResizeController {
     }
 }
 
-/// Drain pending effects from the runtime and either execute them synchronously
-/// (fire-and-forget effects like `OpenUrl`) or spawn background threads for I/O
-/// effects (`FileRead`, `HttpGet`) and send results back through `effect_tx`.
+/// Drain pending effects from the runtime, delegating capability work to the
+/// async registry and runtime-control effects to the shell/runtime boundary.
 ///
 /// Returns `true` if any synchronous callback was dispatched (caller should redraw).
 fn process_pending_effects(
     runtime: &mut Runtime,
     effect_tx: &mpsc::Sender<AsyncMessage>,
     event_proxy: &EventLoopProxy<TestEvent>,
-    app_effect_handler: Option<&AppEffectHandler>,
     async_registry: &AsyncRegistry,
     active_services: &mut HashMap<ServiceKey, ActiveServiceHandle>,
     service_bindings: &mut HashMap<ServiceBindingKey, ServiceBindings>,
     next_service_instance_id: &mut u64,
 ) -> bool {
-    use std::process::Command;
-
     let pending = std::mem::take(&mut runtime.pending_effects);
     if pending.is_empty() {
         return false;
     }
 
-    let mut dispatched_callback = false;
+    let dispatched_callback = false;
     let wake = {
         let proxy = Arc::new(Mutex::new(event_proxy.clone()));
         Arc::new(move || {
@@ -523,308 +545,46 @@ fn process_pending_effects(
 
     for env in pending {
         match env.effect {
-            Effect::System(ref system) => {
-                match system {
-                    // ── Fire-and-forget: OpenUrl ─────────────────────────────
-                    SystemEffect::OpenUrl { url, in_app } => {
-                        diag::emit(
-                            diag::DiagCategory::Input,
-                            diag::DiagLevel::Info,
-                            diag::DiagEventKind::InputEvent {
-                                kind: format!("system_effect:OpenUrl in_app={}", in_app),
-                                target: None,
-                                position: None,
-                            },
-                        );
-
-                        let result = if cfg!(target_os = "macos") {
-                            Command::new("open").arg(url).spawn().map(|_| ())
-                        } else if cfg!(target_os = "windows") {
-                            Command::new("cmd")
-                                .args(["/C", "start", url])
-                                .spawn()
-                                .map(|_| ())
-                        } else {
-                            Command::new("xdg-open").arg(url).spawn().map(|_| ())
-                        };
-
-                        if let Err(e) = result {
-                            diag::emit(
-                                diag::DiagCategory::Input,
-                                diag::DiagLevel::Error,
-                                diag::DiagEventKind::InputEvent {
-                                    kind: format!("system_effect:OpenUrl failed: {}", e),
-                                    target: None,
-                                    position: None,
-                                },
-                            );
-                        }
-
-                        // Dispatch immediate callback (fire-and-forget success).
-                        if let Some(on_ok) = env.on_ok {
-                            let _ = runtime.dispatch_with_input(
-                                on_ok,
-                                NodeId::derived(0, &[0]),
-                                &ActionInput::EffectOk {
-                                    req_id: env.req_id,
-                                    payload: EffectPayload::Empty,
-                                },
-                            );
-                            dispatched_callback = true;
-                        }
-                    }
-
-                    // ── Fire-and-forget: Authenticate ────────────────────────
-                    SystemEffect::Authenticate { url, .. } => {
-                        diag::emit(
-                            diag::DiagCategory::Input,
-                            diag::DiagLevel::Info,
-                            diag::DiagEventKind::InputEvent {
-                                kind: "system_effect:Authenticate".into(),
-                                target: None,
-                                position: None,
-                            },
-                        );
-                        let _ = if cfg!(target_os = "macos") {
-                            Command::new("open").arg(url).spawn()
-                        } else if cfg!(target_os = "windows") {
-                            Command::new("cmd").args(["/C", "start", url]).spawn()
-                        } else {
-                            Command::new("xdg-open").arg(url).spawn()
-                        };
-
-                        if let Some(on_ok) = env.on_ok {
-                            let _ = runtime.dispatch_with_input(
-                                on_ok,
-                                NodeId::derived(0, &[0]),
-                                &ActionInput::EffectOk {
-                                    req_id: env.req_id,
-                                    payload: EffectPayload::Empty,
-                                },
-                            );
-                            dispatched_callback = true;
-                        }
-                    }
-
-                    // ── Fire-and-forget: Alert (log only) ────────────────────
-                    SystemEffect::Alert { title, message } => {
-                        diag::emit(
-                            diag::DiagCategory::Input,
-                            diag::DiagLevel::Info,
-                            diag::DiagEventKind::InputEvent {
-                                kind: format!("system_effect:Alert title={}", title),
-                                target: None,
-                                position: None,
-                            },
-                        );
-                        eprintln!("[alert] {}: {}", title, message);
-
-                        if let Some(on_ok) = env.on_ok {
-                            let _ = runtime.dispatch_with_input(
-                                on_ok,
-                                NodeId::derived(0, &[0]),
-                                &ActionInput::EffectOk {
-                                    req_id: env.req_id,
-                                    payload: EffectPayload::Empty,
-                                },
-                            );
-                            dispatched_callback = true;
-                        }
-                    }
-
-                    // ── Background: FileRead ─────────────────────────────────
-                    SystemEffect::FileRead { path } => {
-                        let tx = effect_tx.clone();
-                        let wake_fn = wake.clone();
-                        let on_ok = env.on_ok.clone();
-                        let on_err = env.on_err.clone();
-                        let req_id = env.req_id;
-                        let path = path.clone();
-                        let resource = env.resource.clone();
-                        std::thread::spawn(move || {
-                            match std::fs::read(&path) {
-                                Ok(content) => {
-                                    let payload = EffectPayload::InlineBytes(content);
-                                    let _ = tx.send(AsyncMessage::LegacyResult {
-                                        req_id,
-                                        result: Ok(payload),
-                                        on_ok,
-                                        on_err,
-                                        resource,
-                                    });
-                                }
-                                Err(e) => {
-                                    let _ = tx.send(AsyncMessage::LegacyResult {
-                                        req_id,
-                                        result: Err(e.to_string()),
-                                        on_ok,
-                                        on_err,
-                                        resource,
-                                    });
-                                }
-                            }
-                            wake_fn();
-                        });
-                    }
-
-                    // ── Background: HttpGet ───────────────────────────────────
-                    SystemEffect::HttpGet { url, headers } => {
-                        let tx = effect_tx.clone();
-                        let wake_fn = wake.clone();
-                        let on_ok = env.on_ok.clone();
-                        let on_err = env.on_err.clone();
-                        let req_id = env.req_id;
-                        let url = url.clone();
-                        let headers = headers.clone();
-                        let resource = env.resource.clone();
-                        std::thread::spawn(move || {
-                            let curl_result = (|| -> std::result::Result<Vec<u8>, String> {
-                                let mut command = std::process::Command::new("curl");
-                                command.arg("-fsSL").arg(&url);
-                                for (k, v) in &headers {
-                                    command.arg("-H").arg(format!("{}: {}", k, v));
-                                }
-                                let output =
-                                    command.output().map_err(|e| format!("curl spawn: {}", e))?;
-                                if output.status.success() {
-                                    Ok(output.stdout)
-                                } else {
-                                    Err(String::from_utf8_lossy(&output.stderr).trim().to_string())
-                                }
-                            })();
-
-                            // Minimal blocking HTTP GET using std only (no external crate).
-                            // This parses the URL, opens a TCP stream, and reads the response.
-                            let result = curl_result.or_else(|_| (|| -> std::result::Result<Vec<u8>, String> {
-                                use std::io::{Read, Write};
-                                use std::net::TcpStream;
-
-                                // Parse URL (very basic: http://host[:port]/path)
-                                let url_trimmed = url.trim();
-                                let (scheme, rest) = if let Some(r) = url_trimmed.strip_prefix("https://") {
-                                    ("https", r)
-                                } else if let Some(r) = url_trimmed.strip_prefix("http://") {
-                                    ("http", r)
-                                } else {
-                                    return Err(format!("unsupported URL scheme: {}", url_trimmed));
-                                };
-
-                                let (host_port, path) = match rest.find('/') {
-                                    Some(i) => (&rest[..i], &rest[i..]),
-                                    None => (rest, "/"),
-                                };
-
-                                let default_port: u16 = if scheme == "https" { 443 } else { 80 };
-                                let (host, port) = match host_port.rfind(':') {
-                                    Some(i) => {
-                                        let p = host_port[i + 1..].parse::<u16>().unwrap_or(default_port);
-                                        (&host_port[..i], p)
-                                    }
-                                    None => (host_port, default_port),
-                                };
-
-                                if scheme == "https" {
-                                    return Err("HTTPS not supported in minimal HttpGet executor; use a custom app effect handler for TLS".into());
-                                }
-
-                                let addr = format!("{}:{}", host, port);
-                                let mut stream = TcpStream::connect(&addr)
-                                    .map_err(|e| format!("connect {}: {}", addr, e))?;
-                                stream
-                                    .set_read_timeout(Some(std::time::Duration::from_secs(30)))
-                                    .ok();
-
-                                let mut request = format!(
-                                    "GET {} HTTP/1.1\r\nHost: {}\r\nConnection: close\r\n",
-                                    path, host
-                                );
-                                for (k, v) in &headers {
-                                    request.push_str(&format!("{}: {}\r\n", k, v));
-                                }
-                                request.push_str("\r\n");
-
-                                stream
-                                    .write_all(request.as_bytes())
-                                    .map_err(|e| format!("write: {}", e))?;
-
-                                let mut buf = Vec::new();
-                                stream
-                                    .read_to_end(&mut buf)
-                                    .map_err(|e| format!("read: {}", e))?;
-
-                                // Strip HTTP headers (find \r\n\r\n)
-                                let body_start = buf
-                                    .windows(4)
-                                    .position(|w| w == b"\r\n\r\n")
-                                    .map(|i| i + 4)
-                                    .unwrap_or(0);
-
-                                Ok(buf[body_start..].to_vec())
-                            })());
-
-                            match result {
-                                Ok(bytes) => {
-                                    let payload = EffectPayload::InlineBytes(bytes);
-                                    let _ = tx.send(AsyncMessage::LegacyResult {
-                                        req_id,
-                                        result: Ok(payload),
-                                        on_ok,
-                                        on_err,
-                                        resource,
-                                    });
-                                }
-                                Err(msg) => {
-                                    let _ = tx.send(AsyncMessage::LegacyResult {
-                                        req_id,
-                                        result: Err(msg),
-                                        on_ok,
-                                        on_err,
-                                        resource,
-                                    });
-                                }
-                            }
-                            wake_fn();
-                        });
-                    }
-
-                    // ── Cancel / ReleaseResource: no-op at shell level ───────
-                    SystemEffect::Cancel { .. } | SystemEffect::ReleaseResource { .. } => {
-                        diag::emit(
-                            diag::DiagCategory::Input,
-                            diag::DiagLevel::Debug,
-                            diag::DiagEventKind::InputEvent {
-                                kind: format!("system_effect:{:?} (no-op)", system),
-                                target: None,
-                                position: None,
-                            },
-                        );
-                    }
+            Effect::Runtime(ref runtime_effect) => {
+                diag::emit(
+                    diag::DiagCategory::Input,
+                    diag::DiagLevel::Debug,
+                    diag::DiagEventKind::InputEvent {
+                        kind: format!("runtime_effect:{:?}", runtime_effect),
+                        target: None,
+                        position: None,
+                    },
+                );
+                match runtime_effect {
+                    RuntimeEffect::Cancel { .. } | RuntimeEffect::ReleaseResource { .. } => {}
                 }
             }
-
-            // ── App-specific effects ─────────────────────────────────────
-            Effect::App(payload) => {
-                if let Some(handler) = app_effect_handler {
-                    handler(
-                        payload,
+            Effect::Capability(capability) => match capability {
+                CapabilityInvocationPayload::Operation(op) => {
+                    if !async_registry.spawn_capability(
+                        &op.capability_name,
                         env.req_id,
+                        op.request,
                         env.on_ok.clone(),
                         env.on_err.clone(),
-                        effect_tx.clone(),
-                        event_proxy.clone(),
-                    );
-                } else {
-                    diag::emit(
-                        diag::DiagCategory::Input,
-                        diag::DiagLevel::Warn,
-                        diag::DiagEventKind::InputEvent {
-                            kind: "app_effect:unhandled (no handler registered)".into(),
-                            target: None,
-                            position: None,
-                        },
-                    );
+                        env.resource.clone(),
+                        effect_tx,
+                        wake.clone(),
+                    ) {
+                        let _ = effect_tx.send(AsyncMessage::CapabilityErr {
+                            capability_name: op.capability_name,
+                            req_id: env.req_id,
+                            payload: None,
+                            on_err: env.on_err.clone(),
+                            message: Some(
+                                "no async operation capability handler registered".into(),
+                            ),
+                            resource: env.resource.clone(),
+                        });
+                        (wake)();
+                    }
                 }
-            }
+            },
             Effect::Job(job) => {
                 if !async_registry.spawn_job(
                     &job.job_name,
@@ -950,45 +710,6 @@ fn drain_effect_results(
 
     while let Ok(message) = effect_rx.try_recv() {
         match message {
-            AsyncMessage::LegacyResult {
-                req_id,
-                result,
-                on_ok,
-                on_err,
-                resource,
-            } => {
-                if let Some(resource) = resource.as_ref() {
-                    if !runtime.is_resource_current(resource) {
-                        continue;
-                    }
-                }
-
-                match result {
-                    Ok(payload) => {
-                        if let Some(action) = on_ok {
-                            let _ = runtime.dispatch_with_input(
-                                action,
-                                NodeId::derived(0, &[0]),
-                                &ActionInput::EffectOk { req_id, payload },
-                            );
-                            dispatched = true;
-                        }
-                    }
-                    Err(msg) => {
-                        if let Some(action) = on_err {
-                            let _ = runtime.dispatch_with_input(
-                                action,
-                                NodeId::derived(0, &[0]),
-                                &ActionInput::EffectErr {
-                                    req_id,
-                                    message: msg,
-                                },
-                            );
-                            dispatched = true;
-                        }
-                    }
-                }
-            }
             AsyncMessage::JobOk {
                 job_name,
                 req_id,
@@ -1264,6 +985,58 @@ fn drain_effect_results(
                     dispatched = true;
                 }
             }
+            AsyncMessage::CapabilityOk {
+                capability_name,
+                req_id,
+                payload,
+                on_ok,
+                resource,
+            } => {
+                if let Some(resource) = resource.as_ref() {
+                    if !runtime.is_resource_current(resource) {
+                        continue;
+                    }
+                }
+                if let Some(action) = on_ok {
+                    let _ = runtime.dispatch_with_input(
+                        action,
+                        NodeId::derived(0, &[0]),
+                        &ActionInput::CapabilityOk {
+                            capability: capability_name,
+                            req_id,
+                            payload,
+                        },
+                    );
+                    dispatched = true;
+                }
+            }
+            AsyncMessage::CapabilityErr {
+                capability_name,
+                req_id,
+                payload,
+                on_err,
+                message,
+                resource,
+            } => {
+                if let Some(resource) = resource.as_ref() {
+                    if !runtime.is_resource_current(resource) {
+                        continue;
+                    }
+                }
+                if let Some(action) = on_err {
+                    let _ = runtime.dispatch_with_input(
+                        action,
+                        NodeId::derived(0, &[0]),
+                        &ActionInput::CapabilityErr {
+                            capability: capability_name,
+                            req_id,
+                            payload,
+                            message,
+                        },
+                    );
+                    dispatched = true;
+                }
+            }
         }
     }
 
@@ -1491,7 +1264,6 @@ fn handle_cursor_moved(
     pipeline: &Pipeline,
     effect_result_tx: &mpsc::Sender<EffectResult>,
     event_proxy: &EventLoopProxy<TestEvent>,
-    app_effect_handler: Option<&AppEffectHandler>,
     async_registry: &AsyncRegistry,
     active_services: &mut HashMap<ServiceKey, ActiveServiceHandle>,
     service_bindings: &mut HashMap<ServiceBindingKey, ServiceBindings>,
@@ -1516,7 +1288,6 @@ fn handle_cursor_moved(
             runtime,
             effect_result_tx,
             event_proxy,
-            app_effect_handler,
             async_registry,
             active_services,
             service_bindings,
@@ -1557,7 +1328,6 @@ fn handle_mouse_button(
     pipeline: &Pipeline,
     effect_result_tx: &mpsc::Sender<EffectResult>,
     event_proxy: &EventLoopProxy<TestEvent>,
-    app_effect_handler: Option<&AppEffectHandler>,
     async_registry: &AsyncRegistry,
     active_services: &mut HashMap<ServiceKey, ActiveServiceHandle>,
     service_bindings: &mut HashMap<ServiceBindingKey, ServiceBindings>,
@@ -1616,7 +1386,6 @@ fn handle_mouse_button(
             runtime,
             effect_result_tx,
             event_proxy,
-            app_effect_handler,
             async_registry,
             active_services,
             service_bindings,
@@ -1674,7 +1443,6 @@ fn handle_scroll(
     pipeline: &Pipeline,
     effect_result_tx: &mpsc::Sender<EffectResult>,
     event_proxy: &EventLoopProxy<TestEvent>,
-    app_effect_handler: Option<&AppEffectHandler>,
     async_registry: &AsyncRegistry,
     active_services: &mut HashMap<ServiceKey, ActiveServiceHandle>,
     service_bindings: &mut HashMap<ServiceBindingKey, ServiceBindings>,
@@ -1713,7 +1481,6 @@ fn handle_scroll(
             runtime,
             effect_result_tx,
             event_proxy,
-            app_effect_handler,
             async_registry,
             active_services,
             service_bindings,
@@ -1748,7 +1515,6 @@ fn handle_cursor_left(
     pipeline: &Pipeline,
     effect_result_tx: &mpsc::Sender<EffectResult>,
     event_proxy: &EventLoopProxy<TestEvent>,
-    app_effect_handler: Option<&AppEffectHandler>,
     async_registry: &AsyncRegistry,
     active_services: &mut HashMap<ServiceKey, ActiveServiceHandle>,
     service_bindings: &mut HashMap<ServiceBindingKey, ServiceBindings>,
@@ -1778,8 +1544,7 @@ fn handle_cursor_left(
                         runtime,
                         effect_result_tx,
                         event_proxy,
-                        app_effect_handler,
-                        async_registry,
+                                    async_registry,
                         active_services,
                         service_bindings,
                         next_service_instance_id,
@@ -1846,7 +1611,6 @@ fn handle_key_down<S: AppState>(
     pipeline: &Pipeline,
     effect_result_tx: &mpsc::Sender<EffectResult>,
     event_proxy: &EventLoopProxy<TestEvent>,
-    app_effect_handler: Option<&AppEffectHandler>,
     async_registry: &AsyncRegistry,
     active_services: &mut HashMap<ServiceKey, ActiveServiceHandle>,
     service_bindings: &mut HashMap<ServiceBindingKey, ServiceBindings>,
@@ -1879,8 +1643,7 @@ fn handle_key_down<S: AppState>(
                     runtime,
                     effect_result_tx,
                     event_proxy,
-                    app_effect_handler,
-                    async_registry,
+                            async_registry,
                     active_services,
                     service_bindings,
                     next_service_instance_id,
@@ -1934,7 +1697,6 @@ fn handle_key_down<S: AppState>(
             runtime,
             effect_result_tx,
             event_proxy,
-            app_effect_handler,
             async_registry,
             active_services,
             service_bindings,
@@ -2164,8 +1926,6 @@ pub struct WinitApp<S: AppState, W: Widget<S>> {
     /// Channel pair for receiving completed background effect results.
     effect_result_tx: mpsc::Sender<AsyncMessage>,
     effect_result_rx: mpsc::Receiver<AsyncMessage>,
-    /// Optional handler for `Effect::App(...)` payloads.
-    app_effect_handler: Option<AppEffectHandler>,
     async_registry: AsyncRegistry,
     startup_action: Option<ActionEnvelope>,
     _phantom: std::marker::PhantomData<S>,
@@ -2202,6 +1962,8 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
             .with_clipboard(clipboard);
 
         let (effect_result_tx, effect_result_rx) = mpsc::channel();
+        let mut async_registry = AsyncRegistry::new();
+        register_builtin_operation_capabilities(&mut async_registry);
 
         Self {
             runtime,
@@ -2217,8 +1979,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
             test_control_port: None,
             effect_result_tx,
             effect_result_rx,
-            app_effect_handler: None,
-            async_registry: AsyncRegistry::new(),
+            async_registry,
             startup_action: None,
             _phantom: std::marker::PhantomData,
         }
@@ -2277,27 +2038,6 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
         self
     }
 
-    /// Register a handler for `Effect::App(payload)` effects.
-    ///
-    /// The handler runs on the calling thread and should spawn its own
-    /// background work if needed, sending results through the provided
-    /// `mpsc::Sender<EffectResult>`.
-    pub fn with_app_effect_handler<F>(mut self, handler: F) -> Self
-    where
-        F: Fn(
-                Vec<u8>,
-                u64,
-                Option<ActionEnvelope>,
-                Option<ActionEnvelope>,
-                mpsc::Sender<AsyncMessage>,
-                EventLoopProxy<TestEvent>,
-            ) + Send
-            + Sync
-            + 'static,
-    {
-        self.app_effect_handler = Some(Box::new(handler));
-        self
-    }
 
     pub fn with_async<F>(mut self, configure: F) -> Self
     where
@@ -2399,7 +2139,6 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
         let measurer = self.measurer;
         let effect_result_tx = self.effect_result_tx;
         let effect_result_rx = self.effect_result_rx;
-        let app_effect_handler = self.app_effect_handler;
         let async_registry = self.async_registry;
         let startup_action = self.startup_action;
         let mut startup_dispatched = false;
@@ -2532,7 +2271,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                             handle_cursor_moved(
                                 x, y, 0,
                                 &mut runtime, &pipeline,
-                                &effect_result_tx, &event_proxy, app_effect_handler.as_ref(),
+                                &effect_result_tx, &event_proxy,
                                 &async_registry, &mut active_services, &mut service_bindings, &mut next_service_instance_id,
                                 window, elwt,
                                 &mut last_redraw_at, min_frame, &mut redraw_pending,
@@ -2548,7 +2287,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                             handle_mouse_button(
                                 x, y, btn, true, 0,
                                 &mut runtime, &pipeline,
-                                &effect_result_tx, &event_proxy, app_effect_handler.as_ref(),
+                                &effect_result_tx, &event_proxy,
                                 &async_registry, &mut active_services, &mut service_bindings, &mut next_service_instance_id,
                                 window, elwt,
                                 &mut last_redraw_at, min_frame, &mut redraw_pending,
@@ -2567,7 +2306,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                             handle_mouse_button(
                                 x, y, btn, false, 0,
                                 &mut runtime, &pipeline,
-                                &effect_result_tx, &event_proxy, app_effect_handler.as_ref(),
+                                &effect_result_tx, &event_proxy,
                                 &async_registry, &mut active_services, &mut service_bindings, &mut next_service_instance_id,
                                 window, elwt,
                                 &mut last_redraw_at, min_frame, &mut redraw_pending,
@@ -2586,7 +2325,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                             handle_key_down::<S>(
                                 code, modifiers,
                                 &mut runtime, &pipeline,
-                                &effect_result_tx, &event_proxy, app_effect_handler.as_ref(),
+                                &effect_result_tx, &event_proxy,
                                 &async_registry, &mut active_services, &mut service_bindings, &mut next_service_instance_id,
                                 window, elwt,
                                 &mut last_redraw_at, min_frame, &mut redraw_pending,
@@ -2655,7 +2394,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                         &mut runtime,
                                         &effect_result_tx,
                                         &event_proxy,
-                                        app_effect_handler.as_ref(),
+                                       
                                         &async_registry,
                                         &mut active_services,
                                         &mut service_bindings,
@@ -2692,7 +2431,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                             &pipeline,
                                             &effect_result_tx,
                                             &event_proxy,
-                                            app_effect_handler.as_ref(),
+                                           
                                             &async_registry,
                                             &mut active_services,
                                             &mut service_bindings,
@@ -2722,7 +2461,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                             handle_scroll(
                                 x, y, dx, dy, 0,
                                 &mut runtime, &pipeline,
-                                &effect_result_tx, &event_proxy, app_effect_handler.as_ref(),
+                                &effect_result_tx, &event_proxy,
                                 &async_registry, &mut active_services, &mut service_bindings, &mut next_service_instance_id,
                                 window, elwt,
                                 &mut last_redraw_at, min_frame, &mut redraw_pending,
@@ -2766,7 +2505,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                     &mut runtime,
                                     &effect_result_tx,
                                     &event_proxy,
-                                    app_effect_handler.as_ref(),
+                                   
                                     &async_registry,
                                     &mut active_services,
                                     &mut service_bindings,
@@ -3151,7 +2890,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                 &mut runtime,
                                 &effect_result_tx,
                                 &event_proxy,
-                                app_effect_handler.as_ref(),
+                               
                                 &async_registry,
                                 &mut active_services,
                                 &mut service_bindings,
@@ -3465,7 +3204,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                     &mut runtime,
                                     &effect_result_tx,
                                     &event_proxy,
-                                    app_effect_handler.as_ref(),
+                                   
                                     &async_registry,
                                     &mut active_services,
                                     &mut service_bindings,
@@ -3999,7 +3738,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                 handle_cursor_moved(
                                     x, y, current_mods,
                                     &mut runtime, &pipeline,
-                                    &effect_result_tx, &event_proxy, app_effect_handler.as_ref(),
+                                    &effect_result_tx, &event_proxy,
                                 &async_registry, &mut active_services, &mut service_bindings, &mut next_service_instance_id,
                                     &window, elwt,
                                     &mut last_redraw_at, min_frame, &mut redraw_pending,
@@ -4014,7 +3753,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                     &pipeline,
                                     &effect_result_tx,
                                     &event_proxy,
-                                    app_effect_handler.as_ref(),
+                                   
                                     &async_registry,
                                     &mut active_services,
                                     &mut service_bindings,
@@ -4039,7 +3778,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                         handle_mouse_button(
                                             x, y, btn, is_pressed, current_mods,
                                             &mut runtime, &pipeline,
-                                            &effect_result_tx, &event_proxy, app_effect_handler.as_ref(),
+                                            &effect_result_tx, &event_proxy,
                                 &async_registry, &mut active_services, &mut service_bindings, &mut next_service_instance_id,
                                             &window, elwt,
                                             &mut last_redraw_at, min_frame, &mut redraw_pending,
@@ -4075,7 +3814,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                     handle_scroll(
                                         point_x, point_y, dx, dy, current_mods,
                                         &mut runtime, &pipeline,
-                                        &effect_result_tx, &event_proxy, app_effect_handler.as_ref(),
+                                        &effect_result_tx, &event_proxy,
                                 &async_registry, &mut active_services, &mut service_bindings, &mut next_service_instance_id,
                                         &window, elwt,
                                         &mut last_redraw_at, min_frame, &mut redraw_pending,
@@ -4102,7 +3841,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                             handle_cursor_moved(
                                                 x, y, current_mods,
                                                 &mut runtime, &pipeline,
-                                                &effect_result_tx, &event_proxy, app_effect_handler.as_ref(),
+                                                &effect_result_tx, &event_proxy,
                                 &async_registry, &mut active_services, &mut service_bindings, &mut next_service_instance_id,
                                                 &window, elwt,
                                                 &mut last_redraw_at, min_frame, &mut redraw_pending,
@@ -4112,7 +3851,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                             handle_mouse_button(
                                                 x, y, PointerButton::Primary, true, current_mods,
                                                 &mut runtime, &pipeline,
-                                                &effect_result_tx, &event_proxy, app_effect_handler.as_ref(),
+                                                &effect_result_tx, &event_proxy,
                                 &async_registry, &mut active_services, &mut service_bindings, &mut next_service_instance_id,
                                                 &window, elwt,
                                                 &mut last_redraw_at, min_frame, &mut redraw_pending,
@@ -4129,7 +3868,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                             handle_cursor_moved(
                                                 x, y, current_mods,
                                                 &mut runtime, &pipeline,
-                                                &effect_result_tx, &event_proxy, app_effect_handler.as_ref(),
+                                                &effect_result_tx, &event_proxy,
                                 &async_registry, &mut active_services, &mut service_bindings, &mut next_service_instance_id,
                                                 &window, elwt,
                                                 &mut last_redraw_at, min_frame, &mut redraw_pending,
@@ -4143,7 +3882,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                             handle_cursor_moved(
                                                 x, y, current_mods,
                                                 &mut runtime, &pipeline,
-                                                &effect_result_tx, &event_proxy, app_effect_handler.as_ref(),
+                                                &effect_result_tx, &event_proxy,
                                 &async_registry, &mut active_services, &mut service_bindings, &mut next_service_instance_id,
                                                 &window, elwt,
                                                 &mut last_redraw_at, min_frame, &mut redraw_pending,
@@ -4153,7 +3892,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                             handle_mouse_button(
                                                 x, y, PointerButton::Primary, false, current_mods,
                                                 &mut runtime, &pipeline,
-                                                &effect_result_tx, &event_proxy, app_effect_handler.as_ref(),
+                                                &effect_result_tx, &event_proxy,
                                 &async_registry, &mut active_services, &mut service_bindings, &mut next_service_instance_id,
                                                 &window, elwt,
                                                 &mut last_redraw_at, min_frame, &mut redraw_pending,
@@ -4207,7 +3946,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                         handle_key_down::<S>(
                                             code, current_mods,
                                             &mut runtime, &pipeline,
-                                            &effect_result_tx, &event_proxy, app_effect_handler.as_ref(),
+                                            &effect_result_tx, &event_proxy,
                                 &async_registry, &mut active_services, &mut service_bindings, &mut next_service_instance_id,
                                             &window, elwt,
                                             &mut last_redraw_at, min_frame, &mut redraw_pending,
@@ -4252,7 +3991,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                             &mut runtime,
                                             &effect_result_tx,
                                             &event_proxy,
-                                            app_effect_handler.as_ref(),
+                                           
                                             &async_registry,
                                             &mut active_services,
                                             &mut service_bindings,
@@ -4564,8 +4303,7 @@ mod tests {
     use super::{
         animation_redraw_interval, cursor_icon_for, downscale_rgba_box,
         layout_size_to_image_dimensions, logical_viewport_to_render_target_size,
-        repeating_animation_redraw_interval,
-        texture_plans_fit_device_limits, LiveResizeController,
+        repeating_animation_redraw_interval, texture_plans_fit_device_limits, LiveResizeController,
     };
     use crate::pipeline::CompositorTexturePlan;
     use fission_core::env::{ActiveAnimation, AnimationStateMap};

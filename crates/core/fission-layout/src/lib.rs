@@ -1087,29 +1087,30 @@ impl LayoutEngine {
                 let mut measured_children: Vec<(NodeId, BoxConstraints, LayoutSize)> = Vec::new();
                 if !rich_text_inline_children {
                     for child_id in &flow_children {
-                        let (child_width, child_height, child_max_width, child_max_height) = node_map
-                            .get(child_id)
-                            .map(|child| match &child.op {
-                                LayoutOp::Box {
-                                    width,
-                                    height,
-                                    max_width,
-                                    max_height,
-                                    ..
-                                } => (*width, *height, *max_width, *max_height),
-                                LayoutOp::Scroll {
-                                    width,
-                                    height,
-                                    max_width,
-                                    max_height,
-                                    ..
-                                } => (*width, *height, *max_width, *max_height),
-                                LayoutOp::Embed { width, height, .. } => {
-                                    (*width, *height, None, None)
-                                }
-                                _ => (None, None, None, None),
-                            })
-                            .unwrap_or((None, None, None, None));
+                        let (child_width, child_height, child_max_width, child_max_height) =
+                            node_map
+                                .get(child_id)
+                                .map(|child| match &child.op {
+                                    LayoutOp::Box {
+                                        width,
+                                        height,
+                                        max_width,
+                                        max_height,
+                                        ..
+                                    } => (*width, *height, *max_width, *max_height),
+                                    LayoutOp::Scroll {
+                                        width,
+                                        height,
+                                        max_width,
+                                        max_height,
+                                        ..
+                                    } => (*width, *height, *max_width, *max_height),
+                                    LayoutOp::Embed { width, height, .. } => {
+                                        (*width, *height, None, None)
+                                    }
+                                    _ => (None, None, None, None),
+                                })
+                                .unwrap_or((None, None, None, None));
                         let mut child_constraints = base_child_constraints;
                         let stretch_width = child_constraints.min_w == child_constraints.max_w
                             && child_width.is_none()
@@ -2539,23 +2540,23 @@ impl LayoutEngine {
                 let rich_layout = measurer.layout_rich_text(runs, avail_w);
                 let text_content = LayoutSize::new(rich_layout.width, rich_layout.height);
                 let measured = constraints.constrain(text_content);
-                if rich_text_inline_children && rich_layout.inline_boxes.len() == flow_children.len() {
+                if rich_text_inline_children
+                    && rich_layout.inline_boxes.len() == flow_children.len()
+                {
                     let result =
                         self.record_geometry(node_id, origin, measured, text_content, out, record);
                     if record {
                         let mut inline_boxes = rich_layout.inline_boxes;
                         inline_boxes.sort_by_key(|inline_box| inline_box.id);
-                        for (child_id, inline_box) in flow_children.iter().zip(inline_boxes.iter()) {
+                        for (child_id, inline_box) in flow_children.iter().zip(inline_boxes.iter())
+                        {
                             self.layout_node_constraints(
                                 *child_id,
                                 BoxConstraints::tight(LayoutSize::new(
                                     inline_box.width,
                                     inline_box.height,
                                 )),
-                                LayoutPoint::new(
-                                    origin.x + inline_box.x,
-                                    origin.y + inline_box.y,
-                                ),
+                                LayoutPoint::new(origin.x + inline_box.x, origin.y + inline_box.y),
                                 node_map,
                                 out,
                                 constraints_out,

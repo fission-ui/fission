@@ -102,15 +102,16 @@ let action = ctx.bind(Increment, on_increment as Handler<CounterState, Increment
 
 ## Effects system
 
-Reducers must be pure -- they cannot perform I/O. When async work is needed, reducers emit **Effects** through the `ReducerContext`. The platform executor fulfills the effect outside the deterministic core and dispatches the result back as a bound callback action.
+Reducers must be pure -- they cannot perform I/O. When async work is needed, reducers emit **Effects** through the `ReducerContext`. The shell-owned async host fulfills typed capability operations, jobs, and services outside the deterministic core and dispatches the result back as a bound callback action.
 
-Built-in system effects include `HttpGet`, `FileRead`, `Alert`, `OpenUrl`, `Authenticate`, and more. For app-specific effects, use `Effect::App` with an opaque payload.
+Use capability operations for host/device access and typed jobs for app-defined async work.
 
 ```rust
-fn fetch_data(state: &mut MyState, _action: FetchTodos, ctx: &mut ReducerContext<MyState>) {
-    ctx.effects.http_get("https://api.example.com/todos")
-        .on_ok(ctx.effects.bind(TodosLoaded, handle_loaded as fn(&mut MyState, TodosLoaded, _)))
-        .on_err(ctx.effects.bind(FetchError, handle_error as fn(&mut MyState, FetchError, _)));
+fn pick_file(state: &mut MyState, _action: PickFile, ctx: &mut ReducerContext<MyState>) {
+    ctx.effects
+        .capability(PICK_OPEN_FILES, PickOpenFilesRequest::default())
+        .on_ok(ctx.effects.bind(FilePicked, handle_picked as fn(&mut MyState, FilePicked, _)))
+        .on_err(ctx.effects.bind(FilePickFailed, handle_pick_failed as fn(&mut MyState, FilePickFailed, _)));
 }
 ```
 

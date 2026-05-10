@@ -112,7 +112,10 @@ impl ImeHandler for DesktopImeHandler {
 
     fn set_ime_cursor_area(&self, rect: LayoutRect) {
         let state = self.state.lock().expect("ime handler lock poisoned");
-        if !effective_ime_allowed(state.ime_allowed_requested, state.text_input_config.as_ref()) {
+        if !effective_ime_allowed(
+            state.ime_allowed_requested,
+            state.text_input_config.as_ref(),
+        ) {
             return;
         }
         if let Some(window) = state.window.as_ref() {

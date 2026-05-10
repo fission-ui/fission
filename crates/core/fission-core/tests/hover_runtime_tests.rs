@@ -16,22 +16,38 @@ struct HoverState {
 
 impl AppState for HoverState {}
 
-fn inc_outer_enter(state: &mut HoverState, _action: &fission_core::ActionEnvelope, _target: NodeId) -> Result<()> {
+fn inc_outer_enter(
+    state: &mut HoverState,
+    _action: &fission_core::ActionEnvelope,
+    _target: NodeId,
+) -> Result<()> {
     state.outer_enter += 1;
     Ok(())
 }
 
-fn inc_outer_exit(state: &mut HoverState, _action: &fission_core::ActionEnvelope, _target: NodeId) -> Result<()> {
+fn inc_outer_exit(
+    state: &mut HoverState,
+    _action: &fission_core::ActionEnvelope,
+    _target: NodeId,
+) -> Result<()> {
     state.outer_exit += 1;
     Ok(())
 }
 
-fn inc_inner_enter(state: &mut HoverState, _action: &fission_core::ActionEnvelope, _target: NodeId) -> Result<()> {
+fn inc_inner_enter(
+    state: &mut HoverState,
+    _action: &fission_core::ActionEnvelope,
+    _target: NodeId,
+) -> Result<()> {
     state.inner_enter += 1;
     Ok(())
 }
 
-fn inc_inner_exit(state: &mut HoverState, _action: &fission_core::ActionEnvelope, _target: NodeId) -> Result<()> {
+fn inc_inner_exit(
+    state: &mut HoverState,
+    _action: &fission_core::ActionEnvelope,
+    _target: NodeId,
+) -> Result<()> {
     state.inner_exit += 1;
     Ok(())
 }
@@ -121,7 +137,13 @@ fn register_hover_reducers(runtime: &mut Runtime) -> Result<()> {
     Ok(())
 }
 
-fn move_pointer(runtime: &mut Runtime, ir: &fission_ir::CoreIR, layout: &LayoutSnapshot, x: f32, y: f32) {
+fn move_pointer(
+    runtime: &mut Runtime,
+    ir: &fission_ir::CoreIR,
+    layout: &LayoutSnapshot,
+    x: f32,
+    y: f32,
+) {
     runtime
         .handle_input(
             InputEvent::Pointer(PointerEvent::Move {
@@ -148,7 +170,10 @@ fn hover_dispatches_once_per_transition_and_tracks_cursor_target() -> Result<()>
         assert_eq!(hover.inner_enter, 1);
         assert_eq!(hover.inner_exit, 0);
     }
-    assert_eq!(runtime.runtime_state.interaction.cursor(), MouseCursor::Text);
+    assert_eq!(
+        runtime.runtime_state.interaction.cursor(),
+        MouseCursor::Text
+    );
 
     move_pointer(&mut runtime, &ir, &layout, 25.0, 25.0);
     {
@@ -158,7 +183,10 @@ fn hover_dispatches_once_per_transition_and_tracks_cursor_target() -> Result<()>
         assert_eq!(hover.inner_enter, 1);
         assert_eq!(hover.inner_exit, 0);
     }
-    assert_eq!(runtime.runtime_state.interaction.cursor(), MouseCursor::Text);
+    assert_eq!(
+        runtime.runtime_state.interaction.cursor(),
+        MouseCursor::Text
+    );
 
     move_pointer(&mut runtime, &ir, &layout, 80.0, 80.0);
     {
@@ -168,7 +196,10 @@ fn hover_dispatches_once_per_transition_and_tracks_cursor_target() -> Result<()>
         assert_eq!(hover.inner_enter, 1);
         assert_eq!(hover.inner_exit, 1);
     }
-    assert_eq!(runtime.runtime_state.interaction.cursor(), MouseCursor::Pointer);
+    assert_eq!(
+        runtime.runtime_state.interaction.cursor(),
+        MouseCursor::Pointer
+    );
 
     move_pointer(&mut runtime, &ir, &layout, 150.0, 150.0);
     {
@@ -178,7 +209,10 @@ fn hover_dispatches_once_per_transition_and_tracks_cursor_target() -> Result<()>
         assert_eq!(hover.inner_enter, 1);
         assert_eq!(hover.inner_exit, 1);
     }
-    assert_eq!(runtime.runtime_state.interaction.cursor(), MouseCursor::Default);
+    assert_eq!(
+        runtime.runtime_state.interaction.cursor(),
+        MouseCursor::Default
+    );
 
     Ok(())
 }
@@ -198,7 +232,10 @@ fn clear_hover_state_dispatches_exit_once() -> Result<()> {
     assert_eq!(hover.outer_exit, 1);
     assert_eq!(hover.inner_enter, 1);
     assert_eq!(hover.inner_exit, 1);
-    assert_eq!(runtime.runtime_state.interaction.cursor(), MouseCursor::Default);
+    assert_eq!(
+        runtime.runtime_state.interaction.cursor(),
+        MouseCursor::Default
+    );
 
     Ok(())
 }

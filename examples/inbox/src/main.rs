@@ -16,7 +16,9 @@ mod model;
 
 use components::{EmailDetail, EmailList, RightSidebar, Sidebar};
 use features::{BrowserModal, ComposeModal, ContactsModal, SettingsModal};
-use fission_core::{ActionRegistry, ReducerContext, SystemEffect};
+use fission_core::{
+    ActionRegistry, AuthenticateRequest, OPEN_URL, AUTHENTICATE, OpenUrlRequest, ReducerContext,
+};
 use model::*;
 
 // --- APP ---
@@ -244,10 +246,13 @@ fn on_open_system_link(
     action: OpenSystemLink,
     ctx: &mut ReducerContext<InboxState>,
 ) {
-    ctx.effects.add(SystemEffect::OpenUrl {
-        url: action.0,
-        in_app: false,
-    });
+    ctx.effects.capability(
+        OPEN_URL,
+        OpenUrlRequest {
+            url: action.0,
+            in_app: false,
+        },
+    );
 }
 
 fn on_open_in_app_link(
@@ -255,10 +260,13 @@ fn on_open_in_app_link(
     action: OpenInAppLink,
     ctx: &mut ReducerContext<InboxState>,
 ) {
-    ctx.effects.add(SystemEffect::OpenUrl {
-        url: action.0,
-        in_app: true,
-    });
+    ctx.effects.capability(
+        OPEN_URL,
+        OpenUrlRequest {
+            url: action.0,
+            in_app: true,
+        },
+    );
 }
 
 fn on_start_auth(
@@ -266,10 +274,13 @@ fn on_start_auth(
     _action: StartAuth,
     ctx: &mut ReducerContext<InboxState>,
 ) {
-    ctx.effects.add(SystemEffect::Authenticate {
-        url: "https://auth.example.com/login".into(),
-        callback_scheme: "fission-inbox://callback".into(),
-    });
+    ctx.effects.capability(
+        AUTHENTICATE,
+        AuthenticateRequest {
+            url: "https://auth.example.com/login".into(),
+            callback_scheme: "fission-inbox://callback".into(),
+        },
+    );
 }
 
 // --- SETUP ---

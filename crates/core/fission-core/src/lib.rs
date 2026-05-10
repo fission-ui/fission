@@ -8,7 +8,7 @@
 //! - A **declarative widget tree** built from composable primitives ([`Node`], [`Widget`]).
 //! - A **unidirectional data-flow** pipeline: [`Action`] -> [`Runtime::dispatch`] -> reducer
 //!   -> mutated [`AppState`].
-//! - An **effect system** for async side-effects ([`Effect`], [`SystemEffect`]).
+//! - An **effect system** for async side-effects ([`Effect`], [`RuntimeEffect`]).
 //! - Built-in widgets: [`Button`], [`Text`], [`TextInput`], [`Container`], [`Row`],
 //!   [`Column`], [`Scroll`], [`ZStack`], [`Grid`], [`LazyColumn`], and more.
 //!
@@ -41,6 +41,7 @@ extern crate self as fission_core;
 
 pub mod action;
 pub mod async_runtime;
+pub mod capability; // New
 pub mod context; // New
 pub mod diff;
 pub mod effect; // New
@@ -65,8 +66,15 @@ pub use async_runtime::{
     BoxFuture, JobCtx, JobRef, JobSpec, ResourceExecutionContext, ServiceBindings, ServiceCtx,
     ServiceRunner, ServiceSlot, ServiceSpec, ServiceType,
 };
+pub use capability::{
+    AlertRequest, AuthenticateRequest, CapabilityCtx, CapabilityInvocationPayload,
+    CapabilityType, OpenUrlRequest, OperationCapability, PickOpenFilesError,
+    PickOpenFilesRequest, PickOpenFilesResult, PickedFile, AlertCapability, AuthenticateCapability,
+    OpenUrlCapability, PickOpenFilesCapability, AUTHENTICATE, OPEN_URL, PICK_OPEN_FILES,
+    SHOW_ALERT,
+};
 pub use context::{Effects, ReducerContext}; // New
-pub use effect::{ActionInput, Effect, EffectEnvelope, EffectPayload, SystemEffect}; // New
+pub use effect::{ActionInput, Effect, EffectEnvelope, RuntimeEffect};
 pub use env::{Clipboard, Env, ImeHandler, InteractionStateMap, RuntimeState, ScrollStateMap};
 pub use runtime::Runtime;
 

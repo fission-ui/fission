@@ -57,8 +57,12 @@ impl HoverController {
             dispatch_hover_actions(ctx, *node_id, ActionTrigger::HoverEnter, point);
         }
 
-        if previous_annotation.as_ref().map(|annotation| (&annotation.node_id, &annotation.annotation))
-            != next_annotation.as_ref().map(|(node_id, annotation)| (node_id, annotation))
+        if previous_annotation
+            .as_ref()
+            .map(|annotation| (&annotation.node_id, &annotation.annotation))
+            != next_annotation
+                .as_ref()
+                .map(|(node_id, annotation)| (node_id, annotation))
         {
             if let Some(previous) = &previous_annotation {
                 dispatch_annotation_actions(
@@ -70,19 +74,33 @@ impl HoverController {
                 );
             }
             if let Some((node_id, annotation)) = &next_annotation {
-                dispatch_annotation_actions(ctx, *node_id, annotation, ActionTrigger::HoverEnter, point);
+                dispatch_annotation_actions(
+                    ctx,
+                    *node_id,
+                    annotation,
+                    ActionTrigger::HoverEnter,
+                    point,
+                );
             }
         }
 
         let next_cursor = resolve_cursor(ctx, &next_path, next_annotation.as_ref());
         let changed = previous_path != next_path
-            || previous_annotation.as_ref().map(|annotation| (&annotation.node_id, &annotation.annotation))
-                != next_annotation.as_ref().map(|(node_id, annotation)| (node_id, annotation))
+            || previous_annotation
+                .as_ref()
+                .map(|annotation| (&annotation.node_id, &annotation.annotation))
+                != next_annotation
+                    .as_ref()
+                    .map(|(node_id, annotation)| (node_id, annotation))
             || ctx.interaction.cursor != next_cursor;
         ctx.interaction.set_hover_path(next_path);
-        ctx.interaction.set_hovered_rich_text_annotation(next_annotation.map(|(node_id, annotation)| {
-            crate::env::HoveredRichTextAnnotation { node_id, annotation }
-        }));
+        ctx.interaction
+            .set_hovered_rich_text_annotation(next_annotation.map(|(node_id, annotation)| {
+                crate::env::HoveredRichTextAnnotation {
+                    node_id,
+                    annotation,
+                }
+            }));
         ctx.interaction.set_cursor(next_cursor);
         changed
     }
@@ -264,7 +282,11 @@ fn dispatch_annotation_actions(
     trigger: ActionTrigger,
     point: Option<LayoutPoint>,
 ) {
-    for entry in annotation.actions.iter().filter(|entry| entry.trigger == trigger) {
+    for entry in annotation
+        .actions
+        .iter()
+        .filter(|entry| entry.trigger == trigger)
+    {
         let Some(payload) = &entry.payload_data else {
             continue;
         };

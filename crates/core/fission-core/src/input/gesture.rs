@@ -241,7 +241,11 @@ impl GestureController {
         trigger: ActionTrigger,
         point: LayoutPoint,
     ) -> bool {
-        let Some(action_entry) = annotation.actions.iter().find(|entry| entry.trigger == trigger) else {
+        let Some(action_entry) = annotation
+            .actions
+            .iter()
+            .find(|entry| entry.trigger == trigger)
+        else {
             return false;
         };
         let Some(payload) = &action_entry.payload_data else {

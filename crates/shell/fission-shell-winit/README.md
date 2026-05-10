@@ -55,8 +55,10 @@ WinitApp::new(MyRootWidget)
         // Return true to request a redraw.
         false
     })
-    .with_app_effect_handler(|payload, req_id, on_ok, on_err, tx, proxy| {
-        // Handle Effect::App(...) payloads on a background thread.
+    .with_async(|asyncs| {
+        asyncs.register_operation_capability(MY_CAPABILITY, |request, _ctx| async move {
+            Ok(MyCapabilityOk::default())
+        });
     })
     .run()
     .unwrap();
@@ -69,11 +71,10 @@ WinitApp::new(MyRootWidget)
 | `with_title(title)` | Set the window title. |
 | `with_state_init(f)` | Mutate the initial `S` state before the first frame. Keep this synchronous and cheap. |
 | `with_startup_action(action)` | Dispatch one action after the runtime is ready. Use this to kick off startup jobs or services without blocking first paint. |
-| `with_async(f)` | Register typed async jobs and services on the shell-owned async host. |
+| `with_async(f)` | Register typed async jobs, services, and capability handlers on the shell-owned async host. |
 | `with_key_handler(f)` | Register an app-level key handler that intercepts before the framework. The handler receives `(&mut S, &KeyCode, modifiers)` and returns `true` if consumed. |
 | `with_sync_env(f)` | Synchronize `Env` from app state each frame (e.g., theme switching). |
 | `with_frame_hook(f)` | Register a callback that runs on every `AboutToWait` event. Return `true` to request a redraw. Prefer startup actions, async jobs, services, or timer resources for app lifecycle work. |
-| `with_app_effect_handler(f)` | Handle custom `Effect::App(Vec<u8>)` payloads. The handler should spawn background work and send results through the provided channel and wake proxy. |
 | `with_env(env)` | Replace the default `Env`. |
 | `register_reducer(id, f)` | Register a single action reducer. |
 | `absorb_registry(registry)` | Absorb an entire `ActionRegistry<S>` for bulk reducer registration. |

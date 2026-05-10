@@ -36,17 +36,17 @@ fn test_explicit_focus_order() {
                 focusable: true,
                 focus_index: Some(self.index),
                 text_input_type: fission_ir::semantics::TextInputType::Text,
-                            text_input_action: fission_ir::semantics::TextInputAction::Done,
-                            text_capitalization: fission_ir::semantics::TextCapitalization::None,
-                            max_length: None,
-                            max_length_enforcement: fission_ir::semantics::MaxLengthEnforcement::Enforced,
-                            input_formatters: Vec::new(),
-                            autocorrect: true,
-                            enable_suggestions: true,
-                        spell_check: true,
-                        smart_dashes: true,
-                        smart_quotes: true,
-                        autofill_hints: Vec::new(),
+                text_input_action: fission_ir::semantics::TextInputAction::Done,
+                text_capitalization: fission_ir::semantics::TextCapitalization::None,
+                max_length: None,
+                max_length_enforcement: fission_ir::semantics::MaxLengthEnforcement::Enforced,
+                input_formatters: Vec::new(),
+                autocorrect: true,
+                enable_suggestions: true,
+                spell_check: true,
+                smart_dashes: true,
+                smart_quotes: true,
+                autofill_hints: Vec::new(),
                 capture_tab: false,
                 auto_indent: false,
                 ..Default::default()
@@ -173,5 +173,8 @@ fn test_autofocus_assigns_initial_focus() {
         )
         .unwrap();
 
-    assert_eq!(runtime.runtime_state.interaction.focused, Some(text_input_id));
+    assert_eq!(
+        runtime.runtime_state.interaction.focused,
+        Some(text_input_id)
+    );
 }

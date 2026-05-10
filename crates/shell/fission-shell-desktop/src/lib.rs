@@ -2,12 +2,8 @@
 
 use anyhow::Result;
 use fission_core::{Action, ActionId, AppState, Env, Widget};
-use fission_shell::async_host::{AsyncMessage, AsyncRegistry};
+use fission_shell::async_host::AsyncRegistry;
 use fission_shell_winit::WinitApp;
-use std::sync::mpsc;
-use winit::event_loop::EventLoopProxy;
-
-use fission_test_driver::TestEvent;
 
 #[allow(dead_code)]
 mod compositor;
@@ -80,23 +76,6 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
         self
     }
 
-    pub fn with_app_effect_handler<F>(mut self, handler: F) -> Self
-    where
-        F: Fn(
-                Vec<u8>,
-                u64,
-                Option<fission_core::ActionEnvelope>,
-                Option<fission_core::ActionEnvelope>,
-                mpsc::Sender<AsyncMessage>,
-                EventLoopProxy<TestEvent>,
-            ) + Send
-            + Sync
-            + 'static,
-    {
-        self.inner = self.inner.with_app_effect_handler(handler);
-        self
-    }
-
     pub fn with_async<F>(mut self, configure: F) -> Self
     where
         F: FnOnce(&mut AsyncRegistry),
@@ -134,5 +113,3 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
         self.inner.run_with_android_app(android_app)
     }
 }
-
-pub use fission_shell_winit::AppEffectHandler;

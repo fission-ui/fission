@@ -1,6 +1,7 @@
 use fission_core::{
-    ActionEnvelope, BoxFuture, EffectPayload, JobCtx, JobRef, JobSpec, ResourceExecutionContext,
-    ServiceCtx, ServiceRunner, ServiceSpec, ServiceType,
+    ActionEnvelope, BoxFuture, CapabilityCtx, CapabilityType, JobCtx, JobRef,
+    JobSpec, OperationCapability, ResourceExecutionContext, ServiceCtx, ServiceRunner, ServiceSpec,
+    ServiceType,
 };
 use std::collections::HashMap;
 use std::future::Future;
@@ -11,13 +12,6 @@ pub type WakeFn = Arc<dyn Fn() + Send + Sync>;
 
 #[derive(Clone, Debug)]
 pub enum AsyncMessage {
-    LegacyResult {
-        req_id: u64,
-        result: Result<EffectPayload, String>,
-        on_ok: Option<ActionEnvelope>,
-        on_err: Option<ActionEnvelope>,
-        resource: Option<ResourceExecutionContext>,
-    },
     JobOk {
         job_name: String,
         req_id: u64,
@@ -79,6 +73,21 @@ pub enum AsyncMessage {
         message: Option<String>,
         resource: Option<ResourceExecutionContext>,
     },
+    CapabilityOk {
+        capability_name: String,
+        req_id: u64,
+        payload: Vec<u8>,
+        on_ok: Option<ActionEnvelope>,
+        resource: Option<ResourceExecutionContext>,
+    },
+    CapabilityErr {
+        capability_name: String,
+        req_id: u64,
+        payload: Option<Vec<u8>>,
+        on_err: Option<ActionEnvelope>,
+        message: Option<String>,
+        resource: Option<ResourceExecutionContext>,
+    },
 }
 
 #[derive(Clone)]
@@ -110,6 +119,17 @@ struct JobLaunch {
 }
 
 #[derive(Clone)]
+struct CapabilityLaunch {
+    req_id: u64,
+    payload: Vec<u8>,
+    on_ok: Option<ActionEnvelope>,
+    on_err: Option<ActionEnvelope>,
+    resource: Option<ResourceExecutionContext>,
+    tx: mpsc::Sender<AsyncMessage>,
+    wake: WakeFn,
+}
+
+#[derive(Clone)]
 struct ServiceLaunch {
     service_name: String,
     slot_key: String,
@@ -122,10 +142,12 @@ struct ServiceLaunch {
 
 type JobHandler = dyn Fn(JobLaunch) + Send + Sync;
 type ServiceSpawner = dyn Fn(ServiceLaunch) -> RunningServiceHandle + Send + Sync;
+type CapabilitySpawner = dyn Fn(CapabilityLaunch) + Send + Sync;
 
 pub struct AsyncRegistry {
     jobs: HashMap<String, Arc<JobHandler>>,
     services: HashMap<String, Arc<ServiceSpawner>>,
+    operations: HashMap<String, Arc<CapabilitySpawner>>,
 }
 
 impl Default for AsyncRegistry {
@@ -133,6 +155,7 @@ impl Default for AsyncRegistry {
         Self {
             jobs: HashMap::new(),
             services: HashMap::new(),
+            operations: HashMap::new(),
         }
     }
 }
@@ -140,6 +163,105 @@ impl Default for AsyncRegistry {
 impl AsyncRegistry {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    pub fn register_operation_capability<C, F, Fut>(
+        &mut self,
+        capability: CapabilityType<C>,
+        handler: F,
+    ) where
+        C: OperationCapability,
+        F: Fn(C::Request, CapabilityCtx) -> Fut + Send + Sync + 'static,
+        Fut: Future<Output = Result<C::Ok, C::Err>> + Send + 'static,
+    {
+        let handler = Arc::new(handler);
+        self.operations.insert(
+            capability.name.to_string(),
+            Arc::new(move |launch: CapabilityLaunch| {
+                let handler = handler.clone();
+                let name = capability.name.to_string();
+                std::thread::spawn(move || {
+                    let runtime = match new_job_runtime() {
+                        Ok(runtime) => runtime,
+                        Err(err) => {
+                            let _ = launch.tx.send(AsyncMessage::CapabilityErr {
+                                capability_name: name,
+                                req_id: launch.req_id,
+                                payload: None,
+                                on_err: launch.on_err,
+                                message: Some(err),
+                                resource: launch.resource,
+                            });
+                            (launch.wake)();
+                            return;
+                        }
+                    };
+
+                    let request = match serde_json::from_slice::<C::Request>(&launch.payload) {
+                        Ok(request) => request,
+                        Err(err) => {
+                            let _ = launch.tx.send(AsyncMessage::CapabilityErr {
+                                capability_name: name,
+                                req_id: launch.req_id,
+                                payload: None,
+                                on_err: launch.on_err,
+                                message: Some(err.to_string()),
+                                resource: launch.resource,
+                            });
+                            (launch.wake)();
+                            return;
+                        }
+                    };
+
+                    match runtime.block_on(handler(
+                        request,
+                        CapabilityCtx {
+                            req_id: launch.req_id,
+                        },
+                    )) {
+                        Ok(ok) => match serde_json::to_vec(&ok) {
+                            Ok(payload) => {
+                                let _ = launch.tx.send(AsyncMessage::CapabilityOk {
+                                    capability_name: name,
+                                    req_id: launch.req_id,
+                                    payload,
+                                    on_ok: launch.on_ok,
+                                    resource: launch.resource,
+                                });
+                            }
+                            Err(err) => {
+                                let _ = launch.tx.send(AsyncMessage::CapabilityErr {
+                                    capability_name: name,
+                                    req_id: launch.req_id,
+                                    payload: None,
+                                    on_err: launch.on_err,
+                                    message: Some(err.to_string()),
+                                    resource: launch.resource,
+                                });
+                            }
+                        },
+                        Err(err) => {
+                            let (payload, message) = serde_json::to_vec(&err)
+                                .ok()
+                                .map(|payload| (Some(payload), None))
+                                .unwrap_or_else(|| {
+                                    (None, Some("capability error serialization failed".into()))
+                                });
+                            let _ = launch.tx.send(AsyncMessage::CapabilityErr {
+                                capability_name: name,
+                                req_id: launch.req_id,
+                                payload,
+                                on_err: launch.on_err,
+                                message,
+                                resource: launch.resource,
+                            });
+                        }
+                    }
+
+                    (launch.wake)();
+                });
+            }),
+        );
     }
 
     pub fn register_job<J, F, Fut>(&mut self, job: JobRef<J>, handler: F)
@@ -459,6 +581,32 @@ impl AsyncRegistry {
             return false;
         };
         handler(JobLaunch {
+            req_id,
+            payload,
+            on_ok,
+            on_err,
+            resource,
+            tx: tx.clone(),
+            wake,
+        });
+        true
+    }
+
+    pub fn spawn_capability(
+        &self,
+        capability_name: &str,
+        req_id: u64,
+        payload: Vec<u8>,
+        on_ok: Option<ActionEnvelope>,
+        on_err: Option<ActionEnvelope>,
+        resource: Option<ResourceExecutionContext>,
+        tx: &mpsc::Sender<AsyncMessage>,
+        wake: WakeFn,
+    ) -> bool {
+        let Some(handler) = self.operations.get(capability_name) else {
+            return false;
+        };
+        handler(CapabilityLaunch {
             req_id,
             payload,
             on_ok,

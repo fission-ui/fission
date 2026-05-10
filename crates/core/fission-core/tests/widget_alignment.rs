@@ -3,7 +3,9 @@ use fission_core::lowering::{build_layout_tree, LoweringContext};
 use fission_core::ui::widgets::text::{InlineWidgetSpan, RichTextChild, RichTextSpan};
 use fission_core::ui::{Checkbox, Node, Radio, RichText, Spacer};
 use fission_ir::{CoreIR, LayoutOp, NodeId, Op};
-use fission_layout::{LayoutEngine, LayoutSize, RichTextInlineBox, RichTextLayoutInfo, TextMeasurer};
+use fission_layout::{
+    LayoutEngine, LayoutSize, RichTextInlineBox, RichTextLayoutInfo, TextMeasurer,
+};
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -243,10 +245,8 @@ fn rich_text_inline_widget_uses_layout_inline_box_positions() {
         RichTextChild::from(RichTextSpan::new(" after")),
     ]);
 
-    let (ir, snapshot) = layout_from_node_with_measurer(
-        rich_text.into_node(),
-        Arc::new(InlineWidgetMeasurer),
-    );
+    let (ir, snapshot) =
+        layout_from_node_with_measurer(rich_text.into_node(), Arc::new(InlineWidgetMeasurer));
 
     let paint_node = ir
         .nodes

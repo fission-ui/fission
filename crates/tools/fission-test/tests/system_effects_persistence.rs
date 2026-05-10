@@ -1,9 +1,9 @@
 use anyhow::Result;
 use fission_core::action::{Action, ActionEnvelope, ActionId};
-use fission_core::effect::SystemEffect;
 use fission_core::registry::{ActionRegistry, Handler};
 use fission_core::{
-    AppState, BuildCtx, InputEvent, PointerButton, PointerEvent, ReducerContext, View, Widget,
+    AppState, BuildCtx, InputEvent, OpenUrlRequest, PointerButton, PointerEvent, ReducerContext,
+    View, Widget, OPEN_URL,
 };
 use fission_widgets::{Button, ButtonVariant, Container, Node, Text};
 use lazy_static::lazy_static;
@@ -26,10 +26,13 @@ impl Action for OpenLink {
 }
 
 fn on_open_link(_state: &mut TestState, action: OpenLink, ctx: &mut ReducerContext<TestState>) {
-    ctx.effects.add(SystemEffect::OpenUrl {
-        url: action.0,
-        in_app: false,
-    });
+    ctx.effects.capability(
+        OPEN_URL,
+        OpenUrlRequest {
+            url: action.0,
+            in_app: false,
+        },
+    );
 }
 
 struct Root;

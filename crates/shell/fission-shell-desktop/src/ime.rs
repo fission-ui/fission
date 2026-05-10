@@ -116,16 +116,17 @@ impl ImeHandler for DesktopImeHandler {
 
     fn set_ime_cursor_area(&self, rect: LayoutRect) {
         let state = self.state.lock().expect("ime handler lock poisoned");
-        if !effective_ime_allowed(state.ime_allowed_requested, state.text_input_config.as_ref()) {
+        if !effective_ime_allowed(
+            state.ime_allowed_requested,
+            state.text_input_config.as_ref(),
+        ) {
             return;
         }
         // Position relative to window
-        state
-            .window
-            .set_ime_cursor_area(
-                winit::dpi::PhysicalPosition::new(rect.x() as f64, rect.y() as f64),
-                winit::dpi::PhysicalSize::new(rect.width() as u32, rect.height() as u32),
-            );
+        state.window.set_ime_cursor_area(
+            winit::dpi::PhysicalPosition::new(rect.x() as f64, rect.y() as f64),
+            winit::dpi::PhysicalSize::new(rect.width() as u32, rect.height() as u32),
+        );
     }
 }
 

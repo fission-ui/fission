@@ -1,7 +1,7 @@
 use crate::env::{Env, RuntimeState};
 use fission_ir::{
-    op::decode_inline_widget_marker,
-    CompositeStyle, CoreIR, GridPlacement, LayoutOp, NodeId, Op, PaintOp, WidgetNodeId,
+    op::decode_inline_widget_marker, CompositeStyle, CoreIR, GridPlacement, LayoutOp, NodeId, Op,
+    PaintOp, WidgetNodeId,
 };
 use fission_layout::{LayoutInputNode, LayoutSnapshot, TextMeasurer};
 use std::collections::HashMap;
@@ -460,10 +460,9 @@ pub fn build_layout_tree(ir: &CoreIR, env: &Env) -> Vec<LayoutInputNode> {
                 };
 
                 rich_text_content = Some(runs.clone());
-                if !runs
-                    .iter()
-                    .any(|run| decode_inline_widget_marker(run.style.font_family.as_deref()).is_some())
-                {
+                if !runs.iter().any(|run| {
+                    decode_inline_widget_marker(run.style.font_family.as_deref()).is_some()
+                }) {
                     children_to_visit.clear(); // Leaf node for layout
                 }
                 (
