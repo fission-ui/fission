@@ -3371,6 +3371,10 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                         .surface
                                         .surface
                                         .configure(&device_handle.device, &render_state.surface.config);
+                                    sync_tracked_target_texture_size_to_surface(
+                                        &mut render_state.target_texture_size,
+                                        swapchain_size,
+                                    );
                                 }
                                 let device_handle = &render_cx.devices[render_state.surface.dev_id];
 
@@ -4165,6 +4169,18 @@ fn map_mouse_button(button: MouseButton) -> Option<PointerButton> {
     }
 }
 
+fn clamp_copy_extent_to_texture(
+    requested_width: u32,
+    requested_height: u32,
+    actual_width: u32,
+    actual_height: u32,
+) -> (u32, u32) {
+    (
+        requested_width.min(actual_width).max(1),
+        requested_height.min(actual_height).max(1),
+    )
+}
+
 fn gpu_screenshot(
     device: &wgpu::Device,
     queue: &wgpu::Queue,
@@ -4175,7 +4191,15 @@ fn gpu_screenshot(
     output_height: u32,
     path: Option<&str>,
 ) -> fission_test_driver::TestResponse {
-    if texture_width == 0 || texture_height == 0 || output_width == 0 || output_height == 0 {
+    let actual_texture_width = texture.width();
+    let actual_texture_height = texture.height();
+    let (texture_width, texture_height) = clamp_copy_extent_to_texture(
+        texture_width,
+        texture_height,
+        actual_texture_width,
+        actual_texture_height,
+    );
+    if output_width == 0 || output_height == 0 {
         return fission_test_driver::TestResponse::Error {
             message: "zero-size viewport".into(),
         };
@@ -4428,15 +4452,22 @@ fn recreate_target_texture(
     surface.target_view = new_view;
 }
 
+fn sync_tracked_target_texture_size_to_surface(
+    target_texture_size: &mut (u32, u32),
+    surface_size: PhysicalSize<u32>,
+) {
+    *target_texture_size = (surface_size.width.max(1), surface_size.height.max(1));
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
-        animation_redraw_interval, cursor_icon_for, downscale_rgba_box,
-        layout_size_to_image_dimensions, logical_viewport_to_physical_size,
+        animation_redraw_interval, clamp_copy_extent_to_texture, cursor_icon_for,
+        downscale_rgba_box, layout_size_to_image_dimensions, logical_viewport_to_physical_size,
         logical_viewport_to_render_target_size, normalize_scale_factor,
-        physical_size_to_layout_size,
-        repeating_animation_redraw_interval, texture_plans_fit_device_limits, LiveResizeController,
-        WindowViewportState,
+        physical_size_to_layout_size, repeating_animation_redraw_interval,
+        sync_tracked_target_texture_size_to_surface, texture_plans_fit_device_limits,
+        LiveResizeController, WindowViewportState,
     };
     use crate::pipeline::CompositorTexturePlan;
     use fission_core::env::{ActiveAnimation, AnimationStateMap};
@@ -4768,9 +4799,43 @@ mod tests {
         let logical = physical_size_to_layout_size(PhysicalSize::new(1600, 1200), 0.0);
         assert_eq!(logical, fission_layout::LayoutSize::new(1600.0, 1200.0));
 
-        let render_target =
-            logical_viewport_to_render_target_size(fission_layout::LayoutSize::new(1600.0, 1200.0), 0.0);
+        let render_target = logical_viewport_to_render_target_size(
+            fission_layout::LayoutSize::new(1600.0, 1200.0),
+            0.0,
+        );
         assert_eq!(render_target, (1600, 1200));
+    }
+
+    #[test]
+    fn surface_resize_resets_custom_target_texture_tracking() {
+        let mut tracked_target_texture_size = (1600, 1200);
+
+        sync_tracked_target_texture_size_to_surface(
+            &mut tracked_target_texture_size,
+            PhysicalSize::new(1055, 791),
+        );
+
+        assert_eq!(tracked_target_texture_size, (1055, 791));
+        assert_ne!(
+            tracked_target_texture_size,
+            logical_viewport_to_render_target_size(
+                fission_layout::LayoutSize::new(1600.0, 1200.0),
+                1.0,
+            )
+        );
+    }
+
+    #[test]
+    fn screenshot_copy_extent_never_exceeds_texture_bounds() {
+        assert_eq!(
+            clamp_copy_extent_to_texture(1600, 1200, 1055, 791),
+            (1055, 791)
+        );
+        assert_eq!(clamp_copy_extent_to_texture(0, 0, 1055, 791), (1, 1));
+        assert_eq!(
+            clamp_copy_extent_to_texture(640, 480, 1055, 791),
+            (640, 480)
+        );
     }
 
     #[test]
