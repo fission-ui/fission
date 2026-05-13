@@ -386,7 +386,6 @@ impl LayoutGraphValidationState {
 #[derive(Debug, Clone, Default)]
 struct LayoutGraphState {
     graph_version: u64,
-    last_rebuild_version: u64,
     last_layout_version: Option<u64>,
     node_order: Vec<NodeId>,
     node_fingerprints: HashMap<NodeId, u64>,
@@ -429,7 +428,6 @@ impl LayoutGraphState {
     fn from_input_nodes(input_nodes: &[LayoutInputNode], version: u64) -> Self {
         let mut state = Self {
             graph_version: version,
-            last_rebuild_version: version,
             ..Self::default()
         };
         state.replace_all_nodes(input_nodes);
@@ -458,9 +456,6 @@ impl LayoutGraphState {
         self.rebuild_topology(validation);
     }
 
-    fn apply_update(&mut self, input_nodes: &[LayoutInputNode]) {
-        self.replace_all_nodes(input_nodes);
-    }
 
     fn rebuild_topology(&mut self, mut validation: LayoutGraphValidationState) {
         self.parents.clear();
@@ -934,6 +929,8 @@ pub struct LayoutEngine {
 }
 
 impl LayoutEngine {
+    const MAX_LAYOUT_RECURSION_DEPTH: usize = 100;
+
     /// Creates a new layout engine with no text measurer.
     ///
     /// Text nodes will be treated as zero-sized until a measurer is provided
@@ -994,7 +991,7 @@ impl LayoutEngine {
     }
 
     /// Refreshes the cached graph state after upstream layout edits.
-    pub fn update(&mut self, input_nodes: &[LayoutInputNode], dirty_set: &HashSet<NodeId>) {
+    pub fn update(&mut self, input_nodes: &[LayoutInputNode], _dirty_set: &HashSet<NodeId>) {
         let version = self.allocate_graph_version();
         if self.graph_state.is_empty() {
             self.graph_state = LayoutGraphState::from_input_nodes(input_nodes, version);
@@ -1002,12 +999,11 @@ impl LayoutEngine {
         }
 
         self.graph_state.graph_version = version;
-        if dirty_set.is_empty() && self.graph_state.matches_input_nodes(input_nodes) {
+        if self.graph_state.matches_input_nodes(input_nodes) {
             return;
         }
 
-        self.graph_state.last_rebuild_version = version;
-        self.graph_state.apply_update(input_nodes);
+        self.graph_state.replace_all_nodes(input_nodes);
     }
 
     /// Rebuilds internal data structures from the full node list.
@@ -1142,7 +1138,7 @@ impl LayoutEngine {
             scroll_source,
             true,
             0,
-        );
+        )?;
 
         let visual_location = |node_id: NodeId| -> Option<LayoutPoint> {
             let mut pos = snapshot.nodes.get(&node_id)?.rect.origin;
@@ -1284,6 +1280,26 @@ impl LayoutEngine {
         }
     }
 
+    fn layout_depth_overflow(&self, node_id: NodeId, depth: usize) -> anyhow::Error {
+        let details = format!(
+            "layout recursion depth {} exceeded max {} at node {}",
+            depth,
+            Self::MAX_LAYOUT_RECURSION_DEPTH,
+            node_id.as_u128()
+        );
+        diag::emit(
+            diag::DiagCategory::Invariants,
+            diag::DiagLevel::Error,
+            diag::DiagEventKind::InvariantViolation {
+                kind: "layout_recursion_depth".into(),
+                node: Some(node_id.as_u128()),
+                details: details.clone(),
+                dump_ref: None,
+            },
+        );
+        anyhow::anyhow!(details)
+    }
+
     fn layout_node_constraints(
         &self,
         node_id: NodeId,
@@ -1295,22 +1311,19 @@ impl LayoutEngine {
         scroll_source: &impl ScrollDataSource,
         record: bool,
         depth: usize,
-    ) -> LayoutSize {
-        if depth > 100 {
-            panic!(
-                "Stack overflow safeguard: depth > 100 at node {:?}",
-                node_id
-            );
+    ) -> Result<LayoutSize> {
+        if depth > Self::MAX_LAYOUT_RECURSION_DEPTH {
+            return Err(self.layout_depth_overflow(node_id, depth));
         }
         if !record {
             let cache_key = MeasureCacheKey::new(node_id, constraints);
             if let Some(cached) = measure_cache.get(&cache_key).copied() {
-                return cached;
+                return Ok(cached);
             }
         }
         let node = match self.graph_state.node(node_id) {
             Some(node) => node,
-            None => return LayoutSize::ZERO,
+            None => return Ok(LayoutSize::ZERO),
         };
 
         if record {
@@ -1439,7 +1452,7 @@ impl LayoutEngine {
                             scroll_source,
                             false,
                             depth + 1,
-                        );
+                        )?;
                         max_child.width = max_child.width.max(child_size.width);
                         max_child.height = max_child.height.max(child_size.height);
                         measured_children.push((*child_id, child_constraints, child_size));
@@ -1462,7 +1475,7 @@ impl LayoutEngine {
                             scroll_source,
                             record,
                             depth + 1,
-                        );
+                        )?;
                     }
                     if !abs_children.is_empty() {
                         let abs_constraints = BoxConstraints::loose(size.width, size.height);
@@ -1477,7 +1490,7 @@ impl LayoutEngine {
                                 scroll_source,
                                 record,
                                 depth + 1,
-                            );
+                            )?;
                         }
                     }
                 }
@@ -1548,7 +1561,7 @@ impl LayoutEngine {
                             scroll_source,
                             false,
                             depth + 1,
-                        );
+                        )?;
                         let child_main = if is_row {
                             child_size.width
                         } else {
@@ -1714,7 +1727,7 @@ impl LayoutEngine {
                                 scroll_source,
                                 record,
                                 depth + 1,
-                            );
+                            )?;
                             cursor += child_main + gap + extra_gap;
                         }
 
@@ -1734,7 +1747,7 @@ impl LayoutEngine {
                                 scroll_source,
                                 record,
                                 depth + 1,
-                            );
+                            )?;
                         }
                     }
                     content_size = size;
@@ -1821,7 +1834,7 @@ impl LayoutEngine {
                             scroll_source,
                             false,
                             depth + 1,
-                        );
+                        )?;
                         let child_main = if is_row {
                             child_size.width
                         } else {
@@ -1908,7 +1921,7 @@ impl LayoutEngine {
                             scroll_source,
                             false,
                             depth + 1,
-                        );
+                        )?;
                         let child_cross = if is_row {
                             child_size.height
                         } else {
@@ -2007,7 +2020,7 @@ impl LayoutEngine {
                                     scroll_source,
                                     false,
                                     depth + 1,
-                                );
+                                )?;
                                 entry.size = new_size;
                                 entry.constraints = child_constraints;
                             }
@@ -2147,7 +2160,7 @@ impl LayoutEngine {
                             scroll_source,
                             record,
                             depth + 1,
-                        );
+                        )?;
                         cursor += child_main + gap + extra_gap;
                     }
 
@@ -2164,7 +2177,7 @@ impl LayoutEngine {
                                 scroll_source,
                                 record,
                                 depth + 1,
-                            );
+                            )?;
                         }
                     }
                     content_size = size;
@@ -2328,7 +2341,7 @@ impl LayoutEngine {
                         scroll_source,
                         false,
                         depth + 1,
-                    );
+                    )?;
                     if row_heights[*row] == 0.0 {
                         row_heights[*row] = child_size.height;
                     } else {
@@ -2378,7 +2391,7 @@ impl LayoutEngine {
                             scroll_source,
                             record,
                             depth + 1,
-                        );
+                        )?;
                     }
                 }
 
@@ -2395,7 +2408,7 @@ impl LayoutEngine {
                             scroll_source,
                             record,
                             depth + 1,
-                        );
+                        )?;
                     }
                 }
                 content_size = size;
@@ -2414,7 +2427,7 @@ impl LayoutEngine {
                         scroll_source,
                         record,
                         depth + 1,
-                    );
+                    )?;
                 }
                 content_size = child_size;
                 constraints.constrain(child_size)
@@ -2454,7 +2467,7 @@ impl LayoutEngine {
                         scroll_source,
                         false,
                         depth + 1,
-                    );
+                    )?;
                 }
                 let size = local.constrain(LayoutSize::new(
                     child_size.width + padding[0] + padding[1],
@@ -2472,7 +2485,7 @@ impl LayoutEngine {
                             scroll_source,
                             record,
                             depth + 1,
-                        );
+                        )?;
                     }
                     if !abs_children.is_empty() {
                         let abs_constraints = BoxConstraints::loose(size.width, size.height);
@@ -2487,7 +2500,7 @@ impl LayoutEngine {
                                 scroll_source,
                                 record,
                                 depth + 1,
-                            );
+                            )?;
                         }
                     }
                 }
@@ -2508,7 +2521,7 @@ impl LayoutEngine {
                         scroll_source,
                         false,
                         depth + 1,
-                    );
+                    )?;
                 }
                 let size = if constraints.is_width_bounded() || constraints.is_height_bounded() {
                     constraints.constrain(LayoutSize::new(
@@ -2539,7 +2552,7 @@ impl LayoutEngine {
                         scroll_source,
                         record,
                         depth + 1,
-                    );
+                    )?;
                 }
                 if record && !abs_children.is_empty() {
                     let abs_constraints = BoxConstraints::loose(size.width, size.height);
@@ -2554,7 +2567,7 @@ impl LayoutEngine {
                             scroll_source,
                             record,
                             depth + 1,
-                        );
+                        )?;
                     }
                 }
                 content_size = child_size;
@@ -2573,7 +2586,7 @@ impl LayoutEngine {
                         scroll_source,
                         false,
                         depth + 1,
-                    );
+                    )?;
                     max_child.width = max_child.width.max(child_size.width);
                     max_child.height = max_child.height.max(child_size.height);
                 }
@@ -2606,7 +2619,7 @@ impl LayoutEngine {
                         scroll_source,
                         record,
                         depth + 1,
-                    );
+                    )?;
                 }
                 if record && !abs_children.is_empty() {
                     let abs_constraints = BoxConstraints::loose(size.width, size.height);
@@ -2621,7 +2634,7 @@ impl LayoutEngine {
                             scroll_source,
                             record,
                             depth + 1,
-                        );
+                        )?;
                     }
                 }
                 content_size = size;
@@ -2659,7 +2672,7 @@ impl LayoutEngine {
                         scroll_source,
                         false,
                         depth + 1,
-                    );
+                    )?;
                     let x = left.unwrap_or_else(|| {
                         right
                             .map(|r| (size.width - r - child_size.width).max(0.0))
@@ -2680,7 +2693,7 @@ impl LayoutEngine {
                         scroll_source,
                         record,
                         depth + 1,
-                    );
+                    )?;
                 }
                 content_size = size;
                 size
@@ -2716,7 +2729,7 @@ impl LayoutEngine {
                         scroll_source,
                         record,
                         depth + 1,
-                    );
+                    )?;
                 }
                 content_size = size;
                 size
@@ -2734,7 +2747,7 @@ impl LayoutEngine {
                         scroll_source,
                         record,
                         depth + 1,
-                    );
+                    )?;
                 }
                 content_size = child_size;
                 constraints.constrain(child_size)
@@ -2764,7 +2777,7 @@ impl LayoutEngine {
                         scroll_source,
                         false,
                         depth + 1,
-                    );
+                    )?;
                 }
                 if record {
                     let anchor_rect = out.get(anchor).map(|g| g.rect);
@@ -2781,7 +2794,7 @@ impl LayoutEngine {
                             scroll_source,
                             record,
                             depth + 1,
-                        );
+                        )?;
                     }
                 }
                 content_size = child_size;
@@ -2834,7 +2847,7 @@ impl LayoutEngine {
                                 scroll_source,
                                 record,
                                 depth + 1,
-                            );
+                            )?;
                         }
                     }
                     if !record {
@@ -2937,6 +2950,6 @@ impl LayoutEngine {
                 },
             );
         }
-        rect_size
+        Ok(rect_size)
     }
 }
