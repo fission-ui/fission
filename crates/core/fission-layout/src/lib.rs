@@ -470,10 +470,10 @@ impl LayoutGraphState {
             self.children.insert(*node_id, node.children_ids.clone());
             if node.parent_id.is_none() {
                 self.roots.push(*node_id);
-            } else if let Some(parent_id) = node.parent_id
-                && !self.nodes.contains_key(&parent_id)
-            {
-                validation.missing_parent_refs.push((*node_id, parent_id));
+            } else if let Some(parent_id) = node.parent_id {
+                if !self.nodes.contains_key(&parent_id) {
+                    validation.missing_parent_refs.push((*node_id, parent_id));
+                }
             }
         }
 
@@ -978,14 +978,14 @@ impl LayoutEngine {
         if !self.graph_state.roots.contains(&root) && self.graph_state.parents.get(&root).copied().flatten().is_some() {
             anyhow::bail!("[verify] root {:?} is not a graph root", root);
         }
-        if let Some(last_layout_version) = self.graph_state.last_layout_version
-            && last_layout_version > self.graph_state.graph_version
-        {
-            anyhow::bail!(
-                "[verify] cached layout version {} exceeds graph version {}",
-                last_layout_version,
-                self.graph_state.graph_version
-            );
+        if let Some(last_layout_version) = self.graph_state.last_layout_version {
+            if last_layout_version > self.graph_state.graph_version {
+                anyhow::bail!(
+                    "[verify] cached layout version {} exceeds graph version {}",
+                    last_layout_version,
+                    self.graph_state.graph_version
+                );
+            }
         }
         Ok(())
     }
@@ -2955,6 +2955,6 @@ impl LayoutEngine {
                 },
             );
         }
-        Ok(rect_size)
+        rect_size
     }
 }

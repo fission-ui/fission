@@ -16,5 +16,6 @@ fission-ir = { path = "../../core/fission-ir" }
 fission-layout = { path = "../../core/fission-layout" }
 fission-macros = { path = "../../authoring/fission-macros" }
 fission-render = { path = "../../rendering/fission-render" }
+fission-render-vello = { path = "../../rendering/fission-render-vello" }
 fission-widgets = { path = "../../authoring/fission-widgets" }
 lazy_static = "1"

@@ -1310,6 +1310,7 @@ dependencies = [
  "fission-layout",
  "fission-macros",
  "fission-render",
+ "fission-render-vello",
  "fission-shell",
  "fission-shell-winit",
  "fission-widgets",

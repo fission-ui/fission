@@ -11,7 +11,6 @@ use fission_render_vello::parley::FontContext;
 use fission_render_vello::VelloTextMeasurer;
 use fission_theme::fonts;
 use fontique::{Blob, Collection, CollectionOptions, FontInfoOverride, SourceCache};
-use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
 
 // A mock renderer that captures the display list for inspection.

@@ -3880,37 +3880,40 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                         if capture_ready {
                                             pending_capture_settle = false;
                                         }
-                                        if capture_ready && let Some(path) = pending_screenshot_path.take() {
-                                            let screenshot_dimensions =
-                                                layout_size_to_image_dimensions(target_viewport);
-                                            if let Some(ref tx) = test_response_tx {
-                                                if path == "__pump__" {
-                                                    let _ =
-                                                        tx.send(fission_test_driver::TestResponse::Ok {});
-                                                } else if path == "__capture__" {
-                                                    let resp = gpu_screenshot(
-                                                        &device_handle.device,
-                                                        &device_handle.queue,
-                                                        &render_state.surface.target_texture,
-                                                        render_target_size.0,
-                                                        render_target_size.1,
-                                                        screenshot_dimensions.0,
-                                                        screenshot_dimensions.1,
-                                                        None,
-                                                    );
-                                                    let _ = tx.send(resp);
-                                                } else {
-                                                    let resp = gpu_screenshot(
-                                                        &device_handle.device,
-                                                        &device_handle.queue,
-                                                        &render_state.surface.target_texture,
-                                                        render_target_size.0,
-                                                        render_target_size.1,
-                                                        screenshot_dimensions.0,
-                                                        screenshot_dimensions.1,
-                                                        Some(&path),
-                                                    );
-                                                    let _ = tx.send(resp);
+                                        if capture_ready {
+                                            if let Some(path) = pending_screenshot_path.take() {
+                                                let screenshot_dimensions =
+                                                    layout_size_to_image_dimensions(target_viewport);
+                                                if let Some(ref tx) = test_response_tx {
+                                                    if path == "__pump__" {
+                                                        let _ = tx.send(
+                                                            fission_test_driver::TestResponse::Ok {},
+                                                        );
+                                                    } else if path == "__capture__" {
+                                                        let resp = gpu_screenshot(
+                                                            &device_handle.device,
+                                                            &device_handle.queue,
+                                                            &render_state.surface.target_texture,
+                                                            render_target_size.0,
+                                                            render_target_size.1,
+                                                            screenshot_dimensions.0,
+                                                            screenshot_dimensions.1,
+                                                            None,
+                                                        );
+                                                        let _ = tx.send(resp);
+                                                    } else {
+                                                        let resp = gpu_screenshot(
+                                                            &device_handle.device,
+                                                            &device_handle.queue,
+                                                            &render_state.surface.target_texture,
+                                                            render_target_size.0,
+                                                            render_target_size.1,
+                                                            screenshot_dimensions.0,
+                                                            screenshot_dimensions.1,
+                                                            Some(&path),
+                                                        );
+                                                        let _ = tx.send(resp);
+                                                    }
                                                 }
                                             }
                                         }
