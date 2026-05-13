@@ -24,7 +24,7 @@ mod mac {
     use objc::{class, msg_send, sel, sel_impl};
     use raw_window_handle::{HasWindowHandle, RawWindowHandle};
     use std::collections::{HashMap, HashSet};
-    use std::path::Path;
+    use std::path::{Path, PathBuf};
     use std::sync::atomic::{AtomicU64, Ordering};
     use std::sync::{Arc, Mutex};
     use winit::window::Window;
@@ -134,12 +134,23 @@ mod mac {
 
     impl VideoBackend for MacVideoBackend {
         fn create_player(&self, source: &str) -> Box<dyn VideoPlayer> {
-            let player = unsafe { create_av_player(source) };
+            let resolved_source = resolve_video_source(source);
+            let pending_error = resolved_source.error_message();
+            let player = unsafe {
+                create_av_player(
+                    resolved_source
+                        .resolved_path
+                        .as_deref()
+                        .unwrap_or_else(|| Path::new(source)),
+                )
+            };
             let player_id = self.registry.register(player);
             Box::new(MacVideoPlayer {
                 registry: Arc::clone(&self.registry),
                 player_id,
                 ready_sent: false,
+                error_sent: false,
+                pending_error,
             })
         }
 
@@ -264,6 +275,8 @@ mod mac {
         registry: Arc<PlayerRegistry>,
         player_id: u64,
         ready_sent: bool,
+        error_sent: bool,
+        pending_error: Option<String>,
     }
 
     impl Drop for MacVideoPlayer {
@@ -327,9 +340,20 @@ mod mac {
         }
 
         fn poll_events(&mut self) -> Vec<VideoEvent> {
+            if !self.error_sent {
+                if let Some(message) = self.pending_error.take() {
+                    self.error_sent = true;
+                    return vec![VideoEvent::Error(message)];
+                }
+            }
             if !self.ready_sent {
                 self.ready_sent = true;
-                vec![VideoEvent::Ready { duration: 0 }]
+                let duration = self
+                    .registry
+                    .get(self.player_id)
+                    .and_then(|player| unsafe { item_duration_ms(player.as_id()) })
+                    .unwrap_or(0);
+                vec![VideoEvent::Ready { duration }]
             } else {
                 Vec::new()
             }
@@ -368,25 +392,95 @@ mod mac {
         }
     }
 
-    unsafe fn create_av_player(source: &str) -> StrongPtr {
-        let url = file_url_from_path(source);
+    unsafe fn create_av_player(source_path: &Path) -> StrongPtr {
+        let url = file_url_from_path(source_path);
         let player: id = msg_send![class!(AVPlayer), playerWithURL: url];
         // playerWithURL returns an autoreleased object; retain to own it.
         StrongPtr::retain(player)
     }
 
-    fn file_url_from_path(path: &str) -> id {
-        let full_path = if Path::new(path).is_absolute() {
-            Path::new(path).to_path_buf()
-        } else {
-            std::env::current_dir().unwrap().join(path)
-        };
-        if !full_path.exists() {
-            // TODO: emit diagnostic
-        }
+    fn file_url_from_path(path: &Path) -> id {
         unsafe {
-            let ns_string = NSString::alloc(nil).init_str(full_path.to_string_lossy().as_ref());
+            let ns_string = NSString::alloc(nil).init_str(path.to_string_lossy().as_ref());
             NSURL::fileURLWithPath_(nil, ns_string)
+        }
+    }
+
+    struct ResolvedVideoSource {
+        requested: String,
+        resolved_path: Option<PathBuf>,
+        diagnostic: Option<String>,
+    }
+
+    impl ResolvedVideoSource {
+        fn error_message(&self) -> Option<String> {
+            self.diagnostic.as_ref().map(|diagnostic| {
+                if let Some(path) = self.resolved_path.as_ref() {
+                    format!(
+                        "{diagnostic} (requested='{}', resolved='{}')",
+                        self.requested,
+                        path.display()
+                    )
+                } else {
+                    format!("{diagnostic} (requested='{}')", self.requested)
+                }
+            })
+        }
+    }
+
+    fn resolve_video_source(source: &str) -> ResolvedVideoSource {
+        let requested = source.to_string();
+        let trimmed = source.trim();
+        if trimmed.is_empty() {
+            return ResolvedVideoSource {
+                requested,
+                resolved_path: None,
+                diagnostic: Some("video source path is empty".to_string()),
+            };
+        }
+        if trimmed.contains("://") {
+            return ResolvedVideoSource {
+                requested,
+                resolved_path: None,
+                diagnostic: Some(
+                    "video backend only supports local filesystem paths for media sources"
+                        .to_string(),
+                ),
+            };
+        }
+
+        let candidate = if Path::new(trimmed).is_absolute() {
+            PathBuf::from(trimmed)
+        } else {
+            match std::env::current_dir() {
+                Ok(current_dir) => current_dir.join(trimmed),
+                Err(error) => {
+                    return ResolvedVideoSource {
+                        requested,
+                        resolved_path: None,
+                        diagnostic: Some(format!(
+                            "failed to resolve relative video source against current directory: {error}"
+                        )),
+                    };
+                }
+            }
+        };
+
+        let resolved_path = candidate
+            .canonicalize()
+            .ok()
+            .filter(|path| path.exists())
+            .unwrap_or(candidate);
+        let diagnostic = if resolved_path.exists() {
+            None
+        } else {
+            Some("video source path does not exist".to_string())
+        };
+
+        ResolvedVideoSource {
+            requested,
+            resolved_path: Some(resolved_path),
+            diagnostic,
         }
     }
 
@@ -460,6 +554,7 @@ mod mac {
 #[cfg(not(target_os = "macos"))]
 mod mock {
     use super::{VideoBackend, VideoEvent, VideoPlayer};
+    use std::path::{Path, PathBuf};
     use std::sync::atomic::{AtomicU64, Ordering};
     use std::time::Instant;
 
@@ -494,6 +589,8 @@ mod mock {
         playback_rate: f32,
         volume: f32,
         muted: bool,
+        error_sent: bool,
+        pending_error: Option<String>,
     }
 
     #[derive(PartialEq)]
@@ -507,9 +604,19 @@ mod mock {
 
     impl MockPlayer {
         fn new(source: &str) -> Self {
+            let resolved_source = resolve_video_source(source);
+            let pending_error = resolved_source.error_message();
             Self {
-                _source: source.to_string(),
-                state: PlayerState::Loading,
+                _source: resolved_source
+                    .resolved_path
+                    .as_ref()
+                    .map(|path| path.to_string_lossy().to_string())
+                    .unwrap_or_else(|| source.to_string()),
+                state: if pending_error.is_some() {
+                    PlayerState::Ready
+                } else {
+                    PlayerState::Loading
+                },
                 start_time: Instant::now(),
                 play_start_time: None,
                 accumulated_play_time: 0,
@@ -520,6 +627,8 @@ mod mock {
                 playback_rate: 1.0,
                 volume: 1.0,
                 muted: false,
+                error_sent: false,
+                pending_error,
             }
         }
 
@@ -574,6 +683,14 @@ mod mock {
 
         fn poll_events(&mut self) -> Vec<VideoEvent> {
             let mut events = Vec::new();
+            if !self.error_sent {
+                if let Some(message) = self.pending_error.take() {
+                    self.error_sent = true;
+                    self.sent_ready = true;
+                    events.push(VideoEvent::Error(message));
+                    return events;
+                }
+            }
             let elapsed = self.start_time.elapsed().as_millis() as u64;
 
             if !self.sent_ready && elapsed > 500 {
@@ -627,6 +744,84 @@ mod mock {
 
         fn set_muted(&mut self, muted: bool) {
             self.muted = muted;
+        }
+    }
+
+    struct ResolvedVideoSource {
+        requested: String,
+        resolved_path: Option<PathBuf>,
+        diagnostic: Option<String>,
+    }
+
+    impl ResolvedVideoSource {
+        fn error_message(&self) -> Option<String> {
+            self.diagnostic.as_ref().map(|diagnostic| {
+                if let Some(path) = self.resolved_path.as_ref() {
+                    format!(
+                        "{diagnostic} (requested='{}', resolved='{}')",
+                        self.requested,
+                        path.display()
+                    )
+                } else {
+                    format!("{diagnostic} (requested='{}')", self.requested)
+                }
+            })
+        }
+    }
+
+    fn resolve_video_source(source: &str) -> ResolvedVideoSource {
+        let requested = source.to_string();
+        let trimmed = source.trim();
+        if trimmed.is_empty() {
+            return ResolvedVideoSource {
+                requested,
+                resolved_path: None,
+                diagnostic: Some("video source path is empty".to_string()),
+            };
+        }
+        if trimmed.contains("://") {
+            return ResolvedVideoSource {
+                requested,
+                resolved_path: None,
+                diagnostic: Some(
+                    "video backend only supports local filesystem paths for media sources"
+                        .to_string(),
+                ),
+            };
+        }
+
+        let candidate = if Path::new(trimmed).is_absolute() {
+            PathBuf::from(trimmed)
+        } else {
+            match std::env::current_dir() {
+                Ok(current_dir) => current_dir.join(trimmed),
+                Err(error) => {
+                    return ResolvedVideoSource {
+                        requested,
+                        resolved_path: None,
+                        diagnostic: Some(format!(
+                            "failed to resolve relative video source against current directory: {error}"
+                        )),
+                    };
+                }
+            }
+        };
+
+        let resolved_path = candidate
+            .canonicalize()
+            .ok()
+            .filter(|path| path.exists())
+            .unwrap_or(candidate);
+        let diagnostic = if resolved_path.exists() {
+            None
+        } else {
+            Some("video source path does not exist".to_string())
+        };
+
+        ResolvedVideoSource {
+            requested,
+            resolved_path: Some(resolved_path),
+            diagnostic,
         }
     }
 }
