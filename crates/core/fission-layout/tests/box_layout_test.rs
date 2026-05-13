@@ -1,7 +1,5 @@
 use fission_ir::{LayoutOp as IrLayoutOp, NodeId};
 use fission_layout::{LayoutEngine, LayoutInputNode, LayoutSize};
-use std::collections::HashSet;
-
 #[test]
 fn test_box_default_stretch() {
     // A Container (Box) with default settings should stretch its children?
@@ -61,8 +59,7 @@ fn test_box_default_stretch() {
     };
 
     let nodes = vec![root, child];
-    let dirty: HashSet<_> = nodes.iter().map(|n| n.id).collect();
-    engine.update(&nodes, &dirty);
+    engine.update(&nodes);
 
     let snap = engine
         .compute_layout(&nodes, root_id, LayoutSize::new(1000.0, 1000.0), &|_| 0.0)

@@ -1,7 +1,5 @@
 use fission_ir::{FlexDirection as IrFlexDirection, LayoutOp as IrLayoutOp, NodeId};
 use fission_layout::{LayoutEngine, LayoutInputNode, LayoutSize};
-use std::collections::HashSet;
-
 #[test]
 fn scroll_children_stretch_cross_axis() {
     let mut engine = LayoutEngine::new();
@@ -83,8 +81,7 @@ fn scroll_children_stretch_cross_axis() {
     };
 
     let nodes = vec![root, scroll, child];
-    let dirty: HashSet<_> = nodes.iter().map(|n| n.id).collect();
-    engine.update(&nodes, &dirty);
+    engine.update(&nodes);
 
     let snap = engine
         .compute_layout(&nodes, root_id, LayoutSize::new(1000.0, 1000.0), &|_| 0.0)

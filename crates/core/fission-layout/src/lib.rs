@@ -992,10 +992,11 @@ impl LayoutEngine {
 
     /// Refreshes the cached graph state after upstream layout edits.
     ///
-    /// The engine no longer pretends to apply per-node incremental updates here:
-    /// callers may still pass a dirty set for API compatibility, but the cached
-    /// graph is either reused as-is or fully refreshed from the latest inputs.
-    pub fn update(&mut self, input_nodes: &[LayoutInputNode], _dirty_set: &HashSet<NodeId>) {
+    /// The engine no longer applies per-node incremental updates here.
+    ///
+    /// Callers either reuse the current cached graph as-is or refresh it from the
+    /// latest full node list before a full compute pass.
+    pub fn update(&mut self, input_nodes: &[LayoutInputNode]) {
         if self.graph_state.is_empty() {
             self.refresh_graph_state(input_nodes);
             return;

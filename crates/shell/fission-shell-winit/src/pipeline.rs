@@ -170,7 +170,7 @@ pub struct Pipeline {
     retained_scene: Option<RenderScene>,
     retained_dynamic_ops: RetainedDynamicOps,
     layout_input_nodes: Vec<LayoutInputNode>,
-    pending_layout_dirty: HashSet<NodeId>,
+    pending_layout_invalidated: bool,
     pending_layout_full: bool,
     compositor_animation_keys: HashSet<(WidgetNodeId, AnimationPropertyId)>,
     runtime_dynamic_nodes: HashSet<NodeId>,
@@ -204,7 +204,7 @@ impl Pipeline {
             retained_scene: None,
             retained_dynamic_ops: RetainedDynamicOps::default(),
             layout_input_nodes: Vec::new(),
-            pending_layout_dirty: HashSet::new(),
+            pending_layout_invalidated: false,
             pending_layout_full: true,
             compositor_animation_keys: HashSet::new(),
             runtime_dynamic_nodes: HashSet::new(),
@@ -231,8 +231,7 @@ impl Pipeline {
             let diff = diff_ir(prev_ir, &next_ir);
             if !diff.dirty_layout.is_empty() {
                 invalidation.mark_layout();
-                self.pending_layout_dirty
-                    .extend(diff.dirty_layout.iter().copied());
+                self.pending_layout_invalidated = true;
             }
             if !diff.dirty_paint.is_empty() {
                 invalidation.mark_paint();
@@ -287,20 +286,21 @@ impl Pipeline {
         let needs_full =
             self.pending_layout_full || self.last_snapshot.is_none() || viewport_changed;
 
-        if !needs_full && self.pending_layout_dirty.is_empty() {
+        if !needs_full && !self.pending_layout_invalidated {
             self.last_viewport = Some(viewport);
             return Ok(0);
         }
 
         let start_layout = Instant::now();
-        let dirty_nodes: HashSet<NodeId> = if needs_full {
+        // The layout engine currently recomputes the whole tree whenever layout is invalidated.
+        let layout_nodes = if needs_full || self.pending_layout_invalidated {
             self.layout_full_rebuild_count = self.layout_full_rebuild_count.saturating_add(1);
-            self.layout_input_nodes.iter().map(|n| n.id).collect()
+            self.layout_input_nodes.len()
         } else {
-            self.pending_layout_dirty.clone()
+            0
         };
 
-        layout_engine.update(&self.layout_input_nodes, &dirty_nodes);
+        layout_engine.update(&self.layout_input_nodes);
 
         let root_id = self
             .prev_ir
@@ -315,7 +315,7 @@ impl Pipeline {
         )?;
         self.last_snapshot = Some(snapshot);
         self.last_viewport = Some(viewport);
-        self.pending_layout_dirty.clear();
+        self.pending_layout_invalidated = false;
         self.pending_layout_full = false;
         self.clear_render_caches();
 
@@ -325,13 +325,13 @@ impl Pipeline {
             diag::DiagLevel::Debug,
             diag::DiagEventKind::LayoutSummary {
                 nodes: self.layout_input_nodes.len() as u32,
-                dirty_count: dirty_nodes.len() as u32,
+                dirty_count: layout_nodes as u32,
                 full_rebuild: needs_full,
                 duration_ns: duration,
             },
         );
 
-        Ok(dirty_nodes.len())
+        Ok(layout_nodes)
     }
 
     pub fn prepare_current(
@@ -351,7 +351,11 @@ impl Pipeline {
             render_viewport_size.height,
         );
         let mut stats = PipelineStats {
-            dirty_nodes: self.pending_layout_dirty.len(),
+            dirty_nodes: if self.pending_layout_full || self.pending_layout_invalidated {
+                self.layout_input_nodes.len()
+            } else {
+                0
+            },
             layout_updates: 0,
             paint_misses: 0,
             paint_hits: 0,
@@ -659,9 +663,9 @@ impl Pipeline {
     fn clear_render_caches(&mut self) {
         if render_trace_enabled() {
             eprintln!(
-                "[pipeline] clear_render_caches layout_full={} dirty_layout={} retained_was_present={}",
+                "[pipeline] clear_render_caches layout_full={} layout_invalidated={} retained_was_present={}",
                 self.pending_layout_full,
-                self.pending_layout_dirty.len(),
+                self.pending_layout_invalidated,
                 self.retained_scene.is_some()
             );
         }
