@@ -443,6 +443,40 @@ fn request_redraw_logged(
     request_redraw_throttled(window, elwt, last_redraw_at, min_frame, redraw_pending);
 }
 
+fn apply_authoritative_resize(
+    window: &Window,
+    elwt: &EventLoopWindowTarget<TestEvent>,
+    next_viewport: WindowViewportState,
+    pending_resize: &mut Option<WindowViewportState>,
+    resize_needs_settled_frame: &mut bool,
+    pending_capture_settle: &mut bool,
+    pending_screenshot_path: Option<&str>,
+    live_resize: &mut LiveResizeController,
+    invalidations: &mut InvalidationSet,
+    last_redraw_at: &mut Instant,
+    resize_frame: Duration,
+    redraw_pending: &mut bool,
+    frame_trace: &mut FrameTraceState,
+    reason: &str,
+) {
+    *pending_resize = Some(next_viewport);
+    *resize_needs_settled_frame = true;
+    if pending_screenshot_path.is_some() {
+        *pending_capture_settle = true;
+    }
+    live_resize.note_resize(Instant::now());
+    invalidations.mark_composite();
+    request_redraw_logged(
+        window,
+        elwt,
+        last_redraw_at,
+        resize_frame,
+        redraw_pending,
+        frame_trace,
+        reason,
+    );
+}
+
 fn active_animation_keys(runtime: &Runtime) -> Vec<String> {
     let mut keys = runtime
         .runtime_state
@@ -2551,16 +2585,16 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                 {
                                     window_viewport = Some(current_viewport);
                                 }
-                                pending_resize = Some(current_viewport);
-                                resize_needs_settled_frame = true;
-                                if pending_screenshot_path.is_some() {
-                                    pending_capture_settle = true;
-                                }
-                                live_resize.note_resize(Instant::now());
-                                invalidations.mark_composite();
-                                request_redraw_logged(
+                                apply_authoritative_resize(
                                     window,
                                     elwt,
+                                    current_viewport,
+                                    &mut pending_resize,
+                                    &mut resize_needs_settled_frame,
+                                    &mut pending_capture_settle,
+                                    pending_screenshot_path.as_deref(),
+                                    &mut live_resize,
+                                    &mut invalidations,
                                     &mut last_redraw_at,
                                     resize_frame,
                                     &mut redraw_pending,
@@ -3256,16 +3290,16 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                     {
                                         window_viewport = Some(next_viewport);
                                     }
-                                    pending_resize = Some(next_viewport);
-                                    resize_needs_settled_frame = true;
-                                    if pending_screenshot_path.is_some() {
-                                        pending_capture_settle = true;
-                                    }
-                                    live_resize.note_resize(Instant::now());
-                                    invalidations.mark_composite();
-                                    request_redraw_logged(
+                                    apply_authoritative_resize(
                                         &window,
                                         elwt,
+                                        next_viewport,
+                                        &mut pending_resize,
+                                        &mut resize_needs_settled_frame,
+                                        &mut pending_capture_settle,
+                                        pending_screenshot_path.as_deref(),
+                                        &mut live_resize,
+                                        &mut invalidations,
                                         &mut last_redraw_at,
                                         resize_frame,
                                         &mut redraw_pending,
@@ -3286,16 +3320,16 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                 {
                                     window_viewport = Some(next_viewport);
                                 }
-                                pending_resize = Some(next_viewport);
-                                resize_needs_settled_frame = true;
-                                if pending_screenshot_path.is_some() {
-                                    pending_capture_settle = true;
-                                }
-                                live_resize.note_resize(Instant::now());
-                                invalidations.mark_composite();
-                                request_redraw_logged(
+                                apply_authoritative_resize(
                                     &window,
                                     elwt,
+                                    next_viewport,
+                                    &mut pending_resize,
+                                    &mut resize_needs_settled_frame,
+                                    &mut pending_capture_settle,
+                                    pending_screenshot_path.as_deref(),
+                                    &mut live_resize,
+                                    &mut invalidations,
                                     &mut last_redraw_at,
                                     resize_frame,
                                     &mut redraw_pending,
