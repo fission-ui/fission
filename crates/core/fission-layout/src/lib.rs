@@ -991,18 +991,22 @@ impl LayoutEngine {
     }
 
     /// Refreshes the cached graph state after upstream layout edits.
+    ///
+    /// The engine no longer pretends to apply per-node incremental updates here:
+    /// callers may still pass a dirty set for API compatibility, but the cached
+    /// graph is either reused as-is or fully refreshed from the latest inputs.
     pub fn update(&mut self, input_nodes: &[LayoutInputNode], _dirty_set: &HashSet<NodeId>) {
-        let version = self.allocate_graph_version();
         if self.graph_state.is_empty() {
-            self.graph_state = LayoutGraphState::from_input_nodes(input_nodes, version);
+            self.refresh_graph_state(input_nodes);
             return;
         }
 
-        self.graph_state.graph_version = version;
         if self.graph_state.matches_input_nodes(input_nodes) {
             return;
         }
 
+        let version = self.allocate_graph_version();
+        self.graph_state.graph_version = version;
         self.graph_state.replace_all_nodes(input_nodes);
     }
 
@@ -2853,7 +2857,7 @@ impl LayoutEngine {
                     if !record {
                         measure_cache.insert(MeasureCacheKey::new(node_id, constraints), result);
                     }
-                    return result;
+                    return Ok(result);
                 }
                 if node.children_ids.is_empty() {
                     let result =
@@ -2861,7 +2865,7 @@ impl LayoutEngine {
                     if !record {
                         measure_cache.insert(MeasureCacheKey::new(node_id, constraints), result);
                     }
-                    return result;
+                    return Ok(result);
                 }
                 content_size.width = content_size.width.max(text_content.width);
                 content_size.height = content_size.height.max(text_content.height);
@@ -2872,7 +2876,7 @@ impl LayoutEngine {
         if !record {
             measure_cache.insert(MeasureCacheKey::new(node_id, constraints), result);
         }
-        result
+        Ok(result)
     }
 
     fn record_geometry(
