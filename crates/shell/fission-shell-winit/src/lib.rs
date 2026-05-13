@@ -2281,6 +2281,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
         let mut pending_resize = Some(window_viewport);
         #[cfg(target_os = "android")]
         let mut pending_resize = None;
+        let mut last_built_viewport: Option<LayoutSize> = None;
         let mut live_resize = LiveResizeController::new(resize_settle_delay);
         let mut invalidations = InvalidationSet {
             build: true,
@@ -2718,6 +2719,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                             window = None;
                             window_viewport = None;
                             pending_resize = None;
+                            last_built_viewport = None;
                             last_cursor_position = None;
                             active_primary_touch = None;
                             touch_positions.clear();
@@ -3428,6 +3430,10 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                     && test_capture_requests_settled_resize_layout(
                                         pending_screenshot_path.as_deref(),
                                     );
+                                let built_viewport = last_built_viewport
+                                    .unwrap_or(pending_layout_viewport);
+                                let viewport_requires_rebuild =
+                                    built_viewport != pending_layout_viewport;
                                 let apply_resize_layout = if pending_resize.is_some() {
                                     live_resize.should_apply_layout(
                                         now,
@@ -3440,34 +3446,28 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                 };
                                 let resize_settled =
                                     pending_resize.is_some() && !live_resize.is_live(now);
-                                let target_viewport = LayoutSize {
-                                    width: pending_layout_viewport.width,
-                                    height: pending_layout_viewport.height,
-                                };
-                                let viewport_changed = pipeline
-                                    .last_viewport
-                                    .map(|viewport| viewport.size != target_viewport)
-                                    .unwrap_or(true);
+                                let target_viewport = pending_layout_viewport;
                                 if pending_resize.is_some()
                                     && apply_resize_layout
-                                    && viewport_changed
+                                    && viewport_requires_rebuild
                                 {
                                     invalidations.mark_build();
                                 }
-                                if resize_settled && apply_resize_layout {
+                                if resize_settled && viewport_requires_rebuild {
                                     invalidations.mark_build();
                                 }
 
-                                let retained_viewport = pipeline
-                                    .last_viewport
-                                    .map(|viewport| viewport.size)
-                                    .unwrap_or(target_viewport);
-                                let viewport = if apply_resize_layout {
+                                // Keep relayout/rendering on the latest viewport every frame,
+                                // but defer rebuilds of viewport-sensitive IR until resize policy allows it.
+                                let build_viewport = if invalidations.build
+                                    || pipeline.prev_ir.is_none()
+                                    || last_built_viewport.is_none()
+                                {
                                     target_viewport
                                 } else {
-                                    retained_viewport
+                                    built_viewport
                                 };
-                                env.viewport_size = viewport;
+                                env.viewport_size = build_viewport;
 
                                 if let Some(sync) = &self.sync_env {
                                     let state = runtime.get_app_state::<S>().unwrap();
@@ -3553,10 +3553,16 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                     let pipeline_invalidations =
                                         pipeline.replace_ir(lower_cx.ir, &env);
                                     invalidations.merge(pipeline_invalidations);
+                                    last_built_viewport = Some(build_viewport);
                                 }
 
                                 let layout_updates = match pipeline.ensure_layout(
-                                    LayoutRect::new(0.0, 0.0, viewport.width, viewport.height),
+                                    LayoutRect::new(
+                                        0.0,
+                                        0.0,
+                                        target_viewport.width,
+                                        target_viewport.height,
+                                    ),
                                     &mut layout_engine,
                                     &runtime.runtime_state.scroll,
                                 ) {
@@ -3577,9 +3583,9 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                 }
 
                                 match pipeline.prepare_current(
-                                    pending_layout_viewport,
-                                    viewport,
-                                    pending_resize.is_some() && !apply_resize_layout,
+                                    target_viewport,
+                                    target_viewport,
+                                    false,
                                     &runtime.runtime_state.scroll,
                                     &runtime.runtime_state.animation,
                                     &runtime.runtime_state.video,
@@ -3798,7 +3804,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
 
                                         if let Some(path) = pending_screenshot_path.take() {
                                             let screenshot_dimensions =
-                                                layout_size_to_image_dimensions(viewport);
+                                                layout_size_to_image_dimensions(target_viewport);
                                             if let Some(ref tx) = test_response_tx {
                                                 if path == "__pump__" {
                                                     let _ =
