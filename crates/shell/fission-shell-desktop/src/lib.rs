@@ -5,18 +5,7 @@ use fission_core::{Action, ActionId, AppState, Env, Widget};
 use fission_shell::async_host::AsyncRegistry;
 use fission_shell_winit::WinitApp;
 
-#[allow(dead_code)]
-mod compositor;
-mod pipeline;
-pub use pipeline::{InvalidationSet, Pipeline};
-#[allow(dead_code, unused_imports)]
-mod video_backend;
-
-#[allow(dead_code)]
-mod clipboard;
-#[allow(dead_code)]
-mod ime;
-pub mod test_control;
+pub use fission_shell_winit::{test_control, InvalidationSet, Pipeline};
 
 pub struct DesktopApp<S: AppState, W: Widget<S>> {
     inner: WinitApp<S, W>,
