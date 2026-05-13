@@ -176,6 +176,13 @@ impl WindowViewportState {
         }
     }
 
+    fn with_logical_size(self, logical_size: LayoutSize) -> Self {
+        self.with_physical_size(logical_viewport_to_physical_size(
+            logical_size,
+            self.scale_factor,
+        ))
+    }
+
     fn with_scale_factor(self, scale_factor: f64) -> Self {
         let scale_factor = normalize_scale_factor(scale_factor);
         let logical_size = self.logical_size();
@@ -2523,15 +2530,17 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                 return;
                             };
                             if width > 0 && height > 0 {
-                                let current_viewport = viewport_state_for_test_resize(
-                                    WindowViewportState::from_window(window),
-                                    width,
-                                    height,
-                                );
+                                let requested_logical_size =
+                                    LayoutSize::new(width as f32, height as f32);
+                                let current_viewport = pending_resize
+                                    .unwrap_or_else(|| WindowViewportState::from_window(window))
+                                    .with_logical_size(requested_logical_size);
                                 #[cfg(not(any(target_os = "android", target_os = "ios")))]
                                 {
                                     let _ = window.request_inner_size(
-                                        native_window_size_for_test_resize(width, height),
+                                        native_window_size_for_logical_viewport(
+                                            requested_logical_size,
+                                        ),
                                     );
                                 }
                                 #[cfg(not(target_os = "android"))]
@@ -4518,19 +4527,8 @@ fn sync_tracked_target_texture_size_to_surface(
     *target_texture_size = (surface_size.width.max(1), surface_size.height.max(1));
 }
 
-fn viewport_state_for_test_resize(
-    viewport: WindowViewportState,
-    width: u32,
-    height: u32,
-) -> WindowViewportState {
-    viewport.with_physical_size(logical_viewport_to_physical_size(
-        LayoutSize::new(width as f32, height as f32),
-        viewport.scale_factor,
-    ))
-}
-
-fn native_window_size_for_test_resize(width: u32, height: u32) -> LogicalSize<f64> {
-    LogicalSize::new(width as f64, height as f64)
+fn native_window_size_for_logical_viewport(size: LayoutSize) -> LogicalSize<f64> {
+    LogicalSize::new(size.width as f64, size.height as f64)
 }
 
 #[cfg(test)]
@@ -4538,12 +4536,11 @@ mod tests {
     use super::{
         animation_redraw_interval, clamp_copy_extent_to_texture, cursor_icon_for,
         downscale_rgba_box, layout_size_to_image_dimensions, logical_viewport_to_physical_size,
-        logical_viewport_to_render_target_size, native_window_size_for_test_resize,
+        logical_viewport_to_render_target_size, native_window_size_for_logical_viewport,
         normalize_scale_factor, physical_size_to_layout_size,
         resize_is_unsettled,
         repeating_animation_redraw_interval, sync_tracked_target_texture_size_to_surface,
-        texture_plans_fit_device_limits, viewport_state_for_test_resize, LiveResizeController,
-        WindowViewportState,
+        texture_plans_fit_device_limits, LiveResizeController, WindowViewportState,
     };
     use crate::pipeline::CompositorTexturePlan;
     use fission_core::env::{ActiveAnimation, AnimationStateMap};
@@ -4862,12 +4859,12 @@ mod tests {
     }
 
     #[test]
-    fn test_resize_updates_native_viewport_prediction() {
+    fn logical_resize_updates_native_viewport_prediction() {
         let initial = WindowViewportState {
             physical_size: PhysicalSize::new(800, 632),
             scale_factor: 2.0,
         };
-        let resized = viewport_state_for_test_resize(initial, 1600, 1200);
+        let resized = initial.with_logical_size(fission_layout::LayoutSize::new(1600.0, 1200.0));
 
         assert_eq!(resized.physical_size, PhysicalSize::new(3200, 2400));
         assert_eq!(
@@ -4877,8 +4874,9 @@ mod tests {
     }
 
     #[test]
-    fn test_resize_requests_logical_window_dimensions() {
-        let requested = native_window_size_for_test_resize(1600, 2200);
+    fn logical_resize_requests_logical_window_dimensions() {
+        let requested =
+            native_window_size_for_logical_viewport(fission_layout::LayoutSize::new(1600.0, 2200.0));
 
         assert_eq!(requested.width, 1600.0);
         assert_eq!(requested.height, 2200.0);
