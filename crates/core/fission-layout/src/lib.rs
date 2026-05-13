@@ -33,7 +33,9 @@ use fission_diagnostics::prelude as diag;
 use fission_ir::op::{RichTextAnnotation, TextParagraphStyle, TextRun};
 use fission_ir::{FlexDirection as IrFlexDirection, FlexWrap as IrFlexWrap, NodeId};
 use serde::{Deserialize, Serialize};
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
 pub use fission_ir::{FlexDirection, GridPlacement, GridTrack, LayoutOp};
@@ -329,6 +331,306 @@ impl MeasureCacheKey {
             max_h: constraints.max_h.to_bits(),
         }
     }
+}
+
+#[derive(Debug, Clone, Default)]
+struct LayoutGraphValidationState {
+    duplicate_nodes: Vec<NodeId>,
+    missing_parent_refs: Vec<(NodeId, NodeId)>,
+    missing_child_refs: Vec<(NodeId, NodeId)>,
+    parent_child_mismatches: Vec<(NodeId, NodeId, Option<NodeId>)>,
+    cycle_nodes: Vec<NodeId>,
+    root_nodes: Vec<NodeId>,
+}
+
+impl LayoutGraphValidationState {
+    fn first_error(&self) -> Option<anyhow::Error> {
+        if let Some(node_id) = self.duplicate_nodes.first() {
+            return Some(anyhow::anyhow!(
+                "[layout] duplicate node id encountered during graph build: {:?}",
+                node_id
+            ));
+        }
+        if let Some((node_id, parent_id)) = self.missing_parent_refs.first() {
+            return Some(anyhow::anyhow!(
+                "[layout] node {:?} references missing parent {:?}",
+                node_id,
+                parent_id
+            ));
+        }
+        if let Some((node_id, child_id)) = self.missing_child_refs.first() {
+            return Some(anyhow::anyhow!(
+                "[layout] node {:?} references missing child {:?}",
+                node_id,
+                child_id
+            ));
+        }
+        if let Some((parent_id, child_id, actual_parent)) = self.parent_child_mismatches.first() {
+            return Some(anyhow::anyhow!(
+                "[layout] parent/child mismatch parent={:?} child={:?} child.parent_id={:?}",
+                parent_id,
+                child_id,
+                actual_parent
+            ));
+        }
+        if let Some(node_id) = self.cycle_nodes.first() {
+            return Some(anyhow::anyhow!(
+                "[layout] cycle detected while rebuilding graph at {:?}",
+                node_id
+            ));
+        }
+        None
+    }
+}
+
+#[derive(Debug, Clone, Default)]
+struct LayoutGraphState {
+    graph_version: u64,
+    last_rebuild_version: u64,
+    last_layout_version: Option<u64>,
+    node_order: Vec<NodeId>,
+    node_fingerprints: HashMap<NodeId, u64>,
+    nodes: HashMap<NodeId, LayoutInputNode>,
+    parents: HashMap<NodeId, Option<NodeId>>,
+    children: HashMap<NodeId, Vec<NodeId>>,
+    roots: Vec<NodeId>,
+    dirty_nodes: HashSet<NodeId>,
+    dirty_subtrees: HashSet<NodeId>,
+    dirty_ancestors: HashSet<NodeId>,
+    removed_nodes: HashSet<NodeId>,
+    validation: LayoutGraphValidationState,
+}
+
+impl LayoutGraphState {
+    fn is_empty(&self) -> bool {
+        self.nodes.is_empty()
+    }
+
+    fn clear_dirty(&mut self) {
+        self.dirty_nodes.clear();
+        self.dirty_subtrees.clear();
+        self.dirty_ancestors.clear();
+        self.removed_nodes.clear();
+    }
+
+    fn mark_layout_complete(&mut self) {
+        self.last_layout_version = Some(self.graph_version);
+        self.clear_dirty();
+    }
+
+    fn matches_input_nodes(&self, input_nodes: &[LayoutInputNode]) -> bool {
+        if self.nodes.len() != input_nodes.len() || self.node_order.len() != input_nodes.len() {
+            return false;
+        }
+
+        for (expected_id, node) in self.node_order.iter().zip(input_nodes.iter()) {
+            if *expected_id != node.id {
+                return false;
+            }
+            let Some(existing) = self.node_fingerprints.get(&node.id) else {
+                return false;
+            };
+            if *existing != layout_input_fingerprint(node) {
+                return false;
+            }
+        }
+
+        true
+    }
+
+    fn from_input_nodes(input_nodes: &[LayoutInputNode], version: u64) -> Self {
+        let mut state = Self {
+            graph_version: version,
+            last_rebuild_version: version,
+            ..Self::default()
+        };
+        state.replace_all_nodes(input_nodes);
+        state
+    }
+
+    fn replace_all_nodes(&mut self, input_nodes: &[LayoutInputNode]) {
+        self.node_order.clear();
+        self.node_fingerprints.clear();
+        self.nodes.clear();
+        self.removed_nodes.clear();
+
+        let mut validation = LayoutGraphValidationState::default();
+        let mut seen = HashSet::new();
+        for node in input_nodes {
+            if !seen.insert(node.id) {
+                validation.duplicate_nodes.push(node.id);
+            } else {
+                self.node_order.push(node.id);
+            }
+            self.node_fingerprints
+                .insert(node.id, layout_input_fingerprint(node));
+            self.nodes.insert(node.id, node.clone());
+        }
+
+        self.rebuild_topology(validation);
+        self.mark_all_nodes_dirty();
+    }
+
+    fn apply_update(&mut self, input_nodes: &[LayoutInputNode], dirty_set: &HashSet<NodeId>) {
+        let incoming_ids = input_nodes.iter().map(|node| node.id).collect::<HashSet<_>>();
+        self.removed_nodes = self
+            .nodes
+            .keys()
+            .copied()
+            .filter(|node_id| !incoming_ids.contains(node_id))
+            .collect();
+
+        let mut changed = dirty_set.clone();
+        for node in input_nodes {
+            let fingerprint = layout_input_fingerprint(node);
+            match self.node_fingerprints.get(&node.id) {
+                Some(existing) if *existing == fingerprint => {}
+                _ => {
+                    changed.insert(node.id);
+                }
+            }
+        }
+        changed.extend(self.removed_nodes.iter().copied());
+
+        self.node_order.clear();
+        self.node_fingerprints.clear();
+        self.nodes.clear();
+
+        let mut validation = LayoutGraphValidationState::default();
+        let mut seen = HashSet::new();
+        for node in input_nodes {
+            if !seen.insert(node.id) {
+                validation.duplicate_nodes.push(node.id);
+            } else {
+                self.node_order.push(node.id);
+            }
+            self.node_fingerprints
+                .insert(node.id, layout_input_fingerprint(node));
+            self.nodes.insert(node.id, node.clone());
+        }
+
+        self.rebuild_topology(validation);
+        self.mark_dirty(&changed);
+    }
+
+    fn rebuild_topology(&mut self, mut validation: LayoutGraphValidationState) {
+        self.parents.clear();
+        self.children.clear();
+        self.roots.clear();
+
+        for node_id in &self.node_order {
+            let Some(node) = self.nodes.get(node_id) else {
+                continue;
+            };
+            self.parents.insert(*node_id, node.parent_id);
+            self.children.insert(*node_id, node.children_ids.clone());
+            if node.parent_id.is_none() {
+                self.roots.push(*node_id);
+            } else if let Some(parent_id) = node.parent_id
+                && !self.nodes.contains_key(&parent_id)
+            {
+                validation.missing_parent_refs.push((*node_id, parent_id));
+            }
+        }
+
+        for node_id in &self.node_order {
+            let Some(node) = self.nodes.get(node_id) else {
+                continue;
+            };
+            for child_id in &node.children_ids {
+                let Some(child) = self.nodes.get(child_id) else {
+                    validation.missing_child_refs.push((*node_id, *child_id));
+                    continue;
+                };
+                if child.parent_id != Some(*node_id) {
+                    validation
+                        .parent_child_mismatches
+                        .push((*node_id, *child_id, child.parent_id));
+                }
+            }
+        }
+
+        validation.root_nodes = self.roots.clone();
+        validation.cycle_nodes = self.detect_cycle_nodes();
+        self.validation = validation;
+    }
+
+    fn mark_all_nodes_dirty(&mut self) {
+        let all_nodes = self.nodes.keys().copied().collect::<HashSet<_>>();
+        self.mark_dirty(&all_nodes);
+    }
+
+    fn mark_dirty(&mut self, dirty_set: &HashSet<NodeId>) {
+        self.dirty_nodes.extend(dirty_set.iter().copied());
+
+        for node_id in dirty_set {
+            let mut cursor = Some(*node_id);
+            while let Some(current_id) = cursor {
+                if !self.dirty_ancestors.insert(current_id) {
+                    break;
+                }
+                cursor = self.parents.get(&current_id).copied().flatten();
+            }
+
+            let mut queue = VecDeque::from([*node_id]);
+            while let Some(current_id) = queue.pop_front() {
+                if !self.dirty_subtrees.insert(current_id) {
+                    continue;
+                }
+                if let Some(children) = self.children.get(&current_id) {
+                    queue.extend(children.iter().copied());
+                }
+            }
+        }
+    }
+
+    fn detect_cycle_nodes(&self) -> Vec<NodeId> {
+        fn dfs(
+            node_id: NodeId,
+            children: &HashMap<NodeId, Vec<NodeId>>,
+            visited: &mut HashSet<NodeId>,
+            stack: &mut HashSet<NodeId>,
+            cycle_nodes: &mut Vec<NodeId>,
+        ) {
+            if stack.contains(&node_id) {
+                cycle_nodes.push(node_id);
+                return;
+            }
+            if !visited.insert(node_id) {
+                return;
+            }
+
+            stack.insert(node_id);
+            if let Some(child_nodes) = children.get(&node_id) {
+                for child_id in child_nodes {
+                    dfs(*child_id, children, visited, stack, cycle_nodes);
+                }
+            }
+            stack.remove(&node_id);
+        }
+
+        let mut visited = HashSet::new();
+        let mut stack = HashSet::new();
+        let mut cycle_nodes = Vec::new();
+        for node_id in &self.node_order {
+            dfs(
+                *node_id,
+                &self.children,
+                &mut visited,
+                &mut stack,
+                &mut cycle_nodes,
+            );
+        }
+        cycle_nodes.sort_by_key(|node_id| node_id.as_u128());
+        cycle_nodes.dedup();
+        cycle_nodes
+    }
+}
+
+fn layout_input_fingerprint(node: &LayoutInputNode) -> u64 {
+    let mut hasher = DefaultHasher::new();
+    format!("{node:?}").hash(&mut hasher);
+    hasher.finish()
 }
 
 /// An axis-aligned rectangle: an origin point plus a size.
@@ -686,6 +988,8 @@ pub trait TextMeasurer: Send + Sync {
 /// ```
 pub struct LayoutEngine {
     measurer: Option<Arc<dyn TextMeasurer>>,
+    graph_state: LayoutGraphState,
+    next_graph_version: u64,
 }
 
 impl LayoutEngine {
@@ -694,7 +998,11 @@ impl LayoutEngine {
     /// Text nodes will be treated as zero-sized until a measurer is provided
     /// via [`with_measurer`](LayoutEngine::with_measurer).
     pub fn new() -> Self {
-        Self { measurer: None }
+        Self {
+            measurer: None,
+            graph_state: LayoutGraphState::default(),
+            next_graph_version: 1,
+        }
     }
 
     /// Returns a new engine with the given text measurer attached.
@@ -705,18 +1013,64 @@ impl LayoutEngine {
         self
     }
 
+    fn allocate_graph_version(&mut self) -> u64 {
+        let version = self.next_graph_version;
+        self.next_graph_version = self.next_graph_version.saturating_add(1);
+        version
+    }
+
+    fn refresh_graph_state(&mut self, input_nodes: &[LayoutInputNode]) {
+        let version = self.allocate_graph_version();
+        self.graph_state = LayoutGraphState::from_input_nodes(input_nodes, version);
+    }
+
+    fn ensure_graph_state(&mut self, input_nodes: &[LayoutInputNode]) {
+        if self.graph_state.is_empty() || !self.graph_state.matches_input_nodes(input_nodes) {
+            self.refresh_graph_state(input_nodes);
+        }
+    }
+
+    fn validate_graph_state(&self, root: NodeId) -> Result<()> {
+        if let Some(err) = self.graph_state.validation.first_error() {
+            return Err(err);
+        }
+        if !self.graph_state.nodes.contains_key(&root) {
+            anyhow::bail!("[verify] missing node {:?}", root);
+        }
+        if !self.graph_state.roots.contains(&root) && self.graph_state.parents.get(&root).copied().flatten().is_some() {
+            anyhow::bail!("[verify] root {:?} is not a graph root", root);
+        }
+        if let Some(last_layout_version) = self.graph_state.last_layout_version
+            && last_layout_version > self.graph_state.graph_version
+        {
+            anyhow::bail!(
+                "[verify] cached layout version {} exceeds graph version {}",
+                last_layout_version,
+                self.graph_state.graph_version
+            );
+        }
+        Ok(())
+    }
+
     /// Incrementally updates layout for the given dirty nodes.
-    ///
-    /// Currently a no-op placeholder for future incremental layout support.
-    pub fn update(&mut self, input_nodes: &[LayoutInputNode], _dirty_set: &HashSet<NodeId>) {
-        let _ = input_nodes;
+    pub fn update(&mut self, input_nodes: &[LayoutInputNode], dirty_set: &HashSet<NodeId>) {
+        let version = self.allocate_graph_version();
+        if self.graph_state.is_empty() {
+            self.graph_state = LayoutGraphState::from_input_nodes(input_nodes, version);
+            return;
+        }
+
+        self.graph_state.graph_version = version;
+        self.graph_state.last_rebuild_version = version;
+        self.graph_state.apply_update(input_nodes, dirty_set);
     }
 
     /// Rebuilds internal data structures from the full node list.
-    ///
-    /// Currently a no-op placeholder for future optimization.
     pub fn rebuild(&mut self, input_nodes: &[LayoutInputNode]) -> Result<()> {
-        let _ = input_nodes;
+        self.refresh_graph_state(input_nodes);
+        if let Some(err) = self.graph_state.validation.first_error() {
+            return Err(err);
+        }
         Ok(())
     }
 
@@ -725,6 +1079,10 @@ impl LayoutEngine {
     /// Call this during development/testing to catch malformed IR before it causes
     /// layout panics. Returns `Err` with a description of the first problem found.
     pub fn verify_post_update(&self, input_nodes: &[LayoutInputNode], root: NodeId) -> Result<()> {
+        if self.graph_state.matches_input_nodes(input_nodes) {
+            return self.validate_graph_state(root);
+        }
+
         let node_map: HashMap<NodeId, &LayoutInputNode> =
             input_nodes.iter().map(|n| (n.id, n)).collect();
         // Parent/child consistency
@@ -791,6 +1149,8 @@ impl LayoutEngine {
         viewport_size: LayoutSize,
         scroll_source: &impl ScrollDataSource,
     ) -> Result<LayoutSnapshot> {
+        self.ensure_graph_state(input_nodes);
+        self.validate_graph_state(root_node_id)?;
         let snapshot = self.compute_layout_constraints(
             input_nodes,
             root_node_id,
@@ -806,12 +1166,14 @@ impl LayoutEngine {
     /// Same as [`compute_layout`](LayoutEngine::compute_layout) but does not emit
     /// diagnostic events. Useful when you need the snapshot but not the debug output.
     pub fn compute_layout_constraints(
-        &self,
+        &mut self,
         input_nodes: &[LayoutInputNode],
         root_node_id: NodeId,
         viewport_size: LayoutSize,
         scroll_source: &impl ScrollDataSource,
     ) -> Result<LayoutSnapshot> {
+        self.ensure_graph_state(input_nodes);
+        self.validate_graph_state(root_node_id)?;
         let node_map: HashMap<NodeId, &LayoutInputNode> =
             input_nodes.iter().map(|n| (n.id, n)).collect();
 
@@ -918,6 +1280,8 @@ impl LayoutEngine {
                 }
             }
         }
+
+        self.graph_state.mark_layout_complete();
 
         Ok(snapshot)
     }
