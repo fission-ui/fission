@@ -412,11 +412,14 @@ impl LayoutGraphState {
     }
 
     fn matches_input_nodes(&self, input_nodes: &[LayoutInputNode]) -> bool {
-        if self.nodes.len() != input_nodes.len() {
+        if self.nodes.len() != input_nodes.len() || self.node_order.len() != input_nodes.len() {
             return false;
         }
 
-        for node in input_nodes {
+        for (expected_id, node) in self.node_order.iter().zip(input_nodes.iter()) {
+            if *expected_id != node.id {
+                return false;
+            }
             let Some(existing) = self.node_fingerprints.get(&node.id) else {
                 return false;
             };
@@ -587,6 +590,86 @@ impl LayoutGraphState {
         cycle_nodes.sort_by_key(|node_id| node_id.as_u128());
         cycle_nodes.dedup();
         cycle_nodes
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{LayoutEngine, LayoutGraphState, LayoutInputNode};
+    use fission_ir::{LayoutOp, NodeId};
+
+    fn box_node(id: NodeId, parent_id: Option<NodeId>, children_ids: Vec<NodeId>) -> LayoutInputNode {
+        LayoutInputNode {
+            id,
+            parent_id,
+            op: LayoutOp::Box {
+                width: Some(40.0),
+                height: Some(20.0),
+                min_width: None,
+                max_width: None,
+                min_height: None,
+                max_height: None,
+                padding: [0.0; 4],
+                flex_grow: 0.0,
+                flex_shrink: 0.0,
+                aspect_ratio: None,
+            },
+            children_ids,
+            debug_name: format!("node-{}", id.as_u128()),
+            width: Some(40.0),
+            height: Some(20.0),
+            flex_grow: 0.0,
+            flex_shrink: 0.0,
+            rich_text: None,
+        }
+    }
+
+    #[test]
+    fn matches_input_nodes_rejects_reordered_flattened_inputs() {
+        let root = NodeId::from_u128(1);
+        let first = NodeId::from_u128(2);
+        let second = NodeId::from_u128(3);
+        let canonical = vec![
+            box_node(root, None, vec![first, second]),
+            box_node(first, Some(root), vec![]),
+            box_node(second, Some(root), vec![]),
+        ];
+        let reordered = vec![
+            box_node(root, None, vec![first, second]),
+            box_node(second, Some(root), vec![]),
+            box_node(first, Some(root), vec![]),
+        ];
+
+        let state = LayoutGraphState::from_input_nodes(&canonical, 1);
+        assert!(!state.matches_input_nodes(&reordered));
+    }
+
+    #[test]
+    fn update_refreshes_node_order_for_reordered_flattened_inputs() {
+        let root = NodeId::from_u128(10);
+        let first = NodeId::from_u128(11);
+        let second = NodeId::from_u128(12);
+        let canonical = vec![
+            box_node(root, None, vec![first, second]),
+            box_node(first, Some(root), vec![]),
+            box_node(second, Some(root), vec![]),
+        ];
+        let reordered = vec![
+            box_node(root, None, vec![first, second]),
+            box_node(second, Some(root), vec![]),
+            box_node(first, Some(root), vec![]),
+        ];
+
+        let mut engine = LayoutEngine::new();
+        engine.update(&canonical);
+        engine.update(&reordered);
+
+        let ordered = engine
+            .graph_state
+            .ordered_nodes()
+            .map(|node| node.id)
+            .collect::<Vec<_>>();
+        assert_eq!(ordered, vec![root, second, first]);
     }
 }
 
