@@ -39,4 +39,5 @@ yarn deploy
 - **Showcase:** `/showcase`
 
 We are intentionally presenting the framework as a production-ready destination for
-cross-platform apps while calling out remaining ecosystem work in the footer note.
+desktop and web platforms (including responsive mobile web), while calling out remaining
+ecosystem work in the footer note.
