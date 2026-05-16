@@ -5,14 +5,23 @@ description: Frame-level stages and observability points.
 
 # Rendering pipeline
 
-The frame follows four major phases after a build result is produced: graph lowering, layout, paint command generation, and render backend output.
+Each frame follows:
 
-Keep this map in mind for performance and correctness work:
+1. `Widget::build()` produces `Node`
+2. `CoreIR` lowering
+3. layout (`LayoutSnapshot`)
+4. paint list / render scene
+5. backend swapchain output
 
-- bad geometry usually belongs to layout,
-- wrong stacking usually belongs to paint,
-- unstable behavior usually belongs to state/actions.
+## Why it matters
 
-Use the pipeline to localize changes quickly during iteration.
+The best place to debug a regression is the stage where output diverged:
 
-For deeper behavior checks, combine this with testing and observability guidance.
+- wrong text only after action dispatch -> reducer or build,
+- wrong size/position -> layout,
+- wrong pixels with stable layout -> paint/style,
+- target-specific stutter -> frame/backend tuning.
+
+## Observability
+
+`FISSION_DIAG` supports per-stage captures and is your fastest path for stage-level triage.

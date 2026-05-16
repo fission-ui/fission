@@ -5,10 +5,26 @@ description: Baseline accessibility and localization contracts.
 
 # Accessibility and i18n
 
-This section is your checklist when preparing your first release candidate.
+Treat these as product requirements from the first feature.
 
-For accessibility, verify labels, role semantics, focus order, and visible keyboard state.
+## Accessibility
 
-For internationalization, keep user-facing text keyed, test long strings, and check layout stability for direction-sensitive text.
+Attach semantics to interactive nodes where users need clear intent signals:
 
-Applying these checks in the first iteration avoids large refactors once feature count grows.
+- `role`
+- `label`
+- `focusable`
+
+Use role and label checks in tests rather than visual-only assertions.
+
+## Internationalization
+
+Use stable keys (`TextContent::Key`) with per-locale bundles, and switch locale through environment sync
+(`with_sync_env`).
+
+## Practical checklist
+
+- every primary interactive control has role and label,
+- dynamic strings come from keys,
+- long strings are checked for clipping/overflow,
+- locale switch preserves layout flow.

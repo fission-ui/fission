@@ -5,9 +5,9 @@
   --ifm-font-family-base: 'Inter', 'Avenir Next', 'Segoe UI', Arial, sans-serif;
   --ifm-font-family-monospace: 'SFMono-Regular', Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
 
-  --ifm-font-color-base: #111827;
-  --ifm-heading-color: #0f172a;
-  --ifm-link-color: #0b8f7a;
+  --ifm-font-color-base: #0e1830;
+  --ifm-heading-color: #0d1528;
+  --ifm-link-color: #0a7660;
   --ifm-font-color-secondary: #334155;
 
   --ifm-color-primary: #0f8f75;
@@ -17,20 +17,23 @@
   --ifm-color-primary-light: #27b59a;
   --ifm-color-primary-lightest: #56c8b0;
 
-  --ifm-background-color: #f7fafc;
-  --ifm-navbar-background-color: rgba(255, 255, 255, 0.96);
+  --ifm-background-color: #f5f8ff;
+  --ifm-navbar-background-color: rgba(255, 255, 255, 0.98);
   --ifm-footer-background-color: #0f172a;
   --ifm-footer-color: #e2e8f0;
   --ifm-card-background-color: #ffffff;
-  --ifm-background-surface-color: #f3f6fb;
+  --ifm-background-surface-color: #eff4fb;
 
   --ifm-code-font-size: 95%;
+  --ifm-code-background: rgba(15, 23, 42, 0.09);
+  --ifm-code-color: #0f172a;
 }
 
 [data-theme='dark'] {
-  --ifm-font-color-base: #e7f2fb;
-  --ifm-heading-color: #ecf4ff;
-  --ifm-link-color: #88e7cb;
+  --ifm-font-color-base: #e6f0fb;
+  --ifm-heading-color: #edf7ff;
+  --ifm-link-color: #77e6ca;
+  --ifm-font-color-secondary: #c9d8eb;
 
   --ifm-color-primary: #18d6ae;
   --ifm-color-primary-dark: #12b892;
@@ -42,6 +45,18 @@
   --ifm-background-color: #050f17;
   --ifm-navbar-background-color: rgba(8, 21, 33, 0.92);
   --ifm-footer-background-color: #040c15;
+}
+
+pre,
+code,
+pre code {
+  color: var(--ifm-font-color-base);
+  background: color-mix(in srgb, var(--ifm-background-surface-color) 80%, white 20%);
+}
+
+.navbar__title {
+  font-size: 0.96rem;
+  letter-spacing: 0.01em;
 }
 
 html,
@@ -64,9 +79,10 @@ li {
 }
 
 code {
-  background: rgba(15, 23, 42, 0.08);
+  background: var(--ifm-code-background);
   border-radius: 0.25rem;
   padding: 0.05rem 0.28rem;
+  color: var(--ifm-code-color);
 }
 
 a,

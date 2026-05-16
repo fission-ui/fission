@@ -3,19 +3,18 @@ title: LazyColumn
 description: Reference details for LazyColumn.
 slug: /widgets/lazy-column
 ---
-
 # LazyColumn
 
-A layout and composition primitive for predictable structure and spacing.
+Use it to control how child nodes are arranged, measured, and constrained.
 
 
-## What this is for
-`LazyColumn` is part of Fission's widget API and fits the deterministic, state-driven render model.
+This is part of the Fission widget API and belongs in the same typed, state-driven model used across the rest of the framework.
 
-## Why you use it
-- Keep UI behavior deterministic by composing from explicit nodes.
-- Use it where behavior needs to stay testable and reviewable.
-- Connect it through your existing action/reducer and environment flow.
+
+**When you need it**
+- This widget is best when you need stable structure before styling. Keep layout decisions explicit so state and constraints stay predictable.
+- Use predictable state updates as your entry point for all behavior changes.
+- Combine with semantic labels and role attributes for reliable interaction testing.
 
 ## Minimal usage
 ```rust
@@ -26,12 +25,17 @@ let node = LazyColumn {
 }.into_node();
 ```
 
-## Config surface
+## API surface
 - `id`: `Option<NodeId>`
 - `children`: `Arc<Vec<Node>>`
 - `item_height`: `f32`
 
-## Learn next
-- [Widget catalog](/reference/widgets/catalog)
-- [Core widget contract](/reference/core/widget-trait)
+## Implementation checks
+- Build with the state model first, then layer spacing, alignment, and visual treatment. Layout mistakes are usually cheaper to fix before async behavior is introduced.
+- Keep callbacks/closures small and deterministic when possible, then move side effects to async boundaries.
+- If the widget affects layout or input, verify with both state transitions and target-level smoke tests.
 
+## Next
+- [Widget catalog](/reference/widgets/catalog)
+- [Widget trait](/reference/core/widget-trait)
+- [Widget tree model](/docs/concepts/widget-tree)

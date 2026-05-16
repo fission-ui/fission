@@ -8,6 +8,8 @@ description: Inputs and controls and where their events should go.
 Inputs map to explicit actions first. Keep handlers small, then move async work to commands,
 services, or jobs.
 
+Start there first when building interactive screens:
+
 Core input widgets:
 `Button`, `Checkbox`, `Radio`, `Slider`, `Switch`, `TextInput`, `NumberInput`, `Select`,
 `SelectItem`, `Menu`, `MenuButton`, `MenuItem`, `Combobox`, `RangeSlider`, `DropDown`,
@@ -19,4 +21,5 @@ Pattern:
 - action -> reducer or async boundary,
 - async response -> completion action -> state update.
 
-If a value comes from validation or persistence, treat that as command/service responsibility.
+If a value comes from validation or persistence, treat that as command/service responsibility and
+route the result through completion actions back into reducers.

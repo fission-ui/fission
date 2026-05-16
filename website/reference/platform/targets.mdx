@@ -1,17 +1,34 @@
 ---
 title: Targets
-description: Output targets and how to prepare behavior for each.
+description: Runtime targets and generated host outputs.
 ---
 
 # Targets
 
-Targeting is not a separate architecture. It is packaging and runtime-specific output around the same app model.
+Targets are generated host layers around the same app model.
 
-Current output targets are desktop shells, web/WASM, iOS, and Android.
+Supported targets for scaffolds are:
 
-- **desktop**: standard Vello-based runtime for Windows, macOS, and Linux
-- **web**: WASM host from `platforms/web`
-- **ios**: iOS simulator workflow from `platforms/ios`
-- **android**: Android emulator workflow from `platforms/android`
+- `windows`, `macos`, `linux`
+- `web`
+- `ios`
+- `android`
 
-Use the same state/actions model and keep target-specific differences at the runtime/config boundary.
+## Shared behavior, target-specific launch
+
+Keep `src/app.rs` as your product source. Generated files under `platforms/<target>/` control
+packaging and launch commands.
+
+## Typical commands
+
+- desktop: `cargo run`
+- web: `cargo fission add-target web && ./platforms/web/run-browser.sh`
+- iOS: `cargo fission add-target ios && ./platforms/ios/run-sim.sh`
+- Android: `cargo fission add-target android && ./platforms/android/run-emulator.sh`
+
+## What to verify per target
+
+- action/reducer consistency,
+- semantics discovery,
+- layout behavior under different viewport sizes,
+- baseline performance.

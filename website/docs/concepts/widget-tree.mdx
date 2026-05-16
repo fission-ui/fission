@@ -5,41 +5,21 @@ description: Why Fission uses a typed widget tree and how to reason about it.
 
 # Widget tree model
 
-Think of the widget tree as the deterministic UI projection of current state.
-For first-time users, this keeps debug work practical: your state changes, then `build` renders those changes.
+The widget tree is your executable design document. `build()` always returns a `Node` tree that expresses:
 
-Use this exact source flow whenever behavior is unclear:
+- what must be shown,
+- with what children and constraints,
+- and with any semantic metadata.
 
-- `state -> action -> reducer -> state -> Widget::build -> Node -> CoreIR -> layout -> paint -> backend`
+## Practical debugging flow
 
-One compact diagram-like list:
+When behavior surprises you, follow this order:
 
-- state
-- action dispatch
-- reducer
-- new state
-- `Widget::build`
-- `Node`
-- `CoreIR`
-- `LayoutSnapshot`
-- `DisplayList` / `RenderScene`
-- active backend
+1. confirm action and reducer state first,
+2. check that `build()` is deterministic,
+3. inspect the generated node structure,
+4. move to layout and render diagnostics.
 
-For first-time users, this is the first place to look:
+This keeps you from guessing in paint when the issue is actually in reducer or branching logic.
 
-- `Widget::build` is a pure projection from state.
-- `CoreIR` is what the runtime diffs frame-to-frame, using `diff_ir(prev_ir, next_ir)`.
-- `CoreIR` is the typed intermediate structure used by layout and paint.
-- if visuals diverge, isolate the first stage where expectation changes.
-
-If your first build is getting stuck, use this quick checklist:
-
-- start from initial state defaults
-- dispatch one action (one interaction)
-- confirm reducer output before looking at UI
-- inspect `CoreIR` shape before checking paint
-- then inspect `LayoutSnapshot` and display-list output
-
-This keeps you anchored to a small, testable flow instead of overfitting on one render detail.
-
-Next, check how that flow advances in [Rendering pipeline](/docs/concepts/pipeline).
+Move to [Rendering pipeline](/docs/concepts/pipeline) once state flow is stable.

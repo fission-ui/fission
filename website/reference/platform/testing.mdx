@@ -1,19 +1,26 @@
 ---
 title: Testing
-description: Practical testing order for a Fission application.
+description: Practical testing order for reliable Fission apps.
 ---
 
 # Testing
 
-Testing is strongest when it matches your app architecture.
+Use this order to keep fixes localized:
 
-Use reducer unit tests first, then command/service tests, then UI flow checks and target smoke checks.
+1. **Reducer tests**: verify state transitions.
+2. **Effect input tests**: verify completion payload decoding.
+3. **Headless widget tests**: verify behavior without platform dependencies.
+4. **Live target smoke**: verify actual runtime integration.
 
-Capture failures by stage:
+## Tools
 
-- action and reducer mismatch,
-- command lifecycle mismatch,
-- job start/stop mismatch,
-- layout or rendering regressions.
+- `fission_test::TestHarness` and `TestDriver` for deterministic checks,
+- `fission_test_driver::LiveTestClient` for target-level trees and interaction checks,
+- diagnostics env vars (`FISSION_DIAG_*`) for stage-based traces.
 
-This gives repeatable debugging across desktop, web, iOS, and Android targets.
+## Good failure signals
+
+- reducer outputs match expected state,
+- action inputs decode cleanly,
+- role/text visibility remains consistent,
+- async lifecycle completes with expected state transitions.

@@ -21,12 +21,12 @@ export default function Playground() {
         <section className={styles.section}>
           <h1 className={styles.heading}>Playground</h1>
           <p className={styles.lead}>
-            Use the web preview to validate behavior quickly, then move stable work into
-            local projects.
+            Use the generated project as your real playground: edit source, rebuild, verify one behavior change,
+            then expand to the target that matters for the milestone.
           </p>
         </section>
         <section className={styles.section}>
-          <h2>Starter examples</h2>
+          <h2>Starter workflows</h2>
           <div className={styles.grid}>
             <DemoCard
               title="Counter"
@@ -44,6 +44,14 @@ export default function Playground() {
               url="/docs/guide/widgets-and-layout"
             />
           </div>
+        </section>
+        <section className={styles.section}>
+          <h2>How to run iterations</h2>
+          <p className={styles.lead}>
+            Run the generated app with <code>cargo run</code> for the default local desktop flow. When ready to test
+            web or native runtimes, add target scripts and run <code>./platforms/web/run-browser.sh</code>,{' '}
+            <code>./platforms/ios/run-sim.sh</code>, or <code>./platforms/android/run-emulator.sh</code>.
+          </p>
         </section>
       </main>
     </Layout>

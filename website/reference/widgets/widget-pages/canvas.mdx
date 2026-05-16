@@ -3,19 +3,18 @@ title: canvas
 description: Reference details for canvas.
 slug: /widgets/canvas
 ---
-
 # canvas
 
-A low-level composition utility for precise layout and rendering placement.
+Use it for media, rich text, icons, graphics, or custom visual composition.
 
 
-## What this is for
-Creates a custom paint node from a closure. The `painter` closure receives a [`LoweringContext`] and returns a list of child node IDs. These are grouped inside a fixed-size box with the given `width` and `height` (both optional).
+This is part of the Fission widget API and belongs in the same typed, state-driven model used across the rest of the framework.
 
-## Why you use it
-- Keep UI behavior deterministic by composing from explicit nodes.
-- Use it where behavior needs to stay testable and reviewable.
-- Connect it through your existing action/reducer and environment flow.
+
+**When you need it**
+- This widget is best when content may be asynchronous, large, or performance-sensitive.
+- Use predictable state updates as your entry point for all behavior changes.
+- Combine with semantic labels and role attributes for reliable interaction testing.
 
 ## Minimal usage
 ```rust
@@ -25,8 +24,15 @@ let node = canvas(Some(200.0), Some(100.0), |cx| {
 });
 ```
 
+## API surface
+- `id`: `Option<NodeId>`
 
-## Learn next
+## Implementation checks
+- Decide loading fallback, constraints, and accessibility alternatives before adding animation or motion effects.
+- Keep callbacks/closures small and deterministic when possible, then move side effects to async boundaries.
+- If the widget affects layout or input, verify with both state transitions and target-level smoke tests.
+
+## Next
 - [Widget catalog](/reference/widgets/catalog)
-- [Core widget contract](/reference/core/widget-trait)
-
+- [Widget trait](/reference/core/widget-trait)
+- [Widget tree model](/docs/concepts/widget-tree)

@@ -5,10 +5,13 @@ description: Media surfaces, graphics, and custom drawing entry points.
 
 # Media widgets
 
-Use media widgets intentionally with constraints. They may impact layout, loading behavior, and startup cost.
+Use media widgets intentionally with constraints. They may impact layout, startup time, and rendering cost.
 
 Core entries: `Image`, `Video`, `Icon`, `Code`, and `Kbd`. Build custom drawing with
 `canvas(width, height, painter)` and validate clipping, scaling, and fallback behavior early.
+
+Treat these widgets as potentially expensive: define sizing and fallback plans before adding
+animation or large data streams.
 
 For each media area decide:
 

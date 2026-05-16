@@ -3,19 +3,18 @@ title: DateRangePicker
 description: Reference details for DateRangePicker.
 slug: /widgets/date-range-picker
 ---
-
 # DateRangePicker
 
-An input-focused control for converting user intent into typed actions.
+Use it when the user needs to interact, choose a value, or submit intent.
 
 
-## What this is for
-`DateRangePicker` is part of Fission's widget API and fits the deterministic, state-driven render model.
+This is part of the Fission widget API and belongs in the same typed, state-driven model used across the rest of the framework.
 
-## Why you use it
-- Keep UI behavior deterministic by composing from explicit nodes.
-- Use it where behavior needs to stay testable and reviewable.
-- Connect it through your existing action/reducer and environment flow.
+
+**When you need it**
+- This widget is best when the control drives explicit `Action` dispatch or receives values from a reducer-owned state model.
+- Use predictable state updates as your entry point for all behavior changes.
+- Combine with semantic labels and role attributes for reliable interaction testing.
 
 ## Minimal usage
 ```rust
@@ -26,7 +25,7 @@ let node = DateRangePicker {
 }.into_node();
 ```
 
-## Config surface
+## API surface
 - `id_start`: `WidgetNodeId`
 - `id_end`: `WidgetNodeId`
 - `start`: `Option<NaiveDate>`
@@ -38,7 +37,12 @@ let node = DateRangePicker {
 - `on_close_start`: `Option<ActionEnvelope>`
 - `on_close_end`: `Option<ActionEnvelope>`
 
-## Learn next
-- [Widget catalog](/reference/widgets/catalog)
-- [Core widget contract](/reference/core/widget-trait)
+## Implementation checks
+- Keep control values in state, validate there, and surface results through completion actions or reducer transitions.
+- Keep callbacks/closures small and deterministic when possible, then move side effects to async boundaries.
+- If the widget affects layout or input, verify with both state transitions and target-level smoke tests.
 
+## Next
+- [Widget catalog](/reference/widgets/catalog)
+- [Widget trait](/reference/core/widget-trait)
+- [Widget tree model](/docs/concepts/widget-tree)

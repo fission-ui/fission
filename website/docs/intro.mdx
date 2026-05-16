@@ -1,73 +1,87 @@
 ---
 title: Start here
-description: A guided first look at Fission for your first product.
+description: Start here if you have never used Fission before.
 ---
 
 import Tabs from '@theme/Tabs';
 import TabItem from '@theme/TabItem';
 
-# [Start here](/docs/getting-started/what-is-fission)
+# Start here
 
-If this is your first time with Fission, follow the shortest reliable path below and avoid skipping.
+If this is your first day with Fission, your goal is simple: get one small interaction working and learn the same pattern once.
 
-Fission is desktop-first. Validate local behavior on `cargo run` before you launch generated host targets.
+Here is the shortest path that gets you to a meaningful app loop quickly:
 
-### Recommended flow
+1. Install the CLI and create a baseline app.
+2. Make a small state change and confirm it works.
+3. Add one second interaction.
+4. Decide where async work belongs.
+5. Generate your next target only when behavior is stable.
 
-1. [What is Fission](/docs/getting-started/what-is-fission)
-2. [Install and setup](/docs/getting-started/install)
-3. [Build your first app](/docs/getting-started/first-app)
-4. [Playground-driven workflow](/docs/guide/playground-driven-workflow)
-5. [Widgets and layout](/docs/guide/widgets-and-layout)
-6. [State and actions](/docs/guide/state-and-actions)
-7. [Commands, services, and jobs](/docs/guide/commands-services-jobs)
-8. [Counter tutorial](/docs/tutorials/counter)
-9. [Todo tutorial](/docs/tutorials/todo)
+## Recommended learning path
 
-### Platform-first order and caveats
+The fastest safe path is:
 
-Fission is desktop-first. You should get desktop behavior working first, then add generated host targets for wider coverage.
+- [What is Fission](/docs/getting-started/what-is-fission)
+- [Install and setup](/docs/getting-started/install)
+- [Build your first app](/docs/getting-started/first-app)
+- [Playground-driven workflow](/docs/guide/playground-driven-workflow)
+- [Widgets and layout](/docs/guide/widgets-and-layout)
+- [State and actions](/docs/guide/state-and-actions)
+- [Commands, services, and jobs](/docs/guide/commands-services-jobs)
+- [Counter tutorial](/docs/tutorials/counter)
+- [Todo tutorial](/docs/tutorials/todo)
+
+## How Fission targets your workflow
+
+Fission is designed around this rule: *build trust in state first, then scale runtime coverage*.
+
+Use one path now and come back later to switch target mode once behavior is stable.
 
 <Tabs>
-<TabItem value="generated" label="Generated app" default>
+<TabItem value="default" label="Default path" default>
 
-Start from a fresh scaffold, verify desktop, then add targets as needed:
+Start with a runnable app generated from the current machine and Rust toolchain:
 
 ```bash
+cargo install fission-cli
 fission init my-fission-app
 cd my-fission-app
 cargo run
-cargo fission add-target web ios android
 ```
 
-Run host scripts from the **generated app root**:
-
-```bash
-./platforms/web/run-browser.sh      # requires wasm32-unknown-unknown + wasm-pack
-./platforms/ios/run-sim.sh          # requires Xcode simulator SDK + platforms/ios/README.md
-./platforms/android/run-emulator.sh  # requires SDK/NDK/toolchain + platforms/android/README.md
-```
-
-Do not assume generated targets behave identically out of the box:
-
-- web requires `wasm32-unknown-unknown` and `wasm-pack`,
-- iOS requires simulator toolchain prerequisites,
-- Android requires a valid Android SDK/NDK and target setup.
+This validates your app loop before any platform-specific generated host is added.
 
 </TabItem>
+<TabItem value="custom" label="Local checkout path">
 
-<TabItem value="repo" label="Repo examples">
-Use the checked-in examples when you need deterministic host files from the repository:
+Use this for local crate development and deeper framework diagnostics:
 
 ```bash
-./examples/web-smoke/platforms/web/run-browser.sh
-./examples/mobile-smoke/platforms/ios/run-sim.sh
-./examples/mobile-smoke/platforms/android/run-emulator.sh
+git clone https://github.com/worka-ai/fission.git
+cd fission
+FISSION_CHECKOUT="$PWD"
+cargo install --locked --path "$FISSION_CHECKOUT/crates/tools/fission-cli"
+cd ..
+fission init my-fission-app --local-path "$FISSION_CHECKOUT"
+cd my-fission-app
+cargo run
 ```
-
-These are useful for baseline verification and smoke checks, but the normal product flow is generated per app.
-When you need host output parity, compare both flows before release verification.
 </TabItem>
 </Tabs>
 
-When you are ready for quick lookup, open [Reference overview](/reference/overview).
+## Add targets when behavior is ready
+
+You can add platforms as needed with the same project manifest (`fission.toml`):
+
+```bash
+cargo fission add-target web ios android
+```
+
+Generated targets are run from the generated app root:
+
+- `./platforms/web/run-browser.sh`
+- `./platforms/ios/run-sim.sh`
+- `./platforms/android/run-emulator.sh`
+
+Read each generated target README before testing each runtime.

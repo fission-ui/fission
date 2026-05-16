@@ -5,35 +5,49 @@ description: The practical architecture choices behind Fission.
 
 # Why Fission
 
-The best way to evaluate these differentiators is against the first generated app: if each one helps you ship and debug that tiny counter confidently, it will scale with the same discipline to the rest of your product.
+Many frameworks ask you to distribute your architecture across too many concepts before you can ship. Fission keeps the first iteration short.
 
-- **Deterministic action flow**
-  - In your first app, the increment path should produce one obvious state transition, so `Count` changes match the reducer and are easy to reproduce in tests.
-  - Tradeoff: you lose "quick-and-dirty" state mutation style; all behavior must go through explicit handlers, which can feel strict at the beginning.
+## Core design choices
 
-- **Desktop-first onboarding before platform spread**
-  - In your first app, `cargo run` from the scaffold root is the first stable loop and validates the default model before you add any web/mobile target.
-  - Tradeoff: additional targets are not ready on day one; each one (`web`, `ios`, `android`) needs a dedicated `cargo fission add-target` step plus host prerequisites.
+### 1) Deterministic update flow
 
-- **Separation of interaction model from platform shell**
-- In your first app, `src/app.rs` stays focused on state and widgets, while platform differences are handled by generated shell code under `platforms/<target>`.
-- Tradeoff: platform-specific issues remain possible (for example, iOS simulator rendering can run with software fallback depending on backend capabilities), so you still need per-target verification.
+Everything that changes UI state travels through typed actions and pure reducers. In practice this gives:
 
-- **Built-in quality pressure from day one**
-  - In your first app, accessible labels, readable text, and focus order can be checked early, then carried forward when you add localization and deeper tests.
-  - Tradeoff: the starter provides the shape, but not a complete localization/accessibility finish; you own the translation keys and any native bridge parity gaps.
+- predictable replay,
+- easy reducer tests,
+- fewer accidental side effects in `build()`.
 
-- **Fast local confidence, then scoped expansion**
-  - In your first app, you can iterate quickly (`edit`, `cargo run`, `confirm behavior`) before deciding which host to generate and stabilize next.
-  - Tradeoff: desktop confidence does not automatically equal web/mobile confidence; each host still needs its own smoke check and environment setup.
+### 2) Structured async model
 
-:::info Evidence and next checks
-- `crates/tools/fission-cli/src/lib.rs` (target generation and runtime boundaries)
-- `crates/tools/fission-cli/README.md` (scaffold outputs and target status)
-- `docs/cli-and-targets.md` (supported targets and command examples)
-- `docs/platform-smoke-tests.md` (end-to-end check strategy for generated and example smoke paths)
-- `website/docs/guide/platform-deployment.mdx` (host launch expectations for generated targets)
-- `website/docs/guide/i18n-and-accessibility.mdx` (first-app accessibility and localization follow-up)
-:::
+Work that can take time is explicit:
 
-If these tradeoffs fit your onboarding goal, continue to [Install and setup](/docs/getting-started/install) before [Build your first app](/docs/getting-started/first-app).
+- **jobs** for one-shot operations,
+- **services** for long-lived background behavior,
+- **commands** to direct already-running services.
+
+Keeping this split explicit reduces accidental complexity.
+
+### 3) State-first product model
+
+The same app state and action surface can be validated locally, then shared for generated platform targets.
+
+### 4) Integrated testing and observability
+
+Fission includes test harness support and diagnostics. You can validate:
+
+- reducer transitions,
+- action/input lifecycle,
+- semantics/roles,
+- rendering diagnostics by stage.
+
+### 5) Product language support and semantics awareness
+
+From the start you can use `TextContent::Key` for language-ready text and attach semantic roles and labels where interaction matters.
+
+## What this means for your team
+
+- start with real behavior quickly,
+- stabilize one interaction before adding more surface,
+- expand targets only once behavior and UX checks are trustworthy.
+
+Continue to [Build your first app](/docs/getting-started/first-app).

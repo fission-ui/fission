@@ -1,25 +1,23 @@
 ---
 title: CLI
-description: Project and target workflow commands for Fission.
+description: Project workflow and target generation commands.
 ---
 
 # CLI overview
 
-Standard commands:
+The CLI flow is intentionally small:
 
-`fission init <app>`
+1. `fission init <app>` creates a runnable scaffold.
+2. `cargo fission add-target <target>` adds host output for a runtime.
 
-Creates and configures a new project scaffold.
+Example:
 
-`fission add-target <target>`
+```bash
+cargo install fission-cli
+fission init my-app
+cd my-app
+cargo run
+cargo fission add-target web ios android
+```
 
-Adds a build/run target.
-
-Use these commands consistently in local automation so every team member works from the same workflow.
-
-Run targets from generated output scripts:
-
-- Desktop: `cargo run`
-- Web: `./platforms/web/run-browser.sh`
-- iOS: `./platforms/ios/run-sim.sh` (after `cargo fission add-target ios`)
-- Android: `./platforms/android/run-emulator.sh` (after `cargo fission add-target android`)
+Generated targets are launched from each `platforms/<target>/` directory. Keep generated artifacts committed only where that is part of your team practice; otherwise use local scripts for iteration and source control for product decisions.

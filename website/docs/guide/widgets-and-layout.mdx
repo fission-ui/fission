@@ -5,212 +5,80 @@ description: Compose your first screens with reusable widgets.
 
 # Widgets and layout
 
-Layout is not decoration. It is behavior-ready structure.
+State drives structure before style. This avoids spending time rearranging after business logic is settled.
 
-A practical way to avoid layout regressions is:
+A practical pattern is:
 
-1. define the outer frame first,
-2. split large sections into helper builders,
-3. wire bindings after the structure is clear.
+1. define your container shell (`SafeArea`, `Container`, `Column`, `Row`),
+2. choose spacing and behavior boundaries (`gap`, `padding`, `flex_grow`),
+3. add helpers only when structure is stable.
 
 ```rust
 use fission::prelude::*;
 
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
 struct DashboardState {
-    title: String,
-    item_count: u32,
-    show_sidebar: bool,
+    counter: u32,
 }
 
 impl AppState for DashboardState {}
 
 #[derive(Action, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-struct ToggleSidebar;
+struct Increment;
 
-#[derive(Action, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-struct AddCard;
-
-fn on_toggle_sidebar(
+fn on_increment(
     state: &mut DashboardState,
-    _action: ToggleSidebar,
+    _action: Increment,
     _ctx: &mut ReducerContext<DashboardState>,
 ) {
-    state.show_sidebar = !state.show_sidebar;
+    state.counter += 1;
 }
 
-fn on_add_card(state: &mut DashboardState, _action: AddCard, _ctx: &mut ReducerContext<DashboardState>) {
-    state.item_count += 1;
-}
+struct Dashboard;
 
-fn dashboard_header(
-    state: &View<DashboardState>,
-    toggle_sidebar: ActionEnvelope,
-) -> Node {
-    Container::new(
-        Row {
-            gap: Some(10.0),
-            children: vec![
-                Text::new(if state.state.title.is_empty() {
-                        "Dashboard".to_string()
-                    } else {
-                        state.state.title.clone()
-                    })
-                    .size(24.0)
-                    .into_node(),
-                Button {
-                    child: Some(Box::new(Text::new("Menu").into_node())),
-                    on_press: Some(toggle_sidebar),
-                    ..Default::default()
-                }
-                .into_node(),
-            ],
-            ..Default::default()
-        }
-        .into_node(),
-    )
-    .padding_all(16.0)
-    .into_node()
-}
-
-fn dashboard_sidebar() -> Node {
-    Container::new(
-        Column {
-            gap: Some(12.0),
-            children: vec![
-                Text::new("Sidebar")
-                    .size(16.0)
-                    .into_node(),
-                Text::new("Overview")
-                    .size(14.0)
-                    .into_node(),
-                Text::new("Settings")
-                    .size(14.0)
-                    .into_node(),
-            ],
-            ..Default::default()
-        }
-        .into_node(),
-    )
-    .padding_all(12.0)
-    .into_node()
-}
-
-fn dashboard_cards(state: &View<DashboardState>) -> Node {
-    let mut cards = Vec::new();
-
-    if state.state.item_count == 0 {
-        cards.push(
-            Text::new("No cards yet")
-                .size(14.0)
-                .into_node(),
-        );
-    } else {
-        for idx in 1..=state.state.item_count {
-            cards.push(
-                Container::new(
-                    Text::new(format!("Card {}", idx)).into_node(),
-                )
-                .padding_all(12.0)
-                .into_node(),
-            );
-        }
-    }
-
-    Column {
-        gap: Some(8.0),
-        children: cards,
-        ..Default::default()
-    }
-    .into_node()
-}
-
-struct DashboardApp;
-
-impl Widget<DashboardState> for DashboardApp {
+impl Widget<DashboardState> for Dashboard {
     fn build(&self, ctx: &mut BuildCtx<DashboardState>, view: &View<DashboardState>) -> Node {
-        let toggle_sidebar = ctx.bind(ToggleSidebar, on_toggle_sidebar as Handler<DashboardState, ToggleSidebar>);
-        let add_card = ctx.bind(AddCard, on_add_card as Handler<DashboardState, AddCard>);
+        let increment = ctx.bind(Increment, on_increment as Handler<DashboardState, Increment>);
 
-        let mut content = Vec::new();
-        content.push(dashboard_header(view, toggle_sidebar));
-        content.push(
-            Button {
-                child: Some(Box::new(Text::new("Add card").into_node())),
-                on_press: Some(add_card),
-                ..Default::default()
-            }
-            .into_node(),
-        );
-        content.push(dashboard_cards(view));
-
-        let mut row_children = Vec::new();
-        if view.state.show_sidebar {
-            row_children.push(
-                Container::new(Column {
-                    children: vec![dashboard_sidebar()],
-                    ..Default::default()
-                }
-                .into_node())
-                .flex_shrink(0.0)
-                .min_width(150.0)
-                .into_node(),
-            );
-        }
-
-        SafeArea {
-            id: None,
-            child: Box::new(
-                Scroll {
-                    flex_grow: 1.0,
-                    child: Some(Box::new(
-                        Row {
-                            children: {
-                                let mut children = row_children;
-                                children.push(
-                                    Container::new(
-                                        Column {
-                                            gap: Some(12.0),
-                                            children: content,
-                                            ..Default::default()
-                                        }
-                                        .into_node(),
-                                    )
-                                    .padding_all(16.0)
-                                    .flex_grow(1.0)
-                                    .into_node(),
-                                );
-                                children
-                            },
+        Container {
+            child: Some(Box::new(
+                Column {
+                    gap: Some(12.0),
+                    children: vec![
+                        Text::new(format!("Projects: {}", view.state.counter)).into_node(),
+                        Button {
+                            on_press: Some(increment),
+                            child: Some(Box::new(Text::new("Add").into_node())),
                             ..Default::default()
                         }
                         .into_node(),
-                    )),
+                    ],
                     ..Default::default()
                 }
                 .into_node(),
-            ),
+            )),
+            ..Default::default()
         }
         .into_node()
     }
 }
 ```
 
-## Practical layout rules
+## Why start this way
 
-- Start with a top-level container (`SafeArea`/`Container`/`Scroll`/`Row`/`Column`) before adding visual details.
-- Extract each section (`header`, `sidebar`, `content`) into helper functions or small widgets.
-- Keep spacing intent explicit (`gap`, `padding_all`, `flex_grow`, `flex_shrink`) before adding style.
-- Add behavior after structure is stable; if the tree starts to nest deeply, split it before adding more actions.
+When layout is settled first, you can:
 
-## Common anti-patterns
+- spot interaction bugs faster,
+- reuse containers across screens,
+- keep semantics and accessibility checks anchored to stable structure.
 
-- Building one anonymous tree with all structure and behavior mixed.
-- Adding color/typography changes before proving layout composition.
-- Binding actions inline before container boundaries are clear.
+## Practical checklist
 
-Use this page order before jumping to [State and actions](/docs/guide/state-and-actions):
+- build your tree with explicit containers first,
+- extract repeating sections into helper builders,
+- bind actions only after visible structure is understandable,
+- test each screen as a sequence of state transitions.
 
-1. layout structure,
-2. action shape,
-3. async boundaries (`commands`, `services`, `jobs`).
+## Next
+
+Once layout is stable, define your action flow in [State and actions](/docs/guide/state-and-actions).

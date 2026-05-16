@@ -1,75 +1,63 @@
 ---
 title: Counter tutorial
-description: Add one action and wire reducers from `src/app.rs`.
+description: Extend the first app to add decrement and verify reducer-driven behavior.
 ---
 
 # Counter tutorial
 
-This is a follow-up to [Build your first app](/docs/getting-started/first-app).
-At this point, the generated `src/app.rs` is increment-only.
-If your local starter still includes both actions, skip step 1 and keep only the binding/update steps.
+This tutorial extends the starter counter from [Build your first app](/docs/getting-started/first-app).
 
-1. Add a new action + reducer in `src/app.rs`.
+If your scaffold already has a decrement action, skip directly to verification.
 
-```diff
-@@
- #[derive(Action, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
- struct Increment;
-+
-+#[derive(Action, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-+struct Decrement;
-@@
- fn on_increment(
-     state: &mut CounterState,
-     _action: Increment,
-     _ctx: &mut ReducerContext<CounterState>,
- ) {
-     state.count += 1;
- }
-+
-+fn on_decrement(
-+    state: &mut CounterState,
-+    _action: Decrement,
-+    _ctx: &mut ReducerContext<CounterState>,
-+) {
-+    state.count -= 1;
-+}
+## Step 1 — add the second action
+
+Open `src/app.rs` and add:
+
+```rust
+#[derive(Action, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+struct Decrement;
+
+fn on_decrement(
+    state: &mut CounterState,
+    _action: Decrement,
+    _ctx: &mut ReducerContext<CounterState>,
+) {
+    state.count -= 1;
+}
 ```
 
-2. Bind both actions in `build()`.
+## Step 2 — bind the action in `build()`
 
-```diff
-@@
-     fn build(&self, ctx: &mut BuildCtx<CounterState>, view: &View<CounterState>) -> Node {
-         let increment = ctx.bind(Increment, on_increment as Handler<CounterState, Increment>);
-+        let decrement = ctx.bind(Decrement, on_decrement as Handler<CounterState, Decrement>);
-@@
-                 Button {
-                     on_press: Some(increment),
-                     child: Some(Box::new(Text::new("Increment").into_node())),
-                     ..Default::default()
-                 }
-                 .into_node(),
-+                Button {
-+                    on_press: Some(decrement),
-+                    child: Some(Box::new(Text::new("Decrement").into_node())),
-+                    ..Default::default()
-+                }
-+                .into_node(),
-             ],
-             ..Default::default()
-         }
+Bind both actions and render a second button.
+
+```rust
+let increment = ctx.bind(Increment, on_increment as Handler<CounterState, Increment>);
+let decrement = ctx.bind(Decrement, on_decrement as Handler<CounterState, Decrement>);
+
+Column {
+    gap: Some(16.0),
+    children: vec![
+        Text::new(format!("Count: {}", view.state.count)).into_node(),
+        Button {
+            on_press: Some(increment),
+            child: Some(Box::new(Text::new("Increment").into_node())),
+            ..Default::default()
+        }
+        .into_node(),
+        Button {
+            on_press: Some(decrement),
+            child: Some(Box::new(Text::new("Decrement").into_node())),
+            ..Default::default()
+        }
+        .into_node(),
+    ],
+    ..Default::default()
+}
 ```
 
-`ctx.bind(...)` does three things:
+What changed: actions are still explicit and reducers are still tiny.
 
-- ties an action type (`Increment`, `Decrement`) to its reducer function,
-- validates the `State` + action signature at compile time,
-- returns a callback you can pass to event fields such as `Button { on_press: ... }`.
-
-When you press a button, the bound callback dispatches the action, the reducer runs with `&mut CounterState`, and the widget tree rebuilds from the updated `state`.
-
-3. Run the generated app to verify interactions.
+## Step 3 — verify by behavior
 
 ```bash
 cargo run
@@ -77,13 +65,13 @@ cargo run
 
 Expected flow:
 
-- window starts at `Count: 0`
-- click `Increment` -> `Count: 1`
-- click `Decrement` -> `Count: 0`
+- starts at `Count: 0`
+- increment moves `0 -> 1`
+- decrement moves `1 -> 0`
 
-4. Add reducer tests for deterministic logic (safe first-time scope).
+## Step 4 — add reducer test coverage
 
-Keep tests focused to reducers, not rendering:
+Keep reducer tests focused:
 
 ```rust
 #[cfg(test)]
@@ -93,27 +81,21 @@ mod reducer_tests {
     use fission::prelude::{Effects, ReducerContext};
 
     #[test]
-    fn count_reducers_update_state_deterministically() {
+    fn count_is_bidi() {
         let mut state = CounterState::default();
-        let mut effects = Effects::new_headless(0);
         let input = ActionInput::None;
+        let mut effects = Effects::new_headless(0);
+        let mut ctx = ReducerContext { effects: &mut effects, input: &input };
 
-        let mut ctx = ReducerContext {
-            effects: &mut effects,
-            input: &input,
-        };
-
+        on_increment(&mut state, Increment, &mut ctx);
         on_increment(&mut state, Increment, &mut ctx);
         on_decrement(&mut state, Decrement, &mut ctx);
 
-        assert_eq!(state.count, 0);
-        assert!(effects.out.is_empty());
+        assert_eq!(state.count, 1);
     }
 }
 ```
 
-Scope note: this confirms reducer math only. For interaction and render checks, keep running `cargo run`.
-The checked-in `cargo run -p counter` demo contains additional controls (text input, toggle, modal),
-so use it as a broader UI smoke check for the increment path, not a strict one-to-one counter sample.
+You now have two actions, two reducers, one deterministic loop.
 
-Then continue with [Todo application tutorial](/docs/tutorials/todo).
+Next, move to the todo tutorial for list state and async preparation.

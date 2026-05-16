@@ -3,19 +3,18 @@ title: TimePicker
 description: Reference details for TimePicker.
 slug: /widgets/time-picker
 ---
-
 # TimePicker
 
-An input-focused control for converting user intent into typed actions.
+Use it when the user needs to interact, choose a value, or submit intent.
 
 
-## What this is for
-`TimePicker` is part of Fission's widget API and fits the deterministic, state-driven render model.
+This is part of the Fission widget API and belongs in the same typed, state-driven model used across the rest of the framework.
 
-## Why you use it
-- Keep UI behavior deterministic by composing from explicit nodes.
-- Use it where behavior needs to stay testable and reviewable.
-- Connect it through your existing action/reducer and environment flow.
+
+**When you need it**
+- This widget is best when the control drives explicit `Action` dispatch or receives values from a reducer-owned state model.
+- Use predictable state updates as your entry point for all behavior changes.
+- Combine with semantic labels and role attributes for reliable interaction testing.
 
 ## Minimal usage
 ```rust
@@ -26,12 +25,17 @@ let node = TimePicker {
 }.into_node();
 ```
 
-## Config surface
+## API surface
 - `hour`: `u32`
 - `minute`: `u32`
-- `on_change`: `Option<Arc<dyn Fn(u32`
+- `on_change`: `Option<Arc<dyn Fn(u32, u32) -> ActionEnvelope + Send + Sync>>`
 
-## Learn next
+## Implementation checks
+- Keep control values in state, validate there, and surface results through completion actions or reducer transitions.
+- Keep callbacks/closures small and deterministic when possible, then move side effects to async boundaries.
+- If the widget affects layout or input, verify with both state transitions and target-level smoke tests.
+
+## Next
 - [Widget catalog](/reference/widgets/catalog)
-- [Core widget contract](/reference/core/widget-trait)
-
+- [Widget trait](/reference/core/widget-trait)
+- [Widget tree model](/docs/concepts/widget-tree)

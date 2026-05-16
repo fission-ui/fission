@@ -1,6 +1,6 @@
 ---
 title: Install and setup
-description: Install the Fission CLI, scaffold your first app, and add desktop/mobile/web targets.
+description: Install the CLI, scaffold your first app, and add desktop/web/mobile targets.
 ---
 
 import Tabs from '@theme/Tabs';
@@ -8,150 +8,93 @@ import TabItem from '@theme/TabItem';
 
 # Install and setup
 
-You need Rust and Cargo installed.
+Get the CLI first, then create your first app.
 
-Prerequisites:
+## Required tools
 
-- Rust 1.77+ (stable)
-- GPU backend support for Vulkan, Metal, or DX12 through `wgpu`
-- On Linux: `libwayland-dev`, `libxkbcommon-dev`, and X11/Wayland development headers
+- Rust toolchain (stable)
+- `cargo`
+- GPU backend dependencies (`wgpu` backend requirements) on Linux:
+  - `libwayland-dev`
+  - `libxkbcommon-dev`
+  - X11/Wayland dev headers
 
-Install `fission` using one of two supported paths:
-
-- **Recommended default**: install from crates.io and scaffold from that installed CLI.
-- **Local checkout**: use local path mode when contributing to Fission or testing a fork.
-
-Both paths produce the same generated app workflow:
-
-1. `fission init` creates a runnable desktop app.
-2. `cargo fission add-target <target>` adds platform host files.
-
-Both paths produce the same generated app workflow:
-
-1. `fission init` creates a runnable desktop app.
-2. `cargo fission add-target <target>` adds platform host files.
-
-<Tabs>
-  <TabItem value="default" label="Crates.io (recommended)" default>
-
-1. Install the CLI from crates.io.
+## Default installation path
 
 ```bash
 cargo install fission-cli
 ```
 
-If this path is unavailable in your environment, use the Local checkout tab instead.
-
-2. Scaffold a new app.
+Then scaffold and run:
 
 ```bash
 fission init my-fission-app
-```
-
-3. Open the project and run desktop.
-
-```bash
 cd my-fission-app
 cargo run
 ```
 
-4. Add optional targets when you need them.
+You now have a runnable baseline application and generated docs, manifests, and default desktop targets.
 
- ```bash
-cargo fission add-target web ios android
+## Local setup options
+
+Use one of these paths after installing tooling:
+
+<Tabs>
+<TabItem value="default" label="Default CLI" default>
+
+```bash
+cargo install fission-cli
+fission init my-fission-app
+cd my-fission-app
+cargo run
 ```
 
-  </TabItem>
-  <TabItem value="local" label="Local checkout">
-
-1. Clone the source checkout.
+</TabItem>
+<TabItem value="local" label="Local checkout">
 
 ```bash
 git clone https://github.com/worka-ai/fission.git
 cd fission
 git submodule update --init --recursive
-```
-
-2. Install the CLI from the local crate.
-
-```bash
 FISSION_CHECKOUT="$PWD"
+
 cargo install --locked --path "$FISSION_CHECKOUT/crates/tools/fission-cli"
-```
 
-3. Scaffold a new app with workspace-local dependency resolution.
-
-```bash
 cd ..
 fission init my-fission-app --local-path "$FISSION_CHECKOUT"
-```
-
-4. Open and run your app.
-
-```bash
 cd my-fission-app
 cargo run
 ```
 
-5. Add optional targets.
+</TabItem>
+</Tabs>
+
+## Add optional targets
+
+Use `cargo fission add-target <target>` after the first app loop is stable:
 
 ```bash
 cargo fission add-target web ios android
 ```
 
-From another directory, use `--project-dir`:
+Targets supported by the generator:
 
-```bash
-cargo fission add-target web ios android --project-dir my-fission-app
-```
-
-  </TabItem>
-</Tabs>
-
-`fission` and `cargo fission` are installed as binaries. If needed, add:
-
-```bash
-export PATH="$HOME/.cargo/bin:$PATH"
-```
-
-After `fission init`, generated files include:
-
-- `Cargo.toml`
-- `src/main.rs`, `src/lib.rs`, `src/app.rs`
-- `assets/app-icon.png`
-- `fission.toml`
-- `.gitignore`
-- `README.md`
-- `platforms/windows/README.md`, `platforms/macos/README.md`, `platforms/linux/README.md`
-- `platforms/<target>/README.md` for any added target
-
-`fission init` does not use a `desktop` token. Use one of these targets when running `cargo fission add-target`:
-
-- `linux`
-- `macos`
-- `windows`
-- `web`
+- `linux`, `macos`, `windows`
+- `web` (WASM)
 - `ios`
 - `android`
 
-Targets are created after each `cargo fission add-target <target>` call:
+Each added target writes host scripts under `platforms/<target>/` plus `fission.toml` metadata updates.
 
-| Target | Generated script | Extra requirements |
-|---|---|---|
-| web | `platforms/web/run-browser.sh` | `rustup target add wasm32-unknown-unknown`, `cargo install wasm-pack` |
-| ios | `platforms/ios/run-sim.sh` | `rustup target add aarch64-apple-ios aarch64-apple-ios-sim`, Xcode simulator tooling |
-| android | `platforms/android/run-emulator.sh` | `rustup target add aarch64-linux-android`, Android SDK/NDK environment vars |
+## Generated files you should know
 
-For each added platform, you also get generated host/project files:
+After `fission init`, you typically get:
 
-- web: `platforms/web/index.html`, `platforms/web/bootstrap.mjs`, `platforms/web/build-wasm.sh`
-- ios: `platforms/ios/Info.plist`, `platforms/ios/package-sim.sh`, `platforms/ios/run-sim.sh`
-- android: `platforms/android/AndroidManifest.xml`, `platforms/android/package-apk.sh`, `platforms/android/run-emulator.sh`
+- `Cargo.toml`, `src/main.rs`, `src/lib.rs`, `src/app.rs`
+- `fission.toml`
+- `platforms/<default targets>/`
+- `assets/app-icon.png`
 
-Use these files for target-specific setup:
+Before adding a target, keep only application logic in `src/app.rs`; everything else is runtime integration.
 
-- `platforms/web/README.md`
-- `platforms/ios/README.md`
-- `platforms/android/README.md`
-
-When setup is complete, continue to [Build your first app](/docs/getting-started/first-app).
+Continue to [Build your first app](/docs/getting-started/first-app).

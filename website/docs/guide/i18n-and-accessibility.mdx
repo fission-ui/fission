@@ -1,68 +1,46 @@
 ---
 title: I18n and accessibility
-description: Add global-ready quality from the first feature.
+description: Add language-ready and accessible interfaces from the first feature.
 ---
 
 # I18n and accessibility
 
-For first-time apps, add copy and semantics together from the start so both text and interaction paths are testable.
+Internationalization and accessibility are not late-stage concerns. Add them as you add your first user-visible text.
 
-## 1) First-time setup path
+## Keep text out of UI code with keys
 
-1. Keep locale in app state.
-2. Seed `Env.i18n` with `TranslationBundle` values.
-3. Sync runtime locale in `with_sync_env`.
-4. Use `TextContent::Key` for stable labels.
-5. Set `Semantics { role, label, focusable }` where behavior should be accessible.
+Use `TextContent::Key` for all user text that may be translated.
 
 ```rust
 use fission::prelude::*;
+
+Text::new(TextContent::Key("home.title".into())).into_node()
+```
+
+## Load translations from files (recommended)
+
+A practical pattern is to load YAML translation bundles with `include_str!` and add them to the environment.
+
+```rust
 use fission::i18n::{Locale, TranslationBundle};
-use fission::shell::DesktopApp;
-use fission::ir::{Role, Semantics};
-use std::collections::HashMap;
+use fission::prelude::*;
+use serde::{Deserialize, Serialize};
 
 #[derive(Default, Debug, Clone, Serialize, Deserialize)]
-struct LocalizationState {
+struct AppState {
     locale: Locale,
 }
 
-impl AppState for LocalizationState {}
+impl AppState for AppState {}
 
-struct HomeScreen;
-
-impl Widget<LocalizationState> for HomeScreen {
-    fn build(&self, _ctx: &mut BuildCtx<LocalizationState>, _view: &View<LocalizationState>) -> Node {
-        Column {
-            children: vec![
-                Text::new(TextContent::Key("home.title".into())).into_node(),
-                Button {
-                    on_press: None,
-                    child: Some(Box::new(Text::new(TextContent::Key("home.open".into())).into_node())),
-                    semantics: Some(Semantics {
-                        role: Role::Button,
-                        label: Some("Open panel".into()),
-                        focusable: true,
-                        ..Default::default()
-                    }),
-                    ..Default::default()
-                }
-                .into_node(),
-            ],
-            ..Default::default()
-        }
-        .into_node()
-    }
-}
-
-fn base_env() -> Env {
+fn base_env() -> anyhow::Result<Env> {
     let mut env = Env::default();
-    let mut en = HashMap::new();
-    en.insert("home.title".into(), "Welcome".into());
-    en.insert("home.open".into(), "Open panel".into());
-    let mut es = HashMap::new();
-    es.insert("home.title".into(), "Bienvenido".into());
-    es.insert("home.open".into(), "Abrir panel".into());
+
+    let en_yaml = include_str!("../assets/i18n/en.yaml");
+    let es_yaml = include_str!("../assets/i18n/es.yaml");
+
+    let en = serde_yaml::from_str::<std::collections::HashMap<String, String>>(en_yaml)?;
+    let es = serde_yaml::from_str::<std::collections::HashMap<String, String>>(es_yaml)?;
 
     env.i18n.add_bundle(TranslationBundle {
         locale: Locale::from("en-US"),
@@ -72,57 +50,48 @@ fn base_env() -> Env {
         locale: Locale::from("es-ES"),
         messages: es,
     });
-    env
+
+    Ok(env)
 }
 
 fn main() -> anyhow::Result<()> {
-    DesktopApp::new(HomeScreen)
-        .with_env(base_env())
-        .with_sync_env(|state: &LocalizationState, env: &mut Env| {
+    DesktopApp::new(MyApp)
+        .with_env(base_env()?)
+        .with_sync_env(|state: &AppState, env| {
             env.locale = state.locale.clone();
         })
         .run()
 }
 ```
 
-## 2) Concrete checks after the first feature lands
+## Accessibility: make interactions machine-checkable
 
-- Verify text by key with `TextContent::Key(...)`.
-- Verify interactable nodes with `Semantics` by setting role, label, and focusability.
-- In headless tests, query with `TestDriver::find_role(role)`.
-- In integration smoke tests, query with `LiveTestClient::get_tree()`.
+Assign semantics on action controls, and verify role/label/focus behavior with tests.
 
 ```rust
-use fission::prelude::*;
-use fission::ir::Role;
-use fission_test::prelude::{TestDriver, TestHarness};
-use fission_test_driver::LiveTestClient;
-
-fn headless_accessibility_check() {
-    let mut harness = TestHarness::new(LocalizationState::default()).with_root_widget(HomeScreen);
-    harness.pump().unwrap();
-    let driver = TestDriver::new(harness);
-
-    let buttons = driver.find_role(Role::Button);
-    assert!(!buttons.is_empty());
-}
-
-fn integration_tree_smoke() -> anyhow::Result<()> {
-    let client = LiveTestClient::connect(4_8761);
-    let nodes = client.get_tree()?;
-    assert!(nodes
-        .iter()
-        .any(|n| n.role == "Button" && n.label == Some("Open panel".into())));
-    Ok(())
-}
+Button {
+    on_press: Some(increment),
+    semantics: Some(Semantics {
+        role: Role::Button,
+        label: Some("Increase count".into()),
+        focusable: true,
+        ..Default::default()
+    }),
+    child: Some(Box::new(Text::new(TextContent::Key("action.increment".into())).into_node())),
+    ..Default::default()
+}.into_node()
 ```
 
-## 3) Native accessibility bridge caveat
+In tests, use role-based query checks instead of only pixel checks:
 
-Core semantics are wired through the IR and can be validated by tests (`find_role`, `get_tree`), including role/label/focus metadata.
-Current status is **not fully parity-complete on every native reader path**:
+- `TestDriver::find_role(Role::Button)` for headless tests
+- `LiveTestClient::get_tree()` for running target checks
 
-- some screen-reader bridges are still maturing,
-- so validate each target on real devices/simulators before advertising full accessibility parity.
+## What to check before release
 
-The safe assumption for production releases is: semantics-first behavior is in place, but platform-native parity can still be target-dependent.
+- labels and roles exist for every primary control,
+- keyboard traversal works through logical order,
+- translated keys resolve for each locale you ship,
+- dynamic text length does not break layout unexpectedly.
+
+Continue to [Commands, services, and jobs](/docs/guide/commands-services-jobs) if you need background work in this app.

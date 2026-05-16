@@ -1,22 +1,39 @@
 ---
 title: Widget trait
-description: The base render contract used by every renderable element.
+description: The render contract every UI element follows.
 ---
 
 # Widget trait
 
-Every widget in the UI implements the same build contract.
+Every renderable unit implements the same minimal contract:
 
 ```rust
 fn build(&self, ctx: &mut BuildCtx<S>, view: &View<S>) -> Node
 ```
 
-`S` is your application state type.
+This keeps rendering pure and predictable. `build()` is not a place for side effects; it is a projection from state to nodes.
 
-Use this contract as a rule:
+## What this means in practice
 
-- `build` reads state from `view`,
-- binds user interactions through `ctx`,
-- returns a `Node` that represents the next render output.
+- all behavior starts from state,
+- action dispatch stays explicit,
+- async and I/O stay outside build through contexts and effects.
 
-Keep `build` deterministic. If rendering logic changes based on side effects, behavior becomes difficult to test and replay.
+## How to reason about a widget implementation
+
+1. Read only what is in `view.state`.
+2. Bind any actions your UI needs.
+3. Return a deterministic `Node` tree.
+
+If side effects leak into build, tests become noisy and replay behavior degrades.
+
+## Common usage pattern
+
+```rust
+impl Widget<MyAppState> for Home {
+    fn build(&self, ctx: &mut BuildCtx<MyAppState>, view: &View<MyAppState>) -> Node {
+        // map state -> layout -> interaction
+        Column::default().into_node()
+    }
+}
+```

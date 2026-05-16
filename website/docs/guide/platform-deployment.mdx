@@ -3,167 +3,52 @@ title: Platform and deployment
 description: Keep behavior stable while preparing outputs.
 ---
 
-import Tabs from '@theme/Tabs';
-import TabItem from '@theme/TabItem';
-
 # Platform and deployment
 
-Keep behavior in `src/app.rs` and use generated targets for runtime-specific run commands.
+You do not change your app architecture per platform. You change output and validation strategy.
 
-After `fission init`, generated project output includes:
+## The generated contract
 
-- `src/main.rs`, `src/lib.rs`, `src/app.rs`
-- `Cargo.toml`
-- `assets/app-icon.png`
-- `fission.toml`
-- `README.md` and `platforms/<target>/README.md`
+`fission.toml` controls which hosts are enabled. Generated outputs are under `platforms/<target>/` and contain
+scripts, configs, and readmes.
 
-`fission.toml` is the target manifest (`linux`, `macos`, `windows` by default and added targets as you scaffold more).
+## Recommended order for one milestone
 
-Use `.with_sync_env(|state, env| { ... })` in your app entry when locale/theme/test settings live in state.
+1. Build and validate locally.
+2. Add target (`web`, `ios`, or `android`) when required.
+3. Run generated host script.
+4. Capture target-specific differences (fonts, gestures, performance).
 
-```rust
-DesktopApp::new(HomeApp)
-    .with_env(base_env())
-    .with_sync_env(|state, env| {
-        env.locale = state.locale.clone();
-    })
-    .run()
-```
+The desktop path is a good first validation target; web and mobile follow after the same behavior loop is stable.
 
-## Base local flow (generated app)
+## Run commands by platform
 
 ```bash
-fission init my-app
-cd my-app
+# Desktop
 cargo run
-```
 
-Expected output:
-
-- desktop window opens with the initial UI from `src/app.rs`
-- state-driven interactions are immediately usable
-
-Next step:
-
-- add targets once local behavior is stable:
-
-```bash
-cargo fission add-target web ios android
-```
-
-## Platform-specific run commands
-
-<Tabs>
-<TabItem value="web" label="Web (WASM)" default>
-
-Prerequisites:
-
-- `rustup target add wasm32-unknown-unknown`
-- `cargo install wasm-pack`
-
-Run:
-
-```bash
+# Web
+cargo fission add-target web
 ./platforms/web/run-browser.sh
-```
 
-Expected output:
-
-- builds the wasm package (`wasm-pack`)
-- prints a local URL like `Serving http://127.0.0.1:8123/platforms/web/`
-- starts a local server waiting for `Ctrl+C`
-
-Next step:
-
-- open the printed URL and verify UI behavior.
-
-</TabItem>
-<TabItem value="ios" label="iOS (simulator)">
-
-Prerequisites:
-
-- `rustup target add aarch64-apple-ios aarch64-apple-ios-sim`
-- install Xcode and verify simulator SDK:
-
-```bash
-xcrun --sdk iphonesimulator --show-sdk-path
-```
-
-Run:
-
-```bash
+# iOS
+cargo fission add-target ios
 ./platforms/ios/run-sim.sh
-```
 
-Expected output:
-
-- packages the simulator app bundle
-- boots/uses an available iPhone simulator
-- launches the app in that simulator
-
-Notes:
-
-- if the target requires environment sync, pass it before launch:
-
-```bash
-FISSION_TEST_CONTROL_PORT=48761 ./platforms/ios/run-sim.sh
-```
-
-</TabItem>
-<TabItem value="android" label="Android (emulator)">
-
-Prerequisites:
-
-- `rustup target add aarch64-linux-android`
-- Android SDK + NDK and env:
-  - `ANDROID_HOME`
-  - `ANDROID_NDK`
-
-Run:
-
-```bash
+# Android
+cargo fission add-target android
 ./platforms/android/run-emulator.sh
 ```
 
-Expected output:
+### Notes you need before release
 
-- creates/uses `FissionApi32Arm64` emulator if needed
-- builds and signs APK
-- installs APK and prints `APK=<path>`
+- add platform prerequisites documented in each target README,
+- include any required environment variables in CI,
+- keep generated output scripts deterministic in your team workflows.
 
-Notes:
+## When to use local-checkout examples
 
-- optional test-control bridge:
+The examples folder is useful for reproducing baseline behavior and validating toolchain setup.
+It complements generated app workflow and can speed up smoke checks.
 
-```bash
-FISSION_TEST_CONTROL_PORT=48761 ./platforms/android/run-emulator.sh
-```
-
-</TabItem>
-</Tabs>
-
-## Command matrix (generated app)
-
-Desktop path:
-
-- `cargo run`
-
-Web path:
-
-- `./platforms/web/run-browser.sh`
-
-iOS path:
-
-- `./platforms/ios/run-sim.sh`
-
-Android path:
-
-- `./platforms/android/run-emulator.sh`
-
-Generated files to check before release:
-
-- `fission.toml`
-- `platforms/web/index.html`, `platforms/web/bootstrap.mjs`, `platforms/web/build-wasm.sh`, `platforms/web/run-browser.sh`
-- `platforms/ios/Info.plist`, `platforms/ios/package-sim.sh`, `platforms/ios/run-sim.sh`
-- `platforms/android/AndroidManifest.xml`, `platforms/android/package-apk.sh`, `platforms/android/run-emulator.sh`
+Keep behavior validation in your own app first; treat examples as parity checks, not as your product model.

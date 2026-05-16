@@ -5,17 +5,20 @@ import styles from './experience.module.css';
 const examples = [
   {
     title: 'Counter',
-    summary: 'A compact, deterministic state example with clear reducer flow.',
+    summary:
+      'One action at a time, one clear state transition. Best for understanding how reducers, build, and render stay in sync.',
     doc: '/docs/tutorials/counter',
   },
   {
     title: 'Todo',
-    summary: 'State, commands, and services with real app-like behavior.',
+    summary:
+      'A practical step beyond the counter: multiple actions, filtered rendering, and progressive async patterns.',
     doc: '/docs/tutorials/todo',
   },
   {
     title: 'Accessible dashboard',
-    summary: 'High-signal product layout with localization and a11y-oriented patterns.',
+    summary:
+      'A complete app-first path that introduces `TextContent::Key`, locale switching, and semantics for stable UI checks.',
     doc: '/docs/guide/i18n-and-accessibility',
   },
 ];
@@ -27,7 +30,8 @@ export default function Examples() {
         <section className={styles.section}>
           <h1 className={styles.heading}>Examples</h1>
           <p className={styles.lead}>
-            Product-forward examples linked to both narrative tutorials and API references.
+            Read examples in order with purpose. Each one reinforces the onboarding flow:
+            learn state, keep it deterministic, then move side effects into async boundaries.
           </p>
         </section>
         <section className={styles.section}>

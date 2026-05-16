@@ -1,39 +1,43 @@
 ---
 title: What is Fission
-description: A first-app onboarding guide for Fission's desktop-first workflow.
+description: A practical intro for first-time users.
 ---
 
 # What is Fission
 
-Fission is a Rust-first UI framework and command-line workflow for building one typed app model and running it across multiple runtimes.  
-You describe state and actions in Rust, then let Fission render the same widget tree through platform hosts that are added over time.
+Fission is a Rust-first UI framework for teams building product surfaces that need one consistent behavior model across desktop, web, iOS, and Android.
 
-The default scaffold is intentionally desktop-first. `fission init my-fission-app` creates a runnable starter with `src/app.rs`, `src/main.rs`, `src/lib.rs`, `Cargo.toml`, `fission.toml`, and desktop target readmes.  
-That starter is designed so new users can run a real app quickly and focus on behavior before platform expansion.
+You define:
 
-From install through first app, the sequence is simple: `fission init`, `cd my-fission-app`, then `cargo run`.  
-That command uses the existing desktop targets (`linux`, `macos`, `windows`) and gives you an immediate visual check like the generated counter scaffold (`Count: 0`).
+- an `AppState` that owns runtime state,
+- typed `Action`s for user intent,
+- pure reducers that update state,
+- a `Widget` build function that turns state into a UI tree.
 
-Use staging after your first loop is stable: expand from desktop only when the interaction path is predictable, then add extra targets with `cargo fission add-target`:
+That model is then rendered for desktop, web, iOS, and Android through generated output targets.
 
-- `cargo fission add-target web`
-- `cargo fission add-target ios`
-- `cargo fission add-target android`
+## Why this architecture exists
 
-Each `add-target` call updates `fission.toml` and writes target-specific files under `platforms/<target>/` (for example `platforms/web/run-browser.sh`).  
-That keeps onboarding boring where it should be boring, and only introduces platform-specific prerequisites when the team is ready for them.
+Most teams do not need to start by optimising for every platform at once. They need a stable center:
 
-Use/Don't use guidance:
+- **Consistency of behavior**: one state transition path gives predictable UI updates.
+- **Single place for core logic**: business behavior lives with your state model.
+- **Clear async boundaries**: long-running work is explicit and testable.
+- **Reusable runtime contracts**: platform runtime differences stay in generated host scaffolding.
 
-- **Use Fission** when you want a single typed interaction model and a predictable path for adding web/mobile targets from one Rust source of truth.
-- **Don't use Fission** when you need full native parity for web/mobile from day one, or when your architecture requires platform-specific UI logic before your state model is stable.
+This design supports practical shipping where teams can validate one behavior deeply before expanding scope.
 
-:::info Evidence and next checks
-- `website/docs/getting-started/install.mdx` (official setup flow and staged target addition)
-- `crates/tools/fission-cli/src/lib.rs` (init defaults, target manifest, and generated scripts)
-- `website/docs/guide/playground-driven-workflow.mdx` (desktop-first verification before widening targets)
-- `docs/cli-and-targets.md` (`fission add-target` behavior and command-level examples)
-- Generated files in your project: `fission.toml`, `platforms/<target>/README.md`, and `platforms/<target>/run-*.sh`
-:::
+## Who this fits
 
-If this resonates, continue to [Install and setup](/docs/getting-started/install).
+Choose this approach if you want:
+
+- a typed, deterministic UI loop for interactive products,
+- one shared source of truth for all inputs and outputs,
+- a path that makes testing and debugging less guess-heavy,
+- explicit escalation from desktop/web local validation to broader runtime targets.
+
+If you need richer platform integration later, keep this model and add host-specific details in generated targets and platform glue without re-architecting your application logic.
+
+## Next step
+
+Continue to [Install and setup](/docs/getting-started/install).

@@ -5,15 +5,16 @@ description: Layout and composition widgets for stable geometry.
 
 # Layout widgets
 
-Layout widgets define how children are arranged and sized.
+Layout widgets define how children are arranged, measured, and aligned.
 
-Use container widgets when you need predictable structure:
+Most teams should finish the structure pass before adding control-specific behavior. The result is simpler:
 
-- `Align`, `Column`, `Row`, `Grid`, `GridItem`, `LazyColumn`, `Overlay`, `SafeArea`, `Scroll`,
-  `Spacer`, `ZStack`, `SplitView`, `SplitDirection`, `SimpleGrid`, `Wrap`, `Center`,
-  `Positioned`, `Transform`, `Container`, and `GestureDetector`.
+- `Align`, `Column`, `Row`, `Grid`, `GridItem`, `LazyColumn`, `Overlay`, `SafeArea`,
+  `Scroll`, `Spacer`, `ZStack`, `SplitView`, `SplitDirection`, `SimpleGrid`, `Wrap`,
+  `Center`, `Positioned`, `Transform`, `Container`, and `GestureDetector`.
 
-Use authoring helpers (`HStack`, `VStack`) when your team prefers semantic names for row/column
-compositions.
+Use `HStack`, `VStack`, and authoring-style helpers when team language prefers explicit row/column naming.
 
-A stable layout strategy keeps wide screens and narrow screens from feeling like different products.
+A stable layout strategy keeps wide screens and narrow screens feeling like one coherent product.
+
+When a widget page in this section looks unfamiliar, open it directly and confirm what geometry it owns, because the easiest path to predictable behavior is a predictable tree shape.

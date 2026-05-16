@@ -1,24 +1,33 @@
 ---
 title: State system
-description: Action + reducer + state model for predictable behavior.
+description: Action + reducer model used by Fission apps.
 ---
 
 # State system
 
-The state system is the place where behavior is decided.
+Fission uses a single source-of-truth pattern:
 
-- `AppState` defines the root state type,
-- `Action` describes user or system intent,
-- `Reducer` transforms state deterministically,
-- `ReducerContext` carries runtime metadata.
+- `AppState`: data for the current UI + product model,
+- `Action`: typed event intents,
+- `Reducer`: deterministic state mutation,
+- `ReducerContext`: runtime metadata and async completion hooks.
 
-The flow is intentionally simple:
+## Flow in one sentence
 
-1. action dispatch,
-2. reducer receives `&mut` state,
-3. update state,
-4. next build recomputes UI.
+`Action -> reducer(context, state) -> new state -> build() -> UI`
 
-Keep reducers narrow and testable, then grow behavior via commands and services only when needed.
+## Why teams use this
 
-If multiple parts of your app mutate shared state, start by splitting domain actions first.
+- fewer hidden dependencies,
+- reproducible behavior for tests,
+- easy migration from one screen to another because every screen uses the same model.
+
+## Guardrails
+
+Reducers should:
+
+- stay pure,
+- avoid I/O,
+- stay local to one domain concept.
+
+If you need async, move that work behind [commands, services, and jobs](/reference/core/commands-services-jobs).

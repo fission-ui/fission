@@ -4,15 +4,17 @@ import styles from './experience.module.css';
 const stories = [
   {
     title: 'Core playground sample',
-    description: 'Focused demo for deterministic updates and render stability.',
+    description:
+      'A stable sequence for validating reducer determinism, focus order, and render updates with minimal surface area.',
   },
   {
     title: 'Widget gallery',
-    description: 'Design system-first composition patterns for production UI.',
+    description:
+      'A practical composition set that demonstrates layout primitives, semantic labels, and component consistency.',
   },
   {
     title: 'Command workflow app',
-    description: 'Command/service/job orchestration shown in a real product flow.',
+    description: 'A guided example for async services, background updates, and user-feedback patterns.',
   },
 ];
 
@@ -23,8 +25,8 @@ export default function Showcase() {
         <section className={styles.section}>
           <h1 className={styles.heading}>Showcase</h1>
           <p className={styles.lead}>
-            We are building out a broader showcase catalog. Current stories prioritize
-            production-oriented architecture and interaction quality.
+            We are building a showcase that mirrors a shipping team’s onboarding path: model first, validation second,
+            expansion third. Each story is intentionally chosen to answer “when do I use this now?”
           </p>
         </section>
         <section className={styles.section}>

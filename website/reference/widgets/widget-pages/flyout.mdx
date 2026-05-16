@@ -3,19 +3,18 @@ title: flyout
 description: Reference details for flyout.
 slug: /widgets/flyout
 ---
-
 # flyout
 
-A low-level composition utility for precise layout and rendering placement.
+Use it for cross-cutting composition and app-level surface behavior.
 
 
-## What this is for
-Positions `content` relative to an `anchor` node using the flyout layout system. The layout engine places the content adjacent to the anchor's computed rect. This is the foundation for [`Popover`], [`Tooltip`], [`Menu`], and [`Select`] popups.
+This is part of the Fission widget API and belongs in the same typed, state-driven model used across the rest of the framework.
 
-## Why you use it
-- Keep UI behavior deterministic by composing from explicit nodes.
-- Use it where behavior needs to stay testable and reviewable.
-- Connect it through your existing action/reducer and environment flow.
+
+**When you need it**
+- This widget is best when building reusable building blocks that support product patterns.
+- Use predictable state updates as your entry point for all behavior changes.
+- Combine with semantic labels and role attributes for reliable interaction testing.
 
 ## Minimal usage
 ```rust
@@ -24,8 +23,15 @@ use fission_widgets::flyout;
 let flyout_node = flyout(NodeId::from_u64(0), fission_core::ui::Text::new("menu").into_node());
 ```
 
+## API surface
+- `id`: `Option<NodeId>`
 
-## Learn next
+## Implementation checks
+- Pair it with the core trait contract and test rendering output with headless checks for stability.
+- Keep callbacks/closures small and deterministic when possible, then move side effects to async boundaries.
+- If the widget affects layout or input, verify with both state transitions and target-level smoke tests.
+
+## Next
 - [Widget catalog](/reference/widgets/catalog)
-- [Core widget contract](/reference/core/widget-trait)
-
+- [Widget trait](/reference/core/widget-trait)
+- [Widget tree model](/docs/concepts/widget-tree)

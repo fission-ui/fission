@@ -1,55 +1,63 @@
 ---
 title: Playground-driven workflow
-description: Short preview cycles for desktop, web, and mobile using generated targets.
+description: Fast local validation for desktop, web, and mobile targets.
 ---
 
 # Playground-driven workflow
 
-`playground` workflow for practical quality checks.
-This section shows the practical flow you use to validate behavior before expanding to more output targets.
+Your playground loop should stay close to user behavior:
 
-Edit your generated app locally, then run a target script for the platform you need to verify.
-This gives real feedback from:
+1. change one line,
+2. run,
+3. observe one visible outcome,
+4. only then move forward.
 
-- desktop (`cargo run`)
-- web (`./platforms/web/run-browser.sh`)
-- iOS/Android (`./platforms/ios/run-sim.sh`, `./platforms/android/run-emulator.sh`)
+## Local-first iteration
 
-Use one small behavior change, then re-run one target.
-
-From a generated app directory:
-
-- Desktop loop (builds dependencies and launches the app):
+Use the generated default app for most feature work:
 
 ```bash
 cargo run
 ```
 
-- Browser loop (requires `cargo fission add-target web`, then `wasm32` toolchain + wasm-pack):
-  - `rustup target add wasm32-unknown-unknown`
-  - `cargo install wasm-pack`
+A good loop after every change:
+
+- confirm the changed action fires once,
+- confirm reducer output in UI,
+- confirm focus and labels still match interaction intent.
+
+## Validate generated targets when stable
+
+Add targets from the same project and run the generated scripts.
 
 ```bash
-cargo fission add-target web && ./platforms/web/run-browser.sh
+cargo fission add-target web ios android
 ```
 
-This command only works from the generated app directory with the generated `platforms/web` scripts present.
+Then run:
 
-- iOS and Android loops use generated run scripts from the same pattern.
+- `./platforms/web/run-browser.sh`
+- `./platforms/ios/run-sim.sh`
+- `./platforms/android/run-emulator.sh`
 
-From repo root (checked-in smoke app):
+Each target has prerequisites in `platforms/<target>/README.md`; keep that flow in your loop.
 
-```bash
-./examples/web-smoke/platforms/web/run-browser.sh
-```
+### Why this is reliable
 
-This prints the same localhost host and serves `examples/web-smoke`.
+The same action-reducer loop should pass unchanged in each target before you add target-specific visuals. If behavior drifts, debug against:
 
-Use this as your quality checkpoint for every run:
+- action dispatch order,
+- reducer output,
+- diagnostics stage (`FISSION_DIAG`),
+- and target interaction checks.
 
-- visible state transition in the UI,
-- action behavior matches your expected state change,
-- keyboard focus lands on controls in expected order,
-- button and action labels remain readable and meaningful.
+## What to verify per target
 
-When you are ready for deeper mobile smoke verification, use the scripts and target notes in the [CLI-and-targets guide](https://github.com/worka-ai/fission/blob/main/docs/cli-and-targets.md), [platform smoke tests](https://github.com/worka-ai/fission/blob/main/docs/platform-smoke-tests.md), and generated platform notes under [fission-cli](https://github.com/worka-ai/fission/blob/main/crates/tools/fission-cli/README.md).
+- action path and reducer outputs match,
+- loading/error text for async paths is visible,
+- semantics/labels/roles are still discoverable,
+- layout remains coherent on the target screen class.
+
+Use this loop before feature handoff so each runtime gets its own quality gate before marketing launch.
+
+Continue to [Platform and deployment](/docs/guide/platform-deployment).

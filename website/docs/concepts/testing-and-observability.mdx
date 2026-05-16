@@ -5,244 +5,67 @@ description: How to validate behavior with predictable, high-signal checks.
 
 # Testing and observability
 
-Use the same flow in reverse: reducer determinism first, then effect payload decoding, then UI behavior, then integration smoke.
+Use the same order every time to keep fixes narrow.
 
-## 1) Reducer scope with no runtime side effects
+## 1) Reducer tests first
 
-Use a direct reducer test with `Effects::new_headless` and `ActionInput::None`:
+Reducer behavior should be deterministic and side-effect free.
 
-```rust
-use fission_core::{ActionInput, AppState, Effects, ReducerContext};
-use serde::{Deserialize, Serialize};
+- test success,
+- test guard cases,
+- test reset behavior.
 
-#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
-struct CounterState {
-    count: i32,
-}
+## 2) Async completion tests
 
-impl AppState for CounterState {}
+Test decoded completion inputs before integration:
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct Increment;
+- job ok/error
+- service start and command lifecycle
+- service events and event payloads
 
-fn on_increment(state: &mut CounterState, _action: Increment, ctx: &mut ReducerContext<CounterState>) {
-    state.count += 1;
-}
+## 3) Headless behavior tests
 
-#[test]
-fn reducer_is_deterministic() {
-    let mut state = CounterState::default();
-    let input = ActionInput::None;
-    let mut effects = Effects::new_headless(0);
+Use `TestHarness` and `TestDriver` to assert visible text, roles, and interactions.
 
-    {
-        let mut ctx = ReducerContext {
-            effects: &mut effects,
-            input: &input,
-        };
-        on_increment(&mut state, Increment, &mut ctx);
-    }
+## 4) Live target smoke tests
 
-    assert_eq!(state.count, 1);
-    assert!(effects.out.is_empty());
-}
-```
+Use `LiveTestClient` for integration checks against running targets.
 
-## 2) Effect input tests: job/service/completion inputs
+## 5) Diagnostics
 
-Exercise `ActionInput` decoders directly so completion handling is tested without UI flakiness.
+Diagnostics are configured through environment variables and work best when you narrow scope first.
 
-```rust
-use fission_core::{
-    async_runtime::{JobRef, JobSpec, ServiceSpec, ServiceType},
-    AppState, Effects, ReducerContext,
-};
-use fission_core::ActionInput;
-use serde::{Deserialize, Serialize};
+Use environment controls for targeted tracing:
 
-#[derive(Default, Debug, Clone)]
-struct ExampleState {
-    search_count: u32,
-    service_started: bool,
-    command_ok: bool,
-}
-
-impl AppState for ExampleState {}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct SearchDone;
-
-#[derive(Debug)]
-struct SearchJob;
-
-impl JobSpec for SearchJob {
-    type Request = String;
-    type Ok = u32;
-    type Err = String;
-    const NAME: &'static str = "search-job";
-}
-
-const SEARCH_JOB: JobRef<SearchJob> = JobRef::new("search-job");
-
-fn on_job_ok(state: &mut ExampleState, _action: SearchDone, ctx: &mut ReducerContext<ExampleState>) {
-    state.search_count = ctx.input.job_ok(SEARCH_JOB).unwrap_or_default();
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct ServiceConnected;
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct ServiceCommandDone;
-
-#[derive(Debug)]
-struct SyncService;
-
-impl ServiceSpec for SyncService {
-    type Config = ();
-    type Command = bool;
-    type CommandOk = bool;
-    type CommandErr = String;
-    type Event = ();
-    type StartErr = String;
-    const NAME: &'static str = "sync-service";
-}
-
-const SYNC_SERVICE: ServiceType<SyncService> = ServiceType::new("sync-service");
-
-fn on_service_started(
-    state: &mut ExampleState,
-    _action: ServiceConnected,
-    ctx: &mut ReducerContext<ExampleState>,
-) {
-    state.service_started = matches!(
-        ctx.input,
-        ActionInput::ServiceStarted {
-            service_name,
-            ..
-        } if service_name == SYNC_SERVICE.name
-    );
-}
-
-fn on_service_command_ok(
-    state: &mut ExampleState,
-    _action: ServiceCommandDone,
-    ctx: &mut ReducerContext<ExampleState>,
-) {
-    state.command_ok = ctx.input.service_command_ok(SYNC_SERVICE).unwrap_or(false);
-}
-
-#[test]
-fn effect_inputs_read_expected_payloads() {
-    let mut state = ExampleState::default();
-    let mut effects = Effects::new_headless(0);
-
-    let job_ok = ActionInput::JobOk {
-        job_name: "search-job".into(),
-        req_id: 10,
-        payload: serde_json::to_vec(&12u32).unwrap(),
-    };
-    {
-        let mut ctx = ReducerContext {
-            effects: &mut effects,
-            input: &job_ok,
-        };
-        on_job_ok(&mut state, SearchDone, &mut ctx);
-    }
-
-    let service_started = ActionInput::ServiceStarted {
-        service_name: "sync-service".into(),
-        slot_key: "singleton".into(),
-        instance_id: 101,
-    };
-    {
-        let mut ctx = ReducerContext {
-            effects: &mut effects,
-            input: &service_started,
-        };
-        on_service_started(&mut state, ServiceConnected, &mut ctx);
-    }
-
-    let command_ok = ActionInput::ServiceCommandOk {
-        service_name: "sync-service".into(),
-        slot_key: "singleton".into(),
-        instance_id: 101,
-        req_id: 11,
-        payload: Some(serde_json::to_vec(&true).unwrap()),
-    };
-    {
-        let mut ctx = ReducerContext {
-            effects: &mut effects,
-            input: &command_ok,
-        };
-        on_service_command_ok(&mut state, ServiceCommandDone, &mut ctx);
-    }
-
-    assert_eq!(state.search_count, 12);
-    assert!(state.service_started);
-    assert!(state.command_ok);
-    assert!(effects.out.is_empty());
-}
-```
-
-## 3) TestDriver for widget behavior
-
-Use deterministic headless checks from `fission-test`:
-
-```rust
-use fission_test::prelude::{TestDriver, TestHarness};
-use fission_ir::Role;
-
-let mut h = TestHarness::new(CounterState::default()).with_root_widget(CounterApp);
-h.pump().unwrap();
-let mut driver = TestDriver::new(h);
-
-driver.assert_text_visible("Count: 0");
-driver.tap_text("Increment").unwrap();
-driver.assert_text_visible("Count: 1");
-assert!(!driver.find_role(Role::Button).is_empty());
-```
-
-## 4) LiveTestClient smoke path
-
-Use this pattern for an integration process smoke check:
-
-```rust
-use fission_test_driver::LiveTestClient;
-use std::process::Command;
-
-let port = 4_8761u16;
-let _app = Command::new("cargo")
-    .args(["run", "--package", "counter"])
-    .env("FISSION_TEST_CONTROL_PORT", port.to_string())
-    .env("FISSION_BACKGROUND_TEST", "1")
-    .spawn()?;
-
-let client = LiveTestClient::connect(port);
-client.wait_for_ready(10_000)?;
-client.assert_text_visible("Count: 0")?;
-client.tap_text_and_wait("Increment", 200)?;
-client.get_tree()?; // smoke check: semantics tree can be fetched
-client.quit()?;
-```
-
-## 5) Observability defaults
-
-When behavior flips, capture stage logs with:
-
-```sh
-FISSION_DIAG=input,layout FISSION_DIAG_LEVEL=debug cargo test -p <crate>
-```
-
-If you need machine-readable output:
-
-```sh
-FISSION_DIAG=input,layout FISSION_DIAG_SINK=file:/tmp/fission-diag.jsonl cargo test -p <crate>
-```
-
-For CI, include `frame` when you want per-frame lifecycle timing:
-
-```sh
+```bash
 FISSION_DIAG=input,layout,frame FISSION_DIAG_LEVEL=debug cargo test -p <crate>
 ```
 
-`test` is currently parsed but has no dedicated emitters; use `LiveTestClient`/`TestHarness` for live-test checks.
+For machine-readable output:
+
+```bash
+FISSION_DIAG=input,layout FISSION_DIAG_SINK=file:/tmp/fission-diag.jsonl cargo test -p <crate>
+```
+
+Useful diagnostic categories:
+
+- `frame`
+- `layout`
+- `paint`
+- `input`
+- `semantics`
+- `animation`
+- `media`
+- `invariants`
+- `test`
+
+Useful severity levels:
+
+- `error`
+- `warn`
+- `info`
+- `debug`
+
+Start with `FISSION_DIAG=*` when debugging a new issue, then narrow to one or two categories once you know the failing stage.
+
+Continue to [Widget tree model](/docs/concepts/widget-tree) for how to localize failures earlier in the pipeline.

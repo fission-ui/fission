@@ -5,13 +5,14 @@ description: Move from UI events to explicit state transitions.
 
 # State and actions
 
-State is your source of truth.
+Every interaction should map to domain intent, not generic view logic.
 
-Treat actions as domain events and reducers as deterministic state transitions. The safest pattern is:
+For each user event define one action type, then let one reducer own that mutation.
+That keeps the behavior loop transparent:
 
-1. define intent-first actions,
-2. keep reducers pure,
-3. bind handlers in `build()`.
+- action arrives,
+- reducer applies one deterministic change,
+- UI is rebuilt from the updated state.
 
 ```rust
 use fission::prelude::*;
@@ -19,8 +20,7 @@ use fission::prelude::*;
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
 struct TodoState {
     next_id: u32,
-    show_done: bool,
-    items: Vec<(u32, String, bool)>,
+    items: Vec<(u32, String)>,
 }
 
 impl AppState for TodoState {}
@@ -28,162 +28,71 @@ impl AppState for TodoState {}
 #[derive(Action, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 struct AddTodo;
 
-#[derive(Action, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-struct ToggleTodo(u32);
-
-#[derive(Action, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-struct ToggleShowDone;
-
-#[derive(Action, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-struct ArchiveDone;
-
-fn on_add_todo(state: &mut TodoState, _action: AddTodo, _ctx: &mut ReducerContext<TodoState>) {
-    let next_id = state.next_id;
+fn on_add_todo(
+    state: &mut TodoState,
+    _action: AddTodo,
+    _ctx: &mut ReducerContext<TodoState>,
+) {
+    let item = format!("Todo {}", state.next_id);
+    state.items.push((state.next_id, item));
     state.next_id += 1;
-    state.items.push((next_id, format!("Todo {}", next_id), false));
 }
 
-fn on_toggle_todo(state: &mut TodoState, action: ToggleTodo, _ctx: &mut ReducerContext<TodoState>) {
-    for (_id, _text, done) in &mut state.items {
-        if *_id == action.0 {
-            *done = !*done;
-            break;
-        }
-    }
-}
-
-fn on_toggle_show_done(state: &mut TodoState, _action: ToggleShowDone, _ctx: &mut ReducerContext<TodoState>) {
-    state.show_done = !state.show_done;
-}
-
-fn on_archive_done(state: &mut TodoState, _action: ArchiveDone, _ctx: &mut ReducerContext<TodoState>) {
-    state.items.retain(|(_, _, done)| !*done);
-}
-
-struct TodoApp;
-
-impl Widget<TodoState> for TodoApp {
-    fn build(&self, ctx: &mut BuildCtx<TodoState>, view: &View<TodoState>) -> Node {
-        let add_todo = ctx.bind(AddTodo, on_add_todo as Handler<TodoState, AddTodo>);
-        let show_done = ctx.bind(ToggleShowDone, on_toggle_show_done as Handler<TodoState, ToggleShowDone>);
-        let archive_done = ctx.bind(ArchiveDone, on_archive_done as Handler<TodoState, ArchiveDone>);
-
-        let mut rows = Vec::new();
-        for (id, text, done) in &view.state.items {
-            if view.state.show_done || !*done {
-                let toggle =
-                    ctx.bind(ToggleTodo(*id), on_toggle_todo as Handler<TodoState, ToggleTodo>);
-                rows.push(
-                    Row {
-                        gap: Some(8.0),
-                        children: vec![
-                            Text::new(format!(
-                                "{} {}",
-                                if *done { "[x]" } else { "[ ]" },
-                                text
-                            ))
-                            .into_node(),
-                            Button {
-                                child: Some(Box::new(Text::new("toggle").into_node())),
-                                on_press: Some(toggle),
-                                ..Default::default()
-                            }
-                            .into_node(),
-                        ],
-                        ..Default::default()
-                    }
-                    .into_node(),
-                );
-            }
-        }
-
-        if rows.is_empty() {
-            rows.push(Text::new("No visible todos yet").into_node());
-        }
-
-        let mut children = vec![
-            Button {
-                child: Some(Box::new(Text::new("Add todo").into_node())),
-                on_press: Some(add_todo),
-                ..Default::default()
-            }
-            .into_node(),
-            Button {
-                child: Some(Box::new(Text::new("Toggle done").into_node())),
-                on_press: Some(show_done),
-                ..Default::default()
-            }
-            .into_node(),
-            Button {
-                child: Some(Box::new(Text::new("Archive done").into_node())),
-                on_press: Some(archive_done),
-                ..Default::default()
-            }
-            .into_node(),
-        ];
-        children.push(
-            Column {
-                gap: Some(8.0),
-                children: rows,
-                ..Default::default()
-            }
-            .into_node(),
-        );
-
-        Scroll {
-            child: Some(Box::new(
-                Column {
-                    gap: Some(12.0),
-                    children,
-                    ..Default::default()
-                }
-                .into_node(),
-            )),
-            ..Default::default()
-        }
-        .into_node()
-    }
-}
+#[derive(Action, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+struct Noop;
 ```
 
-### Reducer sanity checklist
+Keep reducers narrow:
 
-- Action names should describe domain intent (`ToggleTodo`) rather than control intent (`ButtonTapped`).
-- One reducer should mutate one conceptual slice of state.
-- Reducers should not perform I/O, spawn work, or call OS APIs.
-- Bind each intent in `build()` with payloads where needed (for example `ctx.bind(ToggleTodo(*id), ...)`) so each rendered item can carry its own identity.
-- For deterministic tests, run reducers with `ActionInput::None` and compare resulting state.
+- one reducer updates one conceptual slice,
+- no network/file access,
+- no service calls,
+- no long-running loops.
+
+## The state/action contract
+
+Treat actions as the product language, not just UI events.
+If the action is unclear, the behavior will be unclear:
+
+- `Increment` instead of `Press` in a specific context,
+- `LoadFeed` instead of `Tap`,
+- `LocaleChanged` instead of `PickerInput`.
+
+Pair each action with one reducer path, and avoid mixing unrelated business decisions in one reducer.
+
+## Why this helps debugging
+
+If you hit a bad UI state, reducers make the path explicit:
+
+- action came in,
+- reducer touched known fields,
+- `build()` renders from that updated state.
+
+## Test actions before adding UI complexity
+
+Write reducer tests first:
 
 ```rust
 #[cfg(test)]
 mod reducer_tests {
-    use super::{on_add_todo, on_archive_done, on_toggle_todo, AddTodo, ArchiveDone, TodoState, ToggleTodo};
-    use fission::core::effect::ActionInput;
+    use super::{AddTodo, TodoState, on_add_todo};
     use fission::core::{Effects, ReducerContext};
+    use fission::core::effect::ActionInput;
 
     #[test]
-    fn todo_reducers_are_predictable() {
+    fn add_todo_is_predictable() {
         let mut state = TodoState::default();
         let mut effects = Effects::new_headless(0);
         let input = ActionInput::None;
-        let mut ctx = ReducerContext {
-            effects: &mut effects,
-            input: &input,
-        };
+        let mut ctx = ReducerContext { effects: &mut effects, input: &input };
 
-        super::on_add_todo(&mut state, AddTodo, &mut ctx);
-        super::on_add_todo(&mut state, AddTodo, &mut ctx);
-        super::on_toggle_todo(&mut state, ToggleTodo(0), &mut ctx);
-        super::on_archive_done(&mut state, ArchiveDone, &mut ctx);
+        on_add_todo(&mut state, AddTodo, &mut ctx);
 
         assert_eq!(state.items.len(), 1);
-        assert!(state.items.iter().all(|(_, _, done)| !*done));
+        assert_eq!(state.items[0].0, 0);
+        assert!(effects.out.is_empty());
     }
 }
 ```
 
-From here, move out of reducer-only behavior only when required:
-
-- use jobs for request/response app work,
-- use services and commands for long-lived streams and control interactions,
-- use capabilities for platform host integration.
+When reducer behavior is stable, move to async boundaries in [Commands, services, and jobs](/docs/guide/commands-services-jobs).

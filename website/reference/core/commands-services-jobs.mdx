@@ -5,14 +5,32 @@ description: Async boundaries and external work contracts.
 
 # Commands, services, and jobs
 
-This page is a quick lookup for async behavior.
+This reference page is the contract sheet for async behavior.
 
-A command is one-shot and bounded. A service is reusable across the app. A job is lifecycle-aware and can run repeatedly or be cancelled.
+- **Job**: one-shot execution tied to a request/response pair.
+- **Service**: long-lived process with start/stop and events.
+- **Command**: explicit instruction to an active service.
+
+## Data model
+
+Use completion actions to bring async results back through normal reducer flow:
 
 ```text
-action -> command/service/job -> completion action -> reducer -> render
+action -> async trigger -> completion action -> reducer -> render
 ```
 
-Use the split to prevent side effects from entering build logic.
+## Registering async behavior
 
-When debugging production issues, start by tracing this sequence to identify whether work was triggered by user input or timed lifecycle behavior.
+All async registration is done on app startup through `with_async` so runtime wiring is centralized.
+
+## When each primitive is appropriate
+
+- choose a **job** when the work is isolated and returns once,
+- choose a **service** when work is ongoing or stateful,
+- choose a **command** for explicit control signals.
+
+## Test points to use
+
+- reducer unit tests,
+- completion payload decode via `ActionInput`,
+- behavior tests through `TestHarness` and `LiveTestClient`.
