@@ -21,22 +21,24 @@ cargo install fission-cli
 # cargo install --locked --path crates/cli
 ```
 
-Create a new app, then add targets.
+Create a new app, then add targets. Add desktop and web by default, then include native mobile targets as needed.
 
 ```bash
 fission init my-fission-app
 cd my-fission-app
 fission add-target desktop
 fission add-target web
+fission add-target ios
+fission add-target android
 ```
 
-Use desktop first for a fast local loop, then web for browser validation. Desktop and web are the
-current primary targets. Mobile web experiences are built from the same web target with responsive
-layouts. Android and iOS are not yet natively supported.
+Use `cargo run` for desktop, then validate web in the browser. Run `./platforms/ios/run-sim.sh` for iOS simulator checks and `./platforms/android/run-emulator.sh` for Android emulator checks.
 
 ```bash
-fission run desktop
-fission run web
+cargo run
+./platforms/web/run-browser.sh
+./platforms/ios/run-sim.sh
+./platforms/android/run-emulator.sh
 ```
 
 If these run, continue to [Build your first app](/docs/getting-started/first-app) and keep this sequence fixed for your first week.

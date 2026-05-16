@@ -4,7 +4,7 @@ import type * as Preset from '@docusaurus/preset-classic';
 
 const config: Config = {
   title: 'Fission',
-  tagline: 'Build desktop and web apps in Rust from one codebase',
+  tagline: 'Build desktop, web, and mobile apps in Rust from one codebase',
   favicon: 'img/favicon.ico',
   future: {
     v4: true,

@@ -38,6 +38,5 @@ yarn deploy
 - **Playground:** `/playground`
 - **Showcase:** `/showcase`
 
-We are intentionally presenting the framework as a production-ready destination for
-desktop and web platforms (including responsive mobile web), while calling out remaining
-ecosystem work in the footer note.
+We are positioning Fission as a desktop, web, iOS, and Android framework with a single
+Rust app model and shared runtime contracts.

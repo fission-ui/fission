@@ -9,7 +9,7 @@ const principles = [
   },
   {
     title: 'One model, many targets',
-    body: 'The same widget and state model powers desktop, web, and mobile web targets so teams avoid divergent platform codepaths.',
+    body: 'The same widget and state model powers desktop, web, iOS, and Android targets so teams avoid divergent platform codepaths.',
   },
   {
     title: 'Production-first workflows',
@@ -29,7 +29,7 @@ function Hero() {
         <h1 className={styles.title}>Build one app once and ship it where users already are.</h1>
         <p className={styles.subtitle}>
           Fission gives you a single, deterministic UI model with first-class async boundaries and
-          one runtime discipline across desktop, web, and responsive mobile web workflows.
+          one runtime discipline across desktop, web, iOS, and Android.
         </p>
         <div className={styles.ctaRow}>
           <Link className={styles.primaryCta} to='/docs/getting-started/first-app'>
@@ -94,7 +94,7 @@ function ProofStrip() {
           </p>
           <p>
             <strong>Publish</strong> once behavior is stable: reuse the same model for desktop, web,
-            and responsive mobile web while keeping platform details isolated.
+            iOS, and Android while keeping platform details isolated.
           </p>
         </div>
       </div>
@@ -104,9 +104,9 @@ function ProofStrip() {
 
 export default function Home() {
   return (
-    <Layout
+      <Layout
       title='Fission'
-      description='Rust UI framework for desktop and web with deterministic state and production-focused workflows.'>
+      description='Rust UI framework for desktop, web, iOS, and Android with deterministic state and production-focused workflows.'>
       <div className={styles.page}>
         <Hero />
         <ProblemSolution />

@@ -15,12 +15,11 @@ Creates and configures a new project scaffold.
 
 Adds a build/run target.
 
-`fission run <target>`
-
-Runs the project for a specific target.
-
-`fission build <target>`
-
-Generates build artifacts for delivery.
-
 Use these commands consistently in local automation so every team member works from the same workflow.
+
+Run targets from generated output scripts:
+
+- Desktop: `cargo run`
+- Web: `./platforms/web/run-browser.sh`
+- iOS: `./platforms/ios/run-sim.sh` (after `cargo fission add-target ios`)
+- Android: `./platforms/android/run-emulator.sh` (after `cargo fission add-target android`)

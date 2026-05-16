@@ -14,9 +14,7 @@ Actions, reducers, and state transitions are explicit. That gives you one path f
 Commands, services, and jobs split effectful work from pure rendering. UI code stays readable while integration details remain controlled and testable.
 
 **One app model across targets**
-The same core model is used for desktop and web targets, including responsive mobile web delivery. You still define target build steps, but your architecture does not fork.
-
-Android and iOS are not natively supported by the runtime yet.
+The same core model is used for desktop, web, and native mobile targets. You still define target build steps for each output, but your architecture does not fork.
 
 **Global quality in the base model**
 Localization and accessibility are treated as first-order concerns. Keys, labels, focus behavior, and contrast are part of your normal implementation flow.
