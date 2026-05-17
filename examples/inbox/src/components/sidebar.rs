@@ -4,7 +4,7 @@ use crate::model::{
 use fission_core::ui::{
     Button, ButtonContentAlign, ButtonVariant, Container, Node, Text, TextContent,
 };
-use fission_core::{BuildCtx, Handler, View, Widget};
+use fission_core::{reduce_with, BuildCtx, View, Widget};
 use fission_widgets::{Divider, Tag, TreeItem, TreeView, VStack, Wrap};
 use serde_json;
 
@@ -24,18 +24,20 @@ impl Widget<InboxState> for Sidebar {
         let select_folder_id = ctx
             .bind(
                 SelectFolder(Folder::Inbox),
-                (|s: &mut InboxState, a: SelectFolder, _| {
-                    let path = match a.0 {
-                        Folder::Inbox => "/inbox".into(),
-                        Folder::Starred => "/starred".into(),
-                        Folder::Sent => "/sent".into(),
-                        Folder::Drafts => "/drafts".into(),
-                        Folder::Trash => "/trash".into(),
-                        Folder::Custom(label) => format!("/{}", label),
-                    };
-                    s.navigate_to(path);
-                    s.show_mobile_menu = false;
-                }) as Handler<InboxState, SelectFolder>,
+                reduce_with!(
+                    (|s: &mut InboxState, a: SelectFolder, _| {
+                        let path = match a.0 {
+                            Folder::Inbox => "/inbox".into(),
+                            Folder::Starred => "/starred".into(),
+                            Folder::Sent => "/sent".into(),
+                            Folder::Drafts => "/drafts".into(),
+                            Folder::Trash => "/trash".into(),
+                            Folder::Custom(label) => format!("/{}", label),
+                        };
+                        s.navigate_to(path);
+                        s.show_mobile_menu = false;
+                    })
+                ),
             )
             .id;
 
@@ -67,10 +69,11 @@ impl Widget<InboxState> for Sidebar {
                                 )),
                                 on_press: Some(ctx.bind(
                                     SetComposeOpen(true),
-                                    (|s: &mut InboxState, a: SetComposeOpen, _| {
-                                        s.show_compose = a.0
-                                    })
-                                        as Handler<InboxState, SetComposeOpen>,
+                                    reduce_with!(
+                                        (|s: &mut InboxState, a: SetComposeOpen, _| {
+                                            s.show_compose = a.0
+                                        })
+                                    ),
                                 )),
                                 ..Default::default()
                             }
@@ -197,10 +200,11 @@ impl Widget<InboxState> for Sidebar {
                                 content_align: ButtonContentAlign::Start,
                                 on_press: Some(ctx.bind(
                                     SetContactsOpen(true),
-                                    (|s: &mut InboxState, a: SetContactsOpen, _| {
-                                        s.show_contacts = a.0
-                                    })
-                                        as Handler<InboxState, SetContactsOpen>,
+                                    reduce_with!(
+                                        (|s: &mut InboxState, a: SetContactsOpen, _| {
+                                            s.show_contacts = a.0
+                                        })
+                                    ),
                                 )),
                                 ..Default::default()
                             }
@@ -213,10 +217,11 @@ impl Widget<InboxState> for Sidebar {
                                 content_align: ButtonContentAlign::Start,
                                 on_press: Some(ctx.bind(
                                     SetSettingsOpen(true),
-                                    (|s: &mut InboxState, a: SetSettingsOpen, _| {
-                                        s.show_settings = a.0
-                                    })
-                                        as Handler<InboxState, SetSettingsOpen>,
+                                    reduce_with!(
+                                        (|s: &mut InboxState, a: SetSettingsOpen, _| {
+                                            s.show_settings = a.0
+                                        })
+                                    ),
                                 )),
                                 ..Default::default()
                             }

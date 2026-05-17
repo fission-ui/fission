@@ -5,7 +5,7 @@ use crate::model::{
 };
 use chrono::Local;
 use fission_core::ui::Node;
-use fission_core::{ActionEnvelope, BuildCtx, Handler, NodeId, View, Widget, WidgetNodeId};
+use fission_core::{reduce_with, ActionEnvelope, BuildCtx, NodeId, View, Widget, WidgetNodeId};
 use fission_widgets::{
     Combobox, DatePicker, Dropzone, FileUpload, FocusScope, FormControl, Modal, ModalAction,
     TextInput, TimePicker, VStack, Wrap,
@@ -26,115 +26,121 @@ impl Widget<InboxState> for ComposeModal {
         let to_id = ctx
             .bind(
                 SetComposeTo("".into()),
-                (|s: &mut InboxState, a: SetComposeTo, _| s.compose_to = a.0)
-                    as Handler<InboxState, SetComposeTo>,
+                reduce_with!((|s: &mut InboxState, a: SetComposeTo, _| s.compose_to = a.0)),
             )
             .id;
         let subject_id = ctx
             .bind(
                 SetComposeSubject("".into()),
-                (|s: &mut InboxState, a: SetComposeSubject, _| s.compose_subject = a.0)
-                    as Handler<InboxState, SetComposeSubject>,
+                reduce_with!(
+                    (|s: &mut InboxState, a: SetComposeSubject, _| s.compose_subject = a.0)
+                ),
             )
             .id;
         let body_id = ctx
             .bind(
                 SetComposeBody("".into()),
-                (|s: &mut InboxState, a: SetComposeBody, _| s.compose_body = a.0)
-                    as Handler<InboxState, SetComposeBody>,
+                reduce_with!((|s: &mut InboxState, a: SetComposeBody, _| s.compose_body = a.0)),
             )
             .id;
         let date_id = ctx
             .bind(
                 SetScheduleDate(chrono::Local::now().date_naive()),
-                (|s: &mut InboxState, a: SetScheduleDate, _| {
-                    s.schedule_date = Some(a.0);
-                    s.is_date_picker_open = false;
-                }) as Handler<InboxState, SetScheduleDate>,
+                reduce_with!(
+                    (|s: &mut InboxState, a: SetScheduleDate, _| {
+                        s.schedule_date = Some(a.0);
+                        s.is_date_picker_open = false;
+                    })
+                ),
             )
             .id;
         let time_id = ctx
             .bind(
                 SetScheduleTime(0, 0),
-                (|s: &mut InboxState, a: SetScheduleTime, _| s.schedule_time = Some((a.0, a.1)))
-                    as Handler<InboxState, SetScheduleTime>,
+                reduce_with!(
+                    (|s: &mut InboxState, a: SetScheduleTime, _| s.schedule_time =
+                        Some((a.0, a.1)))
+                ),
             )
             .id;
         let date_picker_open_id = ctx
             .bind(
                 SetDatePickerOpen(false),
-                (|s: &mut InboxState, a: SetDatePickerOpen, _| s.is_date_picker_open = a.0)
-                    as Handler<InboxState, SetDatePickerOpen>,
+                reduce_with!(
+                    (|s: &mut InboxState, a: SetDatePickerOpen, _| s.is_date_picker_open = a.0)
+                ),
             )
             .id;
         let send_id = ctx
             .bind(
                 SendCompose,
-                (|s: &mut InboxState, _: SendCompose, _| {
-                    let subject = if s.compose_subject.trim().is_empty() {
-                        "(no subject)".to_string()
-                    } else {
-                        s.compose_subject.trim().to_string()
-                    };
-                    let body = if s.compose_body.trim().is_empty() {
-                        "(empty message)".to_string()
-                    } else {
-                        s.compose_body.trim().to_string()
-                    };
-                    let to: Vec<String> = s
-                        .compose_to
-                        .split(',')
-                        .map(|v| v.trim().to_string())
-                        .filter(|v| !v.is_empty())
-                        .collect();
-
-                    let msg_id = s.next_message_id;
-                    s.next_message_id += 1;
-                    let thread_id = s.next_email_id;
-                    s.next_email_id += 1;
-
-                    let message = EmailMessage {
-                        id: msg_id,
-                        from: "You".into(),
-                        to: if to.is_empty() {
-                            vec!["team@fission.rs".into()]
+                reduce_with!(
+                    (|s: &mut InboxState, _: SendCompose, _| {
+                        let subject = if s.compose_subject.trim().is_empty() {
+                            "(no subject)".to_string()
                         } else {
-                            to
-                        },
-                        cc: Vec::new(),
-                        body,
-                        sent_at: Local::now().naive_local(),
-                    };
+                            s.compose_subject.trim().to_string()
+                        };
+                        let body = if s.compose_body.trim().is_empty() {
+                            "(empty message)".to_string()
+                        } else {
+                            s.compose_body.trim().to_string()
+                        };
+                        let to: Vec<String> = s
+                            .compose_to
+                            .split(',')
+                            .map(|v| v.trim().to_string())
+                            .filter(|v| !v.is_empty())
+                            .collect();
 
-                    let mut folders = HashSet::new();
-                    folders.insert(Folder::Sent);
+                        let msg_id = s.next_message_id;
+                        s.next_message_id += 1;
+                        let thread_id = s.next_email_id;
+                        s.next_email_id += 1;
 
-                    let mut email = Email {
-                        id: thread_id,
-                        subject,
-                        sender: "You".into(),
-                        preview: String::new(),
-                        folders,
-                        is_read: true,
-                        is_flagged: false,
-                        labels: vec!["Sent".into()],
-                        messages: vec![message],
-                    };
-                    email.refresh_preview();
-                    s.emails.insert(0, email);
+                        let message = EmailMessage {
+                            id: msg_id,
+                            from: "You".into(),
+                            to: if to.is_empty() {
+                                vec!["team@fission.rs".into()]
+                            } else {
+                                to
+                            },
+                            cc: Vec::new(),
+                            body,
+                            sent_at: Local::now().naive_local(),
+                        };
 
-                    s.compose_to.clear();
-                    s.compose_subject.clear();
-                    s.compose_body.clear();
-                    s.compose_attachments.clear();
-                    s.schedule_date = None;
-                    s.schedule_time = None;
-                    s.is_date_picker_open = false;
+                        let mut folders = HashSet::new();
+                        folders.insert(Folder::Sent);
 
-                    s.show_compose = false;
-                    s.show_toast = true;
-                    s.toast_message = Some("Message sent".into());
-                }) as Handler<InboxState, SendCompose>,
+                        let mut email = Email {
+                            id: thread_id,
+                            subject,
+                            sender: "You".into(),
+                            preview: String::new(),
+                            folders,
+                            is_read: true,
+                            is_flagged: false,
+                            labels: vec!["Sent".into()],
+                            messages: vec![message],
+                        };
+                        email.refresh_preview();
+                        s.emails.insert(0, email);
+
+                        s.compose_to.clear();
+                        s.compose_subject.clear();
+                        s.compose_body.clear();
+                        s.compose_attachments.clear();
+                        s.schedule_date = None;
+                        s.schedule_time = None;
+                        s.is_date_picker_open = false;
+
+                        s.show_compose = false;
+                        s.show_toast = true;
+                        s.toast_message = Some("Message sent".into());
+                    })
+                ),
             )
             .id;
 
@@ -298,8 +304,7 @@ impl Widget<InboxState> for ComposeModal {
             is_open: true,
             on_dismiss: Some(ctx.bind(
                 SetComposeOpen(false),
-                (|s: &mut InboxState, a: SetComposeOpen, _| s.show_compose = a.0)
-                    as Handler<InboxState, SetComposeOpen>,
+                reduce_with!((|s: &mut InboxState, a: SetComposeOpen, _| s.show_compose = a.0)),
             )),
             width: Some(modal_width),
             content: Box::new(
@@ -310,11 +315,13 @@ impl Widget<InboxState> for ComposeModal {
                         child: Box::new(content),
                         on_drop: Some(ctx.bind(
                             FileSelected,
-                            (|s: &mut InboxState, _a: FileSelected, ctx| {
-                                if let Some(paths) = ctx.input.as_drop_paths() {
-                                    s.compose_attachments.extend(paths.iter().cloned());
-                                }
-                            }) as Handler<InboxState, FileSelected>,
+                            reduce_with!(
+                                (|s: &mut InboxState, _a: FileSelected, ctx| {
+                                    if let Some(paths) = ctx.input.as_drop_paths() {
+                                        s.compose_attachments.extend(paths.iter().cloned());
+                                    }
+                                })
+                            ),
                         )),
                         on_drag_enter: None,
                         on_drag_leave: None,
@@ -329,8 +336,9 @@ impl Widget<InboxState> for ComposeModal {
                     is_primary: false,
                     on_press: Some(ctx.bind(
                         SetComposeOpen(false),
-                        (|s: &mut InboxState, a: SetComposeOpen, _| s.show_compose = a.0)
-                            as Handler<InboxState, SetComposeOpen>,
+                        reduce_with!(
+                            (|s: &mut InboxState, a: SetComposeOpen, _| s.show_compose = a.0)
+                        ),
                     )),
                 },
                 ModalAction {

@@ -1,3 +1,4 @@
+use fission::prelude::fission_action;
 use fission_3d::{Point3D, Primitive3D, Scene3D};
 use fission_charts::{
     Axis, BarSeries, BoxplotSeries, CandlestickSeries, Chart, CustomSeries, DataValue, Dataset,
@@ -8,8 +9,7 @@ use fission_charts::{
 };
 use fission_core::op::Color;
 use fission_core::ui::{Button, ButtonVariant, Column, Container, Node, Row, Scroll, Text};
-use fission_core::{ActionEnvelope, AppState, BuildCtx, View, Widget};
-use fission_macros::Action;
+use fission_core::{reduce_with, ActionEnvelope, AppState, BuildCtx, View, Widget};
 use fission_shell_desktop::DesktopApp;
 use serde::{Deserialize, Serialize};
 
@@ -36,13 +36,13 @@ impl Default for GalleryState {
 
 impl AppState for GalleryState {}
 
-#[derive(Action, Serialize, Deserialize, Clone, Debug)]
+#[fission_action(no_eq)]
 pub struct SelectChart(pub usize, pub usize);
 
-#[derive(Action, Serialize, Deserialize, Clone, Debug)]
+#[fission_action(no_eq)]
 pub struct ToggleSmooth(pub bool);
 
-#[derive(Action, Serialize, Deserialize, Clone, Debug)]
+#[fission_action(no_eq)]
 #[serde(transparent)]
 pub struct UpdateScale(pub f32);
 
@@ -55,28 +55,34 @@ impl Widget<GalleryState> for GalleryApp {
         let select_chart_id = ctx
             .bind(
                 SelectChart(0, 0),
-                (|s: &mut GalleryState, a: SelectChart, _| {
-                    s.selected_category = a.0;
-                    s.selected_chart = a.1;
-                }) as fission_core::registry::Handler<GalleryState, SelectChart>,
+                reduce_with!(
+                    (|s: &mut GalleryState, a: SelectChart, _| {
+                        s.selected_category = a.0;
+                        s.selected_chart = a.1;
+                    })
+                ),
             )
             .id;
 
         let toggle_smooth_id = ctx
             .bind(
                 ToggleSmooth(false),
-                (|s: &mut GalleryState, _a: ToggleSmooth, _| {
-                    s.smooth = !s.smooth;
-                }) as fission_core::registry::Handler<GalleryState, ToggleSmooth>,
+                reduce_with!(
+                    (|s: &mut GalleryState, _a: ToggleSmooth, _| {
+                        s.smooth = !s.smooth;
+                    })
+                ),
             )
             .id;
 
         let update_scale_id = ctx
             .bind(
                 UpdateScale(0.0),
-                (|s: &mut GalleryState, a: UpdateScale, _| {
-                    s.data_scale = a.0;
-                }) as fission_core::registry::Handler<GalleryState, UpdateScale>,
+                reduce_with!(
+                    (|s: &mut GalleryState, a: UpdateScale, _| {
+                        s.data_scale = a.0;
+                    })
+                ),
             )
             .id;
 

@@ -1,7 +1,7 @@
 use crate::model::{CloseTab, EditorState, SelectTab};
 use fission_core::op::Color;
 use fission_core::ui::{Button, ButtonContentAlign, ButtonVariant, Container, Node, Text};
-use fission_core::{ActionEnvelope, BuildCtx, Handler, View, Widget};
+use fission_core::{reduce_with, ActionEnvelope, BuildCtx, View, Widget};
 use fission_widgets::{HStack, Spacer};
 use serde_json;
 
@@ -22,19 +22,23 @@ impl Widget<EditorState> for TabBar {
         let select_id = ctx
             .bind(
                 SelectTab(0),
-                (|s: &mut EditorState, a: SelectTab, _| {
-                    s.active_tab = a.0;
-                    s.update_breadcrumb();
-                }) as Handler<EditorState, SelectTab>,
+                reduce_with!(
+                    (|s: &mut EditorState, a: SelectTab, _| {
+                        s.active_tab = a.0;
+                        s.update_breadcrumb();
+                    })
+                ),
             )
             .id;
 
         let close_id = ctx
             .bind(
                 CloseTab(0),
-                (|s: &mut EditorState, a: CloseTab, _| {
-                    s.close_tab(a.0);
-                }) as Handler<EditorState, CloseTab>,
+                reduce_with!(
+                    (|s: &mut EditorState, a: CloseTab, _| {
+                        s.close_tab(a.0);
+                    })
+                ),
             )
             .id;
 

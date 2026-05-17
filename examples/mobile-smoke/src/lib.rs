@@ -1,22 +1,16 @@
-use fission_core::op::Color;
-use fission_core::ui::*;
-use fission_core::*;
-#[cfg(target_os = "android")]
-use fission_shell_mobile::AndroidApp;
-use fission_shell_mobile::MobileApp;
-use serde::{Deserialize, Serialize};
+use fission::prelude::*;
 
 #[cfg(target_os = "android")]
 const ANDROID_TEST_CONTROL_PORT: u16 = 48761;
 
-#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Default, Debug, Clone, PartialEq)]
 struct SmokeState {
     taps: u32,
 }
 
 impl AppState for SmokeState {}
 
-#[derive(fission_macros::Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[fission_action]
 struct Increment;
 
 fn on_increment(state: &mut SmokeState, _action: Increment, _ctx: &mut ReducerContext<SmokeState>) {
@@ -27,7 +21,7 @@ struct MobileSmokeApp;
 
 impl Widget<SmokeState> for MobileSmokeApp {
     fn build(&self, ctx: &mut BuildCtx<SmokeState>, view: &View<SmokeState>) -> Node {
-        let increment = ctx.bind(Increment, on_increment as Handler<SmokeState, Increment>);
+        let increment = with_reducer!(ctx, Increment, on_increment);
         let viewport = view.viewport_size();
         let content_width = (viewport.width - 48.0).clamp(240.0, 420.0);
         let background = Color {

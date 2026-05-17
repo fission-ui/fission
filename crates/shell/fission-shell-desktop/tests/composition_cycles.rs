@@ -3,7 +3,7 @@ use fission_core::action::AppState as CoreAppState;
 use fission_core::env::Env;
 use fission_core::lowering::LoweringContext;
 use fission_core::ui::{Node, TextInput};
-use fission_core::{BuildCtx, Runtime, View};
+use fission_core::{reduce_with, BuildCtx, ReducerContext, Runtime, View};
 use fission_layout::{LayoutEngine, LayoutSize, LineMetric, TextMeasurer};
 use fission_render::{DisplayList, RenderScene, Renderer};
 use fission_widgets::{Checkbox, Portal};
@@ -19,19 +19,15 @@ struct AppState {
 }
 impl CoreAppState for AppState {}
 
-#[derive(
-    fission_macros::Action, serde::Serialize, serde::Deserialize, Debug, Clone, PartialEq, Eq,
-)]
+#[fission_macros::fission_action]
 struct Toggle;
-fn on_toggle(state: &mut AppState, _a: Toggle) {
+fn on_toggle(state: &mut AppState, _a: Toggle, _ctx: &mut ReducerContext<AppState>) {
     state.checked = !state.checked;
 }
 
-#[derive(
-    fission_macros::Action, serde::Serialize, serde::Deserialize, Debug, Clone, PartialEq, Eq,
-)]
+#[fission_macros::fission_action]
 struct UpdateText(String);
-fn on_update(state: &mut AppState, a: UpdateText) {
+fn on_update(state: &mut AppState, a: UpdateText, _ctx: &mut ReducerContext<AppState>) {
     state.text = a.0;
 }
 
@@ -76,7 +72,7 @@ impl fission_core::view::Widget<AppState> for Root {
         let mut children: Vec<Node> = vec![
             Checkbox {
                 checked: view.state.checked,
-                on_toggle: Some(ctx.bind(Toggle, on_toggle as fn(&mut AppState, Toggle))),
+                on_toggle: Some(ctx.bind(Toggle, reduce_with!(on_toggle))),
                 label: Some("check".into()),
                 ..Default::default()
             }
@@ -84,10 +80,7 @@ impl fission_core::view::Widget<AppState> for Root {
             TextInput {
                 value: view.state.text.clone(),
                 placeholder: Some("type".into()),
-                on_change: Some(ctx.bind(
-                    UpdateText("".into()),
-                    on_update as fn(&mut AppState, UpdateText),
-                )),
+                on_change: Some(ctx.bind(UpdateText("".into()), reduce_with!(on_update))),
                 width: Some(200.0),
                 height: Some(40.0),
                 ..Default::default()

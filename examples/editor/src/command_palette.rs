@@ -7,7 +7,7 @@ use fission_core::ui::{
     Button, ButtonContentAlign, ButtonVariant, Container, GestureDetector, Node, Positioned, Text,
     TextInput, ZStack,
 };
-use fission_core::{BuildCtx, Handler, View, Widget, WidgetNodeId};
+use fission_core::{reduce_with, BuildCtx, View, Widget, WidgetNodeId};
 use fission_widgets::{HStack, Spacer, VStack};
 
 pub struct CommandPalette;
@@ -29,16 +29,17 @@ impl Widget<EditorState> for CommandPalette {
 
         let dismiss = ctx.bind(
             ToggleCommandPalette,
-            (|s: &mut EditorState, _, _| {
-                s.show_command_palette = false;
-                s.command_query.clear();
-            }) as Handler<EditorState, ToggleCommandPalette>,
+            reduce_with!(
+                (|s: &mut EditorState, _, _| {
+                    s.show_command_palette = false;
+                    s.command_query.clear();
+                })
+            ),
         );
 
         let update_query = ctx.bind(
             UpdateCommandQuery(String::new()),
-            (|s: &mut EditorState, a: UpdateCommandQuery, _| s.command_query = a.0)
-                as Handler<EditorState, UpdateCommandQuery>,
+            reduce_with!((|s: &mut EditorState, a: UpdateCommandQuery, _| s.command_query = a.0)),
         );
 
         let commands = vec![
@@ -91,62 +92,78 @@ impl Widget<EditorState> for CommandPalette {
 
         let save = ctx.bind(
             SaveFile,
-            (|s: &mut EditorState, _, _| {
-                s.save_active_file();
-                s.show_command_palette = false;
-            }) as Handler<EditorState, SaveFile>,
+            reduce_with!(
+                (|s: &mut EditorState, _, _| {
+                    s.save_active_file();
+                    s.show_command_palette = false;
+                })
+            ),
         );
         let save_all = ctx.bind(
             SaveAllFiles,
-            (|s: &mut EditorState, _, _| {
-                s.save_all_files();
-                s.show_command_palette = false;
-            }) as Handler<EditorState, SaveAllFiles>,
+            reduce_with!(
+                (|s: &mut EditorState, _, _| {
+                    s.save_all_files();
+                    s.show_command_palette = false;
+                })
+            ),
         );
         let toggle_sidebar = ctx.bind(
             ToggleSidebar,
-            (|s: &mut EditorState, _, _| {
-                s.sidebar_visible = !s.sidebar_visible;
-                s.show_command_palette = false;
-            }) as Handler<EditorState, ToggleSidebar>,
+            reduce_with!(
+                (|s: &mut EditorState, _, _| {
+                    s.sidebar_visible = !s.sidebar_visible;
+                    s.show_command_palette = false;
+                })
+            ),
         );
         let toggle_terminal = ctx.bind(
             ToggleTerminal,
-            (|s: &mut EditorState, _, _| {
-                s.terminal_visible = !s.terminal_visible;
-                s.show_command_palette = false;
-            }) as Handler<EditorState, ToggleTerminal>,
+            reduce_with!(
+                (|s: &mut EditorState, _, _| {
+                    s.terminal_visible = !s.terminal_visible;
+                    s.show_command_palette = false;
+                })
+            ),
         );
         let show_explorer = ctx.bind(
             SetSidebarSection(SidebarSection::Explorer),
-            (|s: &mut EditorState, _, _| {
-                s.sidebar_section = SidebarSection::Explorer;
-                s.sidebar_visible = true;
-                s.show_command_palette = false;
-            }) as Handler<EditorState, SetSidebarSection>,
+            reduce_with!(
+                (|s: &mut EditorState, _, _| {
+                    s.sidebar_section = SidebarSection::Explorer;
+                    s.sidebar_visible = true;
+                    s.show_command_palette = false;
+                })
+            ),
         );
         let show_search = ctx.bind(
             SetSidebarSection(SidebarSection::Search),
-            (|s: &mut EditorState, _, _| {
-                s.sidebar_section = SidebarSection::Search;
-                s.sidebar_visible = true;
-                s.show_command_palette = false;
-            }) as Handler<EditorState, SetSidebarSection>,
+            reduce_with!(
+                (|s: &mut EditorState, _, _| {
+                    s.sidebar_section = SidebarSection::Search;
+                    s.sidebar_visible = true;
+                    s.show_command_palette = false;
+                })
+            ),
         );
         let show_git = ctx.bind(
             SetSidebarSection(SidebarSection::Git),
-            (|s: &mut EditorState, _, _| {
-                s.sidebar_section = SidebarSection::Git;
-                s.sidebar_visible = true;
-                s.show_command_palette = false;
-            }) as Handler<EditorState, SetSidebarSection>,
+            reduce_with!(
+                (|s: &mut EditorState, _, _| {
+                    s.sidebar_section = SidebarSection::Git;
+                    s.sidebar_visible = true;
+                    s.show_command_palette = false;
+                })
+            ),
         );
         let refresh_git = ctx.bind(
             RefreshGitStatus,
-            (|s: &mut EditorState, _, _| {
-                s.refresh_git_status();
-                s.show_command_palette = false;
-            }) as Handler<EditorState, RefreshGitStatus>,
+            reduce_with!(
+                (|s: &mut EditorState, _, _| {
+                    s.refresh_git_status();
+                    s.show_command_palette = false;
+                })
+            ),
         );
 
         let action_for = |label: &str| -> fission_core::ActionEnvelope {

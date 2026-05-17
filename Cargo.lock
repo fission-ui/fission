@@ -535,6 +535,7 @@ name = "chart-gallery"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "fission",
  "fission-3d",
  "fission-charts",
  "fission-core",
@@ -793,15 +794,8 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "fission",
- "fission-core",
- "fission-macros",
- "fission-render",
- "fission-shell-desktop",
  "fission-test-driver",
- "fission-widgets",
  "image 0.25.9",
- "lazy_static",
- "serde",
 ]
 
 [[package]]
@@ -2434,11 +2428,7 @@ name = "mobile-smoke"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "fission-core",
- "fission-macros",
- "fission-shell-mobile",
- "lazy_static",
- "serde",
+ "fission",
 ]
 
 [[package]]
@@ -4606,10 +4596,6 @@ dependencies = [
  "anyhow",
  "console_error_panic_hook",
  "fission",
- "fission-core",
- "fission-macros",
- "lazy_static",
- "serde",
  "wasm-bindgen",
 ]
 

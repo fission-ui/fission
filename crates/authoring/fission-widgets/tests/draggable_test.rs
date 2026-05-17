@@ -2,8 +2,8 @@ use fission_core::runtime::Runtime;
 use fission_core::ui::widgets::button::Button;
 use fission_core::ui::Container;
 use fission_core::{
-    Action, ActionEnvelope, ActionId, AppState, BuildCtx, Handler, LayoutEngine, ReducerContext,
-    View, Widget,
+    reduce_with, Action, ActionEnvelope, ActionId, AppState, BuildCtx, LayoutEngine,
+    ReducerContext, View, Widget,
 };
 use fission_widgets::draggable::{DragTarget, Draggable};
 use fission_widgets::VStack;
@@ -15,7 +15,7 @@ struct TestState {
 }
 impl AppState for TestState {}
 
-#[derive(fission_macros::Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[fission_macros::fission_action]
 struct OnDrop;
 
 fn handle_drop(state: &mut TestState, _action: OnDrop, ctx: &mut ReducerContext<TestState>) {
@@ -32,7 +32,7 @@ fn test_internal_drag_drop_flow() {
         .unwrap();
 
     let mut registry = fission_core::ActionRegistry::new();
-    registry.register(handle_drop as Handler<TestState, OnDrop>);
+    registry.register(reduce_with!(handle_drop));
     runtime.absorb_registry(registry);
 
     // Pass 1: Lower and Layout

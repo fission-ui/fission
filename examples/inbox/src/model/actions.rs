@@ -2,205 +2,204 @@
 
 use super::email::Folder;
 use chrono::NaiveDate;
-use fission_macros::Action;
-use serde::{Deserialize, Serialize};
+use fission::prelude::fission_action;
 
-#[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[fission_action]
 pub struct SetPage(pub usize);
 
-#[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[fission_action]
 pub struct SetFilterMode(pub usize);
 
-#[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[fission_action]
 #[serde(transparent)]
 pub struct SetComposeTo(pub String);
 
-#[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[fission_action]
 #[serde(transparent)]
 pub struct SetComposeSubject(pub String);
 
-#[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[fission_action]
 #[serde(transparent)]
 pub struct SetComposeBody(pub String);
 
-#[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[fission_action]
 pub struct SetScheduleDate(pub NaiveDate);
 
-#[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[fission_action]
 pub struct SetScheduleTime(pub u32, pub u32);
 
-#[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[fission_action]
 pub struct SetDatePickerOpen(pub bool);
 
-#[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[fission_action]
 pub struct FileSelected;
 
-#[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[fission_action]
 pub struct SetLocale(pub fission_i18n::Locale);
 
-#[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[fission_action]
 pub struct ToggleBrowserDemo(pub bool);
 
-#[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[fission_action]
 pub struct OpenSystemLink(pub String);
 
-#[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[fission_action]
 pub struct OpenInAppLink(pub String);
 
-#[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[fission_action]
 pub struct StartAuth;
 
-#[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[fission_action]
 pub struct SelectFolder(pub Folder);
 
-#[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[fission_action]
 pub struct Navigate(pub String);
 
-#[derive(Action, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[fission_action]
 pub struct SelectEmail(pub usize);
 
 // Email Ops
-#[derive(Action, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[fission_action]
 pub struct ToggleEmailSelection(pub usize);
 
-#[derive(Action, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[fission_action]
 pub struct ToggleFlag(pub usize);
 
-#[derive(Action, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[fission_action]
 pub struct DeleteEmail(pub usize);
 
 // Search & Filter
-#[derive(Action, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[fission_action]
 pub struct UpdateSearch(pub String);
 
-#[derive(Action, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[fission_action]
 pub struct ToggleFilterDropdown;
 
-#[derive(Action, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[fission_action]
 pub struct DismissDropdown;
 
 // Tabs & UI
-#[derive(Action, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[fission_action]
 pub struct SelectTab(pub usize);
 
-#[derive(Action, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[fission_action]
 pub struct SelectReplyMode(pub usize);
 
-#[derive(Action, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[fission_action]
 pub struct ToggleNotifications;
 
-#[derive(Action, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[fission_action]
 pub struct ToggleDetails;
 
-#[derive(Action, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[fission_action]
 pub struct ToggleFolderExpand(pub String);
 
 // Modals
-#[derive(Action, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[fission_action]
 pub struct SetSettingsOpen(pub bool);
 
-#[derive(Action, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[fission_action]
 pub struct SetContactsOpen(pub bool);
 
-#[derive(Action, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[fission_action]
 pub struct SetComposeOpen(pub bool);
 
-#[derive(Action, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[fission_action]
 pub struct SetMobileMenuOpen(pub bool);
 
 // Mail actions
-#[derive(Action, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[fission_action]
 pub struct SendCompose;
 
-#[derive(Action, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[fission_action]
 pub struct SetReplyBody(pub String);
 
-#[derive(Action, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[fission_action]
 pub struct SendReply(pub usize);
 
-#[derive(Action, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[fission_action]
 pub struct ToggleEmailRead(pub usize);
 
 // Toast
-#[derive(Action, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[fission_action]
 pub struct ToggleToast(pub bool);
 
-#[derive(Action, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[fission_action]
 pub struct ShowToast(pub String);
 
 // Settings
-#[derive(Action, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[fission_action]
 pub struct SetTheme(pub String);
 
-#[derive(Action, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[fission_action]
 pub struct SetDensity(pub String);
 
-#[derive(Action, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[fission_action]
 pub struct SetInboxType(pub String);
 
-#[derive(Action, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[fission_action]
 pub struct SetInboxTypeSelectOpen(pub bool);
 
-#[derive(Action, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[fission_action]
 pub struct SetThemeSelectOpen(pub bool);
 
-#[derive(Action, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[fission_action]
 pub struct SetDensitySelectOpen(pub bool);
 
-#[derive(Action, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[fission_action(no_eq)]
 #[serde(transparent)]
 pub struct SetStorageUsage(pub f32);
 
 impl Eq for SetStorageUsage {}
 
-#[derive(Action, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[fission_action]
 pub struct SetAdvancedFiltersOpen(pub bool);
 
-#[derive(Action, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[fission_action]
 pub struct SetSortOption(pub String);
 
-#[derive(Action, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[fission_action(no_eq)]
 #[serde(transparent)]
 pub struct SetZoomLevel(pub f32);
 
 impl Eq for SetZoomLevel {}
 
-#[derive(Action, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[fission_action]
 #[serde(transparent)]
 pub struct SetSignature(pub String);
 
-#[derive(Action, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[fission_action]
 pub struct SetSignatureEditing(pub bool);
 
-#[derive(Action, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[fission_action]
 pub struct SetSmartComposeEnabled(pub bool);
 
-#[derive(Action, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[fission_action]
 pub struct SetOfflineEnabled(pub bool);
 
-#[derive(Action, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[fission_action]
 pub struct SetAutoAdvanceEnabled(pub bool);
 
-#[derive(Action, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[fission_action]
 pub struct SetHelpPopoverOpen(pub bool);
 
-#[derive(Action, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[fission_action]
 pub struct LabelDropped(pub String);
 
-#[derive(Action, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[fission_action]
 pub struct SetMeetCameraOn(pub bool);
 
-#[derive(Action, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[fission_action]
 pub struct SetMeetMicOn(pub bool);
 
-#[derive(Action, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[fission_action]
 pub struct SetQuickTipOpen(pub bool);
 
-#[derive(Action, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[fission_action]
 pub struct SetCalendarSelected(pub NaiveDate);
 
-#[derive(Action, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[fission_action]
 pub struct ToggleContactSelection(pub String);
 
-#[derive(Action, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[fission_action]
 pub struct SetDragInProgress(pub bool);

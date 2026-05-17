@@ -241,7 +241,7 @@ pub(crate) fn text_input_toolbar_button_id(
 /// # Example
 ///
 /// ```rust,ignore
-/// let on_change = ctx.bind(TextChanged { .. }, handle_text as fn(&mut S, TextChanged));
+/// let on_change = ctx.bind(TextChanged { .. }, reduce_with!(handle_text));
 ///
 /// TextInput {
 ///     value: view.state.query.clone(),

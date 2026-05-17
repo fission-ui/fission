@@ -11,7 +11,7 @@ use fission_core::ui::{
     ZStack,
 };
 use fission_core::{
-    ActionEnvelope, ActionId, BuildCtx, FlexDirection, Handler, View, Widget, WidgetNodeId,
+    reduce_with, ActionEnvelope, ActionId, BuildCtx, FlexDirection, View, Widget, WidgetNodeId,
 };
 use fission_i18n::Locale;
 use fission_icons::material;
@@ -133,142 +133,159 @@ impl Widget<InboxState> for SettingsModal {
         let locale_id = ctx
             .bind(
                 SetLocale(Locale("".into())),
-                (|s: &mut InboxState, a: SetLocale, _| s.locale = a.0)
-                    as Handler<InboxState, SetLocale>,
+                reduce_with!((|s: &mut InboxState, a: SetLocale, _| s.locale = a.0)),
             )
             .id;
         let theme_id = ctx
             .bind(
                 SetTheme("".into()),
-                (|s: &mut InboxState, a: SetTheme, _| {
-                    s.theme_mode = a.0;
-                    s.show_theme_select = false;
-                }) as Handler<InboxState, SetTheme>,
+                reduce_with!(
+                    (|s: &mut InboxState, a: SetTheme, _| {
+                        s.theme_mode = a.0;
+                        s.show_theme_select = false;
+                    })
+                ),
             )
             .id;
         let density_id = ctx
             .bind(
                 SetDensity("".into()),
-                (|s: &mut InboxState, a: SetDensity, _| {
-                    s.density_mode = a.0;
-                    s.show_density_select = false;
-                }) as Handler<InboxState, SetDensity>,
+                reduce_with!(
+                    (|s: &mut InboxState, a: SetDensity, _| {
+                        s.density_mode = a.0;
+                        s.show_density_select = false;
+                    })
+                ),
             )
             .id;
         let inbox_type_id = ctx
             .bind(
                 SetInboxType("".into()),
-                (|s: &mut InboxState, a: SetInboxType, _| {
-                    s.inbox_type = a.0;
-                    s.show_inbox_type_select = false;
-                }) as Handler<InboxState, SetInboxType>,
+                reduce_with!(
+                    (|s: &mut InboxState, a: SetInboxType, _| {
+                        s.inbox_type = a.0;
+                        s.show_inbox_type_select = false;
+                    })
+                ),
             )
             .id;
         let zoom_id = ctx
             .bind(
                 SetZoomLevel(1.0),
-                (|s: &mut InboxState, a: SetZoomLevel, _| s.zoom_level = a.0)
-                    as Handler<InboxState, SetZoomLevel>,
+                reduce_with!((|s: &mut InboxState, a: SetZoomLevel, _| s.zoom_level = a.0)),
             )
             .id;
         let signature_id = ctx
             .bind(
                 SetSignature("".into()),
-                (|s: &mut InboxState, a: SetSignature, _| s.signature = a.0)
-                    as Handler<InboxState, SetSignature>,
+                reduce_with!((|s: &mut InboxState, a: SetSignature, _| s.signature = a.0)),
             )
             .id;
         let signature_edit_id = ctx
             .bind(
                 SetSignatureEditing(false),
-                (|s: &mut InboxState, a: SetSignatureEditing, _| s.signature_editing = a.0)
-                    as Handler<InboxState, SetSignatureEditing>,
+                reduce_with!(
+                    (|s: &mut InboxState, a: SetSignatureEditing, _| s.signature_editing = a.0)
+                ),
             )
             .id;
         let smart_compose_id = ctx
             .bind(
                 SetSmartComposeEnabled(false),
-                (|s: &mut InboxState, a: SetSmartComposeEnabled, _| s.smart_compose_enabled = a.0)
-                    as Handler<InboxState, SetSmartComposeEnabled>,
+                reduce_with!(
+                    (|s: &mut InboxState, a: SetSmartComposeEnabled, _| s.smart_compose_enabled =
+                        a.0)
+                ),
             )
             .id;
         let offline_id = ctx
             .bind(
                 SetOfflineEnabled(false),
-                (|s: &mut InboxState, a: SetOfflineEnabled, _| s.offline_enabled = a.0)
-                    as Handler<InboxState, SetOfflineEnabled>,
+                reduce_with!(
+                    (|s: &mut InboxState, a: SetOfflineEnabled, _| s.offline_enabled = a.0)
+                ),
             )
             .id;
         let auto_advance_id = ctx
             .bind(
                 SetAutoAdvanceEnabled(false),
-                (|s: &mut InboxState, a: SetAutoAdvanceEnabled, _| s.auto_advance_enabled = a.0)
-                    as Handler<InboxState, SetAutoAdvanceEnabled>,
+                reduce_with!(
+                    (|s: &mut InboxState, a: SetAutoAdvanceEnabled, _| s.auto_advance_enabled =
+                        a.0)
+                ),
             )
             .id;
         let label_drop_id = ctx
             .bind(
                 LabelDropped("".into()),
-                (|s: &mut InboxState, a: LabelDropped, ctx| {
-                    let mut label = None;
-                    if let Some(payload) = ctx.input.as_internal_drop() {
-                        if let Ok(parsed) = String::from_utf8(payload.to_vec()) {
-                            label = Some(parsed);
+                reduce_with!(
+                    (|s: &mut InboxState, a: LabelDropped, ctx| {
+                        let mut label = None;
+                        if let Some(payload) = ctx.input.as_internal_drop() {
+                            if let Ok(parsed) = String::from_utf8(payload.to_vec()) {
+                                label = Some(parsed);
+                            }
                         }
-                    }
-                    s.last_drag_label = label.or_else(|| Some(a.0));
-                    s.drag_in_progress = false;
-                }) as Handler<InboxState, LabelDropped>,
+                        s.last_drag_label = label.or_else(|| Some(a.0));
+                        s.drag_in_progress = false;
+                    })
+                ),
             )
             .id;
         let inbox_type_open_id = ctx
             .bind(
                 SetInboxTypeSelectOpen(false),
-                (|s: &mut InboxState, a: SetInboxTypeSelectOpen, _| {
-                    s.show_inbox_type_select = a.0;
-                    if a.0 {
-                        s.show_theme_select = false;
-                        s.show_density_select = false;
-                    }
-                }) as Handler<InboxState, SetInboxTypeSelectOpen>,
+                reduce_with!(
+                    (|s: &mut InboxState, a: SetInboxTypeSelectOpen, _| {
+                        s.show_inbox_type_select = a.0;
+                        if a.0 {
+                            s.show_theme_select = false;
+                            s.show_density_select = false;
+                        }
+                    })
+                ),
             )
             .id;
         let theme_open_id = ctx
             .bind(
                 SetThemeSelectOpen(false),
-                (|s: &mut InboxState, a: SetThemeSelectOpen, _| {
-                    s.show_theme_select = a.0;
-                    if a.0 {
-                        s.show_inbox_type_select = false;
-                        s.show_density_select = false;
-                    }
-                }) as Handler<InboxState, SetThemeSelectOpen>,
+                reduce_with!(
+                    (|s: &mut InboxState, a: SetThemeSelectOpen, _| {
+                        s.show_theme_select = a.0;
+                        if a.0 {
+                            s.show_inbox_type_select = false;
+                            s.show_density_select = false;
+                        }
+                    })
+                ),
             )
             .id;
         let density_open_id = ctx
             .bind(
                 SetDensitySelectOpen(false),
-                (|s: &mut InboxState, a: SetDensitySelectOpen, _| {
-                    s.show_density_select = a.0;
-                    if a.0 {
-                        s.show_inbox_type_select = false;
-                        s.show_theme_select = false;
-                    }
-                }) as Handler<InboxState, SetDensitySelectOpen>,
+                reduce_with!(
+                    (|s: &mut InboxState, a: SetDensitySelectOpen, _| {
+                        s.show_density_select = a.0;
+                        if a.0 {
+                            s.show_inbox_type_select = false;
+                            s.show_theme_select = false;
+                        }
+                    })
+                ),
             )
             .id;
         let drag_active_id = ctx
             .bind(
                 SetDragInProgress(false),
-                (|s: &mut InboxState, a: SetDragInProgress, _| s.drag_in_progress = a.0)
-                    as Handler<InboxState, SetDragInProgress>,
+                reduce_with!(
+                    (|s: &mut InboxState, a: SetDragInProgress, _| s.drag_in_progress = a.0)
+                ),
             )
             .id;
         let tip_id = ctx
             .bind(
                 SetQuickTipOpen(true),
-                (|s: &mut InboxState, a: SetQuickTipOpen, _| s.show_quick_tip = a.0)
-                    as Handler<InboxState, SetQuickTipOpen>,
+                reduce_with!((|s: &mut InboxState, a: SetQuickTipOpen, _| s.show_quick_tip = a.0)),
             )
             .id;
 
@@ -433,7 +450,7 @@ impl Widget<InboxState> for SettingsModal {
             is_open: true,
             on_dismiss: Some(ctx.bind(
                 SetSettingsOpen(false),
-                (|s, a, _| s.show_settings = a.0) as Handler<InboxState, SetSettingsOpen>,
+                reduce_with!((|s: &mut InboxState, a: SetSettingsOpen, _| s.show_settings = a.0)),
             )),
             width: Some(modal_width),
             content: Box::new(
@@ -931,7 +948,9 @@ impl Widget<InboxState> for SettingsModal {
                 is_primary: true,
                 on_press: Some(ctx.bind(
                     SetSettingsOpen(false),
-                    (|s, a, _| s.show_settings = a.0) as Handler<InboxState, SetSettingsOpen>,
+                    reduce_with!(
+                        (|s: &mut InboxState, a: SetSettingsOpen, _| s.show_settings = a.0)
+                    ),
                 )),
             }],
         }

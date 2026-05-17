@@ -8,7 +8,7 @@ use fission_core::op::Color;
 use fission_core::ui::custom_render::CustomRenderObject;
 use fission_core::ui::traits::LowerDyn;
 use fission_core::ui::{Container, CustomNode, Node, Row, Scroll, Text};
-use fission_core::{BuildCtx, FlexDirection, Handler, View, Widget};
+use fission_core::{reduce_with, BuildCtx, FlexDirection, View, Widget};
 use fission_ir::NodeId as IrNodeId;
 use fission_widgets::{HStack, Spacer, VStack};
 use std::sync::Arc;
@@ -89,12 +89,14 @@ impl Widget<EditorState> for EditorSurface {
                 caret: 0,
                 anchor: 0,
             },
-            (|s: &mut EditorState, a: UpdateCursorPosition, _| {
-                if let Some((_tab, buf)) = s.active_buffer_mut() {
-                    buf.clear_preedit();
-                    buf.set_selection_offsets(a.caret, a.anchor);
-                }
-            }) as Handler<EditorState, UpdateCursorPosition>,
+            reduce_with!(
+                (|s: &mut EditorState, a: UpdateCursorPosition, _| {
+                    if let Some((_tab, buf)) = s.active_buffer_mut() {
+                        buf.clear_preedit();
+                        buf.set_selection_offsets(a.caret, a.anchor);
+                    }
+                })
+            ),
         );
 
         ctx.bind(
@@ -105,46 +107,54 @@ impl Widget<EditorState> for EditorSurface {
                 caret: 0,
                 anchor: 0,
             },
-            (|s: &mut EditorState, a: ApplyEditorEdit, _| {
-                if let Some(tab) = s.open_tabs.get(s.active_tab) {
-                    let path = tab.path.clone();
-                    if let Some(buf) = s.file_contents.get_mut(&path) {
-                        if !buf.is_editable() {
-                            s.status_message = Some("This document is not editable".into());
-                            return;
+            reduce_with!(
+                (|s: &mut EditorState, a: ApplyEditorEdit, _| {
+                    if let Some(tab) = s.open_tabs.get(s.active_tab) {
+                        let path = tab.path.clone();
+                        if let Some(buf) = s.file_contents.get_mut(&path) {
+                            if !buf.is_editable() {
+                                s.status_message = Some("This document is not editable".into());
+                                return;
+                            }
+                            buf.apply_edit(a.range_start..a.range_end, &a.new_text);
+                            buf.set_selection_offsets(a.caret, a.anchor);
                         }
-                        buf.apply_edit(a.range_start..a.range_end, &a.new_text);
-                        buf.set_selection_offsets(a.caret, a.anchor);
+                        s.mark_active_tab_dirty();
+                        s.notify_buffer_changed(&path);
                     }
-                    s.mark_active_tab_dirty();
-                    s.notify_buffer_changed(&path);
-                }
-            }) as Handler<EditorState, ApplyEditorEdit>,
+                })
+            ),
         );
 
         ctx.bind(
             SetEditorPreedit {
                 text: String::new(),
             },
-            (|s: &mut EditorState, a: SetEditorPreedit, _| {
-                if let Some((_tab, buf)) = s.active_buffer_mut() {
-                    buf.set_preedit(a.text);
-                }
-            }) as Handler<EditorState, SetEditorPreedit>,
+            reduce_with!(
+                (|s: &mut EditorState, a: SetEditorPreedit, _| {
+                    if let Some((_tab, buf)) = s.active_buffer_mut() {
+                        buf.set_preedit(a.text);
+                    }
+                })
+            ),
         );
 
         ctx.bind(
             UpdateScrollY(0.0),
-            (|s: &mut EditorState, a: UpdateScrollY, _| {
-                s.scroll_offset_y = a.0;
-            }) as Handler<EditorState, UpdateScrollY>,
+            reduce_with!(
+                (|s: &mut EditorState, a: UpdateScrollY, _| {
+                    s.scroll_offset_y = a.0;
+                })
+            ),
         );
 
         ctx.bind(
             ShiftActiveFileWindow { forward: true },
-            (|s: &mut EditorState, a: ShiftActiveFileWindow, _| {
-                s.shift_active_file_window(a.forward);
-            }) as Handler<EditorState, ShiftActiveFileWindow>,
+            reduce_with!(
+                (|s: &mut EditorState, a: ShiftActiveFileWindow, _| {
+                    s.shift_active_file_window(a.forward);
+                })
+            ),
         );
 
         // ---- Editor surface via CustomNode ----------------------------------

@@ -18,7 +18,7 @@ use serde::{Deserialize, Serialize};
 /// ```rust,ignore
 /// Switch {
 ///     checked: view.state.dark_mode,
-///     on_toggle: Some(ctx.bind(ToggleDarkMode, handler as fn(&mut S, ToggleDarkMode))),
+///     on_toggle: Some(ctx.bind(ToggleDarkMode, reduce_with!(handler))),
 ///     ..Default::default()
 /// }
 /// ```

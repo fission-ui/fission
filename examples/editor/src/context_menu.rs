@@ -1,7 +1,7 @@
 use crate::model::*;
 use fission_core::op::Color;
 use fission_core::ui::{Button, ButtonContentAlign, ButtonVariant, Container, GestureDetector, Node, Positioned, Text, ZStack};
-use fission_core::{ActionEnvelope, BuildCtx, Handler, PortalLayer, View, Widget, WidgetNodeId};
+use fission_core::{ActionEnvelope, BuildCtx, reduce_with, PortalLayer, View, Widget, WidgetNodeId};
 use fission_widgets::{VStack, Spacer};
 
 pub struct ContextMenu;
@@ -19,10 +19,10 @@ impl Widget<EditorState> for ContextMenu {
 
         let dismiss = ctx.bind(
             DismissContextMenu,
-            (|s: &mut EditorState, _, _| {
+            reduce_with!((|s: &mut EditorState, _, _| {
                 s.context_menu_visible = false;
                 s.context_menu_target = None;
-            }) as Handler<EditorState, DismissContextMenu>,
+            })),
         );
 
         let menu_item = |label: &str, shortcut: &str, action: ActionEnvelope| -> Node {
@@ -62,7 +62,7 @@ impl Widget<EditorState> for ContextMenu {
 
             let new_file = ctx.bind(
                 CreateFile(String::new()),
-                (|s: &mut EditorState, _, _| {
+                reduce_with!((|s: &mut EditorState, _, _| {
                     if let Some(target) = &s.context_menu_target {
                         let dir = if std::path::Path::new(target).is_dir() {
                             target.clone()
@@ -74,12 +74,12 @@ impl Widget<EditorState> for ContextMenu {
                     }
                     s.context_menu_visible = false;
                     s.context_menu_target = None;
-                }) as Handler<EditorState, CreateFile>,
+                })),
             );
 
             let new_folder = ctx.bind(
                 CreateFolder(String::new()),
-                (|s: &mut EditorState, _, _| {
+                reduce_with!((|s: &mut EditorState, _, _| {
                     if let Some(target) = &s.context_menu_target {
                         let dir = if std::path::Path::new(target).is_dir() {
                             target.clone()
@@ -91,17 +91,17 @@ impl Widget<EditorState> for ContextMenu {
                     }
                     s.context_menu_visible = false;
                     s.context_menu_target = None;
-                }) as Handler<EditorState, CreateFolder>,
+                })),
             );
 
             let delete = ctx.bind(
                 DeleteFile(String::new()),
-                (|s: &mut EditorState, _, _| {
+                reduce_with!((|s: &mut EditorState, _, _| {
                     if let Some(target) = s.context_menu_target.take() {
                         s.delete_file(target);
                     }
                     s.context_menu_visible = false;
-                }) as Handler<EditorState, DeleteFile>,
+                })),
             );
 
             items.push(menu_item("New File", "", new_file));
@@ -112,58 +112,58 @@ impl Widget<EditorState> for ContextMenu {
             // Editor context menu
             let undo_ctx = ctx.bind(
                 Undo,
-                (|s: &mut EditorState, _, _| {
+                reduce_with!((|s: &mut EditorState, _, _| {
                     s.undo_active();
                     s.context_menu_visible = false;
-                }) as Handler<EditorState, Undo>,
+                })),
             );
 
             let redo_ctx = ctx.bind(
                 Redo,
-                (|s: &mut EditorState, _, _| {
+                reduce_with!((|s: &mut EditorState, _, _| {
                     s.redo_active();
                     s.context_menu_visible = false;
-                }) as Handler<EditorState, Redo>,
+                })),
             );
 
             let copy_ctx = ctx.bind(
                 CopySelection,
-                (|s: &mut EditorState, _, _| {
+                reduce_with!((|s: &mut EditorState, _, _| {
                     s.copy_line();
                     s.context_menu_visible = false;
-                }) as Handler<EditorState, CopySelection>,
+                })),
             );
 
             let cut_ctx = ctx.bind(
                 CutSelection,
-                (|s: &mut EditorState, _, _| {
+                reduce_with!((|s: &mut EditorState, _, _| {
                     s.cut_line();
                     s.context_menu_visible = false;
-                }) as Handler<EditorState, CutSelection>,
+                })),
             );
 
             let paste_ctx = ctx.bind(
                 PasteClipboard,
-                (|s: &mut EditorState, _, _| {
+                reduce_with!((|s: &mut EditorState, _, _| {
                     s.paste();
                     s.context_menu_visible = false;
-                }) as Handler<EditorState, PasteClipboard>,
+                })),
             );
 
             let find = ctx.bind(
                 ToggleFindReplace,
-                (|s: &mut EditorState, _, _| {
+                reduce_with!((|s: &mut EditorState, _, _| {
                     s.show_find_replace = true;
                     s.context_menu_visible = false;
-                }) as Handler<EditorState, ToggleFindReplace>,
+                })),
             );
 
             let go_to_def = ctx.bind(
                 GoToDefinition,
-                (|s: &mut EditorState, _, _| {
+                reduce_with!((|s: &mut EditorState, _, _| {
                     s.status_message = Some("Go to Definition: not yet connected to LSP".into());
                     s.context_menu_visible = false;
-                }) as Handler<EditorState, GoToDefinition>,
+                })),
             );
 
             items.push(menu_item("Undo", "Ctrl+Z", undo_ctx));

@@ -1,6 +1,8 @@
 use anyhow::Result;
+use fission::prelude::fission_action;
 use fission_core::{
-    ActionEnvelope, AppState, BuildCtx, Handler, NodeId, ReducerContext, View, Widget, WidgetNodeId,
+    reduce_with, ActionEnvelope, AppState, BuildCtx, NodeId, ReducerContext, View, Widget,
+    WidgetNodeId,
 };
 use fission_shell_desktop::DesktopApp;
 use fission_widgets::{
@@ -25,43 +27,43 @@ struct TextLabState {
 
 impl AppState for TextLabState {}
 
-#[derive(fission_macros::Action, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[fission_action(no_eq)]
 #[serde(transparent)]
 struct SetSingleLine(String);
 
-#[derive(fission_macros::Action, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[fission_action(no_eq)]
 #[serde(transparent)]
 struct SetMultiline(String);
 
-#[derive(fission_macros::Action, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[fission_action(no_eq)]
 #[serde(transparent)]
 struct SetInlineCombobox(String);
 
-#[derive(fission_macros::Action, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[fission_action(no_eq)]
 #[serde(transparent)]
 struct SetModalTo(String);
 
-#[derive(fission_macros::Action, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[fission_action(no_eq)]
 #[serde(transparent)]
 struct SetModalSubject(String);
 
-#[derive(fission_macros::Action, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[fission_action(no_eq)]
 #[serde(transparent)]
 struct SetModalBody(String);
 
-#[derive(fission_macros::Action, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[fission_action(no_eq)]
 #[serde(transparent)]
 struct SetShowModal(bool);
 
-#[derive(fission_macros::Action, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[fission_action(no_eq)]
 #[serde(transparent)]
 struct SetMenuOpen(bool);
 
-#[derive(fission_macros::Action, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[fission_action(no_eq)]
 #[serde(transparent)]
 struct MenuPicked(String);
 
-#[derive(fission_macros::Action, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[fission_action(no_eq)]
 struct ApplyModal;
 
 fn on_set_single_line(
@@ -175,61 +177,40 @@ impl Widget<TextLabState> for TextLabApp {
         let set_single_line_id = ctx
             .bind(
                 SetSingleLine(String::new()),
-                on_set_single_line as Handler<TextLabState, SetSingleLine>,
+                reduce_with!(on_set_single_line),
             )
             .id;
         let set_multiline_id = ctx
-            .bind(
-                SetMultiline(String::new()),
-                on_set_multiline as Handler<TextLabState, SetMultiline>,
-            )
+            .bind(SetMultiline(String::new()), reduce_with!(on_set_multiline))
             .id;
         let set_inline_combobox_id = ctx
             .bind(
                 SetInlineCombobox(String::new()),
-                on_set_inline_combobox as Handler<TextLabState, SetInlineCombobox>,
+                reduce_with!(on_set_inline_combobox),
             )
             .id;
         let set_modal_to_id = ctx
-            .bind(
-                SetModalTo(String::new()),
-                on_set_modal_to as Handler<TextLabState, SetModalTo>,
-            )
+            .bind(SetModalTo(String::new()), reduce_with!(on_set_modal_to))
             .id;
         let set_modal_subject_id = ctx
             .bind(
                 SetModalSubject(String::new()),
-                on_set_modal_subject as Handler<TextLabState, SetModalSubject>,
+                reduce_with!(on_set_modal_subject),
             )
             .id;
         let set_modal_body_id = ctx
-            .bind(
-                SetModalBody(String::new()),
-                on_set_modal_body as Handler<TextLabState, SetModalBody>,
-            )
+            .bind(SetModalBody(String::new()), reduce_with!(on_set_modal_body))
             .id;
         let set_show_modal_id = ctx
-            .bind(
-                SetShowModal(false),
-                on_set_show_modal as Handler<TextLabState, SetShowModal>,
-            )
+            .bind(SetShowModal(false), reduce_with!(on_set_show_modal))
             .id;
         let set_menu_open_id = ctx
-            .bind(
-                SetMenuOpen(false),
-                on_set_menu_open as Handler<TextLabState, SetMenuOpen>,
-            )
+            .bind(SetMenuOpen(false), reduce_with!(on_set_menu_open))
             .id;
         let menu_picked_id = ctx
-            .bind(
-                MenuPicked(String::new()),
-                on_menu_picked as Handler<TextLabState, MenuPicked>,
-            )
+            .bind(MenuPicked(String::new()), reduce_with!(on_menu_picked))
             .id;
-        let apply_modal = ctx.bind(
-            ApplyModal,
-            on_apply_modal as Handler<TextLabState, ApplyModal>,
-        );
+        let apply_modal = ctx.bind(ApplyModal, reduce_with!(on_apply_modal));
 
         let inline_options = [
             "alice@example.com",

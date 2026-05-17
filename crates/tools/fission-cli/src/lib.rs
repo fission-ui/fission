@@ -364,19 +364,12 @@ fn write_binary_file(path: &Path, contents: &[u8]) -> Result<()> {
 fn render_cargo_toml(project: &FissionProject, local_path: Option<&Path>) -> String {
     let deps = if let Some(root) = local_path {
         let fission_path = root.join("crates/authoring/fission");
-        let fission_core_path = root.join("crates/core/fission-core");
-        let fission_macros_path = root.join("crates/authoring/fission-macros");
         format!(
-            "fission = {{ path = {:?} }}\nfission-core = {{ path = {:?} }}\nfission-macros = {{ path = {:?} }}\nlazy_static = \"1\"\n",
+            "fission = {{ path = {:?} }}\n",
             fission_path.to_string_lossy().to_string(),
-            fission_core_path.to_string_lossy().to_string(),
-            fission_macros_path.to_string_lossy().to_string(),
         )
     } else {
-        format!(
-            "fission = \"{}\"\nfission-core = \"{}\"\nfission-macros = \"{}\"\nlazy_static = \"1\"\n",
-            CURRENT_VERSION, CURRENT_VERSION, CURRENT_VERSION
-        )
+        format!("fission = \"{}\"\n", CURRENT_VERSION)
     };
     let lib_name = project.app.name.replace('-', "_");
 
@@ -917,14 +910,14 @@ fn main() -> anyhow::Result<()> {{
 
 const APP_LIB: &str = r#"pub mod app;
 
-use crate::app::{CounterApp, CounterState};
+use crate::app::CounterApp;
 use fission::prelude::*;
 
 #[cfg(target_os = "android")]
 const ANDROID_TEST_CONTROL_PORT: u16 = 48761;
 
 #[cfg(any(target_os = "android", target_os = "ios"))]
-fn mobile_app() -> MobileApp<CounterState, CounterApp> {
+fn mobile_app() -> MobileApp<crate::app::CounterState, CounterApp> {
     let app = MobileApp::new(CounterApp).with_title("Fission App");
     #[cfg(target_os = "android")]
     let app = app.with_test_control_port(ANDROID_TEST_CONTROL_PORT);
@@ -932,7 +925,7 @@ fn mobile_app() -> MobileApp<CounterState, CounterApp> {
 }
 
 #[cfg(target_arch = "wasm32")]
-fn web_app() -> WebApp<CounterState, CounterApp> {
+fn web_app() -> WebApp<crate::app::CounterState, CounterApp> {
     WebApp::new(CounterApp).with_title("Fission App")
 }
 
@@ -963,16 +956,15 @@ pub fn run_web() -> Result<(), wasm_bindgen::JsValue> {
 "#;
 
 const APP_RS: &str = r#"use fission::prelude::*;
-use serde::{Deserialize, Serialize};
 
-#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Default, Debug, Clone, PartialEq)]
 pub struct CounterState {
     pub count: i32,
 }
 
 impl AppState for CounterState {}
 
-#[derive(fission_macros::Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[fission_action]
 pub struct Increment;
 
 fn on_increment(state: &mut CounterState, _action: Increment, _ctx: &mut ReducerContext<CounterState>) {
@@ -983,7 +975,7 @@ pub struct CounterApp;
 
 impl Widget<CounterState> for CounterApp {
     fn build(&self, ctx: &mut BuildCtx<CounterState>, view: &View<CounterState>) -> Node {
-        let increment = ctx.bind(Increment, on_increment as Handler<CounterState, Increment>);
+        let increment = with_reducer!(ctx, Increment, on_increment);
 
         Column {
             gap: Some(16.0),

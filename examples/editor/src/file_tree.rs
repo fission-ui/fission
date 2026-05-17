@@ -6,7 +6,7 @@ use fission_core::op::Color;
 use fission_core::ui::{
     Button, ButtonContentAlign, ButtonVariant, Container, GestureDetector, Node, Text, TextInput,
 };
-use fission_core::{ActionEnvelope, BuildCtx, Handler, View, Widget};
+use fission_core::{reduce_with, ActionEnvelope, BuildCtx, View, Widget};
 use fission_widgets::{HStack, Icon, Spacer, VStack};
 use serde_json;
 
@@ -22,29 +22,35 @@ impl Widget<EditorState> for FileTree {
         let toggle_id = ctx
             .bind(
                 ToggleTreeNode(String::new()),
-                (|s: &mut EditorState, a: ToggleTreeNode, _| {
-                    if !s.tree_expanded.remove(&a.0) {
-                        s.tree_expanded.insert(a.0);
-                    }
-                }) as Handler<EditorState, ToggleTreeNode>,
+                reduce_with!(
+                    (|s: &mut EditorState, a: ToggleTreeNode, _| {
+                        if !s.tree_expanded.remove(&a.0) {
+                            s.tree_expanded.insert(a.0);
+                        }
+                    })
+                ),
             )
             .id;
 
         let open_id = ctx
             .bind(
                 OpenFile(String::new()),
-                (|s: &mut EditorState, a: OpenFile, _| {
-                    s.open_file(a.0);
-                }) as Handler<EditorState, OpenFile>,
+                reduce_with!(
+                    (|s: &mut EditorState, a: OpenFile, _| {
+                        s.open_file(a.0);
+                    })
+                ),
             )
             .id;
 
         let select_id = ctx
             .bind(
                 SelectTreeNode(String::new()),
-                (|s: &mut EditorState, a: SelectTreeNode, _| {
-                    s.tree_selected = Some(a.0);
-                }) as Handler<EditorState, SelectTreeNode>,
+                reduce_with!(
+                    (|s: &mut EditorState, a: SelectTreeNode, _| {
+                        s.tree_selected = Some(a.0);
+                    })
+                ),
             )
             .id;
 
@@ -55,88 +61,100 @@ impl Widget<EditorState> for FileTree {
                     y: 0.0,
                     target: None,
                 },
-                (|s: &mut EditorState,
-                  a: ShowContextMenu,
-                  rctx: &mut fission_core::ReducerContext<EditorState>| {
-                    let (px, py) = match rctx.input {
-                        fission_core::ActionInput::Pointer { x, y, .. } => (*x, *y),
-                        _ => (a.x, a.y),
-                    };
-                    let final_x = if px < 10.0 { 100.0 } else { px };
-                    let final_y = if py < 10.0 { 100.0 } else { py };
-                    s.context_menu_visible = true;
-                    s.context_menu_position = (final_x, final_y);
-                    s.context_menu_target = a.target;
-                }) as Handler<EditorState, ShowContextMenu>,
+                reduce_with!(
+                    (|s: &mut EditorState,
+                      a: ShowContextMenu,
+                      rctx: &mut fission_core::ReducerContext<EditorState>| {
+                        let (px, py) = match rctx.input {
+                            fission_core::ActionInput::Pointer { x, y, .. } => (*x, *y),
+                            _ => (a.x, a.y),
+                        };
+                        let final_x = if px < 10.0 { 100.0 } else { px };
+                        let final_y = if py < 10.0 { 100.0 } else { py };
+                        s.context_menu_visible = true;
+                        s.context_menu_position = (final_x, final_y);
+                        s.context_menu_target = a.target;
+                    })
+                ),
             )
             .id;
 
         let create_file_id = ctx
             .bind(
                 CreateFile(String::new()),
-                (|s: &mut EditorState, a: CreateFile, _| {
-                    // Generate a unique path so multiple "New File" clicks
-                    // each create a distinct file.
-                    let mut path = a.0.clone();
-                    while std::path::Path::new(&path).exists()
-                        || s.open_tabs.iter().any(|t| t.path == path)
-                    {
-                        s.untitled_counter += 1;
-                        path = format!("{}-{}", a.0, s.untitled_counter);
-                    }
-                    let _ = std::fs::write(&path, "");
-                    s.request_tree_refresh();
-                    s.open_file(path);
-                }) as Handler<EditorState, CreateFile>,
+                reduce_with!(
+                    (|s: &mut EditorState, a: CreateFile, _| {
+                        // Generate a unique path so multiple "New File" clicks
+                        // each create a distinct file.
+                        let mut path = a.0.clone();
+                        while std::path::Path::new(&path).exists()
+                            || s.open_tabs.iter().any(|t| t.path == path)
+                        {
+                            s.untitled_counter += 1;
+                            path = format!("{}-{}", a.0, s.untitled_counter);
+                        }
+                        let _ = std::fs::write(&path, "");
+                        s.request_tree_refresh();
+                        s.open_file(path);
+                    })
+                ),
             )
             .id;
 
         let create_folder_id = ctx
             .bind(
                 CreateFolder(String::new()),
-                (|s: &mut EditorState, a: CreateFolder, _| {
-                    // Generate a unique folder name
-                    let mut path = a.0.clone();
-                    let mut counter = 0u32;
-                    while std::path::Path::new(&path).exists() {
-                        counter += 1;
-                        path = format!("{}-{}", a.0, counter);
-                    }
-                    let _ = std::fs::create_dir_all(&path);
-                    s.request_tree_refresh();
-                    // Expand the parent so the new folder is visible
-                    if let Some(parent) = std::path::Path::new(&path).parent() {
-                        s.tree_expanded.insert(parent.to_string_lossy().to_string());
-                    }
-                    // Start inline rename so user can give it a proper name
-                    s.start_rename(path);
-                }) as Handler<EditorState, CreateFolder>,
+                reduce_with!(
+                    (|s: &mut EditorState, a: CreateFolder, _| {
+                        // Generate a unique folder name
+                        let mut path = a.0.clone();
+                        let mut counter = 0u32;
+                        while std::path::Path::new(&path).exists() {
+                            counter += 1;
+                            path = format!("{}-{}", a.0, counter);
+                        }
+                        let _ = std::fs::create_dir_all(&path);
+                        s.request_tree_refresh();
+                        // Expand the parent so the new folder is visible
+                        if let Some(parent) = std::path::Path::new(&path).parent() {
+                            s.tree_expanded.insert(parent.to_string_lossy().to_string());
+                        }
+                        // Start inline rename so user can give it a proper name
+                        s.start_rename(path);
+                    })
+                ),
             )
             .id;
 
         let refresh_id = ctx
             .bind(
                 RefreshTree,
-                (|s: &mut EditorState, _a: RefreshTree, _| {
-                    // Collapse all expanded nodes to force a fresh view
-                    s.tree_expanded.clear();
-                    s.request_tree_refresh();
-                }) as Handler<EditorState, RefreshTree>,
+                reduce_with!(
+                    (|s: &mut EditorState, _a: RefreshTree, _| {
+                        // Collapse all expanded nodes to force a fresh view
+                        s.tree_expanded.clear();
+                        s.request_tree_refresh();
+                    })
+                ),
             )
             .id;
 
         let rename_input_id = ctx.bind(
             UpdateRenameInput(String::new()),
-            (|s: &mut EditorState, a: UpdateRenameInput, _| {
-                s.rename_input = a.0;
-            }) as Handler<EditorState, UpdateRenameInput>,
+            reduce_with!(
+                (|s: &mut EditorState, a: UpdateRenameInput, _| {
+                    s.rename_input = a.0;
+                })
+            ),
         );
 
         let _cancel_rename_id = ctx.bind(
             CancelRename,
-            (|s: &mut EditorState, _a: CancelRename, _| {
-                s.cancel_rename();
-            }) as Handler<EditorState, CancelRename>,
+            reduce_with!(
+                (|s: &mut EditorState, _a: CancelRename, _| {
+                    s.cancel_rename();
+                })
+            ),
         );
 
         // --- Toolbar row ---

@@ -19,7 +19,7 @@ use serde::{Deserialize, Serialize};
 /// for (i, option) in options.iter().enumerate() {
 ///     let on_select = ctx.bind(
 ///         SelectOption { index: i },
-///         handle_select as fn(&mut S, SelectOption),
+///         reduce_with!(handle_select),
 ///     );
 ///     children.push(Radio {
 ///         checked: view.state.selected == i,

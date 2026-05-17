@@ -1,5 +1,6 @@
 use fission_core::{
-    AppState, BuildCtx, JobRef, JobResource, ReducerContext, ResourceKey, Runtime, TimerResource,
+    reduce_with, AppState, BuildCtx, JobRef, JobResource, ReducerContext, ResourceKey, Runtime,
+    TimerResource,
 };
 use serde::{Deserialize, Serialize};
 
@@ -11,7 +12,7 @@ struct TestState {
 
 impl AppState for TestState {}
 
-#[derive(fission_macros::Action, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[fission_macros::fission_action]
 struct TimerFired;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -112,10 +113,7 @@ fn timer_resources_dispatch_actions_from_runtime_tick() {
         .unwrap();
 
     let mut ctx = BuildCtx::new();
-    let on_tick = ctx.bind(
-        TimerFired,
-        on_timer_fired as fn(&mut TestState, TimerFired, &mut ReducerContext<TestState>),
-    );
+    let on_tick = ctx.bind(TimerFired, reduce_with!(on_timer_fired));
     runtime.clear_reducers();
     runtime.absorb_registry(ctx.registry);
 

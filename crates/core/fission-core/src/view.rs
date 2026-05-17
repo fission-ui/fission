@@ -142,7 +142,7 @@ pub trait Selector<S: AppState> {
 ///
 /// impl Widget<AppState> for Greeting {
 ///     fn build(&self, ctx: &mut BuildCtx<AppState>, view: &View<AppState>) -> Node {
-///         let on_press = ctx.bind(SayHello, handle_hello as fn(&mut AppState, SayHello));
+///         let on_press = ctx.bind(SayHello, reduce_with!(handle_hello));
 ///         Button {
 ///             child: Some(Box::new(Text::new("Hello!").into_node())),
 ///             on_press: Some(on_press),

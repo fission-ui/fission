@@ -1,29 +1,18 @@
 use anyhow::Result;
-use fission_core::action::{Action, ActionEnvelope, ActionId};
-use fission_core::registry::{ActionRegistry, Handler};
+use fission_core::action::ActionEnvelope;
+use fission_core::registry::ActionRegistry;
 use fission_core::{
-    AppState, BuildCtx, InputEvent, OpenUrlRequest, PointerButton, PointerEvent, ReducerContext,
-    View, Widget, OPEN_URL,
+    reduce_with, AppState, BuildCtx, InputEvent, OpenUrlRequest, PointerButton, PointerEvent,
+    ReducerContext, View, Widget, OPEN_URL,
 };
 use fission_widgets::{Button, ButtonVariant, Container, Node, Text};
-use lazy_static::lazy_static;
-use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Default)]
 struct TestState;
 impl AppState for TestState {}
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[fission_macros::fission_action]
 struct OpenLink(pub String);
-
-impl Action for OpenLink {
-    fn static_id() -> ActionId {
-        lazy_static! {
-            static ref ID: ActionId = ActionId::from_name("fission_test::OpenLink");
-        }
-        *ID
-    }
-}
 
 fn on_open_link(_state: &mut TestState, action: OpenLink, ctx: &mut ReducerContext<TestState>) {
     ctx.effects.capability(
@@ -61,7 +50,7 @@ fn persistent_reducers_survive_clear_reducers_frames() -> Result<()> {
     let mut h = fission_test::TestHarness::new(TestState::default()).with_root_widget(Root);
 
     let mut registry = ActionRegistry::new();
-    registry.register(on_open_link as Handler<TestState, OpenLink>);
+    registry.register(reduce_with!(on_open_link));
     h.runtime.absorb_persistent_registry(registry);
 
     // Frame 1: build

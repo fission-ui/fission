@@ -1,7 +1,7 @@
 use crate::model::*;
 use fission_core::op::Color;
 use fission_core::ui::{Button, ButtonContentAlign, ButtonVariant, Container, GestureDetector, Node, Positioned, Text, ZStack};
-use fission_core::{ActionEnvelope, BuildCtx, Handler, PortalLayer, View, Widget, WidgetNodeId};
+use fission_core::{ActionEnvelope, BuildCtx, reduce_with, PortalLayer, View, Widget, WidgetNodeId};
 use fission_widgets::{HStack, VStack, Spacer};
 
 pub struct MenuBar;
@@ -16,13 +16,13 @@ impl Widget<EditorState> for MenuBar {
 
         let set_menu_id = ctx.bind(
             SetActiveMenu(None),
-            (|s: &mut EditorState, a: SetActiveMenu, _| {
+            reduce_with!((|s: &mut EditorState, a: SetActiveMenu, _| {
                 if s.active_menu.as_deref() == a.0.as_deref() {
                     s.active_menu = None;
                 } else {
                     s.active_menu = a.0;
                 }
-            }) as Handler<EditorState, SetActiveMenu>,
+            })),
         ).id;
 
         let mut menu_buttons = Vec::new();
@@ -80,8 +80,7 @@ impl MenuBar {
 
         let dismiss = ctx.bind(
             SetActiveMenu(None),
-            (|s: &mut EditorState, _, _| s.active_menu = None)
-                as Handler<EditorState, SetActiveMenu>,
+            reduce_with!((|s: &mut EditorState, _, _| s.active_menu = None)),
         );
 
         let menu_item = |label: &str, shortcut: &str, action: ActionEnvelope| -> Node {
@@ -114,66 +113,66 @@ impl MenuBar {
         };
 
         // Build actions
-        let save = ctx.bind(SaveFile, (|s: &mut EditorState, _, _| { s.save_active_file(); s.active_menu = None; }) as Handler<EditorState, SaveFile>);
-        let save_all = ctx.bind(SaveAllFiles, (|s: &mut EditorState, _, _| { s.save_all_files(); s.active_menu = None; }) as Handler<EditorState, SaveAllFiles>);
-        let toggle_find = ctx.bind(ToggleFindReplace, (|s: &mut EditorState, _, _| { s.show_find_replace = !s.show_find_replace; s.active_menu = None; }) as Handler<EditorState, ToggleFindReplace>);
-        let toggle_sidebar = ctx.bind(ToggleSidebar, (|s: &mut EditorState, _, _| { s.sidebar_visible = !s.sidebar_visible; s.active_menu = None; }) as Handler<EditorState, ToggleSidebar>);
-        let toggle_terminal = ctx.bind(ToggleTerminal, (|s: &mut EditorState, _, _| { s.terminal_visible = !s.terminal_visible; s.active_menu = None; }) as Handler<EditorState, ToggleTerminal>);
-        let cmd_palette = ctx.bind(ToggleCommandPalette, (|s: &mut EditorState, _, _| { s.show_command_palette = true; s.active_menu = None; }) as Handler<EditorState, ToggleCommandPalette>);
-        let close_tab_action = ctx.bind(CloseTab(0), (|s: &mut EditorState, _, _| { let idx = s.active_tab; s.close_tab(idx); s.active_menu = None; }) as Handler<EditorState, CloseTab>);
+        let save = ctx.bind(SaveFile, reduce_with!((|s: &mut EditorState, _, _| { s.save_active_file(); s.active_menu = None; })));
+        let save_all = ctx.bind(SaveAllFiles, reduce_with!((|s: &mut EditorState, _, _| { s.save_all_files(); s.active_menu = None; })));
+        let toggle_find = ctx.bind(ToggleFindReplace, reduce_with!((|s: &mut EditorState, _, _| { s.show_find_replace = !s.show_find_replace; s.active_menu = None; })));
+        let toggle_sidebar = ctx.bind(ToggleSidebar, reduce_with!((|s: &mut EditorState, _, _| { s.sidebar_visible = !s.sidebar_visible; s.active_menu = None; })));
+        let toggle_terminal = ctx.bind(ToggleTerminal, reduce_with!((|s: &mut EditorState, _, _| { s.terminal_visible = !s.terminal_visible; s.active_menu = None; })));
+        let cmd_palette = ctx.bind(ToggleCommandPalette, reduce_with!((|s: &mut EditorState, _, _| { s.show_command_palette = true; s.active_menu = None; })));
+        let close_tab_action = ctx.bind(CloseTab(0), reduce_with!((|s: &mut EditorState, _, _| { let idx = s.active_tab; s.close_tab(idx); s.active_menu = None; })));
 
-        let new_file = ctx.bind(CreateFile(String::new()), (|s: &mut EditorState, _, _| {
+        let new_file = ctx.bind(CreateFile(String::new()), reduce_with!((|s: &mut EditorState, _, _| {
             let path = format!("{}/untitled.rs", s.root_path.to_string_lossy());
             s.create_file(path);
             s.active_menu = None;
-        }) as Handler<EditorState, CreateFile>);
+        })));
 
-        let new_folder = ctx.bind(CreateFolder(String::new()), (|s: &mut EditorState, _, _| {
+        let new_folder = ctx.bind(CreateFolder(String::new()), reduce_with!((|s: &mut EditorState, _, _| {
             let path = format!("{}/new_folder", s.root_path.to_string_lossy());
             s.create_folder(path);
             s.active_menu = None;
-        }) as Handler<EditorState, CreateFolder>);
+        })));
 
-        let go_to_line = ctx.bind(GoToLine(0), (|s: &mut EditorState, _, _| {
+        let go_to_line = ctx.bind(GoToLine(0), reduce_with!((|s: &mut EditorState, _, _| {
             s.show_command_palette = true;
             s.command_query = "Go to Line: ".to_string();
             s.active_menu = None;
-        }) as Handler<EditorState, GoToLine>);
+        })));
 
-        let go_to_def = ctx.bind(GoToDefinition, (|s: &mut EditorState, _, _| {
+        let go_to_def = ctx.bind(GoToDefinition, reduce_with!((|s: &mut EditorState, _, _| {
             s.status_message = Some("Go to Definition: LSP not connected".into());
             s.active_menu = None;
-        }) as Handler<EditorState, GoToDefinition>);
+        })));
 
-        let about = ctx.bind(ShowMenuStatus("Fission Editor v0.1.0 — Built with Fission UI Framework".into()), (|s: &mut EditorState, a: ShowMenuStatus, _| {
+        let about = ctx.bind(ShowMenuStatus("Fission Editor v0.1.0 — Built with Fission UI Framework".into()), reduce_with!((|s: &mut EditorState, a: ShowMenuStatus, _| {
             s.status_message = Some(a.0);
             s.active_menu = None;
-        }) as Handler<EditorState, ShowMenuStatus>);
+        })));
 
-        let undo_action = ctx.bind(Undo, (|s: &mut EditorState, _, _| {
+        let undo_action = ctx.bind(Undo, reduce_with!((|s: &mut EditorState, _, _| {
             s.undo_active();
             s.active_menu = None;
-        }) as Handler<EditorState, Undo>);
+        })));
 
-        let redo_action = ctx.bind(Redo, (|s: &mut EditorState, _, _| {
+        let redo_action = ctx.bind(Redo, reduce_with!((|s: &mut EditorState, _, _| {
             s.redo_active();
             s.active_menu = None;
-        }) as Handler<EditorState, Redo>);
+        })));
 
-        let copy_action = ctx.bind(CopySelection, (|s: &mut EditorState, _, _| {
+        let copy_action = ctx.bind(CopySelection, reduce_with!((|s: &mut EditorState, _, _| {
             s.copy_line();
             s.active_menu = None;
-        }) as Handler<EditorState, CopySelection>);
+        })));
 
-        let cut_action = ctx.bind(CutSelection, (|s: &mut EditorState, _, _| {
+        let cut_action = ctx.bind(CutSelection, reduce_with!((|s: &mut EditorState, _, _| {
             s.cut_line();
             s.active_menu = None;
-        }) as Handler<EditorState, CutSelection>);
+        })));
 
-        let paste_action = ctx.bind(PasteClipboard, (|s: &mut EditorState, _, _| {
+        let paste_action = ctx.bind(PasteClipboard, reduce_with!((|s: &mut EditorState, _, _| {
             s.paste();
             s.active_menu = None;
-        }) as Handler<EditorState, PasteClipboard>);
+        })));
 
         let items: Vec<Node> = match menu {
             "File" => vec![

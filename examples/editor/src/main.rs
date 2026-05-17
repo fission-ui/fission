@@ -4,7 +4,7 @@ use fission_core::ui::{
     Node, Positioned, Row, Text, TextInput, ZStack,
 };
 use fission_core::{
-    ActionEnvelope, BuildCtx, Handler, JobResource, PortalLayer, ReducerContext, ResourceKey,
+    reduce_with, ActionEnvelope, BuildCtx, JobResource, PortalLayer, ReducerContext, ResourceKey,
     TimerResource, View, Widget, WidgetNodeId,
 };
 use fission_shell_desktop::DesktopApp;
@@ -141,14 +141,16 @@ impl Widget<EditorState> for ActivityBar {
         let set_section_id = ctx
             .bind(
                 SetSidebarSection(SidebarSection::Explorer),
-                (|s: &mut EditorState, a: SetSidebarSection, _| {
-                    if s.sidebar_visible && s.sidebar_section == a.0 {
-                        s.sidebar_visible = false;
-                    } else {
-                        s.sidebar_section = a.0;
-                        s.sidebar_visible = true;
-                    }
-                }) as Handler<EditorState, SetSidebarSection>,
+                reduce_with!(
+                    (|s: &mut EditorState, a: SetSidebarSection, _| {
+                        if s.sidebar_visible && s.sidebar_section == a.0 {
+                            s.sidebar_visible = false;
+                        } else {
+                            s.sidebar_section = a.0;
+                            s.sidebar_visible = true;
+                        }
+                    })
+                ),
             )
             .id;
 
@@ -261,16 +263,18 @@ impl Widget<EditorState> for MenuBar {
         let viewport = view.viewport_size();
         let flyout_width = (viewport.width - 80.0).clamp(180.0, 240.0);
 
-        // Handler: set active_menu (toggle logic)
+        // reduce_with: set active_menu (toggle logic)
         let set_menu = ctx.bind(
             SetActiveMenu(None),
-            (|s: &mut EditorState, a: SetActiveMenu, _| {
-                if s.active_menu == a.0 {
-                    s.active_menu = None;
-                } else {
-                    s.active_menu = a.0;
-                }
-            }) as Handler<EditorState, SetActiveMenu>,
+            reduce_with!(
+                (|s: &mut EditorState, a: SetActiveMenu, _| {
+                    if s.active_menu == a.0 {
+                        s.active_menu = None;
+                    } else {
+                        s.active_menu = a.0;
+                    }
+                })
+            ),
         );
         let set_menu_id = set_menu.id;
 
@@ -278,151 +282,187 @@ impl Widget<EditorState> for MenuBar {
 
         let dismiss_menu = ctx.bind(
             DismissMenu,
-            (|s: &mut EditorState, _, _| {
-                s.active_menu = None;
-            }) as Handler<EditorState, DismissMenu>,
+            reduce_with!(
+                (|s: &mut EditorState, _, _| {
+                    s.active_menu = None;
+                })
+            ),
         );
 
         let save_file = ctx.bind(
             SaveFile,
-            (|s: &mut EditorState, _, _| {
-                s.save_active_file();
-                s.active_menu = None;
-            }) as Handler<EditorState, SaveFile>,
+            reduce_with!(
+                (|s: &mut EditorState, _, _| {
+                    s.save_active_file();
+                    s.active_menu = None;
+                })
+            ),
         );
 
         let save_all = ctx.bind(
             SaveAllFiles,
-            (|s: &mut EditorState, _, _| {
-                s.save_all_files();
-                s.active_menu = None;
-            }) as Handler<EditorState, SaveAllFiles>,
+            reduce_with!(
+                (|s: &mut EditorState, _, _| {
+                    s.save_all_files();
+                    s.active_menu = None;
+                })
+            ),
         );
 
         let close_tab_action = ctx.bind(
             CloseTab(0),
-            (|s: &mut EditorState, _, _| {
-                let idx = s.active_tab;
-                s.close_tab(idx);
-                s.active_menu = None;
-            }) as Handler<EditorState, CloseTab>,
+            reduce_with!(
+                (|s: &mut EditorState, _, _| {
+                    let idx = s.active_tab;
+                    s.close_tab(idx);
+                    s.active_menu = None;
+                })
+            ),
         );
 
         let toggle_find = ctx.bind(
             ToggleFindReplace,
-            (|s: &mut EditorState, _, _| {
-                s.show_find_replace = !s.show_find_replace;
-                s.active_menu = None;
-            }) as Handler<EditorState, ToggleFindReplace>,
+            reduce_with!(
+                (|s: &mut EditorState, _, _| {
+                    s.show_find_replace = !s.show_find_replace;
+                    s.active_menu = None;
+                })
+            ),
         );
 
         let toggle_sidebar = ctx.bind(
             ToggleSidebar,
-            (|s: &mut EditorState, _, _| {
-                s.sidebar_visible = !s.sidebar_visible;
-                s.active_menu = None;
-            }) as Handler<EditorState, ToggleSidebar>,
+            reduce_with!(
+                (|s: &mut EditorState, _, _| {
+                    s.sidebar_visible = !s.sidebar_visible;
+                    s.active_menu = None;
+                })
+            ),
         );
 
         let toggle_terminal = ctx.bind(
             ToggleTerminal,
-            (|s: &mut EditorState, _, _| {
-                s.terminal_visible = !s.terminal_visible;
-                if s.terminal_visible {
-                    s.bottom_panel_tab = crate::model::BottomPanelTab::Terminal;
-                    s.ensure_terminal_session();
-                }
-                s.active_menu = None;
-            }) as Handler<EditorState, ToggleTerminal>,
+            reduce_with!(
+                (|s: &mut EditorState, _, _| {
+                    s.terminal_visible = !s.terminal_visible;
+                    if s.terminal_visible {
+                        s.bottom_panel_tab = crate::model::BottomPanelTab::Terminal;
+                        s.ensure_terminal_session();
+                    }
+                    s.active_menu = None;
+                })
+            ),
         );
 
         let cmd_palette = ctx.bind(
             ToggleCommandPalette,
-            (|s: &mut EditorState, _, _| {
-                s.show_command_palette = !s.show_command_palette;
-                s.active_menu = None;
-            }) as Handler<EditorState, ToggleCommandPalette>,
+            reduce_with!(
+                (|s: &mut EditorState, _, _| {
+                    s.show_command_palette = !s.show_command_palette;
+                    s.active_menu = None;
+                })
+            ),
         );
 
         let about_action = ctx.bind(
             ShowMenuStatus("Fission Editor v0.1.0".into()),
-            (|s: &mut EditorState, a: ShowMenuStatus, _| {
-                s.status_message = Some(a.0);
-                s.active_menu = None;
-            }) as Handler<EditorState, ShowMenuStatus>,
+            reduce_with!(
+                (|s: &mut EditorState, a: ShowMenuStatus, _| {
+                    s.status_message = Some(a.0);
+                    s.active_menu = None;
+                })
+            ),
         );
 
         let new_file_action = ctx.bind(
             ShowMenuStatus("New File (use file tree context menu)".into()),
-            (|s: &mut EditorState, a: ShowMenuStatus, _| {
-                s.status_message = Some(a.0);
-                s.active_menu = None;
-            }) as Handler<EditorState, ShowMenuStatus>,
+            reduce_with!(
+                (|s: &mut EditorState, a: ShowMenuStatus, _| {
+                    s.status_message = Some(a.0);
+                    s.active_menu = None;
+                })
+            ),
         );
 
         let new_folder_action = ctx.bind(
             ShowMenuStatus("New Folder (use file tree context menu)".into()),
-            (|s: &mut EditorState, a: ShowMenuStatus, _| {
-                s.status_message = Some(a.0);
-                s.active_menu = None;
-            }) as Handler<EditorState, ShowMenuStatus>,
+            reduce_with!(
+                (|s: &mut EditorState, a: ShowMenuStatus, _| {
+                    s.status_message = Some(a.0);
+                    s.active_menu = None;
+                })
+            ),
         );
 
         let go_to_def_action = ctx.bind(
             GoToDefinition,
-            (|s: &mut EditorState, _, _| {
-                s.status_message = Some("Go to Definition: LSP not connected".into());
-                s.active_menu = None;
-            }) as Handler<EditorState, GoToDefinition>,
+            reduce_with!(
+                (|s: &mut EditorState, _, _| {
+                    s.status_message = Some("Go to Definition: LSP not connected".into());
+                    s.active_menu = None;
+                })
+            ),
         );
 
         let go_to_line_action = ctx.bind(
             ToggleCommandPalette,
-            (|s: &mut EditorState, _, _| {
-                s.show_command_palette = true;
-                s.command_query = "Go to Line:".into();
-                s.active_menu = None;
-            }) as Handler<EditorState, ToggleCommandPalette>,
+            reduce_with!(
+                (|s: &mut EditorState, _, _| {
+                    s.show_command_palette = true;
+                    s.command_query = "Go to Line:".into();
+                    s.active_menu = None;
+                })
+            ),
         );
 
         let undo_action = ctx.bind(
             Undo,
-            (|s: &mut EditorState, _, _| {
-                s.undo_active();
-                s.active_menu = None;
-            }) as Handler<EditorState, Undo>,
+            reduce_with!(
+                (|s: &mut EditorState, _, _| {
+                    s.undo_active();
+                    s.active_menu = None;
+                })
+            ),
         );
 
         let redo_action = ctx.bind(
             Redo,
-            (|s: &mut EditorState, _, _| {
-                s.redo_active();
-                s.active_menu = None;
-            }) as Handler<EditorState, Redo>,
+            reduce_with!(
+                (|s: &mut EditorState, _, _| {
+                    s.redo_active();
+                    s.active_menu = None;
+                })
+            ),
         );
 
         let copy_action = ctx.bind(
             CopySelection,
-            (|s: &mut EditorState, _, _| {
-                s.copy_line();
-                s.active_menu = None;
-            }) as Handler<EditorState, CopySelection>,
+            reduce_with!(
+                (|s: &mut EditorState, _, _| {
+                    s.copy_line();
+                    s.active_menu = None;
+                })
+            ),
         );
 
         let cut_action = ctx.bind(
             CutSelection,
-            (|s: &mut EditorState, _, _| {
-                s.cut_line();
-                s.active_menu = None;
-            }) as Handler<EditorState, CutSelection>,
+            reduce_with!(
+                (|s: &mut EditorState, _, _| {
+                    s.cut_line();
+                    s.active_menu = None;
+                })
+            ),
         );
 
         let paste_action = ctx.bind(
             PasteClipboard,
-            (|s: &mut EditorState, _, _| {
-                s.paste();
-                s.active_menu = None;
-            }) as Handler<EditorState, PasteClipboard>,
+            reduce_with!(
+                (|s: &mut EditorState, _, _| {
+                    s.paste();
+                    s.active_menu = None;
+                })
+            ),
         );
 
         // ── Top-level buttons ──
@@ -592,51 +632,62 @@ impl Widget<EditorState> for FindReplaceBar {
 
         let update_find = ctx.bind(
             UpdateFindQuery(String::new()),
-            (|s: &mut EditorState, a: UpdateFindQuery, _| {
-                s.find_query = a.0;
-                s.find_next(); // Auto-search as you type
-            }) as Handler<EditorState, UpdateFindQuery>,
+            reduce_with!(
+                (|s: &mut EditorState, a: UpdateFindQuery, _| {
+                    s.find_query = a.0;
+                    s.find_next(); // Auto-search as you type
+                })
+            ),
         );
 
         let update_replace = ctx.bind(
             UpdateReplaceQuery(String::new()),
-            (|s: &mut EditorState, a: UpdateReplaceQuery, _| s.replace_query = a.0)
-                as Handler<EditorState, UpdateReplaceQuery>,
+            reduce_with!((|s: &mut EditorState, a: UpdateReplaceQuery, _| s.replace_query = a.0)),
         );
 
         let close_find = ctx.bind(
             ToggleFindReplace,
-            (|s: &mut EditorState, _, _| {
-                s.show_find_replace = false;
-            }) as Handler<EditorState, ToggleFindReplace>,
+            reduce_with!(
+                (|s: &mut EditorState, _, _| {
+                    s.show_find_replace = false;
+                })
+            ),
         );
 
         let find_next = ctx.bind(
             FindNext,
-            (|s: &mut EditorState, _, _| {
-                s.find_next();
-            }) as Handler<EditorState, FindNext>,
+            reduce_with!(
+                (|s: &mut EditorState, _, _| {
+                    s.find_next();
+                })
+            ),
         );
 
         let find_prev = ctx.bind(
             FindPrevious,
-            (|s: &mut EditorState, _, _| {
-                s.find_previous();
-            }) as Handler<EditorState, FindPrevious>,
+            reduce_with!(
+                (|s: &mut EditorState, _, _| {
+                    s.find_previous();
+                })
+            ),
         );
 
         let replace_one = ctx.bind(
             ReplaceOne,
-            (|s: &mut EditorState, _, _| {
-                s.replace_one();
-            }) as Handler<EditorState, ReplaceOne>,
+            reduce_with!(
+                (|s: &mut EditorState, _, _| {
+                    s.replace_one();
+                })
+            ),
         );
 
         let replace_all_action = ctx.bind(
             ReplaceAll,
-            (|s: &mut EditorState, _, _| {
-                s.replace_all();
-            }) as Handler<EditorState, ReplaceAll>,
+            reduce_with!(
+                (|s: &mut EditorState, _, _| {
+                    s.replace_all();
+                })
+            ),
         );
 
         // Match count display
@@ -880,139 +931,163 @@ impl Widget<EditorState> for ContextMenu {
 
         let dismiss = ctx.bind(
             DismissContextMenu,
-            (|s: &mut EditorState, _, _| {
-                s.context_menu_visible = false;
-            }) as Handler<EditorState, DismissContextMenu>,
+            reduce_with!(
+                (|s: &mut EditorState, _, _| {
+                    s.context_menu_visible = false;
+                })
+            ),
         );
 
         let toggle_find = ctx.bind(
             ToggleFindReplace,
-            (|s: &mut EditorState, _, _| {
-                s.show_find_replace = true;
-                s.context_menu_visible = false;
-            }) as Handler<EditorState, ToggleFindReplace>,
+            reduce_with!(
+                (|s: &mut EditorState, _, _| {
+                    s.show_find_replace = true;
+                    s.context_menu_visible = false;
+                })
+            ),
         );
 
         let new_file_ctx = ctx.bind(
             CreateFile(String::new()),
-            (|s: &mut EditorState, _: CreateFile, _| {
-                s.context_menu_visible = false;
-                if let Some(target) = s.context_menu_target.clone() {
-                    let dir = if std::path::Path::new(&target).is_dir() {
-                        target
-                    } else {
-                        std::path::Path::new(&target)
-                            .parent()
-                            .map(|p| p.to_string_lossy().to_string())
-                            .unwrap_or_else(|| s.root_path.to_string_lossy().to_string())
-                    };
-                    s.create_file(format!("{}/untitled.rs", dir));
-                }
-                s.context_menu_target = None;
-            }) as Handler<EditorState, CreateFile>,
+            reduce_with!(
+                (|s: &mut EditorState, _: CreateFile, _| {
+                    s.context_menu_visible = false;
+                    if let Some(target) = s.context_menu_target.clone() {
+                        let dir = if std::path::Path::new(&target).is_dir() {
+                            target
+                        } else {
+                            std::path::Path::new(&target)
+                                .parent()
+                                .map(|p| p.to_string_lossy().to_string())
+                                .unwrap_or_else(|| s.root_path.to_string_lossy().to_string())
+                        };
+                        s.create_file(format!("{}/untitled.rs", dir));
+                    }
+                    s.context_menu_target = None;
+                })
+            ),
         );
 
         let new_folder_ctx = ctx.bind(
             CreateFolder(String::new()),
-            (|s: &mut EditorState, _: CreateFolder, _| {
-                s.context_menu_visible = false;
-                if let Some(target) = s.context_menu_target.clone() {
-                    let dir = if std::path::Path::new(&target).is_dir() {
-                        target
-                    } else {
-                        std::path::Path::new(&target)
-                            .parent()
-                            .map(|p| p.to_string_lossy().to_string())
-                            .unwrap_or_else(|| s.root_path.to_string_lossy().to_string())
-                    };
-                    s.create_folder(format!("{}/new_folder", dir));
-                }
-                s.context_menu_target = None;
-            }) as Handler<EditorState, CreateFolder>,
+            reduce_with!(
+                (|s: &mut EditorState, _: CreateFolder, _| {
+                    s.context_menu_visible = false;
+                    if let Some(target) = s.context_menu_target.clone() {
+                        let dir = if std::path::Path::new(&target).is_dir() {
+                            target
+                        } else {
+                            std::path::Path::new(&target)
+                                .parent()
+                                .map(|p| p.to_string_lossy().to_string())
+                                .unwrap_or_else(|| s.root_path.to_string_lossy().to_string())
+                        };
+                        s.create_folder(format!("{}/new_folder", dir));
+                    }
+                    s.context_menu_target = None;
+                })
+            ),
         );
 
         let rename_action = ctx.bind(
             RenameContextTarget,
-            (|s: &mut EditorState, _, _| {
-                s.context_menu_visible = false;
-                if let Some(target) = s.context_menu_target.clone() {
-                    s.start_rename(target);
-                } else {
-                    s.status_message = Some("Nothing selected to rename".into());
-                }
-            }) as Handler<EditorState, RenameContextTarget>,
+            reduce_with!(
+                (|s: &mut EditorState, _, _| {
+                    s.context_menu_visible = false;
+                    if let Some(target) = s.context_menu_target.clone() {
+                        s.start_rename(target);
+                    } else {
+                        s.status_message = Some("Nothing selected to rename".into());
+                    }
+                })
+            ),
         );
 
         let delete_action = ctx.bind(
             DeleteContextTarget,
-            (|s: &mut EditorState, _, _| {
-                s.context_menu_visible = false;
-                if let Some(target) = s.context_menu_target.clone() {
-                    let path = std::path::Path::new(&target);
-                    let result = if path.is_dir() {
-                        std::fs::remove_dir_all(&target)
-                    } else {
-                        std::fs::remove_file(&target)
-                    };
-                    match result {
-                        Ok(()) => {
-                            s.request_tree_refresh();
-                            s.status_message = Some(format!("Deleted '{}'", target));
-                        }
-                        Err(e) => {
-                            s.status_message = Some(format!("Delete failed: {}", e));
+            reduce_with!(
+                (|s: &mut EditorState, _, _| {
+                    s.context_menu_visible = false;
+                    if let Some(target) = s.context_menu_target.clone() {
+                        let path = std::path::Path::new(&target);
+                        let result = if path.is_dir() {
+                            std::fs::remove_dir_all(&target)
+                        } else {
+                            std::fs::remove_file(&target)
+                        };
+                        match result {
+                            Ok(()) => {
+                                s.request_tree_refresh();
+                                s.status_message = Some(format!("Deleted '{}'", target));
+                            }
+                            Err(e) => {
+                                s.status_message = Some(format!("Delete failed: {}", e));
+                            }
                         }
                     }
-                }
-            }) as Handler<EditorState, DeleteContextTarget>,
+                })
+            ),
         );
 
         let go_to_def = ctx.bind(
             GoToDefinition,
-            (|s: &mut EditorState, _, _| {
-                s.context_menu_visible = false;
-                s.status_message = Some("Go to Definition (placeholder)".into());
-            }) as Handler<EditorState, GoToDefinition>,
+            reduce_with!(
+                (|s: &mut EditorState, _, _| {
+                    s.context_menu_visible = false;
+                    s.status_message = Some("Go to Definition (placeholder)".into());
+                })
+            ),
         );
 
         let ctx_undo = ctx.bind(
             Undo,
-            (|s: &mut EditorState, _, _| {
-                s.undo_active();
-                s.context_menu_visible = false;
-            }) as Handler<EditorState, Undo>,
+            reduce_with!(
+                (|s: &mut EditorState, _, _| {
+                    s.undo_active();
+                    s.context_menu_visible = false;
+                })
+            ),
         );
 
         let ctx_redo = ctx.bind(
             Redo,
-            (|s: &mut EditorState, _, _| {
-                s.redo_active();
-                s.context_menu_visible = false;
-            }) as Handler<EditorState, Redo>,
+            reduce_with!(
+                (|s: &mut EditorState, _, _| {
+                    s.redo_active();
+                    s.context_menu_visible = false;
+                })
+            ),
         );
 
         let ctx_copy = ctx.bind(
             CopySelection,
-            (|s: &mut EditorState, _, _| {
-                s.copy_line();
-                s.context_menu_visible = false;
-            }) as Handler<EditorState, CopySelection>,
+            reduce_with!(
+                (|s: &mut EditorState, _, _| {
+                    s.copy_line();
+                    s.context_menu_visible = false;
+                })
+            ),
         );
 
         let ctx_cut = ctx.bind(
             CutSelection,
-            (|s: &mut EditorState, _, _| {
-                s.cut_line();
-                s.context_menu_visible = false;
-            }) as Handler<EditorState, CutSelection>,
+            reduce_with!(
+                (|s: &mut EditorState, _, _| {
+                    s.cut_line();
+                    s.context_menu_visible = false;
+                })
+            ),
         );
 
         let ctx_paste = ctx.bind(
             PasteClipboard,
-            (|s: &mut EditorState, _, _| {
-                s.paste();
-                s.context_menu_visible = false;
-            }) as Handler<EditorState, PasteClipboard>,
+            reduce_with!(
+                (|s: &mut EditorState, _, _| {
+                    s.paste();
+                    s.context_menu_visible = false;
+                })
+            ),
         );
 
         let items: Vec<Node> = if view.state.context_menu_target.is_some() {
@@ -1129,43 +1204,48 @@ impl Widget<EditorState> for EditorApp {
             EditorStarted {
                 root_path: PathBuf::from("."),
             },
-            (|state: &mut EditorState, action: EditorStarted, _| {
-                state.root_path = action.root_path;
-                state.request_tree_refresh();
-                state.refresh_git_status();
-                state.ensure_terminal_session();
-                if std::env::var("FISSION_TEST_CONTROL_PORT").is_err() && state.lsp_handle.is_none()
-                {
-                    state.lsp_handle = Some(LspHandle::new(&state.root_path));
-                }
-            }) as Handler<EditorState, EditorStarted>,
+            reduce_with!(
+                (|state: &mut EditorState, action: EditorStarted, _| {
+                    state.root_path = action.root_path;
+                    state.request_tree_refresh();
+                    state.refresh_git_status();
+                    state.ensure_terminal_session();
+                    if std::env::var("FISSION_TEST_CONTROL_PORT").is_err()
+                        && state.lsp_handle.is_none()
+                    {
+                        state.lsp_handle = Some(LspHandle::new(&state.root_path));
+                    }
+                })
+            ),
         );
 
         let tree_scan_loaded = ctx.bind(
             TreeScanCompleted,
-            (|state: &mut EditorState,
-              _: TreeScanCompleted,
-              reducer: &mut ReducerContext<EditorState>| {
-                if let Some(result) = reducer.input.job_ok(TREE_SCAN_JOB) {
-                    if result.generation == state.tree_scan_generation {
-                        state.cached_tree_entries = result.entries;
-                        state.tree_scan_loaded_generation = result.generation;
+            reduce_with!(
+                (|state: &mut EditorState,
+                  _: TreeScanCompleted,
+                  reducer: &mut ReducerContext<EditorState>| {
+                    if let Some(result) = reducer.input.job_ok(TREE_SCAN_JOB) {
+                        if result.generation == state.tree_scan_generation {
+                            state.cached_tree_entries = result.entries;
+                            state.tree_scan_loaded_generation = result.generation;
+                        }
                     }
-                }
-            })
-                as fn(&mut EditorState, TreeScanCompleted, &mut ReducerContext<EditorState>),
+                })
+            ),
         );
         let tree_scan_failed = ctx.bind(
             TreeScanFailed,
-            (|state: &mut EditorState,
-              _: TreeScanFailed,
-              reducer: &mut ReducerContext<EditorState>| {
-                state.tree_scan_loaded_generation = state.tree_scan_generation;
-                if let Some(message) = reducer.input.job_error_message(TREE_SCAN_JOB) {
-                    state.status_message = Some(format!("Tree refresh failed: {}", message));
-                }
-            })
-                as fn(&mut EditorState, TreeScanFailed, &mut ReducerContext<EditorState>),
+            reduce_with!(
+                (|state: &mut EditorState,
+                  _: TreeScanFailed,
+                  reducer: &mut ReducerContext<EditorState>| {
+                    state.tree_scan_loaded_generation = state.tree_scan_generation;
+                    if let Some(message) = reducer.input.job_error_message(TREE_SCAN_JOB) {
+                        state.status_message = Some(format!("Tree refresh failed: {}", message));
+                    }
+                })
+            ),
         );
         if view.state.tree_scan_pending() {
             ctx.resources.job(
@@ -1188,29 +1268,32 @@ impl Widget<EditorState> for EditorApp {
 
         let git_status_loaded = ctx.bind(
             GitStatusLoaded,
-            (|state: &mut EditorState,
-              _: GitStatusLoaded,
-              reducer: &mut ReducerContext<EditorState>| {
-                if let Some(result) = reducer.input.job_ok(GIT_STATUS_JOB) {
-                    if result.generation == state.git_status_generation {
-                        state.git_status_lines = result.entries;
-                        state.git_status_loaded_generation = result.generation;
+            reduce_with!(
+                (|state: &mut EditorState,
+                  _: GitStatusLoaded,
+                  reducer: &mut ReducerContext<EditorState>| {
+                    if let Some(result) = reducer.input.job_ok(GIT_STATUS_JOB) {
+                        if result.generation == state.git_status_generation {
+                            state.git_status_lines = result.entries;
+                            state.git_status_loaded_generation = result.generation;
+                        }
                     }
-                }
-            })
-                as fn(&mut EditorState, GitStatusLoaded, &mut ReducerContext<EditorState>),
+                })
+            ),
         );
         let git_status_failed = ctx.bind(
             GitStatusFailed,
-            (|state: &mut EditorState,
-              _: GitStatusFailed,
-              reducer: &mut ReducerContext<EditorState>| {
-                state.git_status_loaded_generation = state.git_status_generation;
-                if let Some(message) = reducer.input.job_error_message(GIT_STATUS_JOB) {
-                    state.status_message = Some(format!("Git status refresh failed: {}", message));
-                }
-            })
-                as fn(&mut EditorState, GitStatusFailed, &mut ReducerContext<EditorState>),
+            reduce_with!(
+                (|state: &mut EditorState,
+                  _: GitStatusFailed,
+                  reducer: &mut ReducerContext<EditorState>| {
+                    state.git_status_loaded_generation = state.git_status_generation;
+                    if let Some(message) = reducer.input.job_error_message(GIT_STATUS_JOB) {
+                        state.status_message =
+                            Some(format!("Git status refresh failed: {}", message));
+                    }
+                })
+            ),
         );
         if view.state.git_status_pending() {
             ctx.resources.job(
@@ -1233,16 +1316,18 @@ impl Widget<EditorState> for EditorApp {
 
         let poll_terminal = ctx.bind(
             PollTerminal,
-            (|state: &mut EditorState,
-              _: PollTerminal,
-              reducer: &mut ReducerContext<EditorState>| {
-                let _tick: PollTerminalTick = reducer.input.timer_tick().unwrap_or_default();
-                if let Some(session) = state.terminal_session.as_ref() {
-                    if session.take_dirty() {
-                        state.redraw_epoch = state.redraw_epoch.wrapping_add(1);
+            reduce_with!(
+                (|state: &mut EditorState,
+                  _: PollTerminal,
+                  reducer: &mut ReducerContext<EditorState>| {
+                    let _tick: PollTerminalTick = reducer.input.timer_tick().unwrap_or_default();
+                    if let Some(session) = state.terminal_session.as_ref() {
+                        if session.take_dirty() {
+                            state.redraw_epoch = state.redraw_epoch.wrapping_add(1);
+                        }
                     }
-                }
-            }) as fn(&mut EditorState, PollTerminal, &mut ReducerContext<EditorState>),
+                })
+            ),
         );
         if view.state.terminal_visible
             && view.state.bottom_panel_tab == BottomPanelTab::Terminal
@@ -1260,22 +1345,26 @@ impl Widget<EditorState> for EditorApp {
 
         let poll_lsp = ctx.bind(
             PollLsp,
-            (|state: &mut EditorState, _: PollLsp, reducer: &mut ReducerContext<EditorState>| {
-                let _tick: PollLspTick = reducer.input.timer_tick().unwrap_or_default();
-                if let Some(handle) = state.lsp_handle.as_ref() {
-                    let (diags, completions) = handle.poll_diagnostics();
-                    if !diags.is_empty() {
-                        for (path, file_diags) in diags {
-                            state.diagnostics.insert(path, file_diags);
+            reduce_with!(
+                (|state: &mut EditorState,
+                  _: PollLsp,
+                  reducer: &mut ReducerContext<EditorState>| {
+                    let _tick: PollLspTick = reducer.input.timer_tick().unwrap_or_default();
+                    if let Some(handle) = state.lsp_handle.as_ref() {
+                        let (diags, completions) = handle.poll_diagnostics();
+                        if !diags.is_empty() {
+                            for (path, file_diags) in diags {
+                                state.diagnostics.insert(path, file_diags);
+                            }
+                        }
+                        if !completions.is_empty() {
+                            state.completions = completions;
+                            state.show_completions = true;
+                            state.selected_completion = 0;
                         }
                     }
-                    if !completions.is_empty() {
-                        state.completions = completions;
-                        state.show_completions = true;
-                        state.selected_completion = 0;
-                    }
-                }
-            }) as fn(&mut EditorState, PollLsp, &mut ReducerContext<EditorState>),
+                })
+            ),
         );
         if view.state.lsp_enabled() {
             ctx.resources.timer(

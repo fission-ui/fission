@@ -1,11 +1,11 @@
+use fission::prelude::fission_action;
 use fission_core::ui::{
     Button, ButtonVariant, Column, Composite, Container, Node, Row, Scroll, Text,
 };
 use fission_core::{
-    op::Color as IrColor, AnimationPropertyId, AnimationRequest, AnimationStartValue, AppState,
-    BuildCtx, EasingFunction, FlexDirection, Handler, View, Widget, WidgetNodeId,
+    op::Color as IrColor, reduce_with, AnimationPropertyId, AnimationRequest, AnimationStartValue,
+    AppState, BuildCtx, EasingFunction, FlexDirection, View, Widget, WidgetNodeId,
 };
-use fission_macros::Action;
 use fission_shell_desktop::DesktopApp;
 use fission_widgets::{Transition, Wrap};
 use lazy_static::lazy_static;
@@ -37,10 +37,10 @@ impl Default for AnimationGalleryState {
 
 impl AppState for AnimationGalleryState {}
 
-#[derive(Action, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[fission_action]
 struct ToggleScene;
 
-#[derive(Action, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[fission_action]
 struct ToggleCustom;
 
 struct AnimationGalleryApp;
@@ -112,9 +112,11 @@ impl Widget<AnimationGalleryState> for AnimationGalleryApp {
                     child: Some(Box::new(Text::new("Toggle scene").into_node())),
                     on_press: Some(ctx.bind(
                         ToggleScene,
-                        (|state: &mut AnimationGalleryState, _, _| {
-                            state.scene_active = !state.scene_active;
-                        }) as Handler<AnimationGalleryState, ToggleScene>,
+                        reduce_with!(
+                            (|state: &mut AnimationGalleryState, _, _| {
+                                state.scene_active = !state.scene_active;
+                            })
+                        ),
                     )),
                     ..Default::default()
                 }
@@ -123,9 +125,11 @@ impl Widget<AnimationGalleryState> for AnimationGalleryApp {
                     child: Some(Box::new(Text::new("Toggle custom pulse").into_node())),
                     on_press: Some(ctx.bind(
                         ToggleCustom,
-                        (|state: &mut AnimationGalleryState, _, _| {
-                            state.custom_active = !state.custom_active;
-                        }) as Handler<AnimationGalleryState, ToggleCustom>,
+                        reduce_with!(
+                            (|state: &mut AnimationGalleryState, _, _| {
+                                state.custom_active = !state.custom_active;
+                            })
+                        ),
                     )),
                     variant: ButtonVariant::Outline,
                     ..Default::default()
