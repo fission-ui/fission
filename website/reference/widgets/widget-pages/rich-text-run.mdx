@@ -1,43 +1,44 @@
 ---
 title: RichTextRun
-description: Reference details for RichTextRun.
+description: Represent one continuous segment of text that shares a single style.
 slug: /widgets/rich-text-run
 ---
 # RichTextRun
 
-Use it for cross-cutting composition and app-level surface behavior.
+`RichTextRun` is the building block for [`RichText`](/reference/widgets/rich-text).
 
+A run is one continuous piece of text with one style. If a sentence has a bold product name inside otherwise normal prose, that sentence naturally becomes multiple runs.
 
-This is part of the Fission widget API and belongs in the same typed, state-driven model used across the rest of the framework.
+## Example
 
-
-**When you need it**
-- This widget is best when building reusable building blocks that support product patterns.
-- Use predictable state updates as your entry point for all behavior changes.
-- Combine with semantic labels and role attributes for reliable interaction testing.
-
-## Minimal usage
 ```rust
-use fission_core::ui::RichTextRun;
+use fission_core::ui::{RichText, RichTextRun};
 
-let node = RichTextRun {
-    ..Default::default()
-}.into_node();
+let node = RichText::new(vec![
+    RichTextRun::new("Status: "),
+    RichTextRun::new("Failed")
+        .weight(700)
+        .color(view.env.theme.tokens.colors.error),
+])
+.into_node();
 ```
 
-## API surface
-- `text`: `String`
-- `style`: `TextRunStyle`
-- `semantics_label`: `Option<String>`
-- `semantics_identifier`: `Option<String>`
-- `spell_out`: `Option<bool>`
+This keeps the style change local to the important word without forcing the entire line to share the same emphasis.
 
-## Implementation checks
-- Pair it with the core trait contract and test rendering output with headless checks for stability.
-- Keep callbacks/closures small and deterministic when possible, then move side effects to async boundaries.
-- If the widget affects layout or input, verify with both state transitions and target-level smoke tests.
+## Field table
 
-## Next
-- [Widget catalog](/reference/widgets/catalog)
-- [Widget trait](/reference/core/widget-trait)
-- [Runtime model](/docs/learn/runtime-model)
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `text` | `String` | Text for this run. | Required. |
+| `style` | `TextRunStyle` | Fully resolved style for the run. | Defaults to `TextRunStyle::default()`. Builder helpers usually feel nicer than editing this directly. |
+| `semantics_label` | `Option<String>` | Accessibility label override for this run. | Defaults to `None`. |
+| `semantics_identifier` | `Option<String>` | Semantic identifier override for this run. | Defaults to `None`. |
+| `spell_out` | `Option<bool>` | Whether assistive technology should spell out the run. | Defaults to `None`. |
+
+## When to use runs and when not to
+
+Use flat runs when you only need straightforward styling differences across one paragraph. If you need nested semantics, hover or tap actions on subranges, or inline widgets inside the text flow, move up to the span-based `RichText::from_spans(...)` model instead.
+
+## Related
+
+[`RichText`](/reference/widgets/rich-text), [`TextRunStyle`](/reference/widgets/text-run-style), [`Text`](/reference/widgets/text), and [`TextFontStyle`](/reference/widgets/text-font-style).

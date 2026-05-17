@@ -1,41 +1,47 @@
 ---
 title: Alert
-description: Reference details for Alert.
+description: Present an inline status, warning, error, or success message inside the page flow.
 slug: /widgets/alert
 ---
 # Alert
 
-Use it when the user needs to interact, choose a value, or submit intent.
+`Alert` is the inline message surface for important feedback that should stay visible in the page layout.
 
+Use it when the message belongs to the current screen and should remain present until the user moves past the condition or changes state. That is the main difference from a [`Toast`](/reference/widgets/toast): a toast is brief overlay feedback, while an alert is part of the page content.
 
-This is part of the Fission widget API and belongs in the same typed, state-driven model used across the rest of the framework.
+## Example
 
-
-**When you need it**
-- This widget is best when the control drives explicit `Action` dispatch or receives values from a reducer-owned state model.
-- Use predictable state updates as your entry point for all behavior changes.
-- Combine with semantic labels and role attributes for reliable interaction testing.
-
-## Minimal usage
 ```rust
-use fission_widgets::Alert;
+use fission_widgets::{Alert, AlertKind};
 
 let node = Alert {
-    ..Default::default()
-}.into_node();
+    kind: AlertKind::Error,
+    title: "Could not save draft".into(),
+    description: Some("Check your connection and try again.".into()),
+}
+.build(ctx, view);
 ```
 
-## API surface
-- `kind`: `AlertKind`
-- `title`: `String`
-- `description`: `Option<String>`
+This is a good fit because the failure matters to the current workflow and should remain visible until the user responds.
 
-## Implementation checks
-- Keep control values in state, validate there, and surface results through completion actions or reducer transitions.
-- Keep callbacks/closures small and deterministic when possible, then move side effects to async boundaries.
-- If the widget affects layout or input, verify with both state transitions and target-level smoke tests.
+## Field table
 
-## Next
-- [Widget catalog](/reference/widgets/catalog)
-- [Widget trait](/reference/core/widget-trait)
-- [Runtime model](/docs/learn/runtime-model)
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `kind` | `AlertKind` | Severity and visual tone of the message. | Required. Controls icon and background color. |
+| `title` | `String` | Main alert message. | Required. Keep it specific and action-oriented. |
+| `description` | `Option<String>` | Supporting explanation under the title. | Defaults to `None`. Use it when the title alone is not enough. |
+
+## User experience intent
+
+A good alert explains both what happened and what the user should do next. The title should carry the main meaning. The description should add context, not repeat the title in different words.
+
+The checked-in widget is purely presentational. It does not include dismissal controls, retry buttons, or live region settings. If the alert needs actions, compose those around it in the surrounding layout.
+
+## Specific advice
+
+Avoid using inline alerts for routine empty states or tiny confirmations. Overuse makes real problems blend into the background. Reach for an alert when the message changes the user's next decision.
+
+## Related
+
+[`AlertKind`](/reference/widgets/alert-kind), [`Toast`](/reference/widgets/toast), [`Badge`](/reference/widgets/badge), and [`EmptyState`](/reference/widgets/empty-state).

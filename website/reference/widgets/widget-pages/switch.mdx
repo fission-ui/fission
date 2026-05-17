@@ -1,41 +1,53 @@
 ---
 title: Switch
-description: Reference details for Switch.
+description: Toggle an immediate on or off setting with switch semantics.
 slug: /widgets/switch
 ---
 # Switch
 
-Use it when the user needs to interact, choose a value, or submit intent.
+`Switch` is the boolean control for immediate settings.
 
+Use it when the user is turning a behavior on or off right now, such as enabling notifications or muting audio. That is the main difference from a [`Checkbox`](/reference/widgets/checkbox): a switch usually implies an immediate setting, while a checkbox often implies inclusion in a later submit or selection set.
 
-This is part of the Fission widget API and belongs in the same typed, state-driven model used across the rest of the framework.
+## Example
 
-
-**When you need it**
-- This widget is best when the control drives explicit `Action` dispatch or receives values from a reducer-owned state model.
-- Use predictable state updates as your entry point for all behavior changes.
-- Combine with semantic labels and role attributes for reliable interaction testing.
-
-## Minimal usage
 ```rust
 use fission_core::ui::Switch;
 
 let node = Switch {
-    ..Default::default()
-}.into_node();
+checked: view.state.notifications_enabled,
+on_toggle: Some(ctx.bind(
+    ToggleNotifications,
+    (|state: &mut SettingsState, _action: ToggleNotifications, _| {
+        state.notifications_enabled = !state.notifications_enabled;
+    }) as Handler<SettingsState, ToggleNotifications>,
+)),
+..Default::default()
+}
+.into_node();
 ```
 
-## API surface
-- `id`: `Option<NodeId>`
-- `checked`: `bool`
-- `on_toggle`: `Option<ActionEnvelope>`
+As with other controlled widgets, the switch only reflects `checked`. The reducer owns the state transition.
 
-## Implementation checks
-- Keep control values in state, validate there, and surface results through completion actions or reducer transitions.
-- Keep callbacks/closures small and deterministic when possible, then move side effects to async boundaries.
-- If the widget affects layout or input, verify with both state transitions and target-level smoke tests.
+## Field table
 
-## Next
-- [Widget catalog](/reference/widgets/catalog)
-- [Widget trait](/reference/core/widget-trait)
-- [Runtime model](/docs/learn/runtime-model)
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `id` | `Option<NodeId>` | Stable node identity. | Defaults to `None`. |
+| `checked` | `bool` | Whether the switch is currently on. | Defaults to `false`. |
+| `on_toggle` | `Option<ActionEnvelope>` | Action dispatched when the switch is pressed. | Defaults to `None`. |
+
+## Semantics and state flow
+
+`Switch` lowers a semantic switch role with the current checked state. That makes it a better accessibility match than styling a generic button to look like a switch.
+
+The action flow is straightforward: press the switch, dispatch `on_toggle`, update the boolean in the reducer, rebuild with the new `checked` value.
+
+## Specific advice
+
+Pair a switch with clear nearby text so the user knows what is being turned on or off. If the choice is part of a multi-select form or agreement checklist rather than an immediate setting, a checkbox is usually clearer.
+
+## Related
+
+[`Checkbox`](/reference/widgets/checkbox), [`Radio`](/reference/widgets/radio), [`Button`](/reference/widgets/button), and [`FormControl`](/reference/widgets/form-control).
+

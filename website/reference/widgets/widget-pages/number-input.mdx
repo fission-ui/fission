@@ -1,50 +1,63 @@
 ---
 title: NumberInput
-description: Reference details for NumberInput.
+description: Present a numeric value with decrement and increment buttons around a text field.
 slug: /widgets/number-input
 ---
 # NumberInput
 
-Use it when the user needs to interact, choose a value, or submit intent.
+`NumberInput` is a compact number-adjustment control.
 
+It renders a minus button, a central text display, and a plus button inside one bordered field. This makes it useful for quantities, counts, and compact settings where stepwise adjustment matters more than free-form typing.
 
-This is part of the Fission widget API and belongs in the same typed, state-driven model used across the rest of the framework.
+## Example
 
-
-**When you need it**
-- This widget is best when the control drives explicit `Action` dispatch or receives values from a reducer-owned state model.
-- Use predictable state updates as your entry point for all behavior changes.
-- Combine with semantic labels and role attributes for reliable interaction testing.
-
-## Minimal usage
 ```rust
 use fission_widgets::NumberInput;
 
 let node = NumberInput {
-    ..Default::default()
-}.into_node();
+value: view.state.quantity as f32,
+display_text: Some(view.state.quantity.to_string()),
+min: Some(1.0),
+max: Some(10.0),
+step: 1.0,
+on_increment: Some(increment_quantity_action),
+on_decrement: Some(decrement_quantity_action),
+on_change: Some(change_quantity_text_action),
+..Default::default()
+}
+.build(ctx, view);
 ```
 
-## API surface
-- `id`: `Option<WidgetNodeId>`
-- `value`: `f32`
-- `display_text`: `Option<String>`
-- `min`: `Option<f32>`
-- `max`: `Option<f32>`
-- `step`: `f32`
-- `field_width`: `Option<f32>`
-- `button_size`: `Option<f32>`
-- `gap`: `Option<f32>`
-- `on_increment`: `Option<ActionEnvelope>`
-- `on_decrement`: `Option<ActionEnvelope>`
-- `on_change`: `Option<ActionEnvelope>`
+The reducer usually owns the real numeric value and decides how to clamp, parse, or reject changes.
 
-## Implementation checks
-- Keep control values in state, validate there, and surface results through completion actions or reducer transitions.
-- Keep callbacks/closures small and deterministic when possible, then move side effects to async boundaries.
-- If the widget affects layout or input, verify with both state transitions and target-level smoke tests.
+## Field table
 
-## Next
-- [Widget catalog](/reference/widgets/catalog)
-- [Widget trait](/reference/core/widget-trait)
-- [Runtime model](/docs/learn/runtime-model)
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `id` | `Option<WidgetNodeId>` | Stable identity for the inner text field. | Defaults to `None`. |
+| `value` | `f32` | Current numeric value. | Defaults to `0.0`. |
+| `display_text` | `Option<String>` | Exact text shown in the field. | If `None`, the widget formats `value` with `format!("{}", value)`. |
+| `min` | `Option<f32>` | Intended minimum value. | Present for product meaning, but not enforced by the current widget implementation. |
+| `max` | `Option<f32>` | Intended maximum value. | Present for product meaning, but not enforced by the current widget implementation. |
+| `step` | `f32` | Intended adjustment step. | Defaults to `1.0`, but the current widget does not apply it automatically. Your reducer does. |
+| `field_width` | `Option<f32>` | Width of the central text field. | If `None`, width is estimated from `display_text`. |
+| `button_size` | `Option<f32>` | Size of the plus and minus buttons. | Defaults to `32.0` with a lower bound of `28.0`. |
+| `gap` | `Option<f32>` | Spacing between the buttons and field. | Defaults to `4.0`. |
+| `on_increment` | `Option<ActionEnvelope>` | Action fired by the plus button. | Defaults to `None`. |
+| `on_decrement` | `Option<ActionEnvelope>` | Action fired by the minus button. | Defaults to `None`. |
+| `on_change` | `Option<ActionEnvelope>` | Intended text-edit action. | Present in the struct, but not currently wired by the checked-in implementation. |
+
+## Current behavior and limitations
+
+The central field is rendered with [`TextInput`](/reference/widgets/text-input), but in the checked-in implementation its `on_change` hook is not passed through yet. Likewise, `min`, `max`, and `step` are meaningful configuration fields for your product logic, but the widget does not enforce or apply them by itself.
+
+In practice that means `NumberInput` is best today for stepper-style adjustment through the plus and minus buttons. If you need full free-form numeric typing with validation on every keystroke, compose a `TextInput` directly and parse inside the reducer.
+
+## Specific advice
+
+Keep the canonical number in state as a number, not only as a string. If you also need a draft text representation, store that draft explicitly so validation and formatting stay predictable.
+
+## Related
+
+[`TextInput`](/reference/widgets/text-input), [`Slider`](/reference/widgets/slider), [`TimePicker`](/reference/widgets/time-picker), and [`FormControl`](/reference/widgets/form-control).
+

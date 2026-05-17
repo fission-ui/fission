@@ -1,41 +1,70 @@
 ---
 title: LayoutBuilder
-description: Reference details for LayoutBuilder.
+description: Build a widget from current layout constraints when responsive branching is truly needed.
 slug: /widgets/layout-builder
 ---
 # LayoutBuilder
 
-Use it to control how child nodes are arranged, measured, and constrained.
+`LayoutBuilder` is the layout-aware counterpart to [`Builder`](/reference/widgets/builder).
 
+It gives your closure the current `BoxConstraints` so you can branch on available space and build a different subtree. This is the widget you reach for when responsive structure really depends on width or height, such as swapping between a one-column phone layout and a two-pane desktop layout.
 
-This is part of the Fission widget API and belongs in the same typed, state-driven model used across the rest of the framework.
+Use `LayoutBuilder` when layout-dependent branching is the point of the component. Do not use it for every tiny spacing tweak. If a layout can stay the same with only different padding, gap, or flex values, ordinary composition is usually clearer.
 
+## Example
 
-**When you need it**
-- This widget is best when you need stable structure before styling. Keep layout decisions explicit so state and constraints stay predictable.
-- Use predictable state updates as your entry point for all behavior changes.
-- Combine with semantic labels and role attributes for reliable interaction testing.
-
-## Minimal usage
 ```rust
-use fission_core::ui::LayoutBuilder;
+use fission_core::ui::{Column, Row, Text};
+use fission_core::ui::widgets::builder::LayoutBuilder;
 
-let node = LayoutBuilder {
-    ..Default::default()
-}.into_node();
+let node = LayoutBuilder::new(|_ctx, _view, constraints| {
+    if constraints.max_w > 720.0 {
+        Row {
+            gap: Some(24.0),
+            children: vec![
+                Text::new("Sidebar").into_node(),
+                Text::new("Main content").into_node(),
+            ],
+            ..Default::default()
+        }
+        .into_node()
+    } else {
+        Column {
+            gap: Some(16.0),
+            children: vec![
+                Text::new("Main content").into_node(),
+                Text::new("Sidebar").into_node(),
+            ],
+            ..Default::default()
+        }
+        .into_node()
+    }
+})
+.flex_grow(1.0)
+.build(ctx, view);
 ```
 
-## API surface
-- `id`: `Option<WidgetNodeId>`
-- `flex_grow`: `f32`
-- `flex_shrink`: `f32`
+## Field table
 
-## Implementation checks
-- Build with the state model first, then layer spacing, alignment, and visual treatment. Layout mistakes are usually cheaper to fix before async behavior is introduced.
-- Keep callbacks/closures small and deterministic when possible, then move side effects to async boundaries.
-- If the widget affects layout or input, verify with both state transitions and target-level smoke tests.
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `LayoutBuilder::new(...)` | `Fn(&mut BuildCtx<S>, &View<S>, BoxConstraints) -> Node` | Creates the responsive closure. | Required. The closure should stay pure and deterministic. |
+| `id` | `Option<WidgetNodeId>` | Stable widget identity for reading stored constraints. | Defaults to `None`. When present, the built child is wrapped in a `Container` with that id. |
+| `flex_grow` | `f32` | Extra space the wrapped result can absorb. | Defaults to `0.0`. Only applied when `id` is set and the helper wraps the result. |
+| `flex_shrink` | `f32` | How much the wrapped result may shrink. | Defaults to `1.0`. |
 
-## Next
-- [Widget catalog](/reference/widgets/catalog)
-- [Widget trait](/reference/core/widget-trait)
-- [Runtime model](/docs/learn/runtime-model)
+## How constraint lookup works
+
+`LayoutBuilder` reads constraints from the previous layout pass when it has a stable id and those constraints are available. If not, it falls back to loose constraints derived from the viewport size. That means it is responsive, but still consistent with the deterministic build model.
+
+In plain language, you use it when the shape of the layout truly depends on space, not when you merely want to read the viewport for curiosity.
+
+## When it becomes a code smell
+
+`LayoutBuilder` is powerful, but it is easy to overuse. If every branch of your app starts switching on width and emitting very different ad hoc trees, the code quickly becomes hard to reason about.
+
+A good rule is this: use `LayoutBuilder` for meaningful structural breakpoints, not for general product logic. If the branching becomes large, split the layouts into named widgets and let `LayoutBuilder` only choose between them.
+
+## Related
+
+[`Builder`](/reference/widgets/builder), [`Row`](/reference/widgets/row), [`Column`](/reference/widgets/column), and [`SimpleGrid`](/reference/widgets/simple-grid).

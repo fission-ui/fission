@@ -1,40 +1,66 @@
 ---
 title: SplitDirection
-description: Reference details for SplitDirection.
+description: Configure whether SplitView divides its two panes left-to-right or top-to-bottom.
 slug: /widgets/split-direction
 ---
 # SplitDirection
 
-Use it to control how child nodes are arranged, measured, and constrained.
+`SplitDirection` is the small configuration enum that tells [`SplitView`](/reference/widgets/split-view) which way to divide space between its two panes.
 
+You do not use `SplitDirection` by itself. You encounter it while configuring a `SplitView`. Its job is simple but important: it decides whether the first and second children sit beside each other or stack one above the other.
 
-This is part of the Fission widget API and belongs in the same typed, state-driven model used across the rest of the framework.
+That choice affects more than appearance. It changes how users scan the screen, how much width or height each pane can claim, and how the layout adapts when the app moves from a wide desktop window to a narrower tablet, phone, or embedded web view.
 
+## Variants
 
-**When you need it**
-- This widget is best when you need stable structure before styling. Keep layout decisions explicit so state and constraints stay predictable.
-- Use predictable state updates as your entry point for all behavior changes.
-- Combine with semantic labels and role attributes for reliable interaction testing.
+| Variant | Type | Meaning | Notes and default behavior |
+| --- | --- | --- | --- |
+| `SplitDirection::Horizontal` | enum variant | Places the two panes side by side, from left to right. | The checked-in `SplitView` lowers to a `Row` in this mode. Use it for inspector layouts, sidebars, and editor-plus-preview screens. |
+| `SplitDirection::Vertical` | enum variant | Places the two panes one above the other, from top to bottom. | The checked-in `SplitView` lowers to a `Column` in this mode. Use it for stacked panels such as preview over logs or content over details. |
 
-## Minimal usage
+## How to choose
+
+Choose `Horizontal` when width is the natural resource. This is common in desktop products where a sidebar, navigation rail, file tree, or inspector should stay visible next to the main content.
+
+Choose `Vertical` when height is easier to share than width. This is often the better fit on narrower screens, in dashboard panels, or when the lower pane is a secondary surface such as logs, output, or details.
+
+Responsive layout is where this enum becomes more important than it first appears. A split that feels natural on a wide laptop can feel cramped on a tablet in portrait orientation or on a phone-sized host. In those cases, it is often better to keep the same `SplitView` idea but change the direction based on available space. That way the product keeps one mental model while adjusting the pane arrangement to the host.
+
+## Example with `SplitView`
+
+This example shows a mail-style screen that uses a horizontal split on wide layouts and a vertical split on tighter ones.
+
 ```rust
-use fission_widgets::SplitDirection;
+use fission_widgets::{SplitDirection, SplitView};
 
-let node = SplitDirection {
-    ..Default::default()
-}.into_node();
+let direction = if is_wide_layout {
+    SplitDirection::Horizontal
+} else {
+    SplitDirection::Vertical
+};
+
+SplitView {
+    id: WidgetNodeId::explicit("mail_split"),
+    direction,
+    first: Box::new(mail_list.into_node()),
+    second: Box::new(message_detail.into_node()),
+    split_ratio: 0.35,
+    on_resize: None,
+}
 ```
 
-## API surface
-- Use `Default::default()` to start and set only required properties.
-- Prefer small, explicit updates so diffs stay readable.
+The important idea is not the `if` expression itself. It is the product decision behind it. On a wide window, a list and detail view can comfortably sit side by side. On a narrow host, stacking them top to bottom may preserve readability better. `SplitDirection` is the lever that expresses that decision.
 
-## Implementation checks
-- Build with the state model first, then layer spacing, alignment, and visual treatment. Layout mistakes are usually cheaper to fix before async behavior is introduced.
-- Keep callbacks/closures small and deterministic when possible, then move side effects to async boundaries.
-- If the widget affects layout or input, verify with both state transitions and target-level smoke tests.
+If your direction changes at runtime, keep that responsive rule in ordinary app logic or a layout-aware helper such as [`LayoutBuilder`](/reference/widgets/layout-builder). `SplitDirection` should stay the result of the decision, not the place where the decision logic lives.
 
-## Next
-- [Widget catalog](/reference/widgets/catalog)
-- [Widget trait](/reference/core/widget-trait)
-- [Runtime model](/docs/learn/runtime-model)
+## Specific advice
+
+Do not use `Horizontal` by default just because many desktop tools do. Start from the shape of the content. If both panes need substantial reading width, a narrow horizontal split can quickly become unusable.
+
+Likewise, do not reach for `Vertical` only because it feels mobile-friendly. A bottom pane that constantly pushes the main content out of view can be just as frustrating. Test the actual reading and interaction flow on the hosts you plan to ship.
+
+If you need panes that can fully collapse, reorder, or navigate independently, a plain `SplitView` plus `SplitDirection` may be too small a tool. In that case, combine it with stronger app state and navigation structure rather than trying to make the enum carry more meaning than it should.
+
+## Related
+
+[`SplitView`](/reference/widgets/split-view), [`LayoutBuilder`](/reference/widgets/layout-builder), [`Row`](/reference/widgets/row), and [`Column`](/reference/widgets/column).

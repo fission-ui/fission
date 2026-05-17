@@ -1,42 +1,48 @@
 ---
 title: DropDown
-description: Reference details for DropDown.
+description: Use a simplified dropdown trigger button when you only need the button surface.
 slug: /widgets/drop-down
 ---
 # DropDown
 
-Use it when the user needs to interact, choose a value, or submit intent.
+`DropDown` is a simplified dropdown-style trigger button.
 
+It looks like a dropdown control, showing the current selection and a chevron, but the checked-in implementation is intentionally small: it only renders the trigger. It does not render the list of options for you. If you need a complete selection control, use [`Select`](/reference/widgets/select).
 
-This is part of the Fission widget API and belongs in the same typed, state-driven model used across the rest of the framework.
+## Example
 
-
-**When you need it**
-- This widget is best when the control drives explicit `Action` dispatch or receives values from a reducer-owned state model.
-- Use predictable state updates as your entry point for all behavior changes.
-- Combine with semantic labels and role attributes for reliable interaction testing.
-
-## Minimal usage
 ```rust
 use fission_widgets::DropDown;
 
 let node = DropDown {
-    ..Default::default()
-}.into_node();
+selected: Some(view.state.sort_label.clone()),
+on_toggle: Some(toggle_sort_panel_action),
+options: vec!["Newest".into(), "Oldest".into()],
+on_select: None,
+}
+.build(ctx, view);
 ```
 
-## API surface
-- `on_toggle`: `Option<ActionEnvelope>`
-- `options`: `Vec<String>`
-- `on_select`: `Option<ActionEnvelope>`
-- `selected`: `Option<String>`
+This is a good fit when some other part of your user interface owns the actual popup or sheet, and you only want a trigger with dropdown styling.
 
-## Implementation checks
-- Keep control values in state, validate there, and surface results through completion actions or reducer transitions.
-- Keep callbacks/closures small and deterministic when possible, then move side effects to async boundaries.
-- If the widget affects layout or input, verify with both state transitions and target-level smoke tests.
+## Field table
 
-## Next
-- [Widget catalog](/reference/widgets/catalog)
-- [Widget trait](/reference/core/widget-trait)
-- [Runtime model](/docs/learn/runtime-model)
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `on_toggle` | `Option<ActionEnvelope>` | Action dispatched when the trigger is pressed. | Defaults to `None`. Usually opens or closes some surrounding surface. |
+| `options` | `Vec<String>` | Option labels associated with the control. | Present in the struct, but not currently rendered by the widget itself. |
+| `on_select` | `Option<ActionEnvelope>` | Selection action placeholder. | Present in the struct, but not currently used by the widget itself. |
+| `selected` | `Option<String>` | Currently displayed label. | If `None`, the trigger shows "Select an option". |
+
+## Current behavior
+
+In the checked-in implementation, `selected` changes the label and `on_toggle` drives the press behavior. `options` and `on_select` do not affect rendering yet. That makes `DropDown` best understood as a stylized trigger, not a finished dropdown system.
+
+## Specific advice
+
+Reach for `DropDown` only when that limitation is exactly what you want. If the user expects the widget itself to own option presentation and choice handling, use [`Select`](/reference/widgets/select) or [`MenuButton`](/reference/widgets/menu-button) instead.
+
+## Related
+
+[`Select`](/reference/widgets/select), [`MenuButton`](/reference/widgets/menu-button), [`Button`](/reference/widgets/button), and [`Combobox`](/reference/widgets/combobox).
+

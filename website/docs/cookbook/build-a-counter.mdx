@@ -1,38 +1,292 @@
 ---
 title: Build a counter
-description: Use the checked-in counter example to understand the smallest complete Fission app loop.
+description: Build the smallest useful Fission app and learn the full state-action-reducer-widget loop line by line.
 ---
 
 # Build a counter
 
-The `counter` example is not just a button and a number. It also shows selector usage, text input, modal overlays, animation requests, and a small custom canvas.
+A counter is the best first Fission recipe because it is small enough to understand in one sitting, but complete enough to show the whole app loop.
 
-## Run it
+By the end of this page, you will have a button that increments a number on screen. More importantly, you will understand why the button does not mutate the label directly, why the label is rebuilt from state, and why Fission insists on explicit actions instead of hidden callbacks.
 
-```bash
-cargo run -p counter
+If you came from web development, think of this page as the moment where the framework's architecture becomes concrete. You are not just wiring a click handler. You are learning the pattern that scales to forms, network loading, dialogs, and cross-platform screens.
+
+This recipe assumes you already created a Fission app with the [quickstart](/docs/learn/quickstart). If you did, you can replace the generated `src/app.rs` with the code from this page.
+
+One note before we start: some of the code uses Rust trait syntax and derive syntax that may look unfamiliar if you are brand new to Rust. That is normal.
+
+This page will keep separating two kinds of lines:
+
+- the lines that explain how Fission works,
+- and the lines that are mostly Rust or framework scaffolding that you can accept for now.
+
+You do not need to become fluent in every Rust feature before you can understand the app loop.
+
+## Step 1: start with the app's state
+
+The first question in Fission is not "what button should I draw?" It is "what data does this screen need to remember?"
+
+A counter screen needs one durable piece of product state: the current count. That belongs in `AppState` because the value matters to the user and should survive every rebuild.
+
+```rust
+use fission::prelude::*;
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
+pub struct CounterState {
+    pub count: i32,
+}
+
+impl AppState for CounterState {}
 ```
 
-## Copy the basic structure
+This small struct is doing an important job.
 
-1. define `CounterState` and implement `AppState`,
-2. define typed actions like `Increment`,
-3. bind reducers with `ctx.bind(...)`,
-4. return a widget tree from `build()`.
+`CounterState` is the single source of truth for the screen. The number on screen will come from this field. The button will not own its own copy. The label will not cache its own copy. That is what makes the user interface predictable. When `count` changes, the next build reads the new value and the screen updates from one clear place.
 
-## Add one runtime-owned feature at a time
+Now let us separate the key Fission idea from the Rust syntax:
 
-The example adds several features without changing the model:
+- The line that matters most is `pub struct CounterState { pub count: i32 }`. That is the actual app state.
+- `count: i32` means "store one whole number here." `i32` is a standard Rust integer type.
+- `#[derive(...)]` is mostly scaffolding. It asks Rust to generate common helper behavior automatically. For this first recipe, you can read it as "please make this state type easy for Fission and Rust tooling to work with."
+- `impl AppState for CounterState {}` is an empty trait implementation. In plain English, it tells Fission, "this struct is my app state type." There is no extra logic hiding inside that block.
 
-- `TextInput` with `UpdateText`
-- modal show/hide through `ToggleModal`
-- `Checkbox` state through `ToggleChecked`
-- `AnimationRequest` against a stable widget ID
+For a first app, this is the habit worth learning: if the user would say "the app is currently in this condition," that condition usually belongs in app state.
 
-That is a good template for expanding a first app without switching architectural styles halfway through.
+## Step 2: describe user intent with an action
 
-## Useful follow-ups
+Next, define what the user is trying to do.
 
-- [App structure](/docs/guides/app-structure)
-- [Reference: state system](/reference/core/state-system)
-- [Reference: Button](/reference/widgets/button)
+In Fission, an `Action` is a typed message that names an event in app terms. Here, the event is simple: the user pressed the increment button.
+
+```rust
+#[derive(fission_macros::Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+pub struct Increment;
+```
+
+This may feel more formal than an inline click handler, but that formality is the point. `Increment` gives the event a name that the whole app can understand. Tests can dispatch it. Reducers can handle it. Logs can refer to it. As apps grow, this becomes much easier to reason about than anonymous closures scattered across the widget tree.
+
+Here again, most of the long line is scaffolding.
+
+- `pub struct Increment;` is the part to focus on first. It declares a named action type.
+- Because there are no fields inside it, this action simply means "the increment event happened." It does not need to carry extra data.
+- `#[derive(fission_macros::Action, ...)]` is the framework-facing helper line that makes the type usable as a Fission action. You do not need to understand every derive name yet. For now, it is enough to know that the framework needs this line so the action can be sent through the runtime.
+
+## Step 3: write the reducer that changes state
+
+Now that the app can name the event, it needs a place to decide what that event means.
+
+That place is the reducer.
+
+If the word "reducer" is new, think of it as a state update function. It receives the current state and an action, then updates the state in a controlled way.
+
+```rust
+fn on_increment(
+    state: &mut CounterState,
+    _action: Increment,
+    _ctx: &mut ReducerContext<CounterState>,
+) {
+    state.count += 1;
+}
+```
+
+Every line here matters.
+
+`state: &mut CounterState` means the reducer is allowed to change the app's durable data. `_action: Increment` says this reducer runs when the increment action is dispatched. `_ctx` is available for more advanced cases such as side effects, but the counter does not need it yet, so we leave it unused.
+
+If the function signature looks intimidating, here is the plain-English version:
+
+- `fn on_increment(...)` means "define a function named `on_increment`."
+- `&mut CounterState` means "give this function access to the state, and allow it to change that state."
+- `Increment` means "this reducer handles the `Increment` action."
+- `ReducerContext<CounterState>` means "if the reducer needs runtime help, that help is available for this app state type."
+- The leading underscores in `_action` and `_ctx` are Rust's way of saying "these values exist, but this small example is not using them yet."
+
+The body is intentionally boring: `state.count += 1;`.
+
+That simplicity is a strength. The rule is easy to verify. If the action is `Increment`, the count goes up by one. There is no hidden user interface mutation and no special-case callback logic inside the widget tree.
+
+## Step 4: build the widget that renders from state
+
+Now we can draw the screen.
+
+In Fission, a widget's `build()` method reads inputs and returns a description of the interface. It does not mutate the count directly. It does not fetch data. It does not secretly perform side effects. It just looks at the current state and describes what should be visible.
+
+```rust
+pub struct CounterApp;
+
+impl Widget<CounterState> for CounterApp {
+    fn build(&self, ctx: &mut BuildCtx<CounterState>, view: &View<CounterState>) -> Node {
+        let increment = ctx.bind(
+            Increment,
+            on_increment as Handler<CounterState, Increment>,
+        );
+
+        Column {
+            gap: Some(16.0),
+            children: vec![
+                Text::new(format!("Count: {}", view.state.count)).into_node(),
+                Button {
+                    on_press: Some(increment),
+                    child: Some(Box::new(Text::new("Increment").into_node())),
+                    ..Default::default()
+                }
+                .into_node(),
+            ],
+            ..Default::default()
+        }
+        .into_node()
+    }
+}
+```
+
+This is the core Fission loop in one screen, so it is worth slowing down.
+
+The Rust shape around the widget is mostly framework scaffolding:
+
+- `pub struct CounterApp;` declares the widget type. It is empty because this tiny app does not need to store extra widget configuration.
+- `impl Widget<CounterState> for CounterApp` means "make `CounterApp` behave as a Fission widget for an app whose state type is `CounterState`."
+- The angle brackets in `Widget<CounterState>`, `BuildCtx<CounterState>`, and `View<CounterState>` are Rust's way of saying "use these framework types with this particular app state."
+
+If you have never written a Rust trait implementation before, you can read the whole `impl Widget<CounterState> for CounterApp { ... }` block as "here is how this screen builds its user interface."
+
+The `view` parameter is the read-only input to `build()`. That is why the label uses `view.state.count`. The widget is reading the current state, not storing its own version of the number.
+
+The `ctx` parameter is the wiring helper. `ctx.bind(...)` connects a widget event to an action and reducer handler. In plain language, this line says: when something triggers this event, dispatch `Increment` and run `on_increment`.
+
+That binding line also contains one piece of Rust syntax that beginners often trip over:
+
+```rust
+let increment = ctx.bind(
+    Increment,
+    on_increment as Handler<CounterState, Increment>,
+);
+```
+
+The important part is the meaning, not the cast syntax.
+
+- `ctx.bind(...)` asks Fission to create a reusable event binding.
+- `Increment` says which action should be dispatched.
+- `on_increment` says which reducer function should handle that action.
+- `as Handler<CounterState, Increment>` is mostly a type hint for Rust. It helps the compiler understand exactly how to treat `on_increment`. At this stage, you can read it as scaffolding that says "use this function as the handler for this action."
+
+Then the widget returns a `Column` with two children. The first child is a `Text` widget that renders the current count. The second child is a `Button` whose `on_press` field uses the binding we just created.
+
+There are two more pieces of Rust syntax here that are worth demystifying:
+
+- `format!("Count: {}", view.state.count)` means "build a string that includes the current count value."
+- `..Default::default()` means "for all the button fields I did not mention, use the normal default values." That is a common Rust shorthand in Fission widget construction.
+
+Notice the architecture at work:
+
+The button does not know how to change the count. It only dispatches an action.
+
+The reducer does not know how to draw the label. It only changes state.
+
+The text label does not know that a button exists. It only renders from state.
+
+That separation is why the screen stays understandable.
+
+## Step 5: connect the widget to a shell and run it
+
+The last step is giving the shared app logic a real host window.
+
+For a first app, desktop is the easiest starting point because it gives you the shortest feedback loop. The shell code is small:
+
+```rust
+use anyhow::Result;
+use fission_shell_desktop::DesktopApp;
+
+fn main() -> Result<()> {
+    DesktopApp::new(CounterApp).run()
+}
+```
+
+This is where the platform shell enters the picture. `DesktopApp` is the desktop host. It creates the real native window, runs the runtime, delivers input, and presents the rendered result. Your `CounterApp` widget still contains the shared app model.
+
+That same model can later run on web, Android, and iOS through their own shells. The counter itself does not need a different architecture for each platform.
+
+## Step 6: see the full file together
+
+Once the pieces make sense, it helps to see them as one complete `src/app.rs` file.
+
+```rust
+use fission::prelude::*;
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
+pub struct CounterState {
+    pub count: i32,
+}
+
+impl AppState for CounterState {}
+
+#[derive(fission_macros::Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+pub struct Increment;
+
+fn on_increment(
+    state: &mut CounterState,
+    _action: Increment,
+    _ctx: &mut ReducerContext<CounterState>,
+) {
+    state.count += 1;
+}
+
+pub struct CounterApp;
+
+impl Widget<CounterState> for CounterApp {
+    fn build(&self, ctx: &mut BuildCtx<CounterState>, view: &View<CounterState>) -> Node {
+        let increment = ctx.bind(
+            Increment,
+            on_increment as Handler<CounterState, Increment>,
+        );
+
+        Column {
+            gap: Some(16.0),
+            children: vec![
+                Text::new(format!("Count: {}", view.state.count)).into_node(),
+                Button {
+                    on_press: Some(increment),
+                    child: Some(Box::new(Text::new("Increment").into_node())),
+                    ..Default::default()
+                }
+                .into_node(),
+            ],
+            ..Default::default()
+        }
+        .into_node()
+    }
+}
+```
+
+If you are using the generated quickstart app layout, `src/main.rs` stays the shell entrypoint and `src/app.rs` holds this shared app logic.
+
+If you read the full file and feel that some lines still look more like Rust ceremony than application logic, that reaction is reasonable. The key lines to keep hold of are these:
+
+- the state struct with `count`,
+- the `Increment` action,
+- the reducer that does `state.count += 1`,
+- the widget reading `view.state.count`,
+- and the button binding that dispatches `Increment`.
+
+Those lines teach the Fission model. The derives, trait implementations, and handler type hints are the surrounding framework scaffolding that makes the model compile cleanly in Rust.
+
+## What happens when the button is pressed
+
+Now that you have seen the code, here is the exact runtime story.
+
+The user presses the button. The button emits the bound action. Fission dispatches `Increment`. The reducer runs and changes `state.count`. The runtime schedules another build. `build()` runs again, reads `view.state.count`, and returns a new text label with the updated number.
+
+That is what "state-driven rendering" means in practice. The user interface is not manually patched in place. The user interface is rebuilt from the updated state.
+
+This is why Fission feels strict at first and helpful later. Once you learn to follow the loop, bigger features stay traceable.
+
+## What to avoid as you expand the example
+
+The most common beginner mistake is trying to bypass the loop. For example, you might feel tempted to stash a local mutable counter inside the widget, or to think of the button as directly changing the text. Avoid that. In Fission, durable screen data belongs in `AppState`, user intent belongs in actions, state changes belong in reducers, and rendering belongs in `build()`.
+
+Another common mistake is putting non-render work in `build()`. Do not fetch data or trigger outside work there. `build()` may run many times. Keep it focused on describing the interface.
+
+## Where to go next
+
+Once this counter feels comfortable, the next useful step is adding one more kind of state and one more kind of input. A text field or modal dialog is a good next move because it proves the same architecture still works when the screen gets more interesting. The [modal text flow recipe](/docs/cookbook/modal-text-flow) is a natural follow-up, and the [runtime model guide](/docs/learn/runtime-model) explains the same loop in more depth.

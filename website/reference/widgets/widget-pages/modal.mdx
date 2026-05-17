@@ -1,45 +1,81 @@
 ---
 title: Modal
-description: Reference details for Modal.
+description: Present a blocking dialog through the portal system while keeping state and outcomes explicit.
 slug: /widgets/modal
 ---
 # Modal
 
-Use it when the user needs to interact, choose a value, or submit intent.
+`Modal` is Fission's centered dialog overlay.
 
+Use it when the user needs to stop and make a decision, confirm a risky action, or complete a short focused task before returning to the underlying screen. The dialog itself does not own that workflow. Your app state owns whether the modal is open, what content it shows, and what should happen when each action button is pressed.
 
-This is part of the Fission widget API and belongs in the same typed, state-driven model used across the rest of the framework.
+That separation matters. If a dialog can appear or disappear from hidden side effects, debugging quickly becomes painful. In Fission, a modal is open because your state says it is open. A backdrop tap or close button dispatches `on_dismiss`, your reducer updates state, and the next `build()` pass removes the modal.
 
+If the user interface should stay lightweight and anchored to one control, use a [`Popover`](/reference/widgets/popover) instead. If the user interface is really a temporary side panel, use a [`Drawer`](/reference/widgets/drawer).
 
-**When you need it**
-- This widget is best when the control drives explicit `Action` dispatch or receives values from a reducer-owned state model.
-- Use predictable state updates as your entry point for all behavior changes.
-- Combine with semantic labels and role attributes for reliable interaction testing.
+## Example
 
-## Minimal usage
 ```rust
-use fission_widgets::Modal;
+use fission_core::{Handler, WidgetNodeId};
+use fission_core::ui::Text;
+use fission_widgets::{Modal, ModalAction};
 
-let node = Modal {
-    ..Default::default()
-}.into_node();
+let confirm_modal = Modal {
+    id: WidgetNodeId::explicit("publish_modal"),
+    title: "Publish this release?".into(),
+    content: Box::new(
+        Text::new("Everyone on your team will see this version immediately.")
+            .into_node(),
+    ),
+    is_open: view.state.show_publish_modal,
+    on_dismiss: Some(ctx.bind(
+        TogglePublishModal(false),
+        (|state: &mut AppState, action: TogglePublishModal, _| {
+            state.show_publish_modal = action.0;
+        }) as Handler<AppState, TogglePublishModal>,
+    )),
+    actions: vec![
+        ModalAction {
+            label: "Cancel".into(),
+            on_press: Some(close_publish_modal),
+            is_primary: false,
+        },
+        ModalAction {
+            label: "Publish".into(),
+            on_press: Some(confirm_publish),
+            is_primary: true,
+        },
+    ],
+    width: Some(520.0),
+}
+.build(ctx, view);
 ```
 
-## API surface
-- `id`: `WidgetNodeId`
-- `title`: `String`
-- `content`: `Box<Node>`
-- `is_open`: `bool`
-- `on_dismiss`: `Option<ActionEnvelope>`
-- `actions`: `Vec<ModalAction>`
-- `width`: `Option<f32>`
+## Field table
 
-## Implementation checks
-- Keep control values in state, validate there, and surface results through completion actions or reducer transitions.
-- Keep callbacks/closures small and deterministic when possible, then move side effects to async boundaries.
-- If the widget affects layout or input, verify with both state transitions and target-level smoke tests.
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `id` | `WidgetNodeId` | Stable identity for the modal's portal entry. | Required. Give each distinct modal a stable id. |
+| `title` | `String` | Header text shown at the top of the dialog. | Keep it short and task-specific. |
+| `content` | `Box<Node>` | Main body content for the dialog. | Build your form, explanation, or confirmation copy here. |
+| `is_open` | `bool` | Whether the modal should be visible this frame. | When `false`, the widget returns an inert spacer and registers no portal. |
+| `on_dismiss` | `Option<ActionEnvelope>` | Action dispatched when the backdrop or close button is pressed. | Defaults to `None`. Use it for the standard escape path. |
+| `actions` | `Vec<ModalAction>` | Footer buttons rendered at the bottom of the dialog. | Defaults to an empty footer when you pass an empty vector. |
+| `width` | `Option<f32>` | Requested dialog width in logical pixels. | Defaults to the themed modal max width. The runtime clamps it to fit within the viewport margins. |
 
-## Next
-- [Widget catalog](/reference/widgets/catalog)
-- [Widget trait](/reference/core/widget-trait)
-- [Runtime model](/docs/learn/runtime-model)
+## Layout and layering
+
+`Modal` renders into `PortalLayer::Modal`, above normal content and above default portals. The shell then wraps portal content in a viewport-sized container, which lets the modal center itself against the full screen rather than the inline layout location where you declared it.
+
+The widget builds three parts for you: a full-screen dimmed backdrop, a centered card, and a footer row of action buttons. Backdrop taps and the header close button both dispatch the same `on_dismiss` envelope, so you only need one reducer path for the ordinary exit case.
+
+## Specific advice
+
+Keep modal work short. If people need to browse, compare, or edit large amounts of information, a routed screen or a split layout is usually easier to use and easier to test.
+
+Also be deliberate about accessibility and focus. The modal structure is provided for you, but the product still needs clear button labels, understandable body copy, and validation messages that explain what went wrong. If the dialog contains text fields, test keyboard focus and dismissal behavior on each target you care about.
+
+## Related
+
+[`ModalAction`](/reference/widgets/modal-action), [`Drawer`](/reference/widgets/drawer), [`Popover`](/reference/widgets/popover), and [`Portal`](/reference/widgets/portal).
+

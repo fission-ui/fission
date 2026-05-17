@@ -1,36 +1,59 @@
 ---
 title: absolute_fill
-description: Reference details for absolute_fill.
+description: Stretch one child to the full bounds of its parent stack.
 slug: /widgets/absolute-fill
 ---
 # absolute_fill
 
-Use it for cross-cutting composition and app-level surface behavior.
+`absolute_fill(...)` is a small helper that wraps one child in an `AbsoluteFill` layout node.
 
+In plain language, it tells the runtime, "give this child the same width and height as the parent bounds." That makes it useful for scrims, loading overlays, full-surface backgrounds, and any layered content that should cover the whole stack.
 
-This is part of the Fission widget API and belongs in the same typed, state-driven model used across the rest of the framework.
+Use it when the child should fill an existing layered area. Do not reach for it when you only need ordinary full-width layout in a `Row`, `Column`, or `Container`; those cases are better handled with normal box constraints, flex, or padding.
 
+## Example
 
-**When you need it**
-- This widget is best when building reusable building blocks that support product patterns.
-- Use predictable state updates as your entry point for all behavior changes.
-- Combine with semantic labels and role attributes for reliable interaction testing.
+A common pattern is a dimming scrim behind a modal or popover.
 
-## Minimal usage
 ```rust
+use fission_core::ui::{Container, Text, ZStack};
 use fission_widgets::absolute_fill;
-let node = absolute_fill(fission_core::ui::Text::new("overlay").into_node());
+
+let node = ZStack {
+    children: vec![
+        Text::new("Main content").into_node(),
+        absolute_fill(
+            Container::new(Text::new("").into_node())
+                .bg(fission_core::op::Color {
+                    r: 0,
+                    g: 0,
+                    b: 0,
+                    a: 140,
+                })
+                .into_node(),
+        ),
+    ],
+    ..Default::default()
+}
+.into_node();
 ```
 
-## API surface
-- `id`: `Option<NodeId>`
+The helper does not add styling or input behavior by itself. It only changes sizing. In this example, the `Container` provides the background color while `absolute_fill(...)` makes that container cover the whole stacked area.
 
-## Implementation checks
-- Pair it with the core trait contract and test rendering output with headless checks for stability.
-- Keep callbacks/closures small and deterministic when possible, then move side effects to async boundaries.
-- If the widget affects layout or input, verify with both state transitions and target-level smoke tests.
+## Field table
 
-## Next
-- [Widget catalog](/reference/widgets/catalog)
-- [Widget trait](/reference/core/widget-trait)
-- [Runtime model](/docs/learn/runtime-model)
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `child` | `Node` | The node that should fill the parent's bounds. | Required. The helper returns a new `Node` rather than a widget struct with public fields. |
+
+## Behavior and advice
+
+`absolute_fill(...)` is most useful inside layered layouts such as [`ZStack`](/reference/widgets/z-stack) or widgets that already build a stack internally, such as [`Overlay`](/reference/widgets/overlay). The layout engine treats `AbsoluteFill` specially and gives the child tight constraints equal to the available parent size.
+
+If you need an anchored overlay such as "top-right badge" or "bottom sheet handle," use [`Positioned`](/reference/widgets/positioned) instead. If you need more than one layer and explicit painting order, use [`ZStack`](/reference/widgets/z-stack).
+
+A good rule is simple: use `absolute_fill(...)` when the child should cover everything, and use `Positioned` when the child should sit at a specific edge or corner.
+
+## Related
+
+[`Overlay`](/reference/widgets/overlay), [`Positioned`](/reference/widgets/positioned), and [`ZStack`](/reference/widgets/z-stack).

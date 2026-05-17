@@ -1,39 +1,56 @@
 ---
 title: Accordion
-description: Reference details for Accordion.
+description: Show a vertical list of sections that can reveal or hide their content.
 slug: /widgets/accordion
 ---
 # Accordion
 
-Use it when the user needs to interact, choose a value, or submit intent.
+`Accordion` is the widget for progressive disclosure in a vertical stack.
 
+Use it when a screen has secondary details that should stay available without overwhelming the first read. Common examples are advanced filters, shipping details, frequently asked questions, or email metadata that should not occupy full height all the time.
 
-This is part of the Fission widget API and belongs in the same typed, state-driven model used across the rest of the framework.
+## Example
 
-
-**When you need it**
-- This widget is best when the control drives explicit `Action` dispatch or receives values from a reducer-owned state model.
-- Use predictable state updates as your entry point for all behavior changes.
-- Combine with semantic labels and role attributes for reliable interaction testing.
-
-## Minimal usage
 ```rust
-use fission_widgets::Accordion;
+use fission_widgets::{Accordion, AccordionItem};
 
 let node = Accordion {
-    ..Default::default()
-}.into_node();
+    items: vec![
+        AccordionItem {
+            title: "Details".into(),
+            content: details_node,
+            is_expanded: view.state.details_open,
+            on_toggle: Some(toggle_details_action),
+        },
+        AccordionItem {
+            title: "History".into(),
+            content: history_node,
+            is_expanded: view.state.history_open,
+            on_toggle: Some(toggle_history_action),
+        },
+    ],
+}
+.build(ctx, view);
 ```
 
-## API surface
-- `items`: `Vec<AccordionItem>`
+The widget only reflects state. If your product wants exactly one section open at a time, that rule belongs in the reducer. If your product wants several sections open together, that also belongs in the reducer.
 
-## Implementation checks
-- Keep control values in state, validate there, and surface results through completion actions or reducer transitions.
-- Keep callbacks/closures small and deterministic when possible, then move side effects to async boundaries.
-- If the widget affects layout or input, verify with both state transitions and target-level smoke tests.
+## Field table
 
-## Next
-- [Widget catalog](/reference/widgets/catalog)
-- [Widget trait](/reference/core/widget-trait)
-- [Runtime model](/docs/learn/runtime-model)
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `items` | `Vec<AccordionItem>` | The sections to render from top to bottom. | Defaults to an empty list. |
+
+## State ownership and behavior
+
+`Accordion` does not own expansion state. Each item brings its own `is_expanded` flag and `on_toggle` action. That means the widget does not enforce a single-open pattern, does not remember the last opened section, and does not silently mutate anything on its own.
+
+The checked-in renderer builds each header as a ghost button and places the expanded content in a second container underneath it. This produces a clear stacked presentation, but it also means each expanded item is two visible blocks rather than one animated height transition.
+
+## Specific advice
+
+An accordion should reduce scanning cost, not hide essential content. If users must open every section just to finish the main task, the layout probably wants tabs, a stepper, or a simpler single-column flow instead.
+
+## Related
+
+[`AccordionItem`](/reference/widgets/accordion-item), [`Tabs`](/reference/widgets/tabs), [`Stepper`](/reference/widgets/stepper), and [`Card`](/reference/widgets/card).

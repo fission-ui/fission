@@ -1,41 +1,48 @@
 ---
 title: FileUpload
-description: Reference details for FileUpload.
+description: Render a browse button plus selected-file text for file picking flows.
 slug: /widgets/file-upload
 ---
 # FileUpload
 
-Use it when the user needs to interact, choose a value, or submit intent.
+`FileUpload` is the small file-picking helper in the authoring widget set.
 
+It gives you a familiar browse button and a text area that shows the currently selected file name. It does not open the operating system file picker by itself. In Fission, that host work belongs in an explicit effect, usually triggered from the reducer after `on_browse` fires.
 
-This is part of the Fission widget API and belongs in the same typed, state-driven model used across the rest of the framework.
+## Example
 
-
-**When you need it**
-- This widget is best when the control drives explicit `Action` dispatch or receives values from a reducer-owned state model.
-- Use predictable state updates as your entry point for all behavior changes.
-- Combine with semantic labels and role attributes for reliable interaction testing.
-
-## Minimal usage
 ```rust
 use fission_widgets::FileUpload;
 
 let node = FileUpload {
-    ..Default::default()
-}.into_node();
+label: "Browse".into(),
+selected_file: view.state.attachment_name.clone(),
+on_browse: Some(ctx.bind(PickAttachment, on_pick_attachment)),
+}
+.build(ctx, view);
 ```
 
-## API surface
-- `label`: `String`
-- `selected_file`: `Option<String>`
-- `on_browse`: `Option<ActionEnvelope>`
+A common next step is for `on_pick_attachment` to ask the runtime for a file picker capability, then store the chosen file name or handle in state when the capability returns.
 
-## Implementation checks
-- Keep control values in state, validate there, and surface results through completion actions or reducer transitions.
-- Keep callbacks/closures small and deterministic when possible, then move side effects to async boundaries.
-- If the widget affects layout or input, verify with both state transitions and target-level smoke tests.
+## Field table
 
-## Next
-- [Widget catalog](/reference/widgets/catalog)
-- [Widget trait](/reference/core/widget-trait)
-- [Runtime model](/docs/learn/runtime-model)
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `label` | `String` | Text shown on the browse button. | Required. Use an explicit verb such as "Browse" or "Choose file". |
+| `selected_file` | `Option<String>` | Display text for the chosen file. | If `None`, the widget shows "No file selected". |
+| `on_browse` | `Option<ActionEnvelope>` | Action fired when the browse button is pressed. | Defaults to `None`. The reducer usually emits a file-picker capability from here. |
+
+## How it fits into the state and effect loop
+
+The widget handles presentation only. The full flow usually looks like this: the user presses browse, the widget dispatches `on_browse`, the reducer asks `ctx.effects` to invoke a host file-picker capability such as `PICK_OPEN_FILES`, and a later success action stores the chosen file information in `AppState`. The next build then passes a new `selected_file` string back into the widget.
+
+This separation is why file picking remains deterministic inside the core runtime. The widget describes intent, while the host interaction happens explicitly outside the reducer.
+
+## Specific advice
+
+Show a meaningful filename or summary after selection so the user can confirm what happened. Also remember that this widget displays one string; if your flow supports multiple files, store and render a deliberate summary such as "3 files selected" or a separate attachments list next to it.
+
+## Related
+
+[`Dropzone`](/reference/widgets/dropzone), [`Button`](/reference/widgets/button), [`FormControl`](/reference/widgets/form-control), and [`Resources and async`](/docs/guides/resources-and-async).
+

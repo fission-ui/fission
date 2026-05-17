@@ -1,52 +1,115 @@
 ---
 title: State system
-description: The typed action and reducer model behind every Fission app.
+description: The reference contract for AppState, Action, reducers, ReducerContext, and selectors.
 ---
 
 # State system
 
-Fission keeps product logic in a small set of public contracts.
+The state system is the behavioral backbone of a Fission app.
 
-## Primary types
+This page is the reference version of that model. Use it when you want to confirm the contract for `AppState`, typed `Action` values, reducers, `ReducerContext`, or selectors without re-reading the more narrative Learn pages.
 
-- `AppState`: your durable product model
-- `Action`: a serializable intent type with a stable ID
-- `ActionEnvelope`: erased transport form used by the runtime
-- `Handler<S, A>`: the canonical reducer signature
-- `ReducerContext<S>`: effect builder plus action input metadata
-- `ActionRegistry<S>`: a per-frame or startup-time reducer registry
+## The core contract at a glance
 
-## Reducer shapes
+| Piece | Contract | Purpose |
+| --- | --- | --- |
+| `AppState` | Your durable application data model | Holds the product data the user interface describes and reducers update |
+| `Action` | A typed, serializable intent value with a stable `ActionId` | Describes what happened in app terms |
+| reducer | A function that updates state in response to an action | Centralizes state changes in one explicit path |
+| `ReducerContext` | Reducer-time access to effect emission and action input metadata | Lets reducers request outside work and inspect returned input |
+| `Selector<S>` | A derived read-only view computation | Keeps larger widgets from scattering raw state reads everywhere |
 
-Fission accepts both legacy two-argument reducers and the modern three-argument form, but the three-argument form is the important one because it gives access to `ReducerContext`.
+## `AppState`
+
+`AppState` is the trait implemented by the application state type managed by the runtime.
+
+In practice, your state is usually an ordinary Rust struct, and `impl AppState for MyState {}` marks it as the app's shared state model.
+
+What belongs in `AppState`? Durable product truth. Text the user is editing, the selected screen, whether a save is in progress, the current locale preference, loaded data, error states, and other user-visible product state all fit here.
+
+What does not belong there? Runtime-owned details such as current animation interpolation values, platform clipboard implementations, or other framework-managed interaction state.
+
+## `Action`
+
+An `Action` is the typed message that describes user intent or some other meaningful event in the app.
+
+The `Action` trait requires values to be serializable and to provide a stable `ActionId` through `static_id()`. In practice, most app actions are small Rust structs or enums that derive the framework macro and travel through the runtime as `ActionEnvelope` values.
+
+The point of this system is not ceremony for its own sake. It gives the runtime a deterministic, typed way to route behavior across input, reducers, testing, diagnostics, and replay.
+
+Use actions to describe what happened in app language. Examples include `SaveRequested`, `LocaleChanged`, `DrawerClosed`, or `FilterUpdated`.
+
+Avoid using vague "do everything" actions that hide several unrelated transitions. Small, intention-revealing actions are easier to test and review.
+
+## Reducers
+
+A reducer is the function that receives the current state, an action, and optionally reducer-time context, then updates state in response.
+
+The modern reducer shape is:
 
 ```rust
 fn handle(state: &mut MyState, action: MyAction, ctx: &mut ReducerContext<MyState>)
 ```
 
-## Binding reducers
+This is the important contract to remember: reducers are where state changes are supposed to happen.
 
-The two normal binding paths are:
+That gives Fission its clear one-way flow:
 
-- `ctx.bind(action, handler)` inside `build()` for local UI handlers
-- `ActionRegistry::register(handler)` plus shell `absorb_registry(...)` for global startup wiring
+1. widgets emit actions,
+2. the runtime dispatches them,
+3. reducers update state,
+4. widgets rebuild from the new state.
+
+Reducers should stay deterministic and explicit. They may request effects through `ReducerContext`, but they should not become ad hoc side-effect containers.
+
+## `ReducerContext`
+
+`ReducerContext` is the reducer-time helper for two related jobs.
+
+First, it exposes `ctx.effects`, which lets a reducer request jobs, services, commands, capabilities, and other runtime-managed work.
+
+Second, it exposes `ctx.input`, which lets the reducer inspect the input data that accompanied this dispatch. That may include job results, capability results, service events, timer payloads, pointer data, or dropped-file data.
+
+Use `ReducerContext` when a reducer needs to say "start this outside work" or "read the explicit data that came back from the runtime."
+
+Do not treat `ReducerContext` as long-lived storage. It exists only while the reducer is running.
+
+## Binding reducers into the app
+
+Two binding patterns matter most in ordinary app code.
+
+Use `ctx.bind(action, handler)` inside `build()` when the action wiring is local to the widget tree. This is the most common pattern for buttons, text fields, and local interactions.
+
+Use `ActionRegistry` and shell-side registration when reducers should be registered in a more centralized startup-style path.
+
+The important architectural point is the same either way: state still changes through explicit reducer functions, not through hidden widget mutation.
 
 ## Selectors
 
-Use `Selector<S>` when you want a stable, testable derived view model without mutating app state during build.
+A selector is a read-only derived computation from `View`.
 
-The `counter` example's `CounterVM` is the canonical pattern in this repo.
+Publicly, `Selector<S>` exists so widgets can ask for exactly the view model they need instead of reaching into raw state fields everywhere. That becomes increasingly valuable as screens grow.
 
-## Why the model matters
+Use a selector when a widget needs formatted text, derived booleans, grouped data, or a small view model struct that is computed from current inputs.
 
-Because actions are typed and reducers are explicit, the same transition can be:
+Do not use a selector to hide side effects or mutate state. A selector is a read operation only.
 
-- replayed in tests,
-- driven by mouse, keyboard, IME, or accessibility input,
-- observed through diagnostics,
-- reused across desktop, web, and mobile hosts.
+In small examples, direct `view.state` reads are often fine. In larger apps, selectors help keep build code cleaner and make data dependencies easier to test.
 
-## Related pages
+## A useful mental model for this page
 
-- [Commands, services, and jobs](/reference/core/commands-services-jobs)
-- [Resources and capabilities](/reference/core/resources-and-capabilities)
+`AppState` holds the durable data.
+
+`Action` describes what happened.
+
+Reducers decide how that changes state.
+
+`ReducerContext` gives reducers explicit effect and input plumbing.
+
+Selectors derive focused read models for widgets.
+
+If you remember that shape, most of the reference pages around widgets, resources, input, and testing become much easier to navigate.
+
+## Related reference pages
+
+For async work and reducer-side effect emission, continue to [Commands, services, and jobs](/reference/core/commands-services-jobs) and [Resources and capabilities](/reference/core/resources-and-capabilities). For the widget-side contract that reads from this state system, see [Widget trait](/reference/core/widget-trait).

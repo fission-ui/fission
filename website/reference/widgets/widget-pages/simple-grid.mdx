@@ -1,41 +1,54 @@
 ---
 title: SimpleGrid
-description: Reference details for SimpleGrid.
+description: Build a responsive wrapping grid by giving each child a minimum width.
 slug: /widgets/simple-grid
 ---
 # SimpleGrid
 
-Use it to control how child nodes are arranged, measured, and constrained.
+`SimpleGrid` is the lightweight responsive grid helper.
 
+Instead of making you define explicit tracks like [`Grid`](/reference/widgets/grid), it wraps children and gives each child a minimum width. That makes it a good fit for galleries, settings cards, attachment previews, or dashboard tiles that should flow naturally as the viewport changes.
 
-This is part of the Fission widget API and belongs in the same typed, state-driven model used across the rest of the framework.
+Use `SimpleGrid` when the goal is responsive card wrapping. Do not use it when you need named rows and columns or explicit placement rules. That is what `Grid` and [`GridItem`](/reference/widgets/grid-item) are for.
 
+## Example
 
-**When you need it**
-- This widget is best when you need stable structure before styling. Keep layout decisions explicit so state and constraints stay predictable.
-- Use predictable state updates as your entry point for all behavior changes.
-- Combine with semantic labels and role attributes for reliable interaction testing.
-
-## Minimal usage
 ```rust
+use fission_core::ui::Text;
 use fission_widgets::SimpleGrid;
 
 let node = SimpleGrid {
-    ..Default::default()
-}.into_node();
+    min_child_width: 220.0,
+    gap: Some(16.0),
+    children: vec![
+        Text::new("Card A").into_node(),
+        Text::new("Card B").into_node(),
+        Text::new("Card C").into_node(),
+    ],
+}
+.build(ctx, view);
 ```
 
-## API surface
-- `min_child_width`: `f32`
-- `gap`: `Option<f32>`
-- `children`: `Vec<Node>`
+## Field table
 
-## Implementation checks
-- Build with the state model first, then layer spacing, alignment, and visual treatment. Layout mistakes are usually cheaper to fix before async behavior is introduced.
-- Keep callbacks/closures small and deterministic when possible, then move side effects to async boundaries.
-- If the widget affects layout or input, verify with both state transitions and target-level smoke tests.
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `min_child_width` | `f32` | Minimum width each child should try to keep. | Required. Each child is wrapped in a container with this minimum width. |
+| `gap` | `Option<f32>` | Spacing between children. | Defaults to `None`. |
+| `children` | `Vec<Node>` | Items to place in the wrapping grid. | Defaults to an empty list. |
 
-## Next
-- [Widget catalog](/reference/widgets/catalog)
-- [Widget trait](/reference/core/widget-trait)
-- [Runtime model](/docs/learn/runtime-model)
+## Layout behavior
+
+`SimpleGrid` is implemented as a wrapping `Row`. Each child is wrapped in a [`Container`](/reference/widgets/container) with `flex_grow: 1.0` and `min_width(min_child_width)`. That is why it feels grid-like without requiring explicit track definitions.
+
+This also means `SimpleGrid` is intentionally opinionated and approximate. It is about responsive card flow, not strict spreadsheet-style layout.
+
+## Specific advice
+
+`SimpleGrid` works especially well when child cards already know how to size themselves vertically. If you also want the media inside those cards to keep consistent proportions, combine it with [`AspectRatio`](/reference/widgets/aspect-ratio).
+
+When exact placement matters more than natural wrapping, stop using `SimpleGrid` and switch to `Grid`.
+
+## Related
+
+[`Grid`](/reference/widgets/grid), [`Wrap`](/reference/widgets/wrap), [`Container`](/reference/widgets/container), and [`AspectRatio`](/reference/widgets/aspect-ratio).

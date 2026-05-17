@@ -1,40 +1,57 @@
 ---
 title: SafeArea
-description: Reference details for SafeArea.
+description: Apply platform window insets so content stays clear of notches, system bars, and similar edges.
 slug: /widgets/safe-area
 ---
 # SafeArea
 
-Use it to control how child nodes are arranged, measured, and constrained.
+`SafeArea` applies padding derived from the current platform window insets.
 
+In practical terms, it keeps content away from areas such as mobile notches, rounded corners, system status bars, or other host-defined unsafe edges. On desktop, those insets are often effectively zero. On mobile and some browser embeddings, they matter a great deal.
 
-This is part of the Fission widget API and belongs in the same typed, state-driven model used across the rest of the framework.
+Use `SafeArea` near the root of full-screen screens or overlays that should respect platform edges. Do not use it as a substitute for ordinary design padding. If the goal is visual spacing rather than host insets, use [`Container`](/reference/widgets/container) or standard layout gap instead.
 
+## Example
 
-**When you need it**
-- This widget is best when you need stable structure before styling. Keep layout decisions explicit so state and constraints stay predictable.
-- Use predictable state updates as your entry point for all behavior changes.
-- Combine with semantic labels and role attributes for reliable interaction testing.
-
-## Minimal usage
 ```rust
-use fission_core::ui::SafeArea;
+use fission_core::ui::{Column, SafeArea, Text};
 
 let node = SafeArea {
+    child: Box::new(
+        Column {
+            gap: Some(12.0),
+            children: vec![
+                Text::new("Messages").into_node(),
+                Text::new("Compose").into_node(),
+            ],
+            ..Default::default()
+        }
+        .into_node(),
+    ),
     ..Default::default()
-}.into_node();
+}
+.into_node();
 ```
 
-## API surface
-- `id`: `Option<NodeId>`
-- `child`: `Box<Node>`
+## Field table
 
-## Implementation checks
-- Build with the state model first, then layer spacing, alignment, and visual treatment. Layout mistakes are usually cheaper to fix before async behavior is introduced.
-- Keep callbacks/closures small and deterministic when possible, then move side effects to async boundaries.
-- If the widget affects layout or input, verify with both state transitions and target-level smoke tests.
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `id` | `Option<NodeId>` | Stable node identity. | Defaults to `None`. |
+| `child` | `Box<Node>` | The content that should be padded away from unsafe edges. | Required. `Default` uses an empty spacer child. |
 
-## Next
-- [Widget catalog](/reference/widgets/catalog)
-- [Widget trait](/reference/core/widget-trait)
-- [Runtime model](/docs/learn/runtime-model)
+## Mobile and responsive behavior
+
+`SafeArea` reads `env.window_insets` from the current environment and turns those insets into box padding. The padding order is `[left, right, top, bottom]`, and the wrapper uses `flex_grow: 1.0` so it behaves naturally as a screen root.
+
+This is why `SafeArea` belongs in responsive and mobile-aware layouts: it connects platform shell information to ordinary widget composition without forcing every child to know about device edges.
+
+## Specific advice
+
+Apply `SafeArea` high enough in the tree that the whole screen respects unsafe edges, but not so broadly that deeply nested components accidentally inherit platform-specific spacing they should not know about.
+
+A common pattern is `SafeArea` at the screen root, followed by [`Scroll`](/reference/widgets/scroll) or a `Column` inside it.
+
+## Related
+
+[`Container`](/reference/widgets/container), [`Scroll`](/reference/widgets/scroll), [`Column`](/reference/widgets/column), and [`Positioned`](/reference/widgets/positioned).

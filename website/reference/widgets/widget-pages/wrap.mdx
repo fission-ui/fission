@@ -1,41 +1,53 @@
 ---
 title: Wrap
-description: Reference details for Wrap.
+description: Flow children across lines or columns when they exceed available space.
 slug: /widgets/wrap
 ---
 # Wrap
 
-Use it to control how child nodes are arranged, measured, and constrained.
+`Wrap` is the flow-layout helper for content that should continue onto another line or column when space runs out.
 
+This is a strong fit for chips, tag clouds, compact action sets, filter pills, or other repeated items that should flow naturally rather than force a strict grid or one long row.
 
-This is part of the Fission widget API and belongs in the same typed, state-driven model used across the rest of the framework.
+Use `Wrap` when wrapping behavior is the important part of the layout. Do not use it when you need exact track definitions or predictable card columns. For those cases, use [`Grid`](/reference/widgets/grid) or [`SimpleGrid`](/reference/widgets/simple-grid).
 
+## Example
 
-**When you need it**
-- This widget is best when you need stable structure before styling. Keep layout decisions explicit so state and constraints stay predictable.
-- Use predictable state updates as your entry point for all behavior changes.
-- Combine with semantic labels and role attributes for reliable interaction testing.
-
-## Minimal usage
 ```rust
+use fission_core::ui::Text;
+use fission_ir::op::FlexDirection;
 use fission_widgets::Wrap;
 
 let node = Wrap {
-    ..Default::default()
-}.into_node();
+    direction: FlexDirection::Row,
+    spacing: Some(8.0),
+    children: vec![
+        Text::new("Design").into_node(),
+        Text::new("Performance").into_node(),
+        Text::new("Accessibility").into_node(),
+    ],
+}
+.build(ctx, view);
 ```
 
-## API surface
-- `direction`: `FlexDirection`
-- `spacing`: `Option<f32>`
-- `children`: `Vec<Node>`
+## Field table
 
-## Implementation checks
-- Build with the state model first, then layer spacing, alignment, and visual treatment. Layout mistakes are usually cheaper to fix before async behavior is introduced.
-- Keep callbacks/closures small and deterministic when possible, then move side effects to async boundaries.
-- If the widget affects layout or input, verify with both state transitions and target-level smoke tests.
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `direction` | `FlexDirection` | Whether the flow starts as a row or a column. | Defaults to `FlexDirection::Row`. |
+| `spacing` | `Option<f32>` | Gap between items. | Defaults to `None`. |
+| `children` | `Vec<Node>` | Items that participate in the flow layout. | Defaults to an empty list. |
 
-## Next
-- [Widget catalog](/reference/widgets/catalog)
-- [Widget trait](/reference/core/widget-trait)
-- [Runtime model](/docs/learn/runtime-model)
+## Layout behavior
+
+`Wrap` is implemented by building either a wrapping `Row` or a wrapping `Column`. That means it inherits the flex-style behavior of those primitives while forcing `FlexWrap::Wrap`.
+
+In practice, `FlexDirection::Row` is the common case. `FlexDirection::Column` is available for less common layouts where items should flow downward and then into another column.
+
+## Specific advice
+
+`Wrap` is best when items are relatively self-sized and the layout can stay visually loose. If you need every tile to respect a minimum width and create a more card-like responsive grid, prefer [`SimpleGrid`](/reference/widgets/simple-grid).
+
+## Related
+
+[`Row`](/reference/widgets/row), [`Column`](/reference/widgets/column), [`SimpleGrid`](/reference/widgets/simple-grid), and [`Grid`](/reference/widgets/grid).

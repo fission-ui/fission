@@ -1,42 +1,42 @@
 ---
 title: AccordionItem
-description: Reference details for AccordionItem.
+description: Describe one collapsible section inside an Accordion.
 slug: /widgets/accordion-item
 ---
 # AccordionItem
 
-Use it when the user needs to interact, choose a value, or submit intent.
+`AccordionItem` is the data record for one section inside an [`Accordion`](/reference/widgets/accordion).
 
+It is not a standalone widget. You build one item for each section you want to show, then hand the whole list to `Accordion`. The important state lives outside the item: your app decides whether the section is expanded and what action should run when the header is toggled.
 
-This is part of the Fission widget API and belongs in the same typed, state-driven model used across the rest of the framework.
+## Example
 
-
-**When you need it**
-- This widget is best when the control drives explicit `Action` dispatch or receives values from a reducer-owned state model.
-- Use predictable state updates as your entry point for all behavior changes.
-- Combine with semantic labels and role attributes for reliable interaction testing.
-
-## Minimal usage
 ```rust
 use fission_widgets::AccordionItem;
 
-let node = AccordionItem {
-    ..Default::default()
-}.into_node();
+let item = AccordionItem {
+    title: "Advanced filters".into(),
+    content: Text::new("Extra search controls go here").into_node(),
+    is_expanded: view.state.advanced_filters_open,
+    on_toggle: Some(toggle_advanced_filters_action),
+};
 ```
 
-## API surface
-- `title`: `String`
-- `content`: `Node`
-- `is_expanded`: `bool`
-- `on_toggle`: `Option<ActionEnvelope>`
+This keeps the item definition easy to read. The actual reducer still decides whether the section opens and closes.
 
-## Implementation checks
-- Keep control values in state, validate there, and surface results through completion actions or reducer transitions.
-- Keep callbacks/closures small and deterministic when possible, then move side effects to async boundaries.
-- If the widget affects layout or input, verify with both state transitions and target-level smoke tests.
+## Field table
 
-## Next
-- [Widget catalog](/reference/widgets/catalog)
-- [Widget trait](/reference/core/widget-trait)
-- [Runtime model](/docs/learn/runtime-model)
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `title` | `String` | Text shown in the accordion header. | Required. Keep titles short and scannable. |
+| `content` | `Node` | Body content shown when the item is expanded. | Required. This can be any node tree. |
+| `is_expanded` | `bool` | Whether the content is currently visible. | Controlled by app state. |
+| `on_toggle` | `Option<ActionEnvelope>` | Action fired when the header is pressed. | Defaults to `None`. Usually flips `is_expanded` in the reducer. |
+
+## Specific advice
+
+Keep `content` focused on one section's job. If the body becomes a whole screen or a deeply stateful workflow, it is usually clearer to move that work into a dedicated widget and use the accordion only as the disclosure shell.
+
+## Related
+
+[`Accordion`](/reference/widgets/accordion), [`Button`](/reference/widgets/button), [`Card`](/reference/widgets/card), and [`Tabs`](/reference/widgets/tabs).

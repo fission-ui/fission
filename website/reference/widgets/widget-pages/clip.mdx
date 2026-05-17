@@ -1,41 +1,50 @@
 ---
 title: Clip
-description: Reference details for Clip.
+description: Clip one child to its layout bounds.
 slug: /widgets/clip
 ---
 # Clip
 
-Use it to control how child nodes are arranged, measured, and constrained.
+`Clip` wraps one child and clips painting to that child's layout region.
 
+This solves a practical problem: sometimes a child should keep rendering normally, but any overflow should be hidden. Common cases include scroll-like reveal effects, animated translations, image masks, or custom surfaces that should stay inside a card.
 
-This is part of the Fission widget API and belongs in the same typed, state-driven model used across the rest of the framework.
+Use `Clip` when overflow is the problem. Do not use it as a substitute for sizing. If the real issue is padding, width, height, or aspect ratio, solve that first with layout widgets.
 
+## Example
 
-**When you need it**
-- This widget is best when you need stable structure before styling. Keep layout decisions explicit so state and constraints stay predictable.
-- Use predictable state updates as your entry point for all behavior changes.
-- Combine with semantic labels and role attributes for reliable interaction testing.
-
-## Minimal usage
 ```rust
-use fission_core::ui::Clip;
+use fission_core::ui::{Clip, Container, Text};
 
-let node = Clip {
-    ..Default::default()
-}.into_node();
+let node = Clip::new(
+    Container::new(Text::new("Sliding content").into_node())
+        .width(200.0)
+        .height(48.0)
+        .into_node(),
+)
+.into_node();
 ```
 
-## API surface
-- `id`: `Option<NodeId>`
-- `path`: `Option<String>`
-- `child`: `Box<Node>`
+This keeps the child inside its visible bounds even if another wrapper later translates or animates it.
 
-## Implementation checks
-- Build with the state model first, then layer spacing, alignment, and visual treatment. Layout mistakes are usually cheaper to fix before async behavior is introduced.
-- Keep callbacks/closures small and deterministic when possible, then move side effects to async boundaries.
-- If the widget affects layout or input, verify with both state transitions and target-level smoke tests.
+## Field table
 
-## Next
-- [Widget catalog](/reference/widgets/catalog)
-- [Widget trait](/reference/core/widget-trait)
-- [Runtime model](/docs/learn/runtime-model)
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `id` | `Option<NodeId>` | Stable node identity. | Defaults to `None`. |
+| `path` | `Option<String>` | Optional clip path payload. | Defaults to `None`. The current checked-in shell pipeline clips to rectangular bounds, so custom path behavior is not the portable default today. |
+| `child` | `Box<Node>` | The node whose painting should be clipped. | Required. `Clip::default()` uses an empty spacer child. |
+
+## Layout and rendering behavior
+
+`Clip` does not change the child's layout size. It forwards the same constraints to the child and then applies clipping at the rendering layer. That makes it a good partner for [`Transform`](/reference/widgets/transform) and [`Composite`](/reference/widgets/composite), where a child might visually move or fade without wanting to escape its frame.
+
+The `path` field exists in the public type, but the current shell path is rectangular clipping by default. If you need guaranteed cross-platform clipping behavior today, design around rectangular bounds rather than assuming arbitrary path clipping.
+
+## Specific advice
+
+Clip as late as practical. If you clip too early, later wrappers may become harder to reason about. A common pattern is `Container` for size and styling, then `Clip`, then a moving or custom-painted child.
+
+## Related
+
+[`Container`](/reference/widgets/container), [`Transform`](/reference/widgets/transform), [`Composite`](/reference/widgets/composite), and [`Scroll`](/reference/widgets/scroll).

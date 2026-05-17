@@ -1,40 +1,50 @@
 ---
 title: ButtonContentAlign
-description: Reference details for ButtonContentAlign.
+description: Choose how a Button positions its child inside the button surface.
 slug: /widgets/button-content-align
 ---
 # ButtonContentAlign
 
-Use it when the user needs to interact, choose a value, or submit intent.
+`ButtonContentAlign` is the alignment setting you pass to [`Button`](/reference/widgets/button) when the button's child should not stay centered.
 
+You usually encounter it when a button is wider than its content. A centered label works well for ordinary call-to-action buttons, but a full-width row button, toolbar button, or list-style menu button often reads better when its content starts at the left edge or ends at the right edge.
 
-This is part of the Fission widget API and belongs in the same typed, state-driven model used across the rest of the framework.
+## Example
 
-
-**When you need it**
-- This widget is best when the control drives explicit `Action` dispatch or receives values from a reducer-owned state model.
-- Use predictable state updates as your entry point for all behavior changes.
-- Combine with semantic labels and role attributes for reliable interaction testing.
-
-## Minimal usage
 ```rust
-use fission_core::ui::ButtonContentAlign;
+use fission_core::ui::{Button, ButtonContentAlign, Text};
 
-let node = ButtonContentAlign {
-    ..Default::default()
-}.into_node();
+let node = Button {
+width: Some(280.0),
+content_align: ButtonContentAlign::Start,
+child: Some(Box::new(Text::new("Open project").into_node())),
+on_press: Some(open_project_action),
+..Default::default()
+}
+.into_node();
 ```
 
-## API surface
-- Use `Default::default()` to start and set only required properties.
-- Prefer small, explicit updates so diffs stay readable.
+In this example the button is intentionally wider than its label, so `Start` makes the text read like a list row instead of a centered badge.
 
-## Implementation checks
-- Keep control values in state, validate there, and surface results through completion actions or reducer transitions.
-- Keep callbacks/closures small and deterministic when possible, then move side effects to async boundaries.
-- If the widget affects layout or input, verify with both state transitions and target-level smoke tests.
+## Choice table
 
-## Next
-- [Widget catalog](/reference/widgets/catalog)
-- [Widget trait](/reference/core/widget-trait)
-- [Runtime model](/docs/learn/runtime-model)
+| Choice | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `Center` | `ButtonContentAlign` | Centers the child inside the button content box. | Default. Best for standard action buttons. |
+| `Start` | `ButtonContentAlign` | Places the child at the leading edge of the button content box. | Useful for full-width buttons, menu-like rows, and text-plus-icon actions that should read from left to right. |
+| `End` | `ButtonContentAlign` | Places the child at the trailing edge of the button content box. | Useful for trailing utility actions, but uncommon for primary actions. |
+
+## When to use it
+
+Use this setting when the content alignment inside the button is part of the interaction design. A full-width settings row with a label and icon often wants `Start`. A compact toolbar button might still want `Center`.
+
+Do not use `ButtonContentAlign` to solve outer layout problems. If the whole button needs to move left, right, or fill available width, change the parent layout with [`Row`](/reference/widgets/row), [`Align`](/reference/widgets/align), or a width setting on the button itself.
+
+## Specific advice
+
+If your button child is already a layout widget such as an `HStack` with its own spacer, keep the two layers of alignment straight. `ButtonContentAlign` controls where that whole child sits inside the button. The child widget still controls spacing inside itself.
+
+## Related
+
+[`Button`](/reference/widgets/button), [`ButtonVariant`](/reference/widgets/button-variant), [`Align`](/reference/widgets/align), and [`Row`](/reference/widgets/row).
+

@@ -1,40 +1,41 @@
 ---
 title: ToastKind
-description: Reference details for ToastKind.
+description: Choose the urgency and icon treatment for a Toast notification.
 slug: /widgets/toast-kind
 ---
 # ToastKind
 
-Use it when the user needs to interact, choose a value, or submit intent.
+`ToastKind` is the severity enum used by [`Toast`](/reference/widgets/toast).
 
+A toast is brief, so the kind has to do a lot of work quickly. It helps the user judge whether the message is informative, positive, cautionary, or a failure.
 
-This is part of the Fission widget API and belongs in the same typed, state-driven model used across the rest of the framework.
+## Example
 
-
-**When you need it**
-- This widget is best when the control drives explicit `Action` dispatch or receives values from a reducer-owned state model.
-- Use predictable state updates as your entry point for all behavior changes.
-- Combine with semantic labels and role attributes for reliable interaction testing.
-
-## Minimal usage
 ```rust
-use fission_widgets::ToastKind;
+use fission_widgets::{Toast, ToastKind};
 
-let node = ToastKind {
-    ..Default::default()
-}.into_node();
+let node = Toast {
+    id: WidgetNodeId::explicit("sync_done_toast"),
+    kind: ToastKind::Success,
+    message: "Synced 12 files".into(),
+    on_close: Some(dismiss_toast_action),
+}
+.build(ctx, view);
 ```
 
-## API surface
-- Use `Default::default()` to start and set only required properties.
-- Prefer small, explicit updates so diffs stay readable.
+## Choice table
 
-## Implementation checks
-- Keep control values in state, validate there, and surface results through completion actions or reducer transitions.
-- Keep callbacks/closures small and deterministic when possible, then move side effects to async boundaries.
-- If the widget affects layout or input, verify with both state transitions and target-level smoke tests.
+| Choice | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `Info` | `ToastKind` | Neutral informational update. | Good for short confirmations or status notes. |
+| `Success` | `ToastKind` | Positive completion or confirmation. | Good when the user should feel closure after a task. |
+| `Warning` | `ToastKind` | Something deserves attention soon. | Use sparingly because toasts disappear quickly. |
+| `Error` | `ToastKind` | Something failed. | Best when the failure can be explained briefly and the user can recover elsewhere. |
 
-## Next
-- [Widget catalog](/reference/widgets/catalog)
-- [Widget trait](/reference/core/widget-trait)
-- [Runtime model](/docs/learn/runtime-model)
+## Specific advice
+
+Reserve error toasts for failures that are still understandable in a short overlay. If recovery steps need more room, an inline alert usually serves users better.
+
+## Related
+
+[`Toast`](/reference/widgets/toast), [`AlertKind`](/reference/widgets/alert-kind), [`Alert`](/reference/widgets/alert), and [`Badge`](/reference/widgets/badge).

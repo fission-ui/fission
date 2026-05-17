@@ -1,35 +1,57 @@
 ---
 title: AspectRatio
-description: Constrain a child by aspect ratio while leaving size resolution to the layout engine.
+description: Keep one child at a fixed width-to-height ratio.
 slug: /widgets/aspect-ratio
 ---
 # AspectRatio
 
-Use `AspectRatio` when a child should keep a fixed width/height relationship inside the normal box layout system.
+`AspectRatio` keeps a child at a fixed width-to-height relationship while still letting the surrounding layout decide the final size.
 
-## Minimal usage
+This is useful for previews, thumbnails, video frames, maps, or card media where the shape matters more than the exact pixel size. It solves a common responsive problem: you want a 16:9 preview or a square tile, but you do not want to hard-code the exact width and height everywhere.
+
+Use `AspectRatio` when the child should scale responsively while preserving shape. Do not use it when you already know both the exact width and exact height, or when you need cropping or clipping rather than proportional sizing.
+
+## Example
 
 ```rust
+use fission_core::ui::{Container, Text};
 use fission_widgets::AspectRatio;
 
 let node = AspectRatio {
     ratio: 16.0 / 9.0,
-    child: Box::new(Text::new("Preview").into_node()),
+    child: Box::new(
+        Container::new(Text::new("Preview").into_node())
+            .bg(fission_core::op::Color {
+                r: 32,
+                g: 37,
+                b: 49,
+                a: 255,
+            })
+            .into_node(),
+    ),
 }
 .build(ctx, view);
 ```
 
-## API surface
+The parent still controls how much space is available. `AspectRatio` only makes sure the child stays in the requested proportion.
 
-- `ratio`: `f32`
-- `child`: `Box<Node>`
+## Field table
 
-## Notes
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `ratio` | `f32` | Width divided by height. | Required. `16.0 / 9.0` gives a widescreen rectangle; `1.0` gives a square. |
+| `child` | `Box<Node>` | The node constrained by the ratio. | Required. The child still renders normally inside the resulting box. |
 
-The widget lowers to a box layout node with `aspect_ratio: Some(ratio)`, so the parent constraints still decide the final size.
+## Layout behavior
 
-## Next
+Internally, `AspectRatio` lowers to a box layout node with `aspect_ratio: Some(ratio)`. If only one dimension becomes bounded by the parent, the other dimension is derived from the ratio. If both dimensions remain flexible, the surrounding constraints decide the final size.
 
-- [Layout widgets](/reference/widgets/layout)
-- [Widget trait](/reference/core/widget-trait)
-- [Runtime model](/docs/learn/runtime-model)
+That means `AspectRatio` is about sizing, not clipping. If the child paints outside its bounds or needs rounded corners, pair it with [`Clip`](/reference/widgets/clip) or [`Container`](/reference/widgets/container).
+
+## Specific advice
+
+Keep the ratio positive and meaningful. A very common pattern is `1.0` for avatars or tiles and `16.0 / 9.0` for media. If your layout needs cards that automatically wrap while keeping consistent preview shapes, combine `AspectRatio` with [`SimpleGrid`](/reference/widgets/simple-grid).
+
+## Related
+
+[`Container`](/reference/widgets/container), [`Clip`](/reference/widgets/clip), and [`SimpleGrid`](/reference/widgets/simple-grid).

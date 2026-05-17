@@ -1,40 +1,39 @@
 ---
 title: Tag
-description: Reference details for Tag.
+description: Show a labeled chip, optionally with a close action for removing it.
 slug: /widgets/tag
 ---
 # Tag
 
-Use it when the user needs to interact, choose a value, or submit intent.
+`Tag` is the removable or static chip for short labels.
 
+Use it for active filters, selected categories, recipients, or other compact labels that the user may need to scan quickly and optionally dismiss.
 
-This is part of the Fission widget API and belongs in the same typed, state-driven model used across the rest of the framework.
+## Example
 
-
-**When you need it**
-- This widget is best when the control drives explicit `Action` dispatch or receives values from a reducer-owned state model.
-- Use predictable state updates as your entry point for all behavior changes.
-- Combine with semantic labels and role attributes for reliable interaction testing.
-
-## Minimal usage
 ```rust
 use fission_widgets::Tag;
 
 let node = Tag {
-    ..Default::default()
-}.into_node();
+    label: "Unread only".into(),
+    on_close: Some(clear_unread_filter_action),
+}
+.build(ctx, view);
 ```
 
-## API surface
-- `label`: `String`
-- `on_close`: `Option<ActionEnvelope>`
+When `on_close` is absent, the same widget becomes a simple non-removable label chip.
 
-## Implementation checks
-- Keep control values in state, validate there, and surface results through completion actions or reducer transitions.
-- Keep callbacks/closures small and deterministic when possible, then move side effects to async boundaries.
-- If the widget affects layout or input, verify with both state transitions and target-level smoke tests.
+## Field table
 
-## Next
-- [Widget catalog](/reference/widgets/catalog)
-- [Widget trait](/reference/core/widget-trait)
-- [Runtime model](/docs/learn/runtime-model)
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `label` | `String` | Text shown inside the chip. | Required. |
+| `on_close` | `Option<ActionEnvelope>` | Action fired by the small close button. | Defaults to `None`. When present, the widget renders a close affordance. |
+
+## Usage guidance
+
+A removable tag should remove something real from app state, such as a filter or recipient. If pressing the close icon does not clearly map to a user-visible change, the control can feel confusing.
+
+## Related
+
+[`Badge`](/reference/widgets/badge), [`Breadcrumb`](/reference/widgets/breadcrumb), [`Button`](/reference/widgets/button), and [`Wrap`](/reference/widgets/wrap).

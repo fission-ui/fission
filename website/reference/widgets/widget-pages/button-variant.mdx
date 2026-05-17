@@ -1,40 +1,55 @@
 ---
 title: ButtonVariant
-description: Reference details for ButtonVariant.
+description: Choose the visual emphasis level for a Button.
 slug: /widgets/button-variant
 ---
 # ButtonVariant
 
-Use it when the user needs to interact, choose a value, or submit intent.
+`ButtonVariant` is the visual emphasis setting for [`Button`](/reference/widgets/button).
 
+It answers a simple design question: how loudly should this action speak? In a real app, not every button should look equally important. The variant lets you express primary, secondary, and low-emphasis actions without changing the underlying action flow.
 
-This is part of the Fission widget API and belongs in the same typed, state-driven model used across the rest of the framework.
+## Example
 
-
-**When you need it**
-- This widget is best when the control drives explicit `Action` dispatch or receives values from a reducer-owned state model.
-- Use predictable state updates as your entry point for all behavior changes.
-- Combine with semantic labels and role attributes for reliable interaction testing.
-
-## Minimal usage
 ```rust
-use fission_core::ui::ButtonVariant;
+use fission_core::ui::{Button, ButtonVariant, Text};
 
-let node = ButtonVariant {
-    ..Default::default()
-}.into_node();
+let primary = Button {
+variant: ButtonVariant::Filled,
+child: Some(Box::new(Text::new("Save").into_node())),
+on_press: Some(save_action),
+..Default::default()
+};
+
+let secondary = Button {
+variant: ButtonVariant::Outline,
+child: Some(Box::new(Text::new("Preview").into_node())),
+on_press: Some(preview_action),
+..Default::default()
+};
 ```
 
-## API surface
-- Use `Default::default()` to start and set only required properties.
-- Prefer small, explicit updates so diffs stay readable.
+The two buttons do the same kind of work in the runtime: both dispatch actions. The variant only changes how much visual emphasis the user sees.
 
-## Implementation checks
-- Keep control values in state, validate there, and surface results through completion actions or reducer transitions.
-- Keep callbacks/closures small and deterministic when possible, then move side effects to async boundaries.
-- If the widget affects layout or input, verify with both state transitions and target-level smoke tests.
+## Choice table
 
-## Next
-- [Widget catalog](/reference/widgets/catalog)
-- [Widget trait](/reference/core/widget-trait)
-- [Runtime model](/docs/learn/runtime-model)
+| Choice | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `Filled` | `ButtonVariant` | High-emphasis button with a filled surface. | Default. Good for the main action in a section or dialog. |
+| `Outline` | `ButtonVariant` | Medium-emphasis button with a bordered surface. | Good for secondary actions that should still look clearly interactive. |
+| `Ghost` | `ButtonVariant` | Low-emphasis button that relies mostly on content and hover/press feedback. | Good for toolbars, menus, inline controls, and dense chrome. |
+
+## How to choose
+
+Use `Filled` for the action you most want the user to notice right now. Use `Outline` when the action is important but not dominant. Use `Ghost` when the action should stay available without pulling visual focus away from the main task.
+
+Do not treat variants as random styling choices. If every action on a screen is filled, nothing feels primary. If every action is ghost, important flows can disappear into the interface.
+
+## Specific advice
+
+Keep the meaning of each variant stable across your product. If `Filled` means "commit the main action" on one screen but "tiny utility action" on another, users have to relearn the hierarchy every time.
+
+## Related
+
+[`Button`](/reference/widgets/button), [`ButtonContentAlign`](/reference/widgets/button-content-align), [`MenuButton`](/reference/widgets/menu-button), and [`SegmentedControl`](/reference/widgets/segmented-control).
+

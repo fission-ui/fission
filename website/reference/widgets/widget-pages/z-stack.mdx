@@ -1,40 +1,54 @@
 ---
 title: ZStack
-description: Reference details for ZStack.
+description: Layer children on top of each other in paint order.
 slug: /widgets/z-stack
 ---
 # ZStack
 
-Use it to control how child nodes are arranged, measured, and constrained.
+`ZStack` is the layered layout primitive.
 
+It paints children in order from back to front: the first child is at the bottom and the last child is on top. This makes it the right tool for layered cards, image-plus-badge compositions, full-screen overlays, floating controls, and other interfaces where depth matters.
 
-This is part of the Fission widget API and belongs in the same typed, state-driven model used across the rest of the framework.
+Use `ZStack` when layering is the real structural idea. Do not use it as a replacement for ordinary rows and columns. If the relationship between children is really sequential rather than layered, a stack on the z axis will make the code harder to understand.
 
+## Example
 
-**When you need it**
-- This widget is best when you need stable structure before styling. Keep layout decisions explicit so state and constraints stay predictable.
-- Use predictable state updates as your entry point for all behavior changes.
-- Combine with semantic labels and role attributes for reliable interaction testing.
-
-## Minimal usage
 ```rust
-use fission_core::ui::ZStack;
+use fission_core::ui::{Positioned, Text, ZStack};
 
 let node = ZStack {
+    children: vec![
+        Text::new("Base layer").into_node(),
+        Positioned {
+            bottom: Some(8.0),
+            right: Some(8.0),
+            child: Some(Box::new(Text::new("Badge").into_node())),
+            ..Default::default()
+        }
+        .into_node(),
+    ],
     ..Default::default()
-}.into_node();
+}
+.into_node();
 ```
 
-## API surface
-- `id`: `Option<NodeId>`
-- `children`: `Vec<Node>`
+## Field table
 
-## Implementation checks
-- Build with the state model first, then layer spacing, alignment, and visual treatment. Layout mistakes are usually cheaper to fix before async behavior is introduced.
-- Keep callbacks/closures small and deterministic when possible, then move side effects to async boundaries.
-- If the widget affects layout or input, verify with both state transitions and target-level smoke tests.
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `id` | `Option<NodeId>` | Stable node identity. | Defaults to `None`. |
+| `children` | `Vec<Node>` | Layered children, painted in order. | Defaults to an empty list. First child is bottom, last child is top. |
 
-## Next
-- [Widget catalog](/reference/widgets/catalog)
-- [Widget trait](/reference/core/widget-trait)
-- [Runtime model](/docs/learn/runtime-model)
+## Layout behavior
+
+`ZStack` sizes itself from its non-absolute children and then lays those children into the same bounds. Children wrapped in [`Positioned`](/reference/widgets/positioned) or [`absolute_fill(...)`](/reference/widgets/absolute-fill) are treated specially by the layout engine as absolute children relative to the stack's bounds.
+
+This is what makes `ZStack` the natural parent for corner badges, floating overlays, and full-surface scrims.
+
+## Specific advice
+
+If you only need exactly two layers with a simple "main content plus top layer" relationship, [`Overlay`](/reference/widgets/overlay) is often easier to read. Use `ZStack` when you really need the general layered layout model.
+
+## Related
+
+[`Overlay`](/reference/widgets/overlay), [`Positioned`](/reference/widgets/positioned), and [`absolute_fill(...)`](/reference/widgets/absolute-fill).

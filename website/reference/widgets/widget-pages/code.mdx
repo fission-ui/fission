@@ -1,39 +1,43 @@
 ---
 title: Code
-description: Reference details for Code.
+description: Present a short inline code-like token without building a full code editor.
 slug: /widgets/code
 ---
 # Code
 
-Use it for media, rich text, icons, graphics, or custom visual composition.
+`Code` is the small inline code-style wrapper.
 
+Use it for command names, short snippets, key values, or other compact inline technical text that should stand out from prose. It is not a syntax highlighter and not a code editor surface.
 
-This is part of the Fission widget API and belongs in the same typed, state-driven model used across the rest of the framework.
+## Example
 
-
-**When you need it**
-- This widget is best when content may be asynchronous, large, or performance-sensitive.
-- Use predictable state updates as your entry point for all behavior changes.
-- Combine with semantic labels and role attributes for reliable interaction testing.
-
-## Minimal usage
 ```rust
 use fission_widgets::Code;
 
 let node = Code {
-    ..Default::default()
-}.into_node();
+    text: "cargo fission run".into(),
+}
+.build(ctx, view);
 ```
 
-## API surface
-- `text`: `String`
+This works well inside help panels, alerts, and setup instructions.
 
-## Implementation checks
-- Decide loading fallback, constraints, and accessibility alternatives before adding animation or motion effects.
-- Keep callbacks/closures small and deterministic when possible, then move side effects to async boundaries.
-- If the widget affects layout or input, verify with both state transitions and target-level smoke tests.
+## Field table
 
-## Next
-- [Widget catalog](/reference/widgets/catalog)
-- [Widget trait](/reference/core/widget-trait)
-- [Runtime model](/docs/learn/runtime-model)
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `text` | `String` | Inline code-like text to display. | Required. |
+
+## What it is and what it is not
+
+The checked-in `Code` widget is a styled text chip. It gives you a subtle background and compact padding, but it does not provide syntax coloring, line numbering, or an enforced monospace font family.
+
+If you need editable source text, use [`TextInput`](/reference/widgets/text-input) or a dedicated editor surface. If you need multi-style or annotated code display, [`RichText`](/reference/widgets/rich-text) gives you more control.
+
+## Specific advice
+
+Keep `Code` short. Once the content becomes multi-line or structurally significant, a dedicated block layout is clearer than an inline chip.
+
+## Related
+
+[`Kbd`](/reference/widgets/kbd), [`Text`](/reference/widgets/text), [`RichText`](/reference/widgets/rich-text), and [`Card`](/reference/widgets/card).

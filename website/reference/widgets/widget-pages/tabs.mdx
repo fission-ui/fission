@@ -1,40 +1,54 @@
 ---
 title: Tabs
-description: Reference details for Tabs.
+description: Switch between a small number of peer content panels using explicit active-index state.
 slug: /widgets/tabs
 ---
 # Tabs
 
-Use it when the user needs to interact, choose a value, or submit intent.
+`Tabs` is the peer-section switcher for one screen region.
 
+Use it when several sections belong to the same level of navigation and users should move between them without leaving the current screen. Tabs work best when the number of choices is small and each tab represents a clear slice of the same feature area.
 
-This is part of the Fission widget API and belongs in the same typed, state-driven model used across the rest of the framework.
+## Example
 
-
-**When you need it**
-- This widget is best when the control drives explicit `Action` dispatch or receives values from a reducer-owned state model.
-- Use predictable state updates as your entry point for all behavior changes.
-- Combine with semantic labels and role attributes for reliable interaction testing.
-
-## Minimal usage
 ```rust
-use fission_widgets::Tabs;
+use fission_widgets::{TabItem, Tabs};
 
 let node = Tabs {
-    ..Default::default()
-}.into_node();
+    active_index: view.state.active_settings_tab,
+    items: vec![
+        TabItem {
+            title: "General".into(),
+            content: general_settings_node,
+            on_press: Some(select_general_tab_action),
+        },
+        TabItem {
+            title: "Security".into(),
+            content: security_settings_node,
+            on_press: Some(select_security_tab_action),
+        },
+    ],
+}
+.build(ctx, view);
 ```
 
-## API surface
-- `active_index`: `usize`
-- `items`: `Vec<TabItem>`
+## Field table
 
-## Implementation checks
-- Keep control values in state, validate there, and surface results through completion actions or reducer transitions.
-- Keep callbacks/closures small and deterministic when possible, then move side effects to async boundaries.
-- If the widget affects layout or input, verify with both state transitions and target-level smoke tests.
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `active_index` | `usize` | Which tab is currently selected. | Controlled by app state. |
+| `items` | `Vec<TabItem>` | Tab definitions in display order. | Defaults to an empty list. |
 
-## Next
-- [Widget catalog](/reference/widgets/catalog)
-- [Widget trait](/reference/core/widget-trait)
-- [Runtime model](/docs/learn/runtime-model)
+## State ownership and rendering behavior
+
+`Tabs` does not own selection state. Each tab button emits its own `on_press` action, and the reducer updates `active_index`. The checked-in widget renders only the active tab's content below the tab bar.
+
+This is an important architectural choice. Even though tabs feel interactive, they still follow the same explicit state loop as the rest of Fission.
+
+## Specific advice
+
+Keep tab counts small. If the bar starts wrapping, scrolling, or forcing cryptic labels, the information architecture usually wants a different pattern.
+
+## Related
+
+[`TabItem`](/reference/widgets/tab-item), [`SegmentedControl`](/reference/widgets/segmented-control), [`Accordion`](/reference/widgets/accordion), and [`Breadcrumb`](/reference/widgets/breadcrumb).

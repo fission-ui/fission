@@ -1,40 +1,59 @@
 ---
 title: Route
-description: Reference details for Route.
+description: Describe one path pattern and the builder that should render it.
 slug: /widgets/route
 ---
 # Route
 
-Use it to define how users move between pages, overlays, and routed app sections.
+`Route` is one entry inside a [`Router`](/reference/widgets/router).
 
+It says, "when the current path looks like this pattern, build this screen." A route does not own navigation state. It is only a matcher plus a builder. Your app state still owns the current path string, and your reducers still decide when that path changes.
 
-This is part of the Fission widget API and belongs in the same typed, state-driven model used across the rest of the framework.
+The current implementation keeps route syntax intentionally small and predictable:
 
+- literal segments such as `/settings`
+- named parameters such as `/users/:id`
+- exact segment counts only
 
-**When you need it**
-- This widget is best when structure includes multi-screen flow or route-aware layout changes.
-- Use predictable state updates as your entry point for all behavior changes.
-- Combine with semantic labels and role attributes for reliable interaction testing.
+There is no built-in wildcard matching, query-string parsing, or browser-history integration here.
 
-## Minimal usage
+## Example
+
 ```rust
-use fission_widgets::Route;
+use std::sync::Arc;
+use fission_widgets::{Route, RouteParams};
 
-let node = Route {
-    ..Default::default()
-}.into_node();
+let project_route = Route {
+    path: "/projects/:id".into(),
+    builder: Arc::new(|ctx, view, params: &RouteParams| {
+        let id = params.get("id").cloned().unwrap_or_default();
+        ProjectDetail { id }.build(ctx, view)
+    }),
+};
 ```
 
-## API surface
-- `path`: `String`
-- `builder`: `PageBuilder<S>`
+Rust stores the builder in an `Arc` so the router can own and reuse it across builds.
 
-## Implementation checks
-- Keep navigation changes explicit and tested through action-driven state transitions.
-- Keep callbacks/closures small and deterministic when possible, then move side effects to async boundaries.
-- If the widget affects layout or input, verify with both state transitions and target-level smoke tests.
+## Field table
 
-## Next
-- [Widget catalog](/reference/widgets/catalog)
-- [Widget trait](/reference/core/widget-trait)
-- [Runtime model](/docs/learn/runtime-model)
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `path` | `String` | Route pattern to match against `Router.current_path`. | Use literal segments and `:name` parameter segments. |
+| `builder` | `PageBuilder<S>` | Function that builds the route's screen after a match succeeds. | Receives `&mut BuildCtx<S>`, `&View<S>`, and `&RouteParams`. |
+
+## Builder contract
+
+The builder runs during `build()`, so treat it like any other function that builds interface output. It should read state, derive any necessary values, and return a `Node` tree. It should not fetch data, write files, or perform side effects directly.
+
+If the route needs to kick off work, dispatch an explicit action and let the reducer or effect system do that in the right place.
+
+## Specific advice
+
+Keep route builders thin. The cleanest pattern is usually to extract a real screen widget and have the route builder hand the parsed params into that widget. That keeps the routing table readable and makes the screen easier to test in isolation.
+
+Also validate parameter parsing locally. Matching `/projects/:id` only guarantees that there was some text in that segment, not that the text is a valid project id.
+
+## Related
+
+[`Router`](/reference/widgets/router), [`RouteParams`](/reference/widgets/route-params), and [`Runtime model`](/docs/learn/runtime-model).
+

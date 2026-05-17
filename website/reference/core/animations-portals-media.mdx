@@ -1,49 +1,61 @@
 ---
 title: Animations, portals, and media
-description: Runtime-owned motion and overlay/embed registration APIs.
+description: The reference contract for runtime-owned animation, overlay composition, and media or embed registration.
 ---
 
 # Animations, portals, and media
 
-Several visible framework behaviors are registered through `BuildCtx` rather than stored directly in app state.
+These subsystems are grouped together because they all rely on runtime-owned behavior that is declared during `build()` rather than stored as ordinary product state.
+
+That does not make them hidden. It makes them explicit in a different place.
 
 ## Animation
 
-Public types:
+Animation in Fission is runtime-owned motion requested against a stable widget identity.
 
-- `AnimationPropertyId`
-- `AnimationStartValue`
-- `AnimationRequest`
-- `EasingFunction`
+The main public types are:
 
-Use `ctx.request_animation_for(...)` or `ctx.anim_for(id).request(...)` with a stable `WidgetNodeId`.
+| Type | Purpose |
+| --- | --- |
+| `AnimationPropertyId` | Identifies which visual property is being animated |
+| `AnimationStartValue` | Describes where the animation should begin |
+| `AnimationRequest` | The full request payload for one animation |
+| `EasingFunction` | The timing curve for the interpolation |
 
-## Portals
+Widgets request animation through `ctx.request_animation_for(...)` or `ctx.anim_for(id).request(...)`.
 
-Public types:
+The stable `WidgetNodeId` matters because the runtime needs durable identity to track the animation across frames. Without a stable identity, the animation would have nothing reliable to attach to.
 
-- `PortalLayer`
-- `PortalEntry`
+The runtime then exposes current interpolated values through `View`, which keeps animation state separate from durable product state.
 
-Use portal registration for overlays that should render outside the normal tree. The runtime sorts layers so modal, flyout, and toast content compose in a predictable order.
+## Portals and overlay composition
 
-## Media/embed registration
+A portal is the runtime mechanism for content that should render outside the normal page flow while still belonging to the same app model.
 
-Build-time registration types include:
+Public types in this area include `PortalLayer` and `PortalEntry`.
 
-- `VideoRegistration`
-- `WebRegistration`
+The important concept is ordered overlay composition. Portals are not random escape hatches. They are registered into explicit layers so that modal, flyout, and toast content compose in a predictable order.
 
-These let the runtime and shell coordinate platform surfaces without losing layout identity.
+Higher-level widgets such as modals, drawers, tooltips, and menu-like controls are built on this mechanism.
 
-## Runtime-owned state
+Use portal registration when content genuinely belongs above the main tree. Do not use it for ordinary layout that should remain inline.
 
-The runtime tracks:
+## Media and embed registration
 
-- active animation values,
-- video and web state,
-- drag gesture payloads,
-- hero positions,
-- scroll offsets.
+Some widgets correspond to host-backed or special surfaces rather than ordinary paint-only content. The runtime still needs to know that they exist.
 
-That keeps reducers clean and makes replay/test flows possible.
+Public registration types include `VideoRegistration` and `WebRegistration`.
+
+These registrations let the runtime and shell coordinate layout identity, geometry, and host-surface behavior without losing the shared app model. A video view or web view still participates in the same build, layout, and presentation pipeline even though the host may provide part of the actual surface behavior.
+
+## Runtime-owned state related to this page
+
+The runtime tracks several related kinds of state that usually should not be stored in `AppState` directly.
+
+That includes active animation values, video and web state, portal layering information, scroll offsets, gesture payloads, and hero-position bookkeeping.
+
+The reason is architectural: these values describe transient runtime behavior, not durable product truth.
+
+## Related reference pages
+
+For the widget-side build contract that registers animation or portals, see [Widget trait](/reference/core/widget-trait). For the larger teaching explanation of these ideas, see [Media, animation, portals, and 3D](/docs/guides/media-animation-portals-and-3d).

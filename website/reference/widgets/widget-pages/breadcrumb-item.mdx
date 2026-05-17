@@ -1,40 +1,36 @@
 ---
 title: BreadcrumbItem
-description: Reference details for BreadcrumbItem.
+description: Describe one location step inside a Breadcrumb trail.
 slug: /widgets/breadcrumb-item
 ---
 # BreadcrumbItem
 
-Use it for cross-cutting composition and app-level surface behavior.
+`BreadcrumbItem` is the item record used by [`Breadcrumb`](/reference/widgets/breadcrumb).
 
+Each item describes one step in a location path, such as a workspace, folder, or document hierarchy. Most non-final items are clickable. The final item usually represents the current location and is displayed as plain text.
 
-This is part of the Fission widget API and belongs in the same typed, state-driven model used across the rest of the framework.
+## Example
 
-
-**When you need it**
-- This widget is best when building reusable building blocks that support product patterns.
-- Use predictable state updates as your entry point for all behavior changes.
-- Combine with semantic labels and role attributes for reliable interaction testing.
-
-## Minimal usage
 ```rust
 use fission_widgets::BreadcrumbItem;
 
-let node = BreadcrumbItem {
-    ..Default::default()
-}.into_node();
+let item = BreadcrumbItem {
+    label: "Projects".into(),
+    on_click: Some(open_projects_action),
+};
 ```
 
-## API surface
-- `label`: `String`
-- `on_click`: `Option<ActionEnvelope>`
+## Field table
 
-## Implementation checks
-- Pair it with the core trait contract and test rendering output with headless checks for stability.
-- Keep callbacks/closures small and deterministic when possible, then move side effects to async boundaries.
-- If the widget affects layout or input, verify with both state transitions and target-level smoke tests.
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `label` | `String` | Visible text for this step in the trail. | Required. |
+| `on_click` | `Option<ActionEnvelope>` | Action fired when this breadcrumb step is chosen. | Defaults to `None`. In a trail, `None` usually means the item is not navigable. |
 
-## Next
-- [Widget catalog](/reference/widgets/catalog)
-- [Widget trait](/reference/core/widget-trait)
-- [Runtime model](/docs/learn/runtime-model)
+## Specific advice
+
+Use stable, human-readable labels. Breadcrumbs are for orientation first and navigation second. If labels are cryptic ids, the trail stops helping.
+
+## Related
+
+[`Breadcrumb`](/reference/widgets/breadcrumb), [`Link`](/reference/widgets/link), [`Text`](/reference/widgets/text), and [`Button`](/reference/widgets/button).

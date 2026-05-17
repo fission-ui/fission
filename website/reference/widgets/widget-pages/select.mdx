@@ -1,45 +1,67 @@
 ---
 title: Select
-description: Reference details for Select.
+description: Choose one value from a fixed list using a button-triggered flyout menu.
 slug: /widgets/select
 ---
 # Select
 
-Use it when the user needs to interact, choose a value, or submit intent.
+`Select` is the fixed-choice dropdown in the authoring widget set.
 
+Use it when the user must choose one option from a known list and should not type arbitrary text. The widget renders a trigger button and, when open, a flyout menu of [`SelectItem`](/reference/widgets/select-item) entries.
 
-This is part of the Fission widget API and belongs in the same typed, state-driven model used across the rest of the framework.
+## Example
 
-
-**When you need it**
-- This widget is best when the control drives explicit `Action` dispatch or receives values from a reducer-owned state model.
-- Use predictable state updates as your entry point for all behavior changes.
-- Combine with semantic labels and role attributes for reliable interaction testing.
-
-## Minimal usage
 ```rust
-use fission_widgets::Select;
+use fission_widgets::{Select, SelectItem};
 
 let node = Select {
-    ..Default::default()
-}.into_node();
+id: WidgetNodeId::explicit("theme_select"),
+selected_label: Some(view.state.theme_label.clone()),
+items: vec![
+    SelectItem {
+        label: "System".into(),
+        icon: None,
+        on_select: system_theme_action,
+    },
+    SelectItem {
+        label: "Dark".into(),
+        icon: None,
+        on_select: dark_theme_action,
+    },
+],
+is_open: view.state.theme_select_open,
+on_toggle: Some(toggle_theme_select_action),
+placeholder: "Select theme".into(),
+width: Some(240.0),
+}
+.build(ctx, view);
 ```
 
-## API surface
-- `id`: `WidgetNodeId`
-- `selected_label`: `Option<String>`
-- `items`: `Vec<SelectItem>`
-- `is_open`: `bool`
-- `on_toggle`: `Option<ActionEnvelope>`
-- `placeholder`: `String`
-- `width`: `Option<f32>`
+The `Select` widget only reflects state. The reducer still decides which item is selected and whether the popup is open.
 
-## Implementation checks
-- Keep control values in state, validate there, and surface results through completion actions or reducer transitions.
-- Keep callbacks/closures small and deterministic when possible, then move side effects to async boundaries.
-- If the widget affects layout or input, verify with both state transitions and target-level smoke tests.
+## Field table
 
-## Next
-- [Widget catalog](/reference/widgets/catalog)
-- [Widget trait](/reference/core/widget-trait)
-- [Runtime model](/docs/learn/runtime-model)
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `id` | `WidgetNodeId` | Stable identity for the trigger and flyout anchor. | Required. The `Default` id is only suitable for demos. Use a unique id in real apps. |
+| `selected_label` | `Option<String>` | Label currently shown in the closed trigger. | If `None`, the placeholder is shown. |
+| `items` | `Vec<SelectItem>` | Options available in the menu. | Required. |
+| `is_open` | `bool` | Whether the flyout menu is visible. | Controlled by app state. |
+| `on_toggle` | `Option<ActionEnvelope>` | Action dispatched when the trigger is pressed. | Defaults to `None`. Usually toggles `is_open`. |
+| `placeholder` | `String` | Text shown before the user has picked a value. | Defaults to `"Select..."`. |
+| `width` | `Option<f32>` | Width of the trigger and menu. | Defaults to `Some(200.0)` in `Default`. |
+
+## How selection flows through the app
+
+The trigger button only opens or closes the menu. The actual selection happens inside each `SelectItem`'s `on_select` action. That is why a good item action usually does two things in the reducer: update the selected value in state and close the menu.
+
+`selected_label` is only display data. In most apps you should keep the real selected value as an enum or id in state, then derive the label in `build()` or a selector.
+
+## Specific advice
+
+Use `Select` for fixed choice sets. If users need search, remote results, or typeahead behavior, move to [`Combobox`](/reference/widgets/combobox). Also be deliberate about ids: because open state is explicit and portals are anchored by id, a unique `WidgetNodeId` matters in real screens.
+
+## Related
+
+[`SelectItem`](/reference/widgets/select-item), [`Menu`](/reference/widgets/menu), [`MenuButton`](/reference/widgets/menu-button), and [`Combobox`](/reference/widgets/combobox).
+

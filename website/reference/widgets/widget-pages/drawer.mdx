@@ -1,44 +1,72 @@
 ---
 title: Drawer
-description: Reference details for Drawer.
+description: Show a side panel as a modal-layer overlay while keeping open state in your app model.
 slug: /widgets/drawer
 ---
 # Drawer
 
-Use it when the user needs to interact, choose a value, or submit intent.
+`Drawer` is a full-height side panel that appears above the main screen.
 
+Use it when you need temporary space for navigation, filters, settings, or an inspector without changing the main route. The important architectural rule is that the drawer does not decide when it is open. Your app state owns that decision through `is_open`. The widget's job is to render the panel into the modal portal layer, add a backdrop, and dispatch your dismiss action when the backdrop is tapped.
 
-This is part of the Fission widget API and belongs in the same typed, state-driven model used across the rest of the framework.
+This makes the behavior predictable. A button dispatches an action, the reducer flips `show_filters` to `true`, and the next `build()` pass includes an open drawer. Closing the drawer is the same loop in reverse.
 
+Do not use a drawer for critical confirmations or short blocking decisions. That is usually a [`Modal`](/reference/widgets/modal). Also do not use it for tiny anchored choices next to a button. That is what [`Popover`](/reference/widgets/popover) or [`flyout`](/reference/widgets/flyout) are for.
 
-**When you need it**
-- This widget is best when the control drives explicit `Action` dispatch or receives values from a reducer-owned state model.
-- Use predictable state updates as your entry point for all behavior changes.
-- Combine with semantic labels and role attributes for reliable interaction testing.
+## Example
 
-## Minimal usage
 ```rust
-use fission_widgets::Drawer;
+use fission_core::{Handler, WidgetNodeId};
+use fission_widgets::{Drawer, DrawerSide, VStack};
 
-let node = Drawer {
-    ..Default::default()
-}.into_node();
+let drawer = Drawer {
+    id: WidgetNodeId::explicit("filters_drawer"),
+    side: DrawerSide::Right,
+    is_open: view.state.show_filters,
+    on_dismiss: Some(ctx.bind(
+        ToggleFilters(false),
+        (|state: &mut AppState, action: ToggleFilters, _| {
+            state.show_filters = action.0;
+        }) as Handler<AppState, ToggleFilters>,
+    )),
+    width: Some(360.0),
+    content: Box::new(
+        VStack {
+            spacing: Some(16.0),
+            children: vec![filter_form.build(ctx, view)],
+        }
+        .into_node(),
+    ),
+}
+.build(ctx, view);
 ```
 
-## API surface
-- `id`: `WidgetNodeId`
-- `side`: `DrawerSide`
-- `is_open`: `bool`
-- `on_dismiss`: `Option<ActionEnvelope>`
-- `content`: `Box<Node>`
-- `width`: `Option<f32>`
+The reducer owns `show_filters`. The drawer itself only reads that state and emits `on_dismiss` when the user taps the backdrop.
 
-## Implementation checks
-- Keep control values in state, validate there, and surface results through completion actions or reducer transitions.
-- Keep callbacks/closures small and deterministic when possible, then move side effects to async boundaries.
-- If the widget affects layout or input, verify with both state transitions and target-level smoke tests.
+## Field table
 
-## Next
-- [Widget catalog](/reference/widgets/catalog)
-- [Widget trait](/reference/core/widget-trait)
-- [Runtime model](/docs/learn/runtime-model)
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `id` | `WidgetNodeId` | Stable identity for the portal entry. | Required. Give each drawer a stable id so the runtime can track it consistently. |
+| `side` | `DrawerSide` | Which horizontal edge the panel attaches to. | Use `Left` or `Right`. |
+| `is_open` | `bool` | Whether the drawer should be visible this frame. | When `false`, the widget returns an inert spacer and registers no portal. |
+| `on_dismiss` | `Option<ActionEnvelope>` | Action dispatched when the backdrop is tapped. | Defaults to `None`. If you omit it, the backdrop still covers the screen but does not close the drawer for you. |
+| `content` | `Box<Node>` | The panel body. | Build the full drawer user interface here. |
+| `width` | `Option<f32>` | Requested panel width in logical pixels. | Defaults to `300.0`. The runtime clamps it to the current viewport so the drawer still fits on smaller screens. |
+
+## Layout and overlay behavior
+
+When open, `Drawer` registers a portal in `PortalLayer::Modal`. The shell wraps portal content in a viewport-sized container, so the drawer always measures against the whole screen instead of the inline spot where the widget was declared.
+
+The panel itself is pinned to the chosen edge and stretches from top to bottom. The backdrop covers the full viewport behind it. This means the screen under the drawer is visually present but not the place where the user should continue interacting.
+
+## Specific advice
+
+Put only temporary, secondary user interface in a drawer. If people need to finish a task before they can continue, use a modal dialog instead. If the panel is always visible on large screens, consider a normal layout widget such as [`SplitView`](/reference/widgets/split-view), [`Row`](/reference/widgets/row), or [`Column`](/reference/widgets/column) instead of opening and closing an overlay.
+
+Also note that the current implementation does not animate the drawer sliding in or out by itself. It appears and disappears as state changes. If motion is important to your product, treat that as an explicit design decision and test the chosen pattern carefully.
+
+## Related
+
+[`DrawerSide`](/reference/widgets/drawer-side), [`Modal`](/reference/widgets/modal), [`Popover`](/reference/widgets/popover), [`Portal`](/reference/widgets/portal), and [`SafeArea`](/reference/widgets/safe-area).
+

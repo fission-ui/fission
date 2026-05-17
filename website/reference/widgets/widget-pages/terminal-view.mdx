@@ -1,45 +1,79 @@
 ---
 title: TerminalView
-description: Reference details for TerminalView.
+description: Render a TerminalSession inside the widget tree while the session keeps the running terminal process alive.
 slug: /widgets/terminal-view
 ---
 # TerminalView
 
-Use it for cross-cutting composition and app-level surface behavior.
+`TerminalView` is the widget that shows a running terminal session inside your app layout.
 
+In plain language, this is the on-screen terminal pane. If [`TerminalSession`](/reference/widgets/terminal-session) is the long-lived runtime object that keeps the terminal process running, `TerminalView` is the widget that turns that session into something the user can see and interact with.
 
-This is part of the Fission widget API and belongs in the same typed, state-driven model used across the rest of the framework.
+That distinction matters because an embedded terminal is not just text on screen. The session owns the running process and the pseudo-terminal (PTY), which is the operating-system feature that makes a program think it is talking to a real terminal window. `TerminalView` owns the presentation side: how much space the terminal gets, how large the text should be, how much padding surrounds it, and how pointer and keyboard interaction are routed into the session.
 
+## What it is for
 
-**When you need it**
-- This widget is best when building reusable building blocks that support product patterns.
-- Use predictable state updates as your entry point for all behavior changes.
-- Combine with semantic labels and role attributes for reliable interaction testing.
+Use `TerminalView` when your app needs to show a real interactive terminal panel, not just the output of a command.
 
-## Minimal usage
+This is a good fit for developer tools, deployment tools, or any desktop-style product that needs a live shell or command-line program inside the app.
+
+Do not start here if you only need to display logs or captured output. In that case, an ordinary text widget is simpler and easier to control from app state.
+
+## Example
+
 ```rust
 use fission_widgets::TerminalView;
 
-let node = TerminalView {
-    ..Default::default()
-}.into_node();
+let terminal = TerminalView::new(session.clone(), panel_width, panel_height)
+    .font_size(13.0)
+    .line_height(18.0)
+    .padding(10.0, 10.0)
+    .build(ctx, view);
 ```
 
-## API surface
-- `session`: `Arc<TerminalSession>`
-- `viewport_width`: `f32`
-- `viewport_height`: `f32`
-- `font_size`: `f32`
-- `line_height`: `f32`
-- `padding_x`: `f32`
-- `padding_y`: `f32`
+The important idea is that `session` is the already-running terminal session and `TerminalView` is the visible terminal pane built around it.
 
-## Implementation checks
-- Pair it with the core trait contract and test rendering output with headless checks for stability.
-- Keep callbacks/closures small and deterministic when possible, then move side effects to async boundaries.
-- If the widget affects layout or input, verify with both state transitions and target-level smoke tests.
+If you are new to Rust, `session.clone()` here does not copy the whole terminal process. It copies the shared handle to the same running session. That is why the field type is `Arc<TerminalSession>`. `Arc` stands for atomically reference-counted, which you can treat as "a safe shared pointer to one live session."
 
-## Next
-- [Widget catalog](/reference/widgets/catalog)
-- [Widget trait](/reference/core/widget-trait)
-- [Runtime model](/docs/learn/runtime-model)
+## Field and builder reference
+
+| Field or builder | Type | Meaning | Notes and default behavior |
+| --- | --- | --- | --- |
+| `session` | `Arc<TerminalSession>` | The running terminal session to render. | Required. The widget keeps a shared handle to the session rather than duplicating the process. |
+| `viewport_width` | `f32` | The width the terminal should use for layout. | Required by `new(...)`. Used to calculate how many text columns fit. |
+| `viewport_height` | `f32` | The height the terminal should use for layout. | Required by `new(...)`. Used to calculate how many text rows fit. |
+| `font_size(...)` | `fn(f32) -> Self` | Overrides the terminal text size. | Defaults to `13.0`. |
+| `line_height(...)` | `fn(f32) -> Self` | Overrides the spacing between text rows. | Defaults to `18.0`. |
+| `padding(x, y)` | `fn(f32, f32) -> Self` | Adds inner horizontal and vertical padding around the terminal grid. | Defaults to `10.0` horizontally and `8.0` vertically. |
+
+## How it behaves at runtime
+
+During `build()`, `TerminalView` tells the session to resize itself for the current viewport. That is how the terminal knows how many rows and columns should fit in the available space.
+
+After that, the widget returns a custom render object. In beginner terms, that means a lower-level drawing and interaction object that can do terminal-specific work ordinary widgets do not need. It handles keyboard input, pointer selection, clipboard copy and paste, and terminal scrolling while the session keeps the actual process and terminal state alive.
+
+This is why `TerminalView` behaves differently from a normal input widget. It does not dispatch a typed application action for every key press. Terminal interaction goes straight into the running session because that is how a real terminal surface has to work.
+
+## Interaction and state ownership
+
+A useful mental model is:
+
+- your app state decides whether a terminal panel should exist and where it belongs in the product
+- `TerminalSession` owns the running process, terminal buffer, cursor, and scrollback
+- `TerminalView` owns the visible terminal pane for this frame and routes user interaction into the session
+
+If the word _scrollback_ is new, it simply means the saved terminal history you can scroll upward through.
+
+This ownership split keeps your normal app architecture clean. Your reducers still own product decisions such as which panel is open. The terminal runtime owns the low-level terminal behavior that would be awkward and fragile to force through ordinary reducer updates for every character and cursor movement.
+
+## Specific guidance
+
+Give the widget a real viewport size from layout. A terminal is a text grid, so it needs stable width and height information to decide how many rows and columns can fit.
+
+Also remember that terminal updates are often driven by the running process, not by your app state. If the program prints more output while your app state stays the same, you still need a way to notice that the session changed and schedule another frame. The checked-in examples do that by polling `session.take_dirty()` from a timer-style resource.
+
+Finally, treat this as a host-oriented surface. An embedded terminal is a strong fit for desktop-style products, but it is not the right starting point for browser-only work.
+
+## Related
+
+[`TerminalSession`](/reference/widgets/terminal-session), [`TerminalLaunchConfig`](/reference/widgets/terminal-launch-config), [`SplitView`](/reference/widgets/split-view), and [`Scroll`](/reference/widgets/scroll).

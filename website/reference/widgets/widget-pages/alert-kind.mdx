@@ -1,40 +1,40 @@
 ---
 title: AlertKind
-description: Reference details for AlertKind.
+description: Choose the severity and visual meaning of an Alert.
 slug: /widgets/alert-kind
 ---
 # AlertKind
 
-Use it to control how child nodes are arranged, measured, and constrained.
+`AlertKind` is the severity enum used by [`Alert`](/reference/widgets/alert).
 
+It answers a product question, not only a color question: what kind of message is this? A good alert kind helps people judge urgency before they read every word.
 
-This is part of the Fission widget API and belongs in the same typed, state-driven model used across the rest of the framework.
+## Example
 
-
-**When you need it**
-- This widget is best when you need stable structure before styling. Keep layout decisions explicit so state and constraints stay predictable.
-- Use predictable state updates as your entry point for all behavior changes.
-- Combine with semantic labels and role attributes for reliable interaction testing.
-
-## Minimal usage
 ```rust
-use fission_widgets::AlertKind;
+use fission_widgets::{Alert, AlertKind};
 
-let node = AlertKind {
-    ..Default::default()
-}.into_node();
+let node = Alert {
+    kind: AlertKind::Warning,
+    title: "Storage almost full".into(),
+    description: Some("Uploads may fail until space is cleared.".into()),
+}
+.build(ctx, view);
 ```
 
-## API surface
-- Use `Default::default()` to start and set only required properties.
-- Prefer small, explicit updates so diffs stay readable.
+## Choice table
 
-## Implementation checks
-- Build with the state model first, then layer spacing, alignment, and visual treatment. Layout mistakes are usually cheaper to fix before async behavior is introduced.
-- Keep callbacks/closures small and deterministic when possible, then move side effects to async boundaries.
-- If the widget affects layout or input, verify with both state transitions and target-level smoke tests.
+| Choice | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `Info` | `AlertKind` | Informational message. | Good for neutral guidance or status updates. |
+| `Warning` | `AlertKind` | Potential problem that needs attention soon. | Good when the user should notice risk before failure. |
+| `Error` | `AlertKind` | Something failed or is invalid right now. | Use when the user needs to recover or change input. |
+| `Success` | `AlertKind` | Positive confirmation that something worked. | Best for meaningful success, not every tiny action. |
 
-## Next
-- [Widget catalog](/reference/widgets/catalog)
-- [Widget trait](/reference/core/widget-trait)
-- [Runtime model](/docs/learn/runtime-model)
+## Specific advice
+
+Pick the kind based on product meaning, not aesthetics. If everything becomes a warning just because orange looks noticeable, users lose trust in the severity system.
+
+## Related
+
+[`Alert`](/reference/widgets/alert), [`ToastKind`](/reference/widgets/toast-kind), [`Badge`](/reference/widgets/badge), and [`EmptyState`](/reference/widgets/empty-state).

@@ -1,41 +1,39 @@
 ---
 title: Stat
-description: Reference details for Stat.
+description: Present one labeled value as a compact metric block.
 slug: /widgets/stat
 ---
 # Stat
 
-Use it when the user needs to interact, choose a value, or submit intent.
+`Stat` is the metric-summary widget.
 
+Use it when one value deserves emphasis but still needs a label and possibly a short explanation. It works well in dashboards, sidebars, billing summaries, and health indicators.
 
-This is part of the Fission widget API and belongs in the same typed, state-driven model used across the rest of the framework.
+## Example
 
-
-**When you need it**
-- This widget is best when the control drives explicit `Action` dispatch or receives values from a reducer-owned state model.
-- Use predictable state updates as your entry point for all behavior changes.
-- Combine with semantic labels and role attributes for reliable interaction testing.
-
-## Minimal usage
 ```rust
 use fission_widgets::Stat;
 
 let node = Stat {
-    ..Default::default()
-}.into_node();
+    label: "Open issues".into(),
+    value: view.state.open_issue_count.to_string(),
+    help_text: Some("Updated 2 minutes ago".into()),
+}
+.build(ctx, view);
 ```
 
-## API surface
-- `label`: `String`
-- `value`: `String`
-- `help_text`: `Option<String>`
+## Field table
 
-## Implementation checks
-- Keep control values in state, validate there, and surface results through completion actions or reducer transitions.
-- Keep callbacks/closures small and deterministic when possible, then move side effects to async boundaries.
-- If the widget affects layout or input, verify with both state transitions and target-level smoke tests.
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `label` | `String` | Small explanatory label above the value. | Required. |
+| `value` | `String` | Main emphasized value. | Required. Format numbers, currency, or percentages upstream. |
+| `help_text` | `Option<String>` | Extra context below the value. | Defaults to `None`. |
 
-## Next
-- [Widget catalog](/reference/widgets/catalog)
-- [Widget trait](/reference/core/widget-trait)
-- [Runtime model](/docs/learn/runtime-model)
+## Specific advice
+
+Keep the value itself clean and short. If the user must parse a whole sentence to understand the metric, a stat is probably the wrong presentation.
+
+## Related
+
+[`Badge`](/reference/widgets/badge), [`Card`](/reference/widgets/card), [`Text`](/reference/widgets/text), and [`CircularProgress`](/reference/widgets/circular-progress).

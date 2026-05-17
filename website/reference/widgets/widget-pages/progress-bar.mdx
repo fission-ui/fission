@@ -1,39 +1,36 @@
 ---
 title: ProgressBar
-description: Reference details for ProgressBar.
+description: Show determinate progress along a horizontal track.
 slug: /widgets/progress-bar
 ---
 # ProgressBar
 
-Use it when the user needs to interact, choose a value, or submit intent.
+`ProgressBar` is the linear progress indicator.
 
+Use it when the user should see how far through a task or process the app has moved, but precision can stay visual rather than textual. It is especially good for uploads, imports, setup steps, and background work that already has a real completion fraction.
 
-This is part of the Fission widget API and belongs in the same typed, state-driven model used across the rest of the framework.
+## Example
 
-
-**When you need it**
-- This widget is best when the control drives explicit `Action` dispatch or receives values from a reducer-owned state model.
-- Use predictable state updates as your entry point for all behavior changes.
-- Combine with semantic labels and role attributes for reliable interaction testing.
-
-## Minimal usage
 ```rust
 use fission_widgets::ProgressBar;
 
-let node = ProgressBar {
-    ..Default::default()
-}.into_node();
+let node = ProgressBar { value: 0.35 }.build(ctx, view);
 ```
 
-## API surface
-- `value`: `f32`
+This renders a bar filled to 35 percent of its width.
 
-## Implementation checks
-- Keep control values in state, validate there, and surface results through completion actions or reducer transitions.
-- Keep callbacks/closures small and deterministic when possible, then move side effects to async boundaries.
-- If the widget affects layout or input, verify with both state transitions and target-level smoke tests.
+## Field table
 
-## Next
-- [Widget catalog](/reference/widgets/catalog)
-- [Widget trait](/reference/core/widget-trait)
-- [Runtime model](/docs/learn/runtime-model)
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `value` | `f32` | Progress fraction from empty to full. | The checked-in widget clamps it to the `0.0` to `1.0` range. |
+
+## When to use it
+
+A linear bar is usually easier to read than a circular one when the layout already has horizontal room, especially in forms, task flows, and lists. It also pairs naturally with descriptive text above or below it.
+
+The widget is purely visual. If exact progress matters, pair it with text such as `35%` or `3 of 8 completed`.
+
+## Related
+
+[`CircularProgress`](/reference/widgets/circular-progress), [`Spinner`](/reference/widgets/spinner), [`Skeleton`](/reference/widgets/skeleton), and [`Stat`](/reference/widgets/stat).

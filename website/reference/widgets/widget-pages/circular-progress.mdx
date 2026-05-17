@@ -1,43 +1,51 @@
 ---
 title: CircularProgress
-description: Reference details for CircularProgress.
+description: Show determinate progress in a compact circular form factor.
 slug: /widgets/circular-progress
 ---
 # CircularProgress
 
-Use it to control how child nodes are arranged, measured, and constrained.
+`CircularProgress` is the round progress indicator.
 
+It is useful when progress needs to fit into a small square region such as a sidebar card, dashboard tile, or media status chip. It answers "how far through is this?" without consuming a full row the way a linear bar does.
 
-This is part of the Fission widget API and belongs in the same typed, state-driven model used across the rest of the framework.
+## Example
 
-
-**When you need it**
-- This widget is best when you need stable structure before styling. Keep layout decisions explicit so state and constraints stay predictable.
-- Use predictable state updates as your entry point for all behavior changes.
-- Combine with semantic labels and role attributes for reliable interaction testing.
-
-## Minimal usage
 ```rust
 use fission_widgets::CircularProgress;
 
 let node = CircularProgress {
-    ..Default::default()
-}.into_node();
+    value: Some(0.72),
+    size: 44.0,
+    color: None,
+    track_color: None,
+    thickness: 4.0,
+}
+.build(ctx, view);
 ```
 
-## API surface
-- `value`: `Option<f32>`
-- `size`: `f32`
-- `color`: `Option<Color>`
-- `track_color`: `Option<Color>`
-- `thickness`: `f32`
+This gives a compact 72 percent progress ring that can sit beside text or a stat value.
 
-## Implementation checks
-- Build with the state model first, then layer spacing, alignment, and visual treatment. Layout mistakes are usually cheaper to fix before async behavior is introduced.
-- Keep callbacks/closures small and deterministic when possible, then move side effects to async boundaries.
-- If the widget affects layout or input, verify with both state transitions and target-level smoke tests.
+## Field table
 
-## Next
-- [Widget catalog](/reference/widgets/catalog)
-- [Widget trait](/reference/core/widget-trait)
-- [Runtime model](/docs/learn/runtime-model)
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `value` | `Option<f32>` | Progress fraction for the ring. | Use `Some` for determinate progress. `None` means indeterminate intent, but see note below. |
+| `size` | `f32` | Outer width and height of the indicator. | Defaults to `40.0`. |
+| `color` | `Option<Color>` | Indicator arc color override. | Defaults to the theme's primary color. |
+| `track_color` | `Option<Color>` | Background track color override. | Defaults to the theme's border color. |
+| `thickness` | `f32` | Stroke width of the ring. | Defaults to `4.0`. |
+
+## Determinate versus indeterminate behavior
+
+The public contract suggests that `value: None` is the indeterminate mode. In the checked-in implementation, though, that mode currently renders a fixed partial arc rather than a spinning animated indicator. For true indeterminate loading feedback, [`Spinner`](/reference/widgets/spinner) is the better current choice.
+
+Also note that the widget expects a value in the `0.0` to `1.0` range and does not clamp it internally. Clamp upstream if the data may drift outside that range.
+
+## Specific advice
+
+Pair circular progress with text when precision matters. A ring is good at showing relative advancement, but not always good at communicating exact meaning on its own.
+
+## Related
+
+[`ProgressBar`](/reference/widgets/progress-bar), [`Spinner`](/reference/widgets/spinner), [`Stat`](/reference/widgets/stat), and [`Skeleton`](/reference/widgets/skeleton).

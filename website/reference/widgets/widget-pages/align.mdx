@@ -1,40 +1,46 @@
 ---
 title: Align
-description: Reference details for Align.
+description: Center one child inside the available space.
 slug: /widgets/align
 ---
 # Align
 
-Use it to control how child nodes are arranged, measured, and constrained.
+`Align` centers one child horizontally and vertically within the space offered by its parent.
 
+It is a layout primitive for the very common case where you have exactly one piece of content and want it centered. That could be an empty state, a spinner, a hero message, or a small card placed in a larger panel.
 
-This is part of the Fission widget API and belongs in the same typed, state-driven model used across the rest of the framework.
+Use `Align` when centering is the main job. Do not use it for multi-child layout, for edge pinning, or for spacing between siblings. Those are better handled by [`Row`](/reference/widgets/row), [`Column`](/reference/widgets/column), or [`Positioned`](/reference/widgets/positioned).
 
+## Example
 
-**When you need it**
-- This widget is best when you need stable structure before styling. Keep layout decisions explicit so state and constraints stay predictable.
-- Use predictable state updates as your entry point for all behavior changes.
-- Combine with semantic labels and role attributes for reliable interaction testing.
-
-## Minimal usage
 ```rust
-use fission_core::ui::Align;
+use fission_core::ui::{Align, Text};
 
-let node = Align {
-    ..Default::default()
-}.into_node();
+let node = Align::new(
+    Text::new("Nothing here yet").into_node(),
+)
+.into_node();
 ```
 
-## API surface
-- `id`: `Option<NodeId>`
-- `child`: `Box<Node>`
+The child keeps its own natural size. `Align` changes where that child sits inside the parent, not what the child renders.
 
-## Implementation checks
-- Build with the state model first, then layer spacing, alignment, and visual treatment. Layout mistakes are usually cheaper to fix before async behavior is introduced.
-- Keep callbacks/closures small and deterministic when possible, then move side effects to async boundaries.
-- If the widget affects layout or input, verify with both state transitions and target-level smoke tests.
+## Field table
 
-## Next
-- [Widget catalog](/reference/widgets/catalog)
-- [Widget trait](/reference/core/widget-trait)
-- [Runtime model](/docs/learn/runtime-model)
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `id` | `Option<NodeId>` | Stable node identity. | Defaults to `None`, so the runtime generates an id. |
+| `child` | `Box<Node>` | The node to center. | Required. `Align` is a single-child layout wrapper. |
+
+## Layout behavior
+
+When the parent gives bounded width or height, `Align` expands to that available size and centers the child inside it. When the axis is unbounded, `Align` falls back to the child's size on that axis. That makes it suitable both for full-panel centering and for smaller local centering inside reusable components.
+
+If you want the same centering behavior through a higher-level convenience widget, use [`Center`](/reference/widgets/center). If you need cross-axis control in a larger layout rather than one centered child, prefer the alignment controls on [`Row`](/reference/widgets/row) or [`Column`](/reference/widgets/column).
+
+## Specific advice
+
+`Align` is a good choice when you want intent to be obvious in code. A centered child inside an `Align` is easier to read than manually building containers and spacers to fake centering.
+
+## Related
+
+[`Center`](/reference/widgets/center), [`Container`](/reference/widgets/container), [`Row`](/reference/widgets/row), and [`Column`](/reference/widgets/column).

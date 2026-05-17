@@ -1,42 +1,43 @@
 ---
 title: Toast
-description: Reference details for Toast.
+description: Show a brief overlay notification without moving the main page layout.
 slug: /widgets/toast
 ---
 # Toast
 
-Use it when the user needs to interact, choose a value, or submit intent.
+`Toast` is the transient notification surface.
 
+Use it when the app needs to acknowledge something quickly without interrupting the main task flow. Good examples are "Message sent", "Copied", or "Upload failed" when the full context already exists elsewhere on screen.
 
-This is part of the Fission widget API and belongs in the same typed, state-driven model used across the rest of the framework.
+## Example
 
-
-**When you need it**
-- This widget is best when the control drives explicit `Action` dispatch or receives values from a reducer-owned state model.
-- Use predictable state updates as your entry point for all behavior changes.
-- Combine with semantic labels and role attributes for reliable interaction testing.
-
-## Minimal usage
 ```rust
-use fission_widgets::Toast;
+use fission_widgets::{Toast, ToastKind};
 
 let node = Toast {
-    ..Default::default()
-}.into_node();
+    id: WidgetNodeId::explicit("reply_sent_toast"),
+    kind: ToastKind::Success,
+    message: "Reply sent".into(),
+    on_close: Some(dismiss_reply_sent_toast_action),
+}
+.build(ctx, view);
 ```
 
-## API surface
-- `id`: `WidgetNodeId`
-- `kind`: `ToastKind`
-- `message`: `String`
-- `on_close`: `Option<ActionEnvelope>`
+## Field table
 
-## Implementation checks
-- Keep control values in state, validate there, and surface results through completion actions or reducer transitions.
-- Keep callbacks/closures small and deterministic when possible, then move side effects to async boundaries.
-- If the widget affects layout or input, verify with both state transitions and target-level smoke tests.
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `id` | `WidgetNodeId` | Stable toast identity. | Present in the public struct, but the checked-in widget does not currently use it internally. It is still useful in surrounding app state and overlay lists. |
+| `kind` | `ToastKind` | Severity and visual tone of the message. | Required. Controls icon and accent treatment. |
+| `message` | `String` | Main toast text. | Required. Keep it short. |
+| `on_close` | `Option<ActionEnvelope>` | Action fired when the close button is pressed. | Defaults to `None`. |
 
-## Next
-- [Widget catalog](/reference/widgets/catalog)
-- [Widget trait](/reference/core/widget-trait)
-- [Runtime model](/docs/learn/runtime-model)
+## Lifecycle guidance
+
+The checked-in toast is a visual surface only. It does not auto-dismiss itself. Your app decides when it appears and when it leaves state. If you want timed dismissal, trigger that with an explicit timer or service-driven flow rather than expecting the widget to manage its own lifetime.
+
+Also remember that a toast is not a good place for dense recovery instructions. If the user needs to read, compare, or act carefully, an inline alert or dialog is usually the better fit.
+
+## Related
+
+[`ToastKind`](/reference/widgets/toast-kind), [`Alert`](/reference/widgets/alert), [`Modal`](/reference/widgets/modal), and [`Resources and async`](/docs/guides/resources-and-async).

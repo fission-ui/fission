@@ -1,42 +1,40 @@
 ---
 title: TableColumn
-description: Reference details for TableColumn.
+description: Describe one column inside a DataTable.
 slug: /widgets/table-column
 ---
 # TableColumn
 
-Use it when the user needs to interact, choose a value, or submit intent.
+`TableColumn` is the column-definition record used by [`DataTable`](/reference/widgets/data-table).
 
+A good column definition answers three things: what the column represents, how wide it should be, and whether the interface should visually hint that the column can be sorted.
 
-This is part of the Fission widget API and belongs in the same typed, state-driven model used across the rest of the framework.
+## Example
 
-
-**When you need it**
-- This widget is best when the control drives explicit `Action` dispatch or receives values from a reducer-owned state model.
-- Use predictable state updates as your entry point for all behavior changes.
-- Combine with semantic labels and role attributes for reliable interaction testing.
-
-## Minimal usage
 ```rust
 use fission_widgets::TableColumn;
 
-let node = TableColumn {
-    ..Default::default()
-}.into_node();
+let column = TableColumn {
+    id: "updated_at".into(),
+    title: "Updated".into(),
+    width: 140.0,
+    sortable: true,
+};
 ```
 
-## API surface
-- `id`: `String`
-- `title`: `String`
-- `width`: `f32`
-- `sortable`: `bool`
+## Field table
 
-## Implementation checks
-- Keep control values in state, validate there, and surface results through completion actions or reducer transitions.
-- Keep callbacks/closures small and deterministic when possible, then move side effects to async boundaries.
-- If the widget affects layout or input, verify with both state transitions and target-level smoke tests.
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `id` | `String` | Stable application-level column identifier. | Required. Useful for your own sort and visibility logic. |
+| `title` | `String` | Header label shown at the top of the column. | Required. |
+| `width` | `f32` | Display width for the column. | Required. Choose widths deliberately for the data shape. |
+| `sortable` | `bool` | Whether the header should show a sort affordance. | The checked-in table uses this only as a visual indicator. |
 
-## Next
-- [Widget catalog](/reference/widgets/catalog)
-- [Widget trait](/reference/core/widget-trait)
-- [Runtime model](/docs/learn/runtime-model)
+## Specific advice
+
+Keep ids stable even if titles are localized or renamed. Product logic should usually sort or hide columns by id, not by user-facing text.
+
+## Related
+
+[`DataTable`](/reference/widgets/data-table), [`TableRow`](/reference/widgets/table-row), [`Text`](/reference/widgets/text), and [`Pagination`](/reference/widgets/pagination).

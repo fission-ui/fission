@@ -1,46 +1,53 @@
 ---
 title: Positioned
-description: Reference details for Positioned.
+description: Absolutely position one child inside a stacked parent.
 slug: /widgets/positioned
 ---
 # Positioned
 
-Use it to control how child nodes are arranged, measured, and constrained.
+`Positioned` is the absolute-positioning helper for layered layouts.
 
+It is designed to be used inside a parent such as [`ZStack`](/reference/widgets/z-stack), where one child should sit at a specific edge, corner, or offset relative to the stack's bounds. Common uses include badges, tooltips, floating buttons, corner actions, or popups anchored inside an overlay surface.
 
-This is part of the Fission widget API and belongs in the same typed, state-driven model used across the rest of the framework.
+Use `Positioned` when placement relative to parent edges matters. Do not use it for ordinary spacing in a row or column. Absolute positioning is powerful, but it is the wrong tool for most everyday layout.
 
+## Example
 
-**When you need it**
-- This widget is best when you need stable structure before styling. Keep layout decisions explicit so state and constraints stay predictable.
-- Use predictable state updates as your entry point for all behavior changes.
-- Combine with semantic labels and role attributes for reliable interaction testing.
-
-## Minimal usage
 ```rust
-use fission_core::ui::Positioned;
+use fission_core::ui::{Positioned, Text};
 
-let node = Positioned {
+let badge = Positioned {
+    top: Some(8.0),
+    right: Some(8.0),
+    child: Some(Box::new(Text::new("New").into_node())),
     ..Default::default()
-}.into_node();
+}
+.into_node();
 ```
 
-## API surface
-- `id`: `Option<NodeId>`
-- `left`: `Option<f32>`
-- `top`: `Option<f32>`
-- `right`: `Option<f32>`
-- `bottom`: `Option<f32>`
-- `width`: `Option<f32>`
-- `height`: `Option<f32>`
-- `child`: `Option<Box<Node>>`
+## Field table
 
-## Implementation checks
-- Build with the state model first, then layer spacing, alignment, and visual treatment. Layout mistakes are usually cheaper to fix before async behavior is introduced.
-- Keep callbacks/closures small and deterministic when possible, then move side effects to async boundaries.
-- If the widget affects layout or input, verify with both state transitions and target-level smoke tests.
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `id` | `Option<NodeId>` | Stable node identity. | Defaults to `None`. |
+| `left` | `Option<f32>` | Distance from the parent's left edge. | Defaults to `None`. |
+| `top` | `Option<f32>` | Distance from the parent's top edge. | Defaults to `None`. |
+| `right` | `Option<f32>` | Distance from the parent's right edge. | Defaults to `None`. |
+| `bottom` | `Option<f32>` | Distance from the parent's bottom edge. | Defaults to `None`. |
+| `width` | `Option<f32>` | Explicit width for the child region. | Defaults to `None`. |
+| `height` | `Option<f32>` | Explicit height for the child region. | Defaults to `None`. |
+| `child` | `Option<Box<Node>>` | The positioned child. | Defaults to `None`. |
 
-## Next
-- [Widget catalog](/reference/widgets/catalog)
-- [Widget trait](/reference/core/widget-trait)
-- [Runtime model](/docs/learn/runtime-model)
+## Placement behavior
+
+If you provide both `left` and `right`, the available width is derived from the remaining horizontal space. Likewise, if you provide both `top` and `bottom`, the available height is derived from the remaining vertical space. Explicit `width` and `height` tighten the child constraints further.
+
+If only one edge is provided on an axis, the child keeps its natural size on that axis and is placed from that edge.
+
+## Specific advice
+
+`Positioned` reads best when the placement is part of the design, not a last-minute correction. If you find yourself using it repeatedly just to fix normal layout problems, step back and reconsider whether the parent should really be a row, column, or container instead.
+
+## Related
+
+[`ZStack`](/reference/widgets/z-stack), [`Overlay`](/reference/widgets/overlay), and [`absolute_fill(...)`](/reference/widgets/absolute-fill).

@@ -1,43 +1,52 @@
 ---
 title: Image
-description: Reference details for Image.
+description: Display raster images or scalable vector graphics (SVG) content inside the layout tree.
 slug: /widgets/image
 ---
 # Image
 
-Use it for media, rich text, icons, graphics, or custom visual composition.
+`Image` is the general image widget.
 
+Use it for photos, illustrations, thumbnails, diagrams, and any other visual content that belongs in the app's normal layout flow. The widget focuses on display, not asset management or accessibility semantics.
 
-This is part of the Fission widget API and belongs in the same typed, state-driven model used across the rest of the framework.
+## Example
 
-
-**When you need it**
-- This widget is best when content may be asynchronous, large, or performance-sensitive.
-- Use predictable state updates as your entry point for all behavior changes.
-- Combine with semantic labels and role attributes for reliable interaction testing.
-
-## Minimal usage
 ```rust
+use fission_core::op::ImageFit;
 use fission_core::ui::Image;
 
 let node = Image {
+    source: view.state.hero_image_url.clone(),
+    width: Some(320.0),
+    height: Some(180.0),
+    fit: Some(ImageFit::Cover),
     ..Default::default()
-}.into_node();
+}
+.into_node();
 ```
 
-## API surface
-- `id`: `Option<NodeId>`
-- `source`: `String`
-- `width`: `Option<f32>`
-- `height`: `Option<f32>`
-- `fit`: `Option<ImageFit>`
+`Cover` is a good choice when the image should fill a card or hero frame even if some cropping occurs.
 
-## Implementation checks
-- Decide loading fallback, constraints, and accessibility alternatives before adding animation or motion effects.
-- Keep callbacks/closures small and deterministic when possible, then move side effects to async boundaries.
-- If the widget affects layout or input, verify with both state transitions and target-level smoke tests.
+## Field table
 
-## Next
-- [Widget catalog](/reference/widgets/catalog)
-- [Widget trait](/reference/core/widget-trait)
-- [Runtime model](/docs/learn/runtime-model)
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `id` | `Option<NodeId>` | Stable node identity. | Defaults to `None`. |
+| `source` | `String` | Image source path, web address, inline scalable vector graphics (SVG), or SVG file path. | Required. The renderer treats inline `<svg...>` content and `.svg` files specially. |
+| `width` | `Option<f32>` | Fixed layout width. | Defaults to `None`. Set explicit dimensions or parent constraints for predictable results. |
+| `height` | `Option<f32>` | Fixed layout height. | Defaults to `None`. |
+| `fit` | `Option<ImageFit>` | How the image should scale inside its box. | Defaults to `Contain` when rendering non-scalable vector graphics (SVG) images. |
+
+## Responsive and accessibility notes
+
+In responsive layouts, the main question is not only which image to show, but how much cropping is acceptable. `Contain` preserves the whole image but may leave empty space. `Cover` fills the region but may crop edges.
+
+The current public contract does not include alt text or a semantic label. If the image carries meaning, provide that meaning with surrounding text or parent-level semantics instead of assuming assistive technology can infer it.
+
+## Specific advice
+
+Give images deliberate layout constraints. A source string alone does not express how large the image should be in a flexible screen.
+
+## Related
+
+[`Icon`](/reference/widgets/icon), [`Avatar`](/reference/widgets/avatar), [`Card`](/reference/widgets/card), and [`AspectRatio`](/reference/widgets/aspect-ratio).

@@ -1,41 +1,59 @@
 ---
 title: Menu
-description: Reference details for Menu.
+description: Render a scrollable vertical list of menu actions.
 slug: /widgets/menu
 ---
 # Menu
 
-Use it when the user needs to interact, choose a value, or submit intent.
+`Menu` is the popup action list used by higher-level controls such as [`MenuButton`](/reference/widgets/menu-button) and [`Select`](/reference/widgets/select).
 
+It takes a list of [`MenuItem`](/reference/widgets/menu-item) values and renders them as vertically stacked ghost buttons inside a bordered, elevated surface. When the content grows tall enough, the menu becomes scrollable.
 
-This is part of the Fission widget API and belongs in the same typed, state-driven model used across the rest of the framework.
+## Example
 
-
-**When you need it**
-- This widget is best when the control drives explicit `Action` dispatch or receives values from a reducer-owned state model.
-- Use predictable state updates as your entry point for all behavior changes.
-- Combine with semantic labels and role attributes for reliable interaction testing.
-
-## Minimal usage
 ```rust
-use fission_widgets::Menu;
+use fission_widgets::{Menu, MenuItem};
 
 let node = Menu {
-    ..Default::default()
-}.into_node();
+items: vec![
+    MenuItem {
+        label: "Archive".into(),
+        icon: None,
+        on_select: Some(archive_action),
+    },
+    MenuItem {
+        label: "Mark unread".into(),
+        icon: None,
+        on_select: Some(mark_unread_action),
+    },
+],
+width: Some(220.0),
+max_height: Some(280.0),
+}
+.build(ctx, view);
 ```
 
-## API surface
-- `items`: `Vec<MenuItem>`
-- `width`: `Option<f32>`
-- `max_height`: `Option<f32>`
+`Menu` itself only renders the list. Some surrounding widget still has to decide when and where to show it.
 
-## Implementation checks
-- Keep control values in state, validate there, and surface results through completion actions or reducer transitions.
-- Keep callbacks/closures small and deterministic when possible, then move side effects to async boundaries.
-- If the widget affects layout or input, verify with both state transitions and target-level smoke tests.
+## Field table
 
-## Next
-- [Widget catalog](/reference/widgets/catalog)
-- [Widget trait](/reference/core/widget-trait)
-- [Runtime model](/docs/learn/runtime-model)
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `items` | `Vec<MenuItem>` | Entries to render from top to bottom. | Required. |
+| `width` | `Option<f32>` | Target menu width. | If `None`, item rows default to `200.0` wide. |
+| `max_height` | `Option<f32>` | Maximum height before the menu scrolls. | Defaults to `300.0`. |
+
+## Layout and interaction behavior
+
+Each item row is rendered as a ghost button aligned to the start, with dividers between rows. The menu surface itself is wrapped in a [`Scroll`](/reference/widgets/scroll) when the estimated content height exceeds the configured maximum. This is why `Menu` is a good building block for compact action lists but not for enormous data sets.
+
+`Menu` also does not own open state. Whether it appears, disappears, or repositions belongs to the parent widget or portal.
+
+## Specific advice
+
+Use `Menu` for short action lists. If the content is actually a form field choice, `Select` often gives better product-level meaning. If the content is long, searchable, or remote-backed, a `Combobox` or a dedicated screen is usually easier to use.
+
+## Related
+
+[`MenuButton`](/reference/widgets/menu-button), [`MenuItem`](/reference/widgets/menu-item), [`Select`](/reference/widgets/select), and [`Scroll`](/reference/widgets/scroll).
+

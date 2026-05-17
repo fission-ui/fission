@@ -1,43 +1,77 @@
 ---
 title: DataTable
-description: Reference details for DataTable.
+description: Render simple tabular data with explicit selection state and fixed string cells.
 slug: /widgets/data-table
 ---
 # DataTable
 
-Use it for cross-cutting composition and app-level surface behavior.
+`DataTable` is the basic tabular-data widget in the authoring set.
 
+Use it when users need to scan rows against shared columns: files, users, invoices, runs, and similar structured records. A table solves a different problem than a list or card grid. It trades visual warmth for fast comparison across fields.
 
-This is part of the Fission widget API and belongs in the same typed, state-driven model used across the rest of the framework.
+## Example
 
-
-**When you need it**
-- This widget is best when building reusable building blocks that support product patterns.
-- Use predictable state updates as your entry point for all behavior changes.
-- Combine with semantic labels and role attributes for reliable interaction testing.
-
-## Minimal usage
 ```rust
-use fission_widgets::DataTable;
+use fission_widgets::{DataTable, TableColumn, TableRow};
+use std::sync::Arc;
 
 let node = DataTable {
-    ..Default::default()
-}.into_node();
+    id: WidgetNodeId::explicit("build_runs_table"),
+    columns: vec![
+        TableColumn {
+            id: "status".into(),
+            title: "Status".into(),
+            width: 120.0,
+            sortable: false,
+        },
+        TableColumn {
+            id: "branch".into(),
+            title: "Branch".into(),
+            width: 180.0,
+            sortable: true,
+        },
+    ],
+    rows: vec![
+        TableRow {
+            id: "run_42".into(),
+            cells: vec!["Passed".into(), "main".into()],
+        },
+    ],
+    selected_ids: view.state.selected_run_ids.clone(),
+    on_selection_change: Some(Arc::new(move |row_id| ActionEnvelope {
+        id: toggle_row_selection_id,
+        payload: serde_json::to_vec(&ToggleRowSelection(row_id)).unwrap(),
+    })),
+}
+.build(ctx, view);
 ```
 
-## API surface
-- `id`: `WidgetNodeId`
-- `columns`: `Vec<TableColumn>`
-- `rows`: `Vec<TableRow>`
-- `selected_ids`: `Vec<String>`
-- `on_selection_change`: `Option<Arc<dyn Fn(String) -> ActionEnvelope + Send + Sync>>`
+Here the table is responsible for presentation. The reducer is responsible for which rows are selected and what selection means.
 
-## Implementation checks
-- Pair it with the core trait contract and test rendering output with headless checks for stability.
-- Keep callbacks/closures small and deterministic when possible, then move side effects to async boundaries.
-- If the widget affects layout or input, verify with both state transitions and target-level smoke tests.
+## Field table
 
-## Next
-- [Widget catalog](/reference/widgets/catalog)
-- [Widget trait](/reference/core/widget-trait)
-- [Runtime model](/docs/learn/runtime-model)
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `id` | `WidgetNodeId` | Stable identity for the table instance. | Present in the public struct, but the checked-in renderer does not currently consume it internally. |
+| `columns` | `Vec<TableColumn>` | Column definitions in display order. | Required. Width comes from the column records. |
+| `rows` | `Vec<TableRow>` | Row data in display order. | Required. Each row's cells are matched to columns by index. |
+| `selected_ids` | `Vec<String>` | Currently selected row ids. | Controlled by app state. |
+| `on_selection_change` | `Option<Arc<dyn Fn(String) -> ActionEnvelope + Send + Sync>>` | Closure that builds the action for row or checkbox selection. | Called with the row id. |
+
+## How to think about tabular data here
+
+A table works when every row shares the same shape and when columns matter more than custom per-row layout. The checked-in `DataTable` is intentionally simple: cells are plain strings, not arbitrary widgets. That keeps comparison easy, but it also means complex media cells, nested controls, or heavily formatted content usually want a custom table layout instead.
+
+Selection is explicit. The widget highlights rows whose ids appear in `selected_ids`, and it uses the same selection callback for row presses and row checkboxes.
+
+## Current behavior and limits
+
+Two implementation details matter today. First, the header's select-all checkbox is currently visual only. Second, `TableColumn.sortable` currently adds a sort indicator but no built-in sorting callback. In other words, the widget presents table affordances, but your app still owns all real sorting and bulk-selection behavior.
+
+## Specific advice
+
+Keep column counts modest on narrow screens. If comparison is still important on mobile, consider a smaller table with fewer columns plus a drill-in detail view instead of forcing a huge horizontal matrix.
+
+## Related
+
+[`TableColumn`](/reference/widgets/table-column), [`TableRow`](/reference/widgets/table-row), [`Pagination`](/reference/widgets/pagination), and [`Scroll`](/reference/widgets/scroll).

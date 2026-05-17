@@ -1,50 +1,67 @@
 ---
 title: GestureDetector
-description: Reference details for GestureDetector.
+description: Wrap a child and dispatch low-level pointer and drag actions.
 slug: /widgets/gesture-detector
 ---
 # GestureDetector
 
-Use it for cross-cutting composition and app-level surface behavior.
+`GestureDetector` is the low-level input wrapper for pointer-style interactions.
 
+It lets you attach actions for taps, secondary clicks, long presses, drag lifecycle events, hover enter and exit, and drop interactions. That makes it useful for custom surfaces, dismissal backdrops, context menus, drag targets, and other interaction patterns that are not already covered by a higher-level widget.
 
-This is part of the Fission widget API and belongs in the same typed, state-driven model used across the rest of the framework.
+Use `GestureDetector` when you need this level of control. Do not reach for it first when a higher-level widget already expresses the interaction. A [`Button`](/reference/widgets/button), [`Checkbox`](/reference/widgets/checkbox), or dedicated input widget usually gives you clearer semantics with less work.
 
+## Example
 
-**When you need it**
-- This widget is best when building reusable building blocks that support product patterns.
-- Use predictable state updates as your entry point for all behavior changes.
-- Combine with semantic labels and role attributes for reliable interaction testing.
-
-## Minimal usage
 ```rust
-use fission_core::ui::GestureDetector;
+use fission_core::ui::{Container, GestureDetector, Text};
 
 let node = GestureDetector {
+    child: Box::new(
+        Container::new(Text::new("Open context menu").into_node())
+            .padding_all(12.0)
+            .into_node(),
+    ),
+    on_secondary_click: Some(show_context_menu_action),
     ..Default::default()
-}.into_node();
+}
+.into_node();
 ```
 
-## API surface
-- `id`: `Option<NodeId>`
-- `child`: `Box<Node>`
-- `on_tap`: `Option<ActionEnvelope>`
-- `on_double_tap`: `Option<ActionEnvelope>`
-- `on_long_press`: `Option<ActionEnvelope>`
-- `on_drag_start`: `Option<ActionEnvelope>`
-- `on_drag_update`: `Option<ActionEnvelope>`
-- `on_drag_end`: `Option<ActionEnvelope>`
-- `on_hover_enter`: `Option<ActionEnvelope>`
-- `on_hover_exit`: `Option<ActionEnvelope>`
-- `on_drop`: `Option<ActionEnvelope>`
-- `on_secondary_click`: `Option<ActionEnvelope>`
+This is a good use case because the interaction is more specific than a plain button press.
 
-## Implementation checks
-- Pair it with the core trait contract and test rendering output with headless checks for stability.
-- Keep callbacks/closures small and deterministic when possible, then move side effects to async boundaries.
-- If the widget affects layout or input, verify with both state transitions and target-level smoke tests.
+## Field table
 
-## Next
-- [Widget catalog](/reference/widgets/catalog)
-- [Widget trait](/reference/core/widget-trait)
-- [Runtime model](/docs/learn/runtime-model)
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `id` | `Option<NodeId>` | Stable node identity. | Defaults to `None`. |
+| `child` | `Box<Node>` | The wrapped child that receives gesture detection. | Required. `Default` uses an empty spacer child. |
+| `on_tap` | `Option<ActionEnvelope>` | Action for a normal tap. | When present, the lowered semantics become focusable. |
+| `on_double_tap` | `Option<ActionEnvelope>` | Action for a double tap. | Defaults to `None`. |
+| `on_long_press` | `Option<ActionEnvelope>` | Action for a long press. | Defaults to `None`. |
+| `on_drag_start` | `Option<ActionEnvelope>` | Action for drag start. | Defaults to `None`. |
+| `on_drag_update` | `Option<ActionEnvelope>` | Action for drag movement. | Defaults to `None`. |
+| `on_drag_end` | `Option<ActionEnvelope>` | Action for drag end. | Defaults to `None`. |
+| `on_hover_enter` | `Option<ActionEnvelope>` | Action when the pointer enters the bounds. | Useful on desktop and web. |
+| `on_hover_exit` | `Option<ActionEnvelope>` | Action when the pointer leaves the bounds. | Useful on desktop and web. |
+| `on_drop` | `Option<ActionEnvelope>` | Action when a drag payload is dropped on this node. | Defaults to `None`. |
+| `on_secondary_click` | `Option<ActionEnvelope>` | Action for right click or equivalent secondary click. | Defaults to `None`. |
+| `on_drag_enter` | `Option<ActionEnvelope>` | Action when a drag enters the target bounds. | Defaults to `None`. |
+| `on_drag_leave` | `Option<ActionEnvelope>` | Action when a drag leaves the target bounds. | Defaults to `None`. |
+| `drag_payload` | `Option<Vec<u8>>` | Opaque bytes attached to drag sources. | Defaults to `None`. Also marks the node as draggable. |
+
+## Interaction and semantics behavior
+
+`GestureDetector` lowers to a semantics node rather than a visual node. That matters because it means the wrapped child keeps its layout and appearance, while the detector adds interaction triggers around it.
+
+The lowered semantics also advertise drag capability when drag handlers or drag payload are present. That is what makes it a useful building block for custom drag-and-drop flows.
+
+## Specific advice
+
+Prefer higher-level widgets when possible. If a control is conceptually a button, use a button. If a control is conceptually a text input, use a text input. `GestureDetector` is best when the gesture itself is the important abstraction, not when it is only a way to simulate a more specific control.
+
+For drop targets, keep the payload format documented and stable. The runtime only carries opaque bytes here; your application still needs a clear meaning for those bytes.
+
+## Related
+
+[`Button`](/reference/widgets/button), [`Overlay`](/reference/widgets/overlay), [`Positioned`](/reference/widgets/positioned), and [`CustomNode`](/reference/widgets/custom-node).

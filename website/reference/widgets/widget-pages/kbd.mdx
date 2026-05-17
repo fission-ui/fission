@@ -1,39 +1,45 @@
 ---
 title: Kbd
-description: Reference details for Kbd.
+description: Render a visual keyboard keycap for shortcuts and input instructions.
 slug: /widgets/kbd
 ---
 # Kbd
 
-Use it for media, rich text, icons, graphics, or custom visual composition.
+`Kbd` is the small keycap-style label for keyboard instructions.
 
+Use it when a product or document needs to teach a shortcut such as `Ctrl+C`, `Cmd+K`, or `g` then `i`. A dedicated keycap style reads more clearly than plain prose when shortcuts matter.
 
-This is part of the Fission widget API and belongs in the same typed, state-driven model used across the rest of the framework.
+## Example
 
-
-**When you need it**
-- This widget is best when content may be asynchronous, large, or performance-sensitive.
-- Use predictable state updates as your entry point for all behavior changes.
-- Combine with semantic labels and role attributes for reliable interaction testing.
-
-## Minimal usage
 ```rust
 use fission_widgets::Kbd;
 
-let node = Kbd {
-    ..Default::default()
-}.into_node();
+let chord = HStack {
+    spacing: Some(6.0),
+    children: vec![
+        Kbd { text: "Ctrl".into() }.build(ctx, view),
+        Kbd { text: "C".into() }.build(ctx, view),
+    ],
+}
+.into_node();
 ```
 
-## API surface
-- `text`: `String`
+Building each key separately usually reads better than putting the whole chord in one box.
 
-## Implementation checks
-- Decide loading fallback, constraints, and accessibility alternatives before adding animation or motion effects.
-- Keep callbacks/closures small and deterministic when possible, then move side effects to async boundaries.
-- If the widget affects layout or input, verify with both state transitions and target-level smoke tests.
+## Field table
 
-## Next
-- [Widget catalog](/reference/widgets/catalog)
-- [Widget trait](/reference/core/widget-trait)
-- [Runtime model](/docs/learn/runtime-model)
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `text` | `String` | Key label shown inside the keycap. | Required. |
+
+## user experience intent
+
+`Kbd` is purely visual guidance. It does not listen for key events and does not prove that the shortcut is actually wired elsewhere in your app. Make sure the documented shortcut matches the real behavior.
+
+## Specific advice
+
+For multi-step shortcuts, show each keycap separately and add plain text between them when needed, such as `then`. That is easier to scan than a long combined string.
+
+## Related
+
+[`Code`](/reference/widgets/code), [`Text`](/reference/widgets/text), [`Link`](/reference/widgets/link), and [`Alert`](/reference/widgets/alert).

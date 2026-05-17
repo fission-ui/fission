@@ -1,41 +1,46 @@
 ---
 title: Badge
-description: Reference details for Badge.
+description: Show a small count, state, or category label without taking over the layout.
 slug: /widgets/badge
 ---
 # Badge
 
-Use it when the user needs to interact, choose a value, or submit intent.
+`Badge` is the compact pill for short status text.
 
+Use it when the user needs a quick count or classification next to a larger piece of content, such as an unread count, environment label, or short state marker. A badge should support the main content, not replace it.
 
-This is part of the Fission widget API and belongs in the same typed, state-driven model used across the rest of the framework.
+## Example
 
-
-**When you need it**
-- This widget is best when the control drives explicit `Action` dispatch or receives values from a reducer-owned state model.
-- Use predictable state updates as your entry point for all behavior changes.
-- Combine with semantic labels and role attributes for reliable interaction testing.
-
-## Minimal usage
 ```rust
 use fission_widgets::Badge;
 
 let node = Badge {
+    text: "12 new".into(),
     ..Default::default()
-}.into_node();
+}
+.build(ctx, view);
 ```
 
-## API surface
-- `text`: `String`
-- `color`: `Option<Color>`
-- `text_color`: `Option<Color>`
+This works well beside a folder title, page header, or list row label.
 
-## Implementation checks
-- Keep control values in state, validate there, and surface results through completion actions or reducer transitions.
-- Keep callbacks/closures small and deterministic when possible, then move side effects to async boundaries.
-- If the widget affects layout or input, verify with both state transitions and target-level smoke tests.
+## Field table
 
-## Next
-- [Widget catalog](/reference/widgets/catalog)
-- [Widget trait](/reference/core/widget-trait)
-- [Runtime model](/docs/learn/runtime-model)
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `text` | `String` | Short label shown inside the badge. | Required. Keep it brief. |
+| `color` | `Option<Color>` | Background color override. | Defaults to the theme's secondary color. |
+| `text_color` | `Option<Color>` | Text color override. | Defaults to the theme's on-secondary color. |
+
+## user experience intent
+
+A badge is best when it adds context to something else. If the count or status is the main point of the screen, a larger widget such as [`Stat`](/reference/widgets/stat) is usually clearer.
+
+The checked-in badge is purely visual. It is not interactive, and it does not expose special semantics beyond the text it renders.
+
+## Specific advice
+
+Do not cram long phrases into a badge. Once the text needs a sentence, it is not badge-shaped information anymore.
+
+## Related
+
+[`Tag`](/reference/widgets/tag), [`Stat`](/reference/widgets/stat), [`Alert`](/reference/widgets/alert), and [`Text`](/reference/widgets/text).

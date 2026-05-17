@@ -1,40 +1,43 @@
 ---
 title: Link
-description: Reference details for Link.
+description: Render text that looks and behaves like a lightweight action link.
 slug: /widgets/link
 ---
 # Link
 
-Use it for cross-cutting composition and app-level surface behavior.
+`Link` is the text-style action widget.
 
+Use it when the interaction should read like inline navigation or a secondary action rather than a full button. Good examples are "Learn more", "Open settings", and contextual route changes inside help text or compact panels.
 
-This is part of the Fission widget API and belongs in the same typed, state-driven model used across the rest of the framework.
+## Example
 
-
-**When you need it**
-- This widget is best when building reusable building blocks that support product patterns.
-- Use predictable state updates as your entry point for all behavior changes.
-- Combine with semantic labels and role attributes for reliable interaction testing.
-
-## Minimal usage
 ```rust
 use fission_widgets::Link;
 
 let node = Link {
-    ..Default::default()
-}.into_node();
+    text: "Open billing settings".into(),
+    on_click: Some(open_billing_settings_action),
+}
+.build(ctx, view);
 ```
 
-## API surface
-- `text`: `String`
-- `on_click`: `Option<ActionEnvelope>`
+## Field table
 
-## Implementation checks
-- Pair it with the core trait contract and test rendering output with headless checks for stability.
-- Keep callbacks/closures small and deterministic when possible, then move side effects to async boundaries.
-- If the widget affects layout or input, verify with both state transitions and target-level smoke tests.
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `text` | `String` | Visible link label. | Required. |
+| `on_click` | `Option<ActionEnvelope>` | Action fired when the link is pressed. | Defaults to `None`. |
 
-## Next
-- [Widget catalog](/reference/widgets/catalog)
-- [Widget trait](/reference/core/widget-trait)
-- [Runtime model](/docs/learn/runtime-model)
+## What kind of link this is
+
+The checked-in widget is built from a ghost [`Button`](/reference/widgets/button) plus underlined text. That means it behaves like an explicit action inside Fission's state loop, not like a browser-native anchor tag with an `href`.
+
+In practice that is often what you want: the action can navigate within your app, open a settings view, or ask the reducer to emit an `OPEN_URL` capability. Just remember that the widget itself does not know about URLs.
+
+## Specific advice
+
+Use link styling for low-emphasis actions. If the choice is primary, destructive, or touch-critical, a real button is usually clearer and more accessible.
+
+## Related
+
+[`Button`](/reference/widgets/button), [`Breadcrumb`](/reference/widgets/breadcrumb), [`Text`](/reference/widgets/text), and [`Resources and async`](/docs/guides/resources-and-async).

@@ -1,58 +1,340 @@
 ---
-title: Theming and i18n
-description: Keep appearance and language selection explicit by driving both through `Env`.
+title: Theming and internationalization
+description: Learn how theme, locale, and translation bundles flow through Env, and how to keep those app-wide inputs explicit.
 ---
 
-# Theming and i18n
+# Theming and internationalization
 
-Theme and locale are explicit runtime inputs in Fission.
+A serious app needs two kinds of flexibility very early.
 
-## Theme
+It needs to control how the interface looks, and it needs to control what language the interface speaks.
 
-`fission-theme` exposes a `Theme` value with:
+In Fission, both concerns are explicit. Theme values and translated text do not live in hidden global state. They live in `Env`, the shared environment that widgets read through `View`.
 
-- primitive tokens for color, spacing, type, radius, and elevation,
-- derived component themes for buttons, inputs, tabs, tooltips, tree views, and more.
+That design matters for the same reason explicit state matters elsewhere in the framework. If the current theme and locale are visible inputs, the user interface stays predictable, tests can provide known values, and the same app model can behave consistently across desktop, web, Android, and iOS.
 
-The most common pattern is:
+This page covers both the architecture and the Rust you need to make it work. You do not need to know all of Rust before reading it. Whenever the examples use Rust-specific syntax, the prose will explain what that syntax is doing.
+
+## Start with theming from first principles
+
+A theme is the collection of visual values that gives your app a consistent look.
+
+That includes colors, spacing, typography, radius, elevation, and the component-level styling that turns those values into real buttons, inputs, tabs, tooltips, and other interface parts.
+
+Fission keeps theme in `Env` because theme is not ordinary product data such as a message list or a document body. It is app-wide presentation context. Widgets should be able to read it consistently no matter which screen they are on.
+
+In code, a widget usually reads the active theme through `view.env.theme` or the convenience helper `view.theme()`. The important architectural point is that the widget is reading a supplied input. It is not guessing the theme by consulting a singleton or a platform hook.
+
+## When theme should live in app state
+
+If the theme never changes, you can seed `Env` once and stop there.
+
+If the user can switch between light mode and dark mode, or choose branded variants, the theme choice should live in `AppState`. That is because the user's theme choice is real product state. Once that choice is in state, you mirror it into `Env` with `.with_sync_env(...)`.
+
+Here is the basic pattern:
 
 ```rust
-.with_sync_env(|state, env| {
-    env.theme = if state.dark_mode {
-        Theme::dark()
-    } else {
-        Theme::default()
-    };
-})
+DesktopApp::new(MyApp)
+    .with_sync_env(|state: &MyState, env: &mut Env| {
+        env.theme = if state.dark_mode {
+            Theme::dark()
+        } else {
+            Theme::default()
+        };
+    })
+    .run()?;
 ```
 
-That is the same approach used in checked-in examples like `inbox`, `editor`, `chart-gallery`, and `terminal`.
+The Rust syntax here is worth translating.
 
-## I18n
+`.with_sync_env(...)` takes a closure. A closure is a small anonymous function written inline. The part between the vertical bars, `|state: &MyState, env: &mut Env|`, declares the two inputs to that function.
 
-`fission-i18n` is intentionally small:
+- `state: &MyState` means "give me read-only access to the current app state."
+- `env: &mut Env` means "give me mutable access to the environment so I can update it for this frame."
 
-- `Locale`
-- `TranslationBundle`
-- `I18nRegistry`
+So in plain English, the closure says: "look at the current app state, then update the environment to match it."
 
-You load bundles into `env.i18n`, set `env.locale`, and render keyed content through `TextContent::Key(...)`.
+The `if state.dark_mode { ... } else { ... }` part is ordinary conditional logic. If the user preference says dark mode is on, the code assigns `Theme::dark()`. Otherwise it assigns the default theme.
 
-The inbox example includes large English and Spanish bundle setup in code, which makes the locale flow easy to inspect.
+At this stage, you do not need to know the internal details of `Theme`. The important idea is that one central place mirrors the user's theme choice into the environment, and every widget can then read the same current answer.
 
-## Keep both explicit
+## Internationalization means language is a real input
 
-Avoid hidden globals for theme and language.
+Internationalization, often shortened to i18n, is the work of making an app capable of supporting multiple languages and locale-sensitive behavior.
 
-Use:
+Localization is the work of providing the actual translated content for a specific locale, such as English or Spanish.
 
-- `with_env(...)` for your base bundle setup,
-- `with_sync_env(...)` for per-frame app-driven updates,
-- reducer actions for user-selected theme or locale changes.
+Fission keeps the public model intentionally small here. The main pieces are:
 
-## Check these before shipping
+- `Locale`, which identifies the current language and region,
+- `TranslationBundle`, which holds the translated messages for one locale,
+- `I18nRegistry`, which stores the loaded bundles.
 
-- long translated strings still fit,
-- focus order stays readable in every language,
-- dark and light themes both exercise the same layout,
-- screenshots and tests cover the UI state you actually toggle in product code.
+Like theme, these values belong in `Env` because they are app-wide presentation inputs.
+
+## The recommended translation workflow
+
+For most apps, a strong first pattern is:
+
+1. keep translation files in your repository,
+2. load them at compile time with `include_str!`,
+3. parse them into `HashMap<String, String>`,
+4. wrap each parsed map in a `TranslationBundle`,
+5. add those bundles to `env.i18n`,
+6. keep the current locale in app state when the user can change it,
+7. mirror that locale into `env.locale` with `.with_sync_env(...)`.
+
+This pattern is simple and deterministic. The same translations are bundled into the app on desktop, web, Android, and iOS. You do not need an early network request just to render the first screen in the right language.
+
+## The translation files themselves
+
+This guide uses YAML plus `include_str!` because YAML is readable and works well with the current public `TranslationBundle` contract.
+
+YAML is a text format for structured data. In this simple case, each file is just a flat map from message keys to translated strings.
+
+An English file might look like this:
+
+```yaml
+settings.title: "Settings"
+settings.theme.light: "Light"
+settings.theme.dark: "Dark"
+settings.language.english: "English"
+settings.language.spanish: "Spanish"
+```
+
+And a Spanish file might look like this:
+
+```yaml
+settings.title: "Configuración"
+settings.theme.light: "Claro"
+settings.theme.dark: "Oscuro"
+settings.language.english: "Inglés"
+settings.language.spanish: "Español"
+```
+
+The keys stay stable across locales. Only the values change.
+
+## Add the YAML parser dependency
+
+Because the public `TranslationBundle` type expects a Rust map of messages, you need a parser that can turn YAML text into that map.
+
+Add `serde_yaml` to your app:
+
+```toml
+[dependencies]
+serde_yaml = "0.9"
+```
+
+You do not need to think of this as "Fission requires YAML." It does not. Fission only requires that you eventually provide a `HashMap<String, String>` inside a `TranslationBundle`. This guide uses YAML because it is approachable for human-edited translation files.
+
+## Load translation files into `Env`
+
+Now let us build the translation environment step by step.
+
+```rust
+use std::collections::HashMap;
+
+use fission::prelude::*;
+use fission_i18n::{Locale, TranslationBundle};
+
+fn load_bundle(locale: &str, raw_yaml: &str) -> anyhow::Result<TranslationBundle> {
+    let messages: HashMap<String, String> = serde_yaml::from_str(raw_yaml)?;
+
+    Ok(TranslationBundle {
+        locale: Locale::from(locale),
+        messages,
+    })
+}
+
+fn create_env() -> anyhow::Result<Env> {
+    let mut env = Env::default();
+
+    let en_yaml = include_str!("../i18n/en-US.yaml");
+    let es_yaml = include_str!("../i18n/es-ES.yaml");
+
+    env.i18n.add_bundle(load_bundle("en-US", en_yaml)?);
+    env.i18n.add_bundle(load_bundle("es-ES", es_yaml)?);
+
+    Ok(env)
+}
+```
+
+This example contains several pieces of Rust syntax that are easier once you name them plainly.
+
+### What `include_str!` is doing
+
+`include_str!` is a Rust macro. A macro is a special compile-time tool that expands into code before the program is built.
+
+Here, `include_str!("../i18n/en-US.yaml")` means:
+
+"At compile time, read the file at this path and embed its contents into the program as a string."
+
+That is why `en_yaml` and `es_yaml` become plain string values. The app does not need to open those files later at runtime. They are already bundled into the compiled application.
+
+The path is relative to the Rust source file where the macro appears. So if your file structure changes, that string path may need to change too.
+
+### What `load_bundle(...)` is doing
+
+`fn load_bundle(locale: &str, raw_yaml: &str) -> anyhow::Result<TranslationBundle>` defines a helper function.
+
+In plain English, it says:
+
+- take a locale code such as `"en-US"`,
+- take the raw YAML text for that locale,
+- try to turn it into a `TranslationBundle`,
+- return either the finished bundle or an error if parsing fails.
+
+The `&str` type means "borrowed string slice." At this stage, you can read it as "a string input."
+
+`anyhow::Result<TranslationBundle>` means the function may either return a `TranslationBundle` or report an error. That is useful here because a malformed YAML file should fail clearly instead of silently producing broken translations.
+
+### What the YAML parsing line means
+
+This line does the actual parsing:
+
+```rust
+let messages: HashMap<String, String> = serde_yaml::from_str(raw_yaml)?;
+```
+
+Break it into plain English:
+
+- `let messages = ...` means "store the result in a variable named `messages`."
+- `HashMap<String, String>` tells Rust the shape we expect: a map from string keys to string values.
+- `serde_yaml::from_str(raw_yaml)` means "parse this YAML string into the requested Rust type."
+- the trailing `?` means "if parsing fails, stop here and return the error to the caller."
+
+So the whole line means: "parse this YAML text into a key-value translation map, or return an error if the file is invalid."
+
+### What `TranslationBundle { ... }` means
+
+This block:
+
+```rust
+TranslationBundle {
+    locale: Locale::from(locale),
+    messages,
+}
+```
+
+is a Rust struct literal. It creates one `TranslationBundle` value by filling in its fields.
+
+- `locale: Locale::from(locale)` wraps the plain locale string, such as `"en-US"`, into Fission's `Locale` type.
+- `messages` puts the parsed map into the bundle.
+
+So a `TranslationBundle` is just "one locale plus its translated messages."
+
+### What `create_env()` is doing
+
+`create_env()` starts from `Env::default()`, which gives you the standard empty environment, then adds translation bundles into `env.i18n`.
+
+The important line is:
+
+```rust
+env.i18n.add_bundle(load_bundle("en-US", en_yaml)?);
+```
+
+Read it like this:
+
+1. build one translation bundle for English,
+2. if that succeeds, add it to the i18n registry stored in the environment.
+
+The same pattern repeats for Spanish.
+
+## Render translated text with keys
+
+Once the bundles are loaded, widgets can render keyed text instead of hard-coded literals.
+
+```rust
+Text::new(TextContent::Key("settings.title".into()))
+```
+
+That line tells Fission, "this text is not a literal sentence written directly in code. It is a translation key."
+
+The `into()` call is another small Rust convenience. Here it just converts the string literal into the exact string type the widget field expects. At this stage, you can read it as ordinary type-conversion scaffolding.
+
+At render time, Fission uses `env.locale` and `env.i18n` together to resolve the key into the correct translated string.
+
+## Keep locale in app state when the user can change it
+
+If the app has a language picker, the current locale should live in `AppState`.
+
+That is because the selected language is real product state. The user changed it. The app may need to persist it. The rest of the interface should react to it consistently.
+
+Here is the typical pattern:
+
+```rust
+DesktopApp::new(MyApp)
+    .with_env(create_env()?)
+    .with_sync_env(|state: &MyState, env: &mut Env| {
+        env.locale = state.locale.clone();
+        env.theme = if state.dark_mode {
+            Theme::dark()
+        } else {
+            Theme::default()
+        };
+    })
+    .run()?;
+```
+
+This example has two separate jobs.
+
+First, `.with_env(create_env()?)` installs the base environment that already contains your translation bundles. The `?` after `create_env()` means "if building the environment fails, return the error instead of continuing."
+
+Second, `.with_sync_env(...)` updates the current per-frame environment values from app state.
+
+This time the closure does two assignments:
+
+- `env.locale = state.locale.clone();`
+- `env.theme = ...`
+
+The `clone()` call is ordinary Rust ownership management. `env.locale` needs to receive its own locale value, so the code copies the locale from app state into the environment. At this stage, it is enough to read `clone()` as "make a copy of this value here."
+
+So the full idea is:
+
+- load all the translation data once,
+- then keep the currently selected locale and theme synchronized from app state.
+
+## When locale does not need to live in app state
+
+Locale does not always need to be stored in `AppState`.
+
+If your app is single-locale, or if the locale is fixed at startup and never changes during the session, you can set `env.locale` once and leave it there.
+
+The decision rule is simple:
+
+- if the product needs to remember or change the locale over time, keep it in app state,
+- if the locale is fixed configuration, setting it directly in `Env` may be enough.
+
+What you should avoid is making each widget guess the locale for itself. The locale still needs one explicit source.
+
+## What belongs in `.with_sync_env(...)`
+
+Theme belongs there. Locale belongs there. Other app-wide presentation inputs can belong there too.
+
+What does not belong there is ordinary domain data. Do not mirror your shopping cart, message list, or document body into `Env`. Those values are product state, and widgets should read them from `view.state`.
+
+Also do not use `.with_sync_env(...)` to perform side effects. It is for synchronization, not for network loading, file writes, or job startup.
+
+## Best practices that pay off early
+
+Start with checked-in translation files and `include_str!`. That keeps startup simple and deterministic.
+
+Use stable message keys based on meaning, not on where text happens to appear in the layout today.
+
+Treat theme and locale as explicit app-wide inputs. If a widget depends on them, let that dependency stay visible through `View`.
+
+Test long translated strings, not only short English labels. Responsive problems often show up there first.
+
+If the user can change locale or theme, keep that choice in `AppState` and mirror it through `.with_sync_env(...)` so every widget sees the same answer.
+
+## A practical end-to-end picture
+
+Imagine a settings screen where the user can switch between light and dark mode and choose between English and Spanish.
+
+The selected theme mode and locale live in `AppState` because the user owns those settings. Startup code uses `include_str!` to embed the YAML files, parses them into translation maps, wraps them in `TranslationBundle` values, and stores them in `env.i18n`. The shell uses `.with_sync_env(...)` to mirror the current locale and theme choice from state into the environment. Widgets then render keyed text and theme-aware styling by reading from `View`.
+
+That means one reducer update can refresh the whole interface coherently. No widget needs its own translation lookup system. No component needs to guess whether dark mode is active. The model stays explicit all the way through.
+
+## Where to go next
+
+If you want the deeper explanation of `Env`, `InputEvent`, clipboard support, and input method editor handling, read [Input, text, and environment](/docs/guides/input-events-text-and-env). If you want a step-by-step product-shaped recipe for a user-controlled theme and locale switcher, continue to [Theme and locale toggle](/docs/cookbook/theme-and-locale-toggle).

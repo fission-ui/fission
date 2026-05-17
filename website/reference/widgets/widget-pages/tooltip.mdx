@@ -1,39 +1,58 @@
 ---
 title: Tooltip
-description: Reference details for Tooltip.
+description: Show a short non-essential hint near a hovered control.
 slug: /widgets/tooltip
 ---
 # Tooltip
 
-Use it when the user needs to interact, choose a value, or submit intent.
+`Tooltip` shows a small text hint near another widget.
 
+It is best for short, non-essential explanations such as clarifying an icon button or revealing a keyboard shortcut. A tooltip is not a good place for required instructions, form validation, or workflow-critical information because it may only appear on hover and it disappears quickly.
 
-This is part of the Fission widget API and belongs in the same typed, state-driven model used across the rest of the framework.
+Fission keeps the state model straightforward here. The widget can become visible because the runtime reports that its trigger is hovered, or because you explicitly force `is_visible` to `true`. The tooltip itself does not own any hidden text state or timing state.
 
+## Example
 
-**When you need it**
-- This widget is best when the control drives explicit `Action` dispatch or receives values from a reducer-owned state model.
-- Use predictable state updates as your entry point for all behavior changes.
-- Combine with semantic labels and role attributes for reliable interaction testing.
-
-## Minimal usage
 ```rust
+use fission_core::WidgetNodeId;
+use fission_core::ui::{Button, Text};
 use fission_widgets::Tooltip;
 
-let node = Tooltip {
-    ..Default::default()
-}.into_node();
+let help = Tooltip {
+    id: WidgetNodeId::explicit("save_tooltip"),
+    child: Box::new(
+        Button {
+            child: Some(Box::new(Text::new("Save").into_node())),
+            on_press: Some(save_changes),
+            ..Default::default()
+        }
+        .build(ctx, view),
+    ),
+    text: "Save your draft without publishing".into(),
+    is_visible: false,
+}
+.build(ctx, view);
 ```
 
-## API surface
-- `trigger`: `String`
+## Field table
 
-## Implementation checks
-- Keep control values in state, validate there, and surface results through completion actions or reducer transitions.
-- Keep callbacks/closures small and deterministic when possible, then move side effects to async boundaries.
-- If the widget affects layout or input, verify with both state transitions and target-level smoke tests.
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `id` | `WidgetNodeId` | Stable identity for the trigger anchor and portal entry. | Required. The widget derives its hover anchor from this id. |
+| `child` | `Box<Node>` | Trigger content rendered inline. | Required. This is the thing the tooltip is attached to. |
+| `text` | `String` | Tooltip message text. | Required. Keep it short. The current implementation caps width at `220.0` logical pixels. |
+| `is_visible` | `bool` | Force the tooltip visible even without hover. | Defaults to `false`. Useful for demos, audits, or non-hover-driven reveal logic. |
 
-## Next
-- [Widget catalog](/reference/widgets/catalog)
-- [Widget trait](/reference/core/widget-trait)
-- [Runtime model](/docs/learn/runtime-model)
+## Overlay behavior
+
+The trigger stays in the normal layout tree. When the tooltip should appear, the widget builds a small card and registers it in the flyout portal layer. The same anchor-positioning rules used by other flyout-based overlays keep it near the trigger and inside the viewport.
+
+## Specific advice
+
+Use tooltips sparingly. If many controls need tooltips before they make sense, the underlying user interface probably needs stronger labels or clearer structure.
+
+Also be realistic about targets. Hover is a desktop and pointer-heavy web concept. On touch-first screens, a tooltip is often the wrong pattern entirely. Prefer inline helper text, a [`Popover`](/reference/widgets/popover), or a clearly labeled control.
+
+## Related
+
+[`Popover`](/reference/widgets/popover), [`flyout`](/reference/widgets/flyout), [`Button`](/reference/widgets/button), and [`FormControl`](/reference/widgets/form-control).

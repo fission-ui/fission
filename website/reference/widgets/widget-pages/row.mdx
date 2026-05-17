@@ -1,47 +1,60 @@
 ---
 title: Row
-description: Reference details for Row.
+description: Lay out children horizontally using flex-style rules.
 slug: /widgets/row
 ---
 # Row
 
-Use it to control how child nodes are arranged, measured, and constrained.
+`Row` is the main horizontal layout primitive in Fission.
 
+It lays children out left to right, with control over gap, wrapping, flex behavior, distribution, and optional semantics. Toolbars, inline forms, status bars, action rows, and card footers are all natural `Row` use cases.
 
-This is part of the Fission widget API and belongs in the same typed, state-driven model used across the rest of the framework.
+Use `Row` when sibling order flows horizontally. Do not use it for vertical sections or large list virtualization. Those cases belong to [`Column`](/reference/widgets/column) and [`LazyColumn`](/reference/widgets/lazy-column).
 
+## Example
 
-**When you need it**
-- This widget is best when you need stable structure before styling. Keep layout decisions explicit so state and constraints stay predictable.
-- Use predictable state updates as your entry point for all behavior changes.
-- Combine with semantic labels and role attributes for reliable interaction testing.
-
-## Minimal usage
 ```rust
-use fission_core::ui::Row;
+use fission_core::ui::{Row, Text};
+use fission_ir::op::AlignItems;
 
 let node = Row {
+    gap: Some(10.0),
+    align_items: AlignItems::Center,
+    children: vec![
+        Text::new("Status").into_node(),
+        Text::new("Connected").into_node(),
+    ],
     ..Default::default()
-}.into_node();
+}
+.into_node();
 ```
 
-## API surface
-- `id`: `Option<NodeId>`
-- `children`: `Vec<Node>`
-- `semantics`: `Option<Semantics>`
-- `flex_grow`: `f32`
-- `flex_shrink`: `f32`
-- `gap`: `Option<f32>`
-- `wrap`: `FlexWrap`
-- `align_items`: `AlignItems`
-- `justify_content`: `JustifyContent`
+## Field table
 
-## Implementation checks
-- Build with the state model first, then layer spacing, alignment, and visual treatment. Layout mistakes are usually cheaper to fix before async behavior is introduced.
-- Keep callbacks/closures small and deterministic when possible, then move side effects to async boundaries.
-- If the widget affects layout or input, verify with both state transitions and target-level smoke tests.
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `id` | `Option<NodeId>` | Stable node identity. | Defaults to `None`. |
+| `children` | `Vec<Node>` | Child nodes laid out from left to right. | Defaults to an empty list. |
+| `semantics` | `Option<Semantics>` | Optional accessibility semantics wrapper. | When present, the lowered row is wrapped in a semantics node. |
+| `flex_grow` | `f32` | How much extra space the row absorbs from its parent. | Defaults to `0.0`. |
+| `flex_shrink` | `f32` | How much the row may shrink when space is tight. | Defaults to `1.0`. |
+| `gap` | `Option<f32>` | Horizontal spacing between children. | Defaults to `None`. |
+| `wrap` | `FlexWrap` | Whether children wrap onto another line. | Defaults to `FlexWrap::NoWrap`. |
+| `align_items` | `AlignItems` | Cross-axis alignment, which is vertical in a row. | Defaults to `AlignItems::Center`. |
+| `justify_content` | `JustifyContent` | Main-axis distribution, which is horizontal in a row. | Defaults to `JustifyContent::Start`. |
 
-## Next
-- [Widget catalog](/reference/widgets/catalog)
-- [Widget trait](/reference/core/widget-trait)
-- [Runtime model](/docs/learn/runtime-model)
+## Layout behavior
+
+`Row` lowers to a horizontal flex layout. That means `justify_content` controls horizontal distribution and `align_items` controls vertical placement of each child.
+
+When content should wrap onto more than one line, `Row` can do that by setting `wrap`, but once the layout starts to behave like a responsive flow of many items, [`Wrap`](/reference/widgets/wrap) or [`SimpleGrid`](/reference/widgets/simple-grid) may read more clearly.
+
+## Specific advice
+
+Use `gap` for ordinary spacing and [`Spacer`](/reference/widgets/spacer) when one child should push the next child away by absorbing remaining space. That distinction makes rows easier to read.
+
+If you only need a shorter helper surface for a simple horizontal group, use [`HStack`](/reference/widgets/h-stack).
+
+## Related
+
+[`Column`](/reference/widgets/column), [`HStack`](/reference/widgets/h-stack), [`Wrap`](/reference/widgets/wrap), and [`Spacer`](/reference/widgets/spacer).

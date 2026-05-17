@@ -1,50 +1,77 @@
 ---
 title: Container
-description: Reference details for Container.
+description: Wrap one child with box constraints, padding, background, border, radius, and shadow.
 slug: /widgets/container
 ---
 # Container
 
-Use it to control how child nodes are arranged, measured, and constrained.
+`Container` is the workhorse wrapper in Fission.
 
+It is the widget you reach for when one child needs sizing constraints, padding, background fill, border, corner radius, or shadow. In practical app code, that means cards, panels, chips, banners, framed media, and padded sections often begin with `Container`.
 
-This is part of the Fission widget API and belongs in the same typed, state-driven model used across the rest of the framework.
+Use `Container` when you need to shape or decorate a single child. Do not use it as a multi-child layout primitive by itself. If the content has multiple siblings, build those siblings with [`Row`](/reference/widgets/row), [`Column`](/reference/widgets/column), or another layout widget, and then wrap the result in a `Container`.
 
+## Example
 
-**When you need it**
-- This widget is best when you need stable structure before styling. Keep layout decisions explicit so state and constraints stay predictable.
-- Use predictable state updates as your entry point for all behavior changes.
-- Combine with semantic labels and role attributes for reliable interaction testing.
-
-## Minimal usage
 ```rust
-use fission_core::ui::Container;
+use fission_core::ui::{Container, Text};
 
-let node = Container {
-    ..Default::default()
-}.into_node();
+let card = Container::new(Text::new("Billing summary").into_node())
+    .padding_all(16.0)
+    .width(320.0)
+    .bg(fission_core::op::Color {
+        r: 245,
+        g: 247,
+        b: 250,
+        a: 255,
+    })
+    .border(
+        fission_core::op::Color {
+            r: 210,
+            g: 214,
+            b: 220,
+            a: 255,
+        },
+        1.0,
+    )
+    .border_radius(12.0)
+    .into_node();
 ```
 
-## API surface
-- `id`: `Option<NodeId>`
-- `child`: `Option<Box<Node>>`
-- `width`: `Option<f32>`
-- `height`: `Option<f32>`
-- `min_width`: `Option<f32>`
-- `max_width`: `Option<f32>`
-- `min_height`: `Option<f32>`
-- `max_height`: `Option<f32>`
-- `padding`: `[f32; 4]`
-- `flex_grow`: `f32`
-- `flex_shrink`: `f32`
-- `background_fill`: `Option<Fill>`
+## Field table
 
-## Implementation checks
-- Build with the state model first, then layer spacing, alignment, and visual treatment. Layout mistakes are usually cheaper to fix before async behavior is introduced.
-- Keep callbacks/closures small and deterministic when possible, then move side effects to async boundaries.
-- If the widget affects layout or input, verify with both state transitions and target-level smoke tests.
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `id` | `Option<NodeId>` | Stable node identity. | Defaults to `None`. |
+| `child` | `Option<Box<Node>>` | The wrapped child node. | Defaults to `None`. `Container::new(...)` fills this for you. |
+| `width` | `Option<f32>` | Fixed width. | Defaults to `None`. |
+| `height` | `Option<f32>` | Fixed height. | Defaults to `None`. |
+| `min_width` | `Option<f32>` | Minimum width constraint. | Defaults to `None`. |
+| `max_width` | `Option<f32>` | Maximum width constraint. | Defaults to `None`. |
+| `min_height` | `Option<f32>` | Minimum height constraint. | Defaults to `None`. |
+| `max_height` | `Option<f32>` | Maximum height constraint. | Defaults to `None`. |
+| `padding` | `[f32; 4]` | Inner padding in `[left, right, top, bottom]` order. | Defaults to `[0.0; 4]`. |
+| `flex_grow` | `f32` | Extra space the container may absorb. | Defaults to `0.0`. |
+| `flex_shrink` | `f32` | How much the container may shrink in tight layouts. | Defaults to `1.0`. |
+| `background_fill` | `Option<Fill>` | Background fill for the container box. | Defaults to `None`. |
+| `background_color` | `Option<Color>` | Legacy solid-color background field. | Usually set indirectly by `.bg(...)`. |
+| `border_color` | `Option<Color>` | Border color. | Defaults to `None`. |
+| `border_width` | `f32` | Border thickness. | Defaults to `0.0`. |
+| `border_radius` | `f32` | Corner radius. | Defaults to `0.0`. |
+| `shadow` | `Option<BoxShadow>` | Optional drop shadow. | Defaults to `None`. |
 
-## Next
-- [Widget catalog](/reference/widgets/catalog)
-- [Widget trait](/reference/core/widget-trait)
-- [Runtime model](/docs/learn/runtime-model)
+## Layout and rendering behavior
+
+`Container` lowers to a box layout node and, when needed, a paint layer for background, border, radius, and shadow. That means it handles both spacing and decoration in one place.
+
+The padding order is worth calling out because it is explicit: `[left, right, top, bottom]`. If you come from systems that use top-right-bottom-left ordering, double-check your values.
+
+## Specific advice
+
+Reach for `Container` early, but not everywhere. It is easy to overuse as a substitute for clearer layout intent. If the main job is stacking children, start with `Row` or `Column` and add a `Container` around the result only when decoration or constraints actually matter.
+
+A strong pattern for cards and sections is: build content with `Column`, then wrap that column in `Container` for padding and visual styling.
+
+## Related
+
+[`Column`](/reference/widgets/column), [`Row`](/reference/widgets/row), [`Clip`](/reference/widgets/clip), and [`AspectRatio`](/reference/widgets/aspect-ratio).

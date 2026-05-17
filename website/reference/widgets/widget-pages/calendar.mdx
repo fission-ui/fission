@@ -1,45 +1,63 @@
 ---
 title: Calendar
-description: Reference details for Calendar.
+description: Render a month grid for picking or displaying dates with explicit month state.
 slug: /widgets/calendar
 ---
 # Calendar
 
-Use it when the user needs to interact, choose a value, or submit intent.
+`Calendar` is the month-view date grid in the authoring widget set.
 
+It is the lower-level calendar surface that powers date-picking flows. Your app provides the current `year` and `month`, the optionally selected date, and callbacks for both day selection and month navigation. This explicit model matters because calendars usually mix product rules with user interface rules: what month is shown, what day is selected, and what navigation is allowed.
 
-This is part of the Fission widget API and belongs in the same typed, state-driven model used across the rest of the framework.
+## Example
 
-
-**When you need it**
-- This widget is best when the control drives explicit `Action` dispatch or receives values from a reducer-owned state model.
-- Use predictable state updates as your entry point for all behavior changes.
-- Combine with semantic labels and role attributes for reliable interaction testing.
-
-## Minimal usage
 ```rust
+use chrono::NaiveDate;
 use fission_widgets::Calendar;
+use std::sync::Arc;
 
 let node = Calendar {
-    ..Default::default()
-}.into_node();
+    year: view.state.visible_year,
+    month: view.state.visible_month,
+    selected_date: view.state.selected_day,
+    on_select: Some(Arc::new(move |date: NaiveDate| ActionEnvelope {
+        id: set_selected_day_id,
+        payload: serde_json::to_vec(&SetSelectedDay(date)).unwrap(),
+    })),
+    on_navigate: Some(Arc::new(move |year, month| ActionEnvelope {
+        id: set_visible_month_id,
+        payload: serde_json::to_vec(&SetVisibleMonth { year, month }).unwrap(),
+    })),
+    cell_size: Some(40.0),
+    padding: Some(16.0),
+}
+.build(ctx, view);
 ```
 
-## API surface
-- `year`: `i32`
-- `month`: `u32`
-- `selected_date`: `Option<NaiveDate>`
-- `on_select`: `Option<Arc<dyn Fn(NaiveDate) -> ActionEnvelope + Send + Sync>>`
-- `on_navigate`: `Option<Arc<dyn Fn(i32, u32) -> ActionEnvelope + Send + Sync>>`
-- `cell_size`: `Option<f32>`
-- `padding`: `Option<f32>`
+The reducer usually stores both the selected day and the currently visible month. Those are related, but they are not always the same thing.
 
-## Implementation checks
-- Keep control values in state, validate there, and surface results through completion actions or reducer transitions.
-- Keep callbacks/closures small and deterministic when possible, then move side effects to async boundaries.
-- If the widget affects layout or input, verify with both state transitions and target-level smoke tests.
+## Field table
 
-## Next
-- [Widget catalog](/reference/widgets/catalog)
-- [Widget trait](/reference/core/widget-trait)
-- [Runtime model](/docs/learn/runtime-model)
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `year` | `i32` | Year shown in the current month view. | Required. |
+| `month` | `u32` | Month shown in the current month view. | Required. Expected range is `1..=12`. |
+| `selected_date` | `Option<NaiveDate>` | Currently selected day, if any. | Defaults to `None`. |
+| `on_select` | `Option<Arc<dyn Fn(NaiveDate) -> ActionEnvelope + Send + Sync>>` | Closure that builds the action for a picked day. | Called when the user presses a day cell. |
+| `on_navigate` | `Option<Arc<dyn Fn(i32, u32) -> ActionEnvelope + Send + Sync>>` | Closure that builds the action for previous or next month. | Called with the new `(year, month)` pair. |
+| `cell_size` | `Option<f32>` | Width and height of each day cell. | Defaults to `36.0`. Use smaller sizes in sidebars and larger ones in full panels. |
+| `padding` | `Option<f32>` | Outer padding around the calendar surface. | Defaults to `16.0`. |
+
+## State ownership and practical limits
+
+`Calendar` does not compute product rules such as unavailable dates, range constraints, or locale-specific week starts. The checked-in implementation is Sunday-first, uses single-letter weekday headings, and highlights today using the host's local date.
+
+That makes it a good general month picker, but if your product needs Monday-first weeks, blocked dates, or complex business calendars, plan on wrapping or extending the widget rather than assuming those rules are built in.
+
+## Specific advice
+
+Keep visible-month state explicit even when a date is selected. Users often need to look at another month without committing a new date yet.
+
+## Related
+
+[`DatePicker`](/reference/widgets/date-picker), [`DateRangePicker`](/reference/widgets/date-range-picker), [`TimePicker`](/reference/widgets/time-picker), and [`Pagination`](/reference/widgets/pagination).

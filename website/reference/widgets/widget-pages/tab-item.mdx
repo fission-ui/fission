@@ -1,41 +1,38 @@
 ---
 title: TabItem
-description: Reference details for TabItem.
+description: Describe one tab label, one content panel, and the action that selects it.
 slug: /widgets/tab-item
 ---
 # TabItem
 
-Use it when the user needs to interact, choose a value, or submit intent.
+`TabItem` is the data record used by [`Tabs`](/reference/widgets/tabs).
 
+Each item defines one labeled tab and the content that should appear when that tab is active. The parent `Tabs` widget chooses which item's content is actually rendered by comparing its index to `active_index`.
 
-This is part of the Fission widget API and belongs in the same typed, state-driven model used across the rest of the framework.
+## Example
 
-
-**When you need it**
-- This widget is best when the control drives explicit `Action` dispatch or receives values from a reducer-owned state model.
-- Use predictable state updates as your entry point for all behavior changes.
-- Combine with semantic labels and role attributes for reliable interaction testing.
-
-## Minimal usage
 ```rust
 use fission_widgets::TabItem;
 
-let node = TabItem {
-    ..Default::default()
-}.into_node();
+let item = TabItem {
+    title: "Security".into(),
+    content: security_panel_node,
+    on_press: Some(select_security_tab_action),
+};
 ```
 
-## API surface
-- `title`: `String`
-- `content`: `Node`
-- `on_press`: `Option<ActionEnvelope>`
+## Field table
 
-## Implementation checks
-- Keep control values in state, validate there, and surface results through completion actions or reducer transitions.
-- Keep callbacks/closures small and deterministic when possible, then move side effects to async boundaries.
-- If the widget affects layout or input, verify with both state transitions and target-level smoke tests.
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `title` | `String` | Visible label for the tab button. | Required. |
+| `content` | `Node` | Panel content for this tab. | Required. Only the active tab's content is shown. |
+| `on_press` | `Option<ActionEnvelope>` | Action fired when the tab is chosen. | Defaults to `None`. Usually sets the active index in state. |
 
-## Next
-- [Widget catalog](/reference/widgets/catalog)
-- [Widget trait](/reference/core/widget-trait)
-- [Runtime model](/docs/learn/runtime-model)
+## Specific advice
+
+Keep tab titles short and parallel. Tabs work best when users can compare section names at a glance.
+
+## Related
+
+[`Tabs`](/reference/widgets/tabs), [`Accordion`](/reference/widgets/accordion), [`Button`](/reference/widgets/button), and [`Text`](/reference/widgets/text).

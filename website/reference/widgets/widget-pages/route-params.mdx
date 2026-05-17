@@ -1,40 +1,47 @@
 ---
 title: RouteParams
-description: Reference details for RouteParams.
+description: Read dynamic path segments captured by Router route patterns.
 slug: /widgets/route-params
 ---
 # RouteParams
 
-Use it to define how users move between pages, overlays, and routed app sections.
+`RouteParams` is the type alias Fission uses for the dynamic values captured from a matched route pattern.
 
+Concretely, it is a `HashMap<String, String>`. When a [`Router`](/reference/widgets/router) matches a pattern like `/projects/:id`, it places the dynamic segment into this map so the route builder can read it.
 
-This is part of the Fission widget API and belongs in the same typed, state-driven model used across the rest of the framework.
+This is intentionally simple. Route parameters are just text. The router does not guess whether `:id` should be a number, a universally unique identifier (UUID), or a slug. Your route builder parses and validates that value according to your product rules.
 
+## Example
 
-**When you need it**
-- This widget is best when structure includes multi-screen flow or route-aware layout changes.
-- Use predictable state updates as your entry point for all behavior changes.
-- Combine with semantic labels and role attributes for reliable interaction testing.
-
-## Minimal usage
 ```rust
 use fission_widgets::RouteParams;
 
-let node = RouteParams {
-    ..Default::default()
-}.into_node();
+let builder = |params: &RouteParams| {
+    let project_id = params
+        .get("id")
+        .and_then(|value| value.parse::<u64>().ok());
+
+    match project_id {
+        Some(id) => ProjectScreen { id },
+        None => ProjectNotFound,
+    }
+};
 ```
 
-## API surface
-- Use `Default::default()` to start and set only required properties.
-- Prefer small, explicit updates so diffs stay readable.
+## Entry table
 
-## Implementation checks
-- Keep navigation changes explicit and tested through action-driven state transitions.
-- Keep callbacks/closures small and deterministic when possible, then move side effects to async boundaries.
-- If the widget affects layout or input, verify with both state transitions and target-level smoke tests.
+| Part | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| key | `String` | The parameter name from the route pattern, without the leading `:`. | For `/projects/:id`, the key is `"id"`. |
+| value | `String` | The raw text from the matched route or path segment. | Always parse or validate before using it as a typed identifier. |
 
-## Next
-- [Widget catalog](/reference/widgets/catalog)
-- [Widget trait](/reference/core/widget-trait)
-- [Runtime model](/docs/learn/runtime-model)
+## Specific advice
+
+Treat route params as untrusted strings, even in desktop apps. A malformed deep link, an outdated bookmark, or a bug in your own navigation reducer can still put unexpected data here.
+
+Also note what `RouteParams` does not contain: query strings, hash fragments, or wildcard path tails. The current router only supports exact segment matching with named `:param` segments.
+
+## Related
+
+[`Route`](/reference/widgets/route), [`Router`](/reference/widgets/router), and [`State system`](/reference/core/state-system).
+

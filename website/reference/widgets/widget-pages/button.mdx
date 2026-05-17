@@ -1,50 +1,158 @@
 ---
 title: Button
-description: Reference details for Button.
+description: Dispatch an explicit action when the user presses a button.
 slug: /widgets/button
 ---
 # Button
 
-Use it when the user needs to interact, choose a value, or submit intent.
+`Button` is Fission's standard pressable control for a single, explicit user intent.
 
+Use it when the user is asking the app to do something discrete and meaningful: save a draft, open a dialog, submit a form, retry a failed request, or move to the next step in a flow. In Fission, a button does not perform that work by itself. Instead, it dispatches an action, the reducer updates app state, and the next build pass renders whatever the new state should look like.
 
-This is part of the Fission widget API and belongs in the same typed, state-driven model used across the rest of the framework.
+That design is important for production user interface. It keeps buttons honest. A button is not a hidden bundle of business logic. It is the visible control that expresses intent and sends that intent into the normal action and reducer loop.
 
+If the user should toggle a persistent true-or-false value, reach for [`Checkbox`](/reference/widgets/checkbox) or [`Switch`](/reference/widgets/switch) instead. If the user is navigating to another screen or location, a [`Link`](/reference/widgets/link) or router-driven control may fit better. A button is best when the interaction means "do this now."
 
-**When you need it**
-- This widget is best when the control drives explicit `Action` dispatch or receives values from a reducer-owned state model.
-- Use predictable state updates as your entry point for all behavior changes.
-- Combine with semantic labels and role attributes for reliable interaction testing.
+## How a button fits into the update loop
 
-## Minimal usage
+The full flow looks like this:
+
+1. `build()` creates a `Button` and gives it an `on_press` action.
+2. The user presses the button with a pointer, keyboard, or accessibility action.
+3. The runtime dispatches that action.
+4. The bound reducer runs and updates `AppState`.
+5. Fission builds the user interface again from the updated state.
+
+The key term in the middle is `ActionEnvelope`. That is just Fission's packaged form of an action: the action type plus its encoded payload. Most app authors do not build an `ActionEnvelope` by hand. You usually create it with `ctx.bind(...)`, which both:
+
+- registers the reducer that should handle the action, and
+- returns the packaged action value the button will dispatch.
+
+## Example
+
+This example shows a realistic "Save draft" button from a compose screen. The important product rules are:
+
+- the user should not be able to save an empty draft
+- the user should not be able to submit the same save repeatedly while a save is already in flight
+- the button label should reflect the current state
+
 ```rust
-use fission_core::ui::Button;
+use fission_core::{BuildCtx, Handler, ReducerContext, View, Widget};
+use fission_core::ui::{Button, ButtonVariant, Node, Text};
+use fission_macros::Action;
+use serde::{Deserialize, Serialize};
 
-let node = Button {
-    ..Default::default()
-}.into_node();
+#[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+struct SaveDraft;
+
+struct ComposerState {
+    title: String,
+    body: String,
+    is_saving: bool,
+}
+
+fn on_save_draft(
+    state: &mut ComposerState,
+    _action: SaveDraft,
+    _ctx: &mut ReducerContext<ComposerState>,
+) {
+    if state.is_saving || state.title.trim().is_empty() || state.body.trim().is_empty() {
+        return;
+    }
+
+    state.is_saving = true;
+}
+
+struct SaveDraftButton;
+
+impl Widget<ComposerState> for SaveDraftButton {
+    fn build(&self, ctx: &mut BuildCtx<ComposerState>, view: &View<ComposerState>) -> Node {
+        let save_draft = ctx.bind(
+            SaveDraft,
+            on_save_draft as Handler<ComposerState, SaveDraft>,
+        );
+
+        let can_save = !view.state.is_saving
+            && !view.state.title.trim().is_empty()
+            && !view.state.body.trim().is_empty();
+
+        Button {
+            child: Some(Box::new(
+                Text::new(if view.state.is_saving {
+                    "Saving..."
+                } else {
+                    "Save draft"
+                })
+                .into_node(),
+            )),
+            on_press: Some(save_draft),
+            variant: ButtonVariant::Filled,
+            disabled: !can_save,
+            ..Default::default()
+        }
+        .into_node()
+    }
+}
 ```
 
-## API surface
-- `id`: `Option<NodeId>`
-- `child`: `Option<Box<Node>>`
-- `on_press`: `Option<ActionEnvelope>`
-- `semantics`: `Option<Semantics>`
-- `width`: `Option<f32>`
-- `height`: `Option<f32>`
-- `min_width`: `Option<f32>`
-- `max_width`: `Option<f32>`
-- `flex_grow`: `f32`
-- `flex_shrink`: `f32`
-- `padding`: `Option<[f32; 4]>`
-- `style`: `Option<ButtonStyleOverride>`
+Even if you are new to Rust, the structure is more important than every keyword.
 
-## Implementation checks
-- Keep control values in state, validate there, and surface results through completion actions or reducer transitions.
-- Keep callbacks/closures small and deterministic when possible, then move side effects to async boundaries.
-- If the widget affects layout or input, verify with both state transitions and target-level smoke tests.
+The `#[derive(...)]` line is mostly framework and serialization scaffolding. In practice, it tells Fission and Serde how to recognize and move the `SaveDraft` action through the runtime. You do not need to understand each derive in depth to understand the button flow.
 
-## Next
-- [Widget catalog](/reference/widgets/catalog)
-- [Widget trait](/reference/core/widget-trait)
-- [Runtime model](/docs/learn/runtime-model)
+`fn on_save_draft(...)` is the reducer function. It receives mutable app state, the action value, and a `ReducerContext`. This reducer is deliberately small. It does not try to save to disk or call a server directly. It only updates state to say "a save is now in progress." That keeps the button path deterministic and easy to test.
+
+`impl Widget<ComposerState> for SaveDraftButton` is Rust's way of saying "this type knows how to build user interface for `ComposerState`." Inside that `build()` method, `view.state` gives read-only access to the current state, and `ctx.bind(...)` creates the action the button will dispatch.
+
+The `as Handler<ComposerState, SaveDraft>` part is a Rust type hint. You can read it as "treat `on_save_draft` as the reducer for the `SaveDraft` action in this app state." It is there to help the compiler connect the pieces. Conceptually, the important part is still just "this button triggers that reducer."
+
+Finally, notice the `disabled: !can_save` line. That is good production behavior. The app does not wait until after a bad press to discover the action should be rejected. It communicates availability clearly in the user interface and prevents double submission while saving is already underway.
+
+## Field reference
+
+| Field | Type | Meaning | Notes and default behavior |
+| --- | --- | --- | --- |
+| `id` | `Option<NodeId>` | Stable identity for this button node. | Defaults to `None`. Set it when tests, diagnostics, or related runtime features need a predictable identity. |
+| `child` | `Option<Box<Node>>` | The visible content inside the button. | Defaults to `None`. In real apps, provide a clear text label, icon, or both. |
+| `on_press` | `Option<ActionEnvelope>` | Action dispatched when the user activates the button. | Defaults to `None`. Without it, the button is usually only a visual surface and does not expose normal button behavior. |
+| `semantics` | `Option<Semantics>` | Accessibility metadata override. | Defaults to `None`. Most text-labeled buttons can use the default semantics. Icon-only buttons often need an explicit label here. |
+| `width` | `Option<f32>` | Fixed width in layout points. | Defaults to `None`. Use sparingly; many buttons size better from content or parent layout. |
+| `height` | `Option<f32>` | Fixed height in layout points. | Defaults to `None`. When omitted, the themed button height becomes the minimum height. |
+| `min_width` | `Option<f32>` | Minimum width constraint. | Defaults to `None`. Useful for action rows where buttons should not collapse too narrowly. |
+| `max_width` | `Option<f32>` | Maximum width constraint. | Defaults to `None`. Useful when a long label should wrap elsewhere instead of producing an oversized control. |
+| `flex_grow` | `f32` | How much extra space the button can take in a flex layout. | Defaults to `0.0`. Set this when sibling buttons should stretch to fill a row. |
+| `flex_shrink` | `f32` | How willing the button is to shrink in a tight flex layout. | Defaults to `1.0`. This lets the button participate in tighter layouts unless you override it. |
+| `padding` | `Option<[f32; 4]>` | Inner padding in `[left, right, top, bottom]` order. | Defaults to the theme's button padding. Note that this order is not cascading style sheets (CSS) shorthand order. |
+| `variant` | `ButtonVariant` | Visual emphasis level. | Defaults to `ButtonVariant::Filled`. Choose a variant that matches the importance of the action. |
+| `background_fill` | `Option<Fill>` | Manual background fill override. | Defaults to `None`. Best used when a theme-level choice is not enough. |
+| `text_color` | `Option<IrColor>` | Manual text color override. | Defaults to `None`. Applied automatically to direct `Text` children; custom child trees handle their own text styling. |
+| `content_align` | `ButtonContentAlign` | Horizontal alignment for the child content. | Defaults to `ButtonContentAlign::Center`. Use `Start` for button rows that should read more like list items or menu actions. |
+| `disabled` | `bool` | Whether the button is currently unavailable. | Defaults to `false`. Disabled buttons keep their visual role but do not dispatch `on_press`. |
+| `style` | `Option<ButtonStyleOverride>` | Reserved override hook for future style customization. | Present in the public field set today, but the checked-in override type is currently empty. |
+
+## Layout and interaction behavior
+
+`Button` brings several behaviors together for you.
+
+Visually, it resolves its colors, border, padding, corner radius, and elevation from the current theme plus its `variant`. Filled buttons also respond to hover and pressed states with the themed elevation behavior. Outline and ghost buttons keep a lighter visual footprint.
+
+Layout-wise, the button builds a box with themed minimum height, optional explicit sizing, and internal padding. Its child is then aligned inside that box according to `content_align`. In practice, this means you usually choose button width from parent layout and choose alignment from product intent, instead of manually positioning the label yourself.
+
+Interaction-wise, hover, press, and focus are runtime-owned state. You should not copy those transient details into `AppState`. What belongs in app state are product facts such as `is_saving`, `has_unsaved_changes`, or `can_retry_upload`. The button reads those facts and turns them into a label, a variant, or a disabled state.
+
+## Accessibility and production guidance
+
+A strong production button is clear, specific, and honest.
+
+Use labels that tell the user what will happen, such as "Save draft," "Delete file," or "Send invite," instead of vague text like "OK" when the action has a concrete effect. When the button has only an icon, add an explicit semantic label so screen readers do not encounter an unnamed control.
+
+Disable buttons when the action is truly unavailable, not merely inconvenient. That is especially useful for incomplete forms, in-flight submissions, and destructive actions that should wait on a confirmation state. At the same time, do not use disabled buttons to hide validation forever. The surrounding user interface should still explain why the action is unavailable.
+
+Avoid storing visual press state in your reducer. Fission already tracks focus, hover, and press at runtime. Your reducer should care about business state and side-effect requests, not whether the pointer is currently down.
+
+Be careful with one-off style overrides. If every screen hand-tunes button color and padding, the product quickly becomes inconsistent. Prefer theme-level design decisions and use `variant` first. Reach for `background_fill` or `text_color` only when the product truly needs a special case.
+
+Finally, guard repeated actions in both places that matter: in the user interface and in the reducer. The user interface should disable an unavailable button. The reducer should still refuse unsafe repeated actions if one somehow arrives. That combination gives you a calm interface and a robust state model.
+
+## Related
+
+[`ButtonVariant`](/reference/widgets/button-variant), [`ButtonContentAlign`](/reference/widgets/button-content-align), [`MenuButton`](/reference/widgets/menu-button), [`Checkbox`](/reference/widgets/checkbox), and [`Switch`](/reference/widgets/switch).

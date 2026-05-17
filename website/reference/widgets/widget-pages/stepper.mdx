@@ -1,40 +1,37 @@
 ---
 title: Stepper
-description: Reference details for Stepper.
+description: Show where the user is inside a multi-step process without making the steps interactive.
 slug: /widgets/stepper
 ---
 # Stepper
 
-Use it for cross-cutting composition and app-level surface behavior.
+`Stepper` is the visual progress guide for staged flows.
 
+Use it when the user moves through a known sequence such as onboarding, checkout, or setup. The important thing to understand is that the checked-in `Stepper` is informational. It shows step state, but it does not handle clicks or navigation on its own.
 
-This is part of the Fission widget API and belongs in the same typed, state-driven model used across the rest of the framework.
+## Example
 
-
-**When you need it**
-- This widget is best when building reusable building blocks that support product patterns.
-- Use predictable state updates as your entry point for all behavior changes.
-- Combine with semantic labels and role attributes for reliable interaction testing.
-
-## Minimal usage
 ```rust
 use fission_widgets::Stepper;
 
 let node = Stepper {
-    ..Default::default()
-}.into_node();
+    steps: vec!["Account".into(), "Profile".into(), "Confirm".into()],
+    active_index: view.state.current_step,
+}
+.build(ctx, view);
 ```
 
-## API surface
-- `steps`: `Vec<String>`
-- `active_index`: `usize`
+## Field table
 
-## Implementation checks
-- Pair it with the core trait contract and test rendering output with headless checks for stability.
-- Keep callbacks/closures small and deterministic when possible, then move side effects to async boundaries.
-- If the widget affects layout or input, verify with both state transitions and target-level smoke tests.
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `steps` | `Vec<String>` | Labels for each step in order. | Required. Empty input renders a spacer. |
+| `active_index` | `usize` | Current step position. | Steps before this index render as completed. |
 
-## Next
-- [Widget catalog](/reference/widgets/catalog)
-- [Widget trait](/reference/core/widget-trait)
-- [Runtime model](/docs/learn/runtime-model)
+## State ownership
+
+`Stepper` reads step state from `active_index` every build. It does not decide when the user is allowed to advance, go backward, or skip steps. Those rules belong in your reducers and surrounding controls.
+
+## Related
+
+[`Tabs`](/reference/widgets/tabs), [`Pagination`](/reference/widgets/pagination), [`Alert`](/reference/widgets/alert), and [`ProgressBar`](/reference/widgets/progress-bar).

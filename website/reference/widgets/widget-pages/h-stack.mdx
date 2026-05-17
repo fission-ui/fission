@@ -1,40 +1,45 @@
 ---
 title: HStack
-description: Reference details for HStack.
+description: Convenience wrapper for a horizontal row with optional spacing.
 slug: /widgets/h-stack
 ---
 # HStack
 
-Use it to control how child nodes are arranged, measured, and constrained.
+`HStack` is the convenience version of [`Row`](/reference/widgets/row).
 
+It gives you a shorter surface for the common case where you simply want children laid out left to right with optional spacing. It is useful when the defaults of `Row` already match your needs and extra alignment or semantics configuration would only add noise.
 
-This is part of the Fission widget API and belongs in the same typed, state-driven model used across the rest of the framework.
+Use `HStack` for simple local composition. Do not use it when you need the fuller `Row` configuration surface, such as custom cross-axis alignment, wrapping, or semantics.
 
+## Example
 
-**When you need it**
-- This widget is best when you need stable structure before styling. Keep layout decisions explicit so state and constraints stay predictable.
-- Use predictable state updates as your entry point for all behavior changes.
-- Combine with semantic labels and role attributes for reliable interaction testing.
-
-## Minimal usage
 ```rust
+use fission_core::ui::Text;
 use fission_widgets::HStack;
 
 let node = HStack {
-    ..Default::default()
-}.into_node();
+    spacing: Some(8.0),
+    children: vec![
+        Text::new("Name").into_node(),
+        Text::new("Required").into_node(),
+    ],
+}
+.into_node();
 ```
 
-## API surface
-- `children`: `Vec<Node>`
-- `spacing`: `Option<f32>`
+## Field table
 
-## Implementation checks
-- Build with the state model first, then layer spacing, alignment, and visual treatment. Layout mistakes are usually cheaper to fix before async behavior is introduced.
-- Keep callbacks/closures small and deterministic when possible, then move side effects to async boundaries.
-- If the widget affects layout or input, verify with both state transitions and target-level smoke tests.
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `children` | `Vec<Node>` | Child nodes laid out horizontally. | Defaults to an empty list. |
+| `spacing` | `Option<f32>` | Gap between children. | Defaults to `None`. Maps to `Row.gap`. |
 
-## Next
-- [Widget catalog](/reference/widgets/catalog)
-- [Widget trait](/reference/core/widget-trait)
-- [Runtime model](/docs/learn/runtime-model)
+## Behavior and advice
+
+`HStack` simply builds a `Row` with the provided `children` and `spacing`. That means it inherits `Row` defaults, including centered cross-axis alignment and no wrapping.
+
+The convenience is helpful when that is exactly what you want. If you catch yourself wishing you could tweak `align_items`, `justify_content`, `wrap`, or semantics, switch to `Row` rather than trying to bend `HStack` beyond its purpose.
+
+## Related
+
+[`Row`](/reference/widgets/row), [`VStack`](/reference/widgets/v-stack), and [`Spacer`](/reference/widgets/spacer).

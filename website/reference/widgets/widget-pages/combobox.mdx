@@ -1,47 +1,70 @@
 ---
 title: Combobox
-description: Reference details for Combobox.
+description: Combine a text input with a popover list of matching choices.
 slug: /widgets/combobox
 ---
 # Combobox
 
-Use it when the user needs to interact, choose a value, or submit intent.
+`Combobox` is the widget for "type to narrow, then pick" interactions.
 
+It combines a [`TextInput`](/reference/widgets/text-input) with a popover list. Your app state owns three things: the current text value, the list of items you want to show right now, and whether the popup is open. That makes the behavior predictable and easy to test, but it also means the widget does not secretly fetch or filter data for you.
 
-This is part of the Fission widget API and belongs in the same typed, state-driven model used across the rest of the framework.
+## Example
 
-
-**When you need it**
-- This widget is best when the control drives explicit `Action` dispatch or receives values from a reducer-owned state model.
-- Use predictable state updates as your entry point for all behavior changes.
-- Combine with semantic labels and role attributes for reliable interaction testing.
-
-## Minimal usage
 ```rust
 use fission_widgets::Combobox;
+use std::sync::Arc;
 
 let node = Combobox {
-    ..Default::default()
-}.into_node();
+id: WidgetNodeId::explicit("assignee_box"),
+value: view.state.assignee_query.clone(),
+items: view.state.filtered_people.clone(),
+is_open: view.state.assignee_open,
+width: Some(280.0),
+max_popup_height: Some(240.0),
+on_change: Some(ctx.bind(
+    SetAssigneeQuery(String::new()),
+    on_set_assignee_query as Handler<AppState, SetAssigneeQuery>,
+)),
+on_toggle: Some(ctx.bind(
+    ToggleAssigneeOpen,
+    on_toggle_assignee_open as Handler<AppState, ToggleAssigneeOpen>,
+)),
+on_select: Some(Arc::new(move |name| ActionEnvelope {
+    id: choose_person_id,
+    payload: serde_json::to_vec(&ChooseAssignee(name)).unwrap(),
+})),
+}
+.build(ctx, view);
 ```
 
-## API surface
-- `id`: `WidgetNodeId`
-- `value`: `String`
-- `items`: `Vec<String>`
-- `is_open`: `bool`
-- `width`: `Option<f32>`
-- `max_popup_height`: `Option<f32>`
-- `on_change`: `Option<ActionEnvelope>`
-- `on_select`: `Option<Arc<dyn Fn(String) -> ActionEnvelope + Send + Sync>>`
-- `on_toggle`: `Option<ActionEnvelope>`
+In a real reducer, `on_change` usually updates the query and refreshes `filtered_people`, `on_toggle` opens or closes the popup, and `on_select` stores the chosen value and closes the popup.
 
-## Implementation checks
-- Keep control values in state, validate there, and surface results through completion actions or reducer transitions.
-- Keep callbacks/closures small and deterministic when possible, then move side effects to async boundaries.
-- If the widget affects layout or input, verify with both state transitions and target-level smoke tests.
+## Field table
 
-## Next
-- [Widget catalog](/reference/widgets/catalog)
-- [Widget trait](/reference/core/widget-trait)
-- [Runtime model](/docs/learn/runtime-model)
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `id` | `WidgetNodeId` | Stable identity for the combobox and its popover anchor. | Required. |
+| `value` | `String` | Current text shown in the input. | Controlled by app state. |
+| `items` | `Vec<String>` | Items to show in the popup right now. | Supply the already filtered list you want the user to see. |
+| `is_open` | `bool` | Whether the popup list is visible. | Controlled by app state. |
+| `width` | `Option<f32>` | Width of the text field and popup. | Defaults to the input's natural width, with popup width falling back to `320.0`. |
+| `max_popup_height` | `Option<f32>` | Maximum popup height before scrolling begins. | Defaults to `240.0`. |
+| `on_change` | `Option<ActionEnvelope>` | Action fired when the user edits the text. | Like `TextInput`, the runtime replaces the payload with the current `String`. |
+| `on_select` | `Option<Arc<dyn Fn(String) -> ActionEnvelope + Send + Sync>>` | Closure that builds the action for a selected item. | Called with the chosen item string. |
+| `on_toggle` | `Option<ActionEnvelope>` | Action used to open or close the popup. | Also used as the close action when the popover dismisses itself. |
+
+## How the event flow works
+
+There are two different kinds of events here. Typing uses the text-input path: the runtime dispatches `on_change` with the new string, your reducer stores that query, and the next build passes a filtered `items` list back in. Picking an item uses the `on_select` closure, which turns the chosen string into an `ActionEnvelope` immediately.
+
+This split is intentional. Free text and confirmed selection are not the same product event. Keep them separate in your actions.
+
+## Specific advice
+
+If the user must choose from a fixed short list and should not type arbitrary text, use [`Select`](/reference/widgets/select) instead. If you do use a combobox, keep the source of truth in state and derive display lists in selectors or reducers rather than mutating the item list inside the widget.
+
+## Related
+
+[`TextInput`](/reference/widgets/text-input), [`Select`](/reference/widgets/select), [`Menu`](/reference/widgets/menu), and [`FormControl`](/reference/widgets/form-control).
+

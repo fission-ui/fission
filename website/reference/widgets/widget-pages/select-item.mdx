@@ -1,41 +1,60 @@
 ---
 title: SelectItem
-description: Reference details for SelectItem.
+description: Describe one selectable option inside a Select dropdown.
 slug: /widgets/select-item
 ---
 # SelectItem
 
-Use it when the user needs to interact, choose a value, or submit intent.
+`SelectItem` is the option record used by [`Select`](/reference/widgets/select).
 
+It is not a widget on its own. Instead, it carries the label, optional icon, and already-prepared action for one row in the opened select menu.
 
-This is part of the Fission widget API and belongs in the same typed, state-driven model used across the rest of the framework.
+## Example
 
-
-**When you need it**
-- This widget is best when the control drives explicit `Action` dispatch or receives values from a reducer-owned state model.
-- Use predictable state updates as your entry point for all behavior changes.
-- Combine with semantic labels and role attributes for reliable interaction testing.
-
-## Minimal usage
 ```rust
 use fission_widgets::SelectItem;
 
-let node = SelectItem {
-    ..Default::default()
-}.into_node();
+let items = vec![
+SelectItem {
+    label: "Compact".into(),
+    icon: None,
+    on_select: ActionEnvelope {
+        id: set_density_id,
+        payload: serde_json::to_vec(&SetDensity(Density::Compact)).unwrap(),
+    },
+},
+SelectItem {
+    label: "Comfortable".into(),
+    icon: None,
+    on_select: ActionEnvelope {
+        id: set_density_id,
+        payload: serde_json::to_vec(&SetDensity(Density::Comfortable)).unwrap(),
+    },
+},
+];
 ```
 
-## API surface
-- `label`: `String`
-- `icon`: `Option<String>`
-- `on_select`: `ActionEnvelope`
+Each item contains the final action for that option, so `Select` does not have to guess how your state model works.
 
-## Implementation checks
-- Keep control values in state, validate there, and surface results through completion actions or reducer transitions.
-- Keep callbacks/closures small and deterministic when possible, then move side effects to async boundaries.
-- If the widget affects layout or input, verify with both state transitions and target-level smoke tests.
+## Field table
 
-## Next
-- [Widget catalog](/reference/widgets/catalog)
-- [Widget trait](/reference/core/widget-trait)
-- [Runtime model](/docs/learn/runtime-model)
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `label` | `String` | Visible text for the option row. | Required. |
+| `icon` | `Option<String>` | Optional icon source shown before the label. | Defaults to `None`. |
+| `on_select` | `ActionEnvelope` | Action dispatched when this option is chosen. | Required. Usually updates the selected value and closes the menu. |
+
+## How to think about it
+
+Because `SelectItem` stores a ready-made `ActionEnvelope`, it works best when every item can prepare its own payload during build. That is exactly what you want for enums, ids, and other small typed choices.
+
+A good reducer usually stores the real selected value in state and derives `selected_label` separately. Do not let the label string become your only source of truth unless the label is the product value.
+
+## Specific advice
+
+Make the `on_select` action do both pieces of work the user expects: set the new value and close the select by updating `is_open` in state. The widget itself will not close unless your state says so.
+
+## Related
+
+[`Select`](/reference/widgets/select), [`MenuItem`](/reference/widgets/menu-item), [`Menu`](/reference/widgets/menu), and [`Combobox`](/reference/widgets/combobox).
+

@@ -1,44 +1,55 @@
 ---
 title: Transition
-description: Reference details for Transition.
+description: Animate one common visual property toward a new value when state changes.
 slug: /widgets/transition
 ---
 # Transition
 
-Use it to control how child nodes are arranged, measured, and constrained.
+`Transition` is a lightweight animation helper for one common visual property on one child.
 
+Use it when a state change should ease visually instead of snapping immediately. Typical cases are fading content in, sliding a panel slightly, scaling a pressed card, or rotating a small affordance. It is deliberately smaller than a full animation system. You give it a stable id, a target value, a property, and timing information. The runtime then animates from the current visible value to the new one.
 
-This is part of the Fission widget API and belongs in the same typed, state-driven model used across the rest of the framework.
+This fits Fission's architecture well because the animation target still comes from explicit state. Your reducer decides that `show_banner` is now true. `build()` then describes the banner with a new opacity or translation value. `Transition` requests the runtime animation, but it does not invent hidden product state of its own.
 
+## Example
 
-**When you need it**
-- This widget is best when you need stable structure before styling. Keep layout decisions explicit so state and constraints stay predictable.
-- Use predictable state updates as your entry point for all behavior changes.
-- Combine with semantic labels and role attributes for reliable interaction testing.
-
-## Minimal usage
 ```rust
+use fission_core::{AnimationPropertyId, WidgetNodeId};
 use fission_widgets::Transition;
 
-let node = Transition {
-    ..Default::default()
-}.into_node();
+let banner = Transition {
+    id: WidgetNodeId::explicit("save_banner"),
+    property: AnimationPropertyId::Opacity,
+    value: if view.state.show_saved_banner { 1.0 } else { 0.0 },
+    duration: 250,
+    delay: 0,
+    child: Box::new(saved_banner.build(ctx, view)),
+}
+.build(ctx, view);
 ```
 
-## API surface
-- `id`: `WidgetNodeId`
-- `value`: `f32`
-- `property`: `AnimationPropertyId`
-- `duration`: `u64`
-- `delay`: `u64`
-- `child`: `Box<Node>`
+## Field table
 
-## Implementation checks
-- Build with the state model first, then layer spacing, alignment, and visual treatment. Layout mistakes are usually cheaper to fix before async behavior is introduced.
-- Keep callbacks/closures small and deterministic when possible, then move side effects to async boundaries.
-- If the widget affects layout or input, verify with both state transitions and target-level smoke tests.
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `id` | `WidgetNodeId` | Stable animation target identity. | Required. Reuse the same id across rebuilds so the runtime can animate from the current visual state. |
+| `value` | `f32` | Target value for the chosen property. | Defaults to `0.0`. Interpret it according to `property`. |
+| `property` | `AnimationPropertyId` | Which visual property to animate. | Defaults to `Opacity`. |
+| `duration` | `u64` | Animation duration in milliseconds. | Defaults to `300`. |
+| `delay` | `u64` | Delay before the animation starts, in milliseconds. | Defaults to `0`. |
+| `child` | `Box<Node>` | Content that should visually transition. | Required. The widget wraps it in a repaint boundary for the built-in properties. |
 
-## Next
-- [Widget catalog](/reference/widgets/catalog)
-- [Widget trait](/reference/core/widget-trait)
-- [Runtime model](/docs/learn/runtime-model)
+## When to use it and when not to
+
+`Transition` is the right tool when you want one straightforward, state-driven animation on a subtree. It is not the right tool for choreographed multi-element sequences, physics-driven motion, or route-to-route shared element behavior. Those cases usually want a more intentional animation structure such as [`Hero`](/reference/widgets/hero), nested transitions, or a custom runtime animation strategy.
+
+## Specific advice
+
+Keep the `id` stable and meaningful. If you generate a new id every rebuild, the runtime has no previous visual state to animate from.
+
+Also know the current limits of this helper. The built-in widget applies compositor-friendly wrappers for `Opacity`, `TranslateX`, `TranslateY`, `Scale`, and `Rotation`. If you pass `AnimationPropertyId::Custom(_)`, the current implementation leaves the child visually unchanged, so use a lower-level path for truly custom animated properties.
+
+## Related
+
+[`Hero`](/reference/widgets/hero), [`Composite`](/reference/widgets/composite), and [`Rendering pipeline`](/reference/core/rendering-pipeline).
+

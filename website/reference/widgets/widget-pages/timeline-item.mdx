@@ -1,41 +1,38 @@
 ---
 title: TimelineItem
-description: Reference details for TimelineItem.
+description: Describe one event inside a Timeline.
 slug: /widgets/timeline-item
 ---
 # TimelineItem
 
-Use it when the user needs to interact, choose a value, or submit intent.
+`TimelineItem` is the event record used by [`Timeline`](/reference/widgets/timeline).
 
+Each item represents one moment or milestone in a sequence, such as an activity log entry, message event, deployment step, or support history item.
 
-This is part of the Fission widget API and belongs in the same typed, state-driven model used across the rest of the framework.
+## Example
 
-
-**When you need it**
-- This widget is best when the control drives explicit `Action` dispatch or receives values from a reducer-owned state model.
-- Use predictable state updates as your entry point for all behavior changes.
-- Combine with semantic labels and role attributes for reliable interaction testing.
-
-## Minimal usage
 ```rust
 use fission_widgets::TimelineItem;
 
-let node = TimelineItem {
-    ..Default::default()
-}.into_node();
+let item = TimelineItem {
+    title: "Build finished".into(),
+    description: Some("All checks passed on main.".into()),
+    timestamp: Some("10:24".into()),
+};
 ```
 
-## API surface
-- `title`: `String`
-- `description`: `Option<String>`
-- `timestamp`: `Option<String>`
+## Field table
 
-## Implementation checks
-- Keep control values in state, validate there, and surface results through completion actions or reducer transitions.
-- Keep callbacks/closures small and deterministic when possible, then move side effects to async boundaries.
-- If the widget affects layout or input, verify with both state transitions and target-level smoke tests.
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `title` | `String` | Main event label. | Required. |
+| `description` | `Option<String>` | Supporting explanation below the title. | Defaults to `None`. |
+| `timestamp` | `Option<String>` | Optional time or date label. | Defaults to `None`. Format it upstream. |
 
-## Next
-- [Widget catalog](/reference/widgets/catalog)
-- [Widget trait](/reference/core/widget-trait)
-- [Runtime model](/docs/learn/runtime-model)
+## Specific advice
+
+Keep timestamps human-readable and consistent across items. A timeline becomes harder to scan if each item uses a different date or time format.
+
+## Related
+
+[`Timeline`](/reference/widgets/timeline), [`Text`](/reference/widgets/text), [`Alert`](/reference/widgets/alert), and [`Card`](/reference/widgets/card).

@@ -1,89 +1,367 @@
 ---
 title: Runtime model
-description: The shared app contract behind desktop, web, iOS, and Android targets.
+description: "Learn the core mental model of a Fission app: state, actions, reducers, widgets, build(), View, BuildCtx, ReducerContext, and selectors."
 ---
 
 # Runtime model
 
-A Fission app is easier to reason about when you separate the parts the framework owns from the parts your app owns.
+A Fission app follows one steady loop no matter whether it runs on desktop, web, Android, or iOS. Your app keeps its important data in `AppState`. User intent becomes an `Action`. A reducer updates the state. A `Widget` reads the current inputs and describes the interface in `build()`. The runtime turns that description into layout, semantics, and pixels, and the platform shell hosts the result inside a real window, browser surface, or mobile app.
 
-## Your app owns `AppState`
+That sentence is the heart of the framework. This page slows it down so each part is understandable on its own.
 
-`AppState` is the durable product model that reducers mutate.
+To keep the explanation concrete, the examples here use a tiny note editor. The app has one text draft and a Save button. That is enough to show how the pieces fit together without burying the model under lots of product code.
 
-Typical examples in this repo:
+Before we start, one reassuring note about the Rust syntax: you do not need to understand every symbol on the first pass.
 
-- the counter's current value and modal state,
-- the inbox app's locale, theme mode, and selected message,
-- the editor's open buffers and workspace state.
+This page will show some Rust scaffolding that appears often in Fission code:
 
-## The runtime owns cross-frame interaction state
+- `#[derive(...)]` asks Rust to generate common helper behavior automatically.
+- `impl Something for MyType {}` tells Rust that a type participates in a framework contract.
+- angle brackets such as `Widget<NoteState>` or `ReducerContext<NoteState>` mean "this thing is being used with `NoteState`."
+- `&` means "borrow this value without taking ownership" and `&mut` means "borrow it and allow changes."
+- explicit casts such as `as Handler<...>` are often just type hints for the compiler. At this stage, you can usually read them as "use this function as the reducer for that action."
 
-`RuntimeState` holds things that should not live in your business model:
+When you see those forms below, focus first on the role they play in the framework. You can let Rust fluency catch up over time.
 
-- scroll offsets,
-- active animations,
-- text-edit buffers and selections,
-- drag state,
-- video and web embed state,
-- hero/portal bookkeeping.
+## Start with `AppState`, `Action`, and the reducer
 
-That split keeps reducers focused on product rules while the runtime handles interaction mechanics.
+`AppState` is the durable data model for your app. It holds the information your product cares about over time. In a note editor, that might be the current draft text, whether a save is in progress, and the last error message.
 
-## `Env` carries explicit external context
+```rust
+use fission::prelude::*;
+use serde::{Deserialize, Serialize};
 
-`Env` is not global. It is a value passed through the build pipeline and updated explicitly by shells.
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
+pub struct NoteState {
+    pub draft: String,
+    pub saving: bool,
+    pub save_error: Option<String>,
+}
 
-It includes:
+impl AppState for NoteState {}
+```
 
-- `theme`,
-- `i18n` bundles,
-- `locale`,
-- `window_insets`,
-- `viewport_size`,
-- optional text measurer plumbing.
+If that block looks dense, here is the important translation.
 
-Desktop exposes `with_env(...)`, while desktop, mobile, and web wrappers all expose `with_sync_env(...)` so environment changes stay explicit.
+`pub struct NoteState { ... }` is the actual data model. That is the part to care about first. It says the app stores a draft string, a saving flag, and an optional error message.
 
-## `build()` is pure
+The `#[derive(...)]` line is mostly scaffolding. `Debug`, `Default`, and `Clone` are standard Rust helper traits. `Serialize` and `Deserialize` come from `serde` and let the value be encoded and decoded. You do not need to memorize those yet. On a first reading, it is fine to treat the whole derive line as "please generate the common helper behavior this framework expects."
 
-Every widget implements the same contract:
+`impl AppState for NoteState {}` is also less dramatic than it looks. It is an empty implementation, which means there is no extra code inside. It simply tells Fission, "this struct is my app state type."
+
+One small Rust detail is worth naming here: `Option<String>` means "either there is a string here, or there is nothing yet." That is how the example represents an error message that may or may not exist.
+
+A useful rule is this: if losing the value would change the meaning of the product, it probably belongs in `AppState`. The note text belongs there. The fact that a save is currently happening belongs there too, because the user can see and feel that state. By contrast, low-level interaction details such as the current animation progress or a temporary text selection buffer are usually runtime-owned details, not product data.
+
+Once you have state, you need a way to describe what the user is trying to do. That is what an `Action` is for. An action is a named, typed message such as "update the draft", "press Save", or "save finished successfully".
+
+```rust
+#[derive(fission_macros::Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[serde(transparent)]
+pub struct UpdateDraft(pub String);
+
+#[derive(fission_macros::Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+pub struct SavePressed;
+
+#[derive(fission_macros::Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+pub struct SaveSucceeded;
+
+#[derive(fission_macros::Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+pub struct SaveFailed;
+```
+
+Again, the framework idea matters more than the syntax.
+
+`UpdateDraft(pub String)` is a one-field wrapper around a string. In plain English, it means "an action that carries new draft text." Rust lets you write short wrapper types this way instead of always naming the field. Later, when the reducer reads `action.0`, that just means "the first and only value inside this wrapper."
+
+`SavePressed`, `SaveSucceeded`, and `SaveFailed` are zero-field structs. They are simply named action types with no extra data attached.
+
+The `#[derive(fission_macros::Action, ...)]` line is the framework-facing scaffolding that makes each type usable as a Fission action. The long derive list is real Rust, but for now you can mostly read it as "make this type work as a serializable action value."
+
+Fission uses actions instead of button callbacks that secretly capture whatever happened to be in scope. That choice matters more as an app grows. An action says what happened in app terms. A reducer then decides what that means.
+
+A reducer is just a function that receives the current state plus an action and updates the state in response. If you have never seen the word before, do not let it sound more mysterious than it is. A reducer reduces "what happened" into "the new state".
+
+```rust
+fn on_update_draft(
+    state: &mut NoteState,
+    action: UpdateDraft,
+    _ctx: &mut ReducerContext<NoteState>,
+) {
+    state.draft = action.0;
+    state.save_error = None;
+}
+
+fn on_save_succeeded(
+    state: &mut NoteState,
+    _action: SaveSucceeded,
+    _ctx: &mut ReducerContext<NoteState>,
+) {
+    state.saving = false;
+}
+
+fn on_save_failed(
+    state: &mut NoteState,
+    _action: SaveFailed,
+    _ctx: &mut ReducerContext<NoteState>,
+) {
+    state.saving = false;
+    state.save_error = Some("Could not save the note".into());
+}
+```
+
+The syntax in a reducer signature is easier than it first appears.
+
+`state: &mut NoteState` means the reducer receives a mutable reference to the current app state, so it is allowed to change that state. `action: UpdateDraft` means this reducer only handles one specific action type. `_ctx: &mut ReducerContext<NoteState>` means the runtime also provides reducer context, but this reducer is not using it yet. The leading underscore is Rust's way of saying "yes, I know this parameter exists, but I am intentionally not reading it in this function."
+
+So if you strip away the syntax noise, the first reducer reads like this: "when an `UpdateDraft` action arrives, change the note state by replacing the draft and clearing any old save error."
+
+Reducers are where state changes are supposed to happen. That is a big reason Fission apps stay understandable. Instead of letting widgets, timers, global variables, and platform hooks all mutate state from different directions, Fission gives updates one clear path.
+
+## Then define a `Widget` and its `build()` method
+
+A `Widget` is a reusable piece of user interface. It might be a whole screen, a toolbar, a modal dialog, or a small status badge. In Fission, a widget does not own your product state. Instead, it reads the current inputs and returns a description of what should be on screen right now.
+
+Every widget implements the same core method:
 
 ```rust
 fn build(&self, ctx: &mut BuildCtx<S>, view: &View<S>) -> Node
 ```
 
-Inside `build()`:
+You do not need to read that as a Rust expert yet. In plain English, it says: "given a widget, a build context, and a read-only view of the current app inputs, return a user interface node tree."
 
-- read state through `view`,
-- bind actions and declare runtime work through `ctx`,
-- return a deterministic `Node` tree.
+The `S` is a generic placeholder for "whatever app state type this widget works with." In this page, that state type is `NoteState`.
 
-Do not perform I/O, start threads, or reach into platform state from `build()`.
+Here is a shortened version of the note editor widget:
 
-## `BuildCtx` is the bridge to runtime-owned behavior
+```rust
+pub struct NoteEditor;
 
-`BuildCtx` lets widgets do four important things without breaking purity:
+impl Widget<NoteState> for NoteEditor {
+    fn build(&self, ctx: &mut BuildCtx<NoteState>, view: &View<NoteState>) -> Node {
+        let save = ctx.bind(
+            SavePressed,
+            on_save_pressed as Handler<NoteState, SavePressed>,
+        );
 
-- bind typed actions to reducer handlers,
-- declare `JobResource`, `ServiceResource`, or `TimerResource`,
-- register portals, videos, and web views,
-- request animation for stable widget IDs.
+        Column {
+            gap: Some(16.0),
+            children: vec![
+                Text::new("Draft note").into_node(),
+                TextInput {
+                    value: view.state.draft.clone(),
+                    placeholder: Some("Write something...".into()),
+                    on_change: Some(ctx.bind(
+                        UpdateDraft(String::new()),
+                        on_update_draft as Handler<NoteState, UpdateDraft>,
+                    )),
+                    ..Default::default()
+                }
+                .into_node(),
+                Button {
+                    on_press: Some(save),
+                    child: Some(Box::new(Text::new("Save").into_node())),
+                    ..Default::default()
+                }
+                .into_node(),
+            ],
+            ..Default::default()
+        }
+        .into_node()
+    }
+}
+```
 
-## `View` is more than state access
+The Rust scaffolding around the widget is doing a few predictable jobs.
 
-`View<S>` exposes:
+`pub struct NoteEditor;` declares a widget type. Because this example widget has no stored configuration of its own, the struct is empty. That is valid Rust.
 
-- `state` for app data,
-- `runtime` for animation/media/text-edit state,
-- `env` for theme, locale, and viewport data,
-- prior layout snapshots for geometry queries,
-- helpers like `animation_value(...)` and `get_rect(...)`.
+`impl Widget<NoteState> for NoteEditor` is the framework-facing line that says, "this widget knows how to build user interface for an app whose state type is `NoteState`." The angle brackets are just Rust's way of attaching the state type.
 
-Selectors let you derive stable view models without coupling every widget to the entire state shape.
+Inside the widget, there are a few pieces of syntax that are worth translating instead of ignoring:
+
+- `view.state.draft.clone()` means "read the current draft text from state and make a copy of the string so the text input can own it."
+- `UpdateDraft(String::new())` is a placeholder action value used so `ctx.bind(...)` knows which action type to wire up. The runtime replaces the placeholder string with the real current input text when the user edits the field.
+- `as Handler<NoteState, UpdateDraft>` and `as Handler<NoteState, SavePressed>` are explicit type hints. They help Rust understand which reducer function should handle each action. At this stage, you can read those casts as framework scaffolding rather than as business logic.
+- `Box::new(...)` is Rust's way of putting one value inside another heap-allocated container. In these user interface examples, you can usually read it as "nest this child widget here."
+- `..Default::default()` means "use the normal default values for every field I did not set by hand."
+
+The important idea is not the exact widget names. The important idea is that `build()` reads the current inputs and returns a user interface description.
+
+### What it means for `build()` to be pure
+
+In Fission, `build()` must be pure. If that term is new, here is the plain meaning: a pure function is a function that only looks at its inputs and returns an answer. It does not secretly change anything outside itself, and it does not depend on hidden global state.
+
+For `build()`, that means:
+
+- it reads its inputs through `view`,
+- it records wiring information through `ctx`,
+- it returns a user interface description,
+- and it does not fetch data, mutate global state, write files, start background work, or trigger outside side effects while deciding what to render.
+
+That rule exists for very practical reasons. A user interface may rebuild many times: after a keystroke, after a resize, after an animation step, after a state change, or during a test. If `build()` is pure, those rebuilds are safe. The same inputs produce the same interface description. Tests can replay the same situation and trust the result.
+
+If `build()` is impure, the trouble appears quickly. A network request started inside `build()` might fire again on every rebuild. A file write could happen just because a preview or test rendered the widget. A hidden global mutation could make the next build depend on call order instead of current state. These problems are exactly the kind that make user interface code feel haunted.
+
+So when you write `build()`, think of it as description, not execution. Describe what the screen should look like. Let reducers and the runtime handle the work that changes state or touches the outside world.
+
+## `View` is the read-only input to `build()`
+
+The `view` argument is how widgets read the current world safely.
+
+At the most basic level, `view.state` gives access to your `AppState`. That is where the note editor reads `view.state.draft`.
+
+But `View` exists because widgets often need more than product state alone. It can also expose runtime-owned interaction state, environment values, and the previous layout snapshot. In practice that means a widget can read things such as animation values, theme, locale, viewport size, and geometry information without reaching into globals or platform APIs.
+
+Reads go through `View` for two reasons. First, it makes dependencies obvious. When a widget needs something, you can see that it came from state, runtime data, or environment data. Second, it keeps the widget testable. A test can provide a known `View` and expect the same output, because the widget is not secretly consulting the operating system or a process-wide singleton.
+
+Even if your first widgets only use `view.state`, it is worth learning the bigger purpose of `View`: it is the runtime's read-only bundle of inputs for user interface construction.
+
+If the type name `View<S>` shows up elsewhere and looks abstract, read it as "the read-only inputs for one build pass." The generic `S` just keeps the state type precise.
+
+## `BuildCtx` is the write-only wiring helper for `build()`
+
+The `ctx` argument has a very different job. `BuildCtx` is for recording what the runtime should wire up around the user interface description.
+
+The most common use is `ctx.bind(...)`. Binding connects a widget event, such as a button press or text change, to an action and reducer handler. In the note editor example, `ctx.bind(UpdateDraft(...), ...)` creates the action path that lets typing update state.
+
+This is also the place where Rust type hints can look noisier than the underlying idea. A call such as `ctx.bind(UpdateDraft(String::new()), on_update_draft as Handler<...>)` is really doing one simple thing: it tells the runtime, "when this event happens, dispatch an `UpdateDraft` action and send it to `on_update_draft`."
+
+As an app grows, `BuildCtx` also lets widgets declare other runtime-managed behavior such as animations, portals, media registrations, web views, and resources. The shared idea is the same in every case: `BuildCtx` records intent for the runtime. It does not perform the work right now.
+
+That distinction is important. `BuildCtx` is not where you read product data; that is `View`'s job. It is not where you directly mutate app state; that is the reducer's job. And it is not a back door for file input and output or network calls; those belong in explicit runtime effects, which we will reach in a moment.
+
+A good rule of thumb is simple. If you are asking "what does the app currently know?" use `View`. If you are asking "how should this widget connect to the runtime?" use `BuildCtx`.
+
+## `ReducerContext` is for the reducer phase, not the build phase
+
+You saw a third reducer parameter earlier: `&mut ReducerContext<NoteState>`. Many reducers do not need it and can ignore it with `_ctx`. But when a reducer needs help from the runtime, `ReducerContext` is the tool for that phase.
+
+It matters because reducers sometimes need to do two things beyond directly changing fields in `AppState`.
+
+The first job is requesting side effects in an explicit way. A side effect is any work that touches the outside world: saving to disk, opening a web address, asking the host to show a file picker, starting background sync, or talking to a service. Fission does not let the reducer perform that work directly. Instead, the reducer records an effect request through `ctx.effects`, and the runtime performs it after the reducer returns.
+
+That keeps the reducer itself predictable. The reducer still decides when a save should begin, but it does not secretly become the file system or the network stack.
+
+```rust
+fn on_save_pressed(
+    state: &mut NoteState,
+    _action: SavePressed,
+    ctx: &mut ReducerContext<NoteState>,
+) {
+    if state.saving {
+        return;
+    }
+
+    state.saving = true;
+    state.save_error = None;
+
+    // Simplified teaching example: ask the runtime to do the save after
+    // this reducer returns, then route the result back as an action.
+    ctx.effects
+        .app(SAVE_NOTE_JOB, state.draft.clone())
+        .on_ok(ctx.effects.bind(
+            SaveSucceeded,
+            on_save_succeeded as Handler<NoteState, SaveSucceeded>,
+        ))
+        .on_err(ctx.effects.bind(
+            SaveFailed,
+            on_save_failed as Handler<NoteState, SaveFailed>,
+        ));
+}
+```
+
+If the chained method calls look intimidating, read them left to right in everyday language.
+
+First, `ctx.effects.app(...)` asks the runtime to run a named save job. Then `.on_ok(...)` says which action to dispatch if that job succeeds. Then `.on_err(...)` says which action to dispatch if it fails. The `ctx.effects.bind(... as Handler<...>)` calls inside that chain are the same kind of type-guiding scaffolding you already saw in `build()`: they connect a future action to the reducer that should handle it.
+
+The save job itself is defined elsewhere. What matters here is the shape of the flow. The reducer updates state to say "saving has started" and then asks the runtime to perform the save outside the reducer.
+
+The second job of `ReducerContext` is giving the reducer access to effect input or event payloads that arrived with the dispatch. That data lives in `ctx.input`. For example, a reducer may read bytes returned from a job, pointer coordinates attached to an interaction, or file paths from a drop event. This keeps extra input explicit instead of hiding it in global variables or magic callbacks.
+
+So `ReducerContext` is not long-lived storage. It is a short-lived helper that exists only while one reducer call is running.
+
+## `Selector` keeps large apps from turning into a pile of raw state reads
+
+Small examples can read directly from `view.state` everywhere. Large apps become messy if they keep doing that forever.
+
+That is where `Selector` becomes important. A selector is a small read-only transformation that takes a `View` and returns exactly the derived data a widget needs. The derived value might be a formatted label, a button-enabled flag, a grouped list, or a small view model struct.
+
+For the note editor, the screen might want a title, a status line, a save button label, and a `can_save` flag. Those are not separate pieces of stored state. They are values derived from the current inputs.
+
+```rust
+struct EditorVM {
+    title: String,
+    status_line: String,
+    save_label: String,
+    can_save: bool,
+}
+
+impl Selector<NoteState> for EditorVM {
+    type Output = EditorVM;
+
+    fn select(view: &View<NoteState>) -> Self::Output {
+        let first_line = view
+            .state
+            .draft
+            .lines()
+            .next()
+            .unwrap_or("")
+            .trim()
+            .to_string();
+
+        let title = if first_line.is_empty() {
+            "Untitled note".to_string()
+        } else {
+            first_line
+        };
+
+        let character_count = view.state.draft.chars().count();
+
+        EditorVM {
+            title,
+            status_line: format!("{character_count} characters"),
+            save_label: if view.state.saving {
+                "Saving...".to_string()
+            } else {
+                "Save".to_string()
+            },
+            can_save: !view.state.saving && !view.state.draft.trim().is_empty(),
+        }
+    }
+}
+```
+
+This is one more place where Rust uses framework-style syntax that is worth translating.
+
+`impl Selector<NoteState> for EditorVM` means "there is a selector associated with the `EditorVM` type, and it knows how to derive values from a `NoteState` view."
+
+`type Output = EditorVM;` means the selector returns an `EditorVM` value. Rust writes that as an associated type, but you can read it more simply as "the result of this selector is an `EditorVM`."
+
+Then the widget can read one prepared value instead of rebuilding the same logic inline every frame:
+
+```rust
+let vm = view.select::<EditorVM>();
+```
+
+The `::<EditorVM>` part is Rust's explicit type-argument syntax. Many Rust developers call it the "turbofish." You do not need the nickname. Just read the line as "ask the view for the `EditorVM` selector result."
+
+Selectors matter because they keep growing apps readable. Without them, widgets often become long lists of `view.state.some.deep.field` lookups mixed with formatting rules and boolean conditions. That makes it harder to see what the screen actually needs.
+
+With selectors, you can centralize the view-specific logic in one place. A widget asks for a small, meaningful view model. Tests can verify the selector independently. Refactors become easier because the widget is coupled to the selector's output instead of the full internal shape of the state.
+
+Selectors can also read from `view.runtime` or `view.env` when the derived value depends on runtime or environment information. The important rule stays the same: selectors are read-only. They do not mutate state, and they do not perform side effects.
+
+## The whole model in one pass
+
+When the note editor runs, the loop looks like this. `NoteState` holds the draft and save status. Typing produces an `UpdateDraft` action. The reducer updates the draft in state. The `NoteEditor` widget runs `build()` again. It reads the latest inputs through `View`, uses `BuildCtx` to bind events to actions, and returns a new user interface description. If the user presses Save, the reducer uses `ReducerContext` to mark the app as saving and request the actual save effect through the runtime. A selector prepares tidy display values for the screen. The same model works inside desktop, web, Android, and iOS shells because the product logic lives in the shared core instead of being scattered across platform code.
+
+If you keep that flow in mind, the rest of Fission becomes much easier to place.
 
 ## Read next
 
-- [Rendering pipeline](/docs/learn/rendering-pipeline)
-- [Resources and async](/docs/guides/resources-and-async)
-- [Environment, input, and text](/docs/guides/input-events-text-and-env)
+Read [Rendering pipeline](/docs/learn/rendering-pipeline) next to see what happens after `build()` returns its user interface description.
+
+Then read [Resources and async](/docs/guides/resources-and-async) when you are ready to learn the full effect and resource story behind `ReducerContext` and runtime-managed work.
+
+If you want to understand the environment data that also flows through `View`, continue to [Environment, input, and text](/docs/guides/input-events-text-and-env).

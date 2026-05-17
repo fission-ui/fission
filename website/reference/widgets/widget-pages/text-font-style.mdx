@@ -1,40 +1,36 @@
 ---
 title: TextFontStyle
-description: Reference details for TextFontStyle.
+description: Choose whether text uses the normal or italic font posture.
 slug: /widgets/text-font-style
 ---
 # TextFontStyle
 
-Use it for cross-cutting composition and app-level surface behavior.
+`TextFontStyle` is the simple font-posture enum used by [`Text`](/reference/widgets/text), [`RichTextRun`](/reference/widgets/rich-text-run), and related text styling APIs.
 
+## Example
 
-This is part of the Fission widget API and belongs in the same typed, state-driven model used across the rest of the framework.
-
-
-**When you need it**
-- This widget is best when building reusable building blocks that support product patterns.
-- Use predictable state updates as your entry point for all behavior changes.
-- Combine with semantic labels and role attributes for reliable interaction testing.
-
-## Minimal usage
 ```rust
-use fission_core::ui::TextFontStyle;
+use fission_core::ui::{Text, TextFontStyle};
 
-let node = TextFontStyle {
+let node = Text {
+    content: "Draft".into(),
+    font_style: TextFontStyle::Italic,
     ..Default::default()
-}.into_node();
+}
+.into_node();
 ```
 
-## API surface
-- Use `Default::default()` to start and set only required properties.
-- Prefer small, explicit updates so diffs stay readable.
+## Choice table
 
-## Implementation checks
-- Pair it with the core trait contract and test rendering output with headless checks for stability.
-- Keep callbacks/closures small and deterministic when possible, then move side effects to async boundaries.
-- If the widget affects layout or input, verify with both state transitions and target-level smoke tests.
+| Choice | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `Normal` | `TextFontStyle` | Regular upright text. | Default. |
+| `Italic` | `TextFontStyle` | Italic text. | Use for emphasis or special notation, not for large amounts of body copy. |
 
-## Next
-- [Widget catalog](/reference/widgets/catalog)
-- [Widget trait](/reference/core/widget-trait)
-- [Runtime model](/docs/learn/runtime-model)
+## Specific advice
+
+Prefer semantic emphasis through content and layout first. Italic text is useful, but easy to overuse in user interface where clarity matters more than stylistic flourish.
+
+## Related
+
+[`Text`](/reference/widgets/text), [`RichTextRun`](/reference/widgets/rich-text-run), [`TextRunStyle`](/reference/widgets/text-run-style), and [`RichText`](/reference/widgets/rich-text).

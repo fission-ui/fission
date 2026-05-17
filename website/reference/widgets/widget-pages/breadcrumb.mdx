@@ -1,39 +1,56 @@
 ---
 title: Breadcrumb
-description: Reference details for Breadcrumb.
+description: Show the current location inside a hierarchy and let people move back up the path.
 slug: /widgets/breadcrumb
 ---
 # Breadcrumb
 
-Use it for cross-cutting composition and app-level surface behavior.
+`Breadcrumb` is the path trail for hierarchical navigation.
 
+Use it when users move through folders, nested collections, settings sections, or other tree-like structures and need a clear answer to "where am I right now?" A breadcrumb is not a global site navigation bar. It is a location summary with optional step-back navigation.
 
-This is part of the Fission widget API and belongs in the same typed, state-driven model used across the rest of the framework.
+## Example
 
-
-**When you need it**
-- This widget is best when building reusable building blocks that support product patterns.
-- Use predictable state updates as your entry point for all behavior changes.
-- Combine with semantic labels and role attributes for reliable interaction testing.
-
-## Minimal usage
 ```rust
-use fission_widgets::Breadcrumb;
+use fission_widgets::{Breadcrumb, BreadcrumbItem};
 
 let node = Breadcrumb {
-    ..Default::default()
-}.into_node();
+    items: vec![
+        BreadcrumbItem {
+            label: "Workspace".into(),
+            on_click: Some(open_workspace_action),
+        },
+        BreadcrumbItem {
+            label: "Docs".into(),
+            on_click: Some(open_docs_folder_action),
+        },
+        BreadcrumbItem {
+            label: "Architecture.md".into(),
+            on_click: None,
+        },
+    ],
+}
+.build(ctx, view);
 ```
 
-## API surface
-- `items`: `Vec<BreadcrumbItem>`
+In this pattern the last item marks the current location, while earlier items let the user move upward.
 
-## Implementation checks
-- Pair it with the core trait contract and test rendering output with headless checks for stability.
-- Keep callbacks/closures small and deterministic when possible, then move side effects to async boundaries.
-- If the widget affects layout or input, verify with both state transitions and target-level smoke tests.
+## Field table
 
-## Next
-- [Widget catalog](/reference/widgets/catalog)
-- [Widget trait](/reference/core/widget-trait)
-- [Runtime model](/docs/learn/runtime-model)
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `items` | `Vec<BreadcrumbItem>` | Path steps shown from left to right. | Defaults to an empty list. |
+
+## Layout and behavior
+
+The checked-in renderer inserts chevrons between items, renders clickable steps as ghost buttons, and shows the last step as primary text. Non-final items without `on_click` are shown as secondary text.
+
+Because the underlying layout is a single row, long breadcrumb trails can become cramped on narrow screens. On mobile or very dense headers, it is often better to shorten the path or move part of the hierarchy into a separate back action.
+
+## Specific advice
+
+Breadcrumbs should move upward in a hierarchy, not trigger unrelated actions. If an item does something surprising, the trail stops feeling trustworthy.
+
+## Related
+
+[`BreadcrumbItem`](/reference/widgets/breadcrumb-item), [`Link`](/reference/widgets/link), [`TreeView`](/reference/widgets/tree-view), and [`Tabs`](/reference/widgets/tabs).

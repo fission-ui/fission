@@ -1,41 +1,51 @@
 ---
 title: Pagination
-description: Reference details for Pagination.
+description: Let users move through multiple pages of results with explicit page state.
 slug: /widgets/pagination
 ---
 # Pagination
 
-Use it when the user needs to interact, choose a value, or submit intent.
+`Pagination` is the page-navigation control for long result sets.
 
+Use it when the product already has a concept of discrete pages, such as search results, logs, invoices, or admin tables. Pagination solves a different problem than infinite scroll. It trades continuous browsing for clear location, predictable back-and-forth movement, and stable URLs or queries.
 
-This is part of the Fission widget API and belongs in the same typed, state-driven model used across the rest of the framework.
+## Example
 
-
-**When you need it**
-- This widget is best when the control drives explicit `Action` dispatch or receives values from a reducer-owned state model.
-- Use predictable state updates as your entry point for all behavior changes.
-- Combine with semantic labels and role attributes for reliable interaction testing.
-
-## Minimal usage
 ```rust
 use fission_widgets::Pagination;
+use std::sync::Arc;
 
 let node = Pagination {
-    ..Default::default()
-}.into_node();
+    current_page: view.state.page,
+    total_pages: view.state.total_pages,
+    on_change: Some(Arc::new(move |page| ActionEnvelope {
+        id: set_page_id,
+        payload: serde_json::to_vec(&SetPage(page)).unwrap(),
+    })),
+}
+.build(ctx, view);
 ```
 
-## API surface
-- `current_page`: `usize`
-- `total_pages`: `usize`
-- `on_change`: `Option<Arc<dyn Fn(usize) -> ActionEnvelope + Send + Sync>>`
+The reducer usually stores the current page and then refreshes the data set through a selector or follow-up effect.
 
-## Implementation checks
-- Keep control values in state, validate there, and surface results through completion actions or reducer transitions.
-- Keep callbacks/closures small and deterministic when possible, then move side effects to async boundaries.
-- If the widget affects layout or input, verify with both state transitions and target-level smoke tests.
+## Field table
 
-## Next
-- [Widget catalog](/reference/widgets/catalog)
-- [Widget trait](/reference/core/widget-trait)
-- [Runtime model](/docs/learn/runtime-model)
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `current_page` | `usize` | Currently selected page number. | The checked-in widget behaves as a 1-based pager. |
+| `total_pages` | `usize` | Total number of available pages. | Provide a value of at least `1` for normal use. |
+| `on_change` | `Option<Arc<dyn Fn(usize) -> ActionEnvelope + Send + Sync>>` | Closure that builds the action for a chosen page. | Called for previous, next, and numbered page buttons. |
+
+## State ownership and behavior
+
+The widget does not calculate paging for you. It only renders page controls from the current state. The reducer still decides what page data to load and how page numbers map to queries or offsets.
+
+The checked-in implementation shows a sliding window of page buttons with ellipses when needed. Previous and next buttons disable themselves at the ends of the range.
+
+## Specific advice
+
+Use pagination only if the product already benefits from discrete pages. If users mostly scan continuously through a stream, pagination can feel like unnecessary friction.
+
+## Related
+
+[`DataTable`](/reference/widgets/data-table), [`Scroll`](/reference/widgets/scroll), [`LazyColumn`](/reference/widgets/lazy-column), and [`EmptyState`](/reference/widgets/empty-state).

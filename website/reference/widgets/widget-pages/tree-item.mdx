@@ -1,44 +1,51 @@
 ---
 title: TreeItem
-description: Reference details for TreeItem.
+description: Describe one node inside a TreeView hierarchy.
 slug: /widgets/tree-item
 ---
 # TreeItem
 
-Use it for cross-cutting composition and app-level surface behavior.
+`TreeItem` is the recursive data record used by [`TreeView`](/reference/widgets/tree-view).
 
+Each item represents one node in a hierarchy. It can have its own label, optional icon, child items, and selection or expansion actions.
 
-This is part of the Fission widget API and belongs in the same typed, state-driven model used across the rest of the framework.
+## Example
 
-
-**When you need it**
-- This widget is best when building reusable building blocks that support product patterns.
-- Use predictable state updates as your entry point for all behavior changes.
-- Combine with semantic labels and role attributes for reliable interaction testing.
-
-## Minimal usage
 ```rust
 use fission_widgets::TreeItem;
 
-let node = TreeItem {
-    ..Default::default()
-}.into_node();
+let item = TreeItem {
+    id: "src".into(),
+    icon: None,
+    label: "src/".into(),
+    children: vec![TreeItem {
+        id: "main_rs".into(),
+        icon: None,
+        label: "main.rs".into(),
+        children: vec![],
+        on_toggle: None,
+        on_select: Some(open_main_file_action),
+    }],
+    on_toggle: Some(toggle_src_folder_action),
+    on_select: Some(select_src_folder_action),
+};
 ```
 
-## API surface
-- `id`: `String`
-- `icon`: `Option<String>`
-- `label`: `String`
-- `children`: `Vec<TreeItem>`
-- `on_toggle`: `Option<ActionEnvelope>`
-- `on_select`: `Option<ActionEnvelope>`
+## Field table
 
-## Implementation checks
-- Pair it with the core trait contract and test rendering output with headless checks for stability.
-- Keep callbacks/closures small and deterministic when possible, then move side effects to async boundaries.
-- If the widget affects layout or input, verify with both state transitions and target-level smoke tests.
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `id` | `String` | Stable item identifier. | Required. Used by `TreeView.expanded_ids` and `selected_id`. |
+| `icon` | `Option<String>` | Optional leading icon source. | Defaults to `None`. |
+| `label` | `String` | Visible node label. | Required. |
+| `children` | `Vec<TreeItem>` | Child nodes nested under this item. | Defaults to an empty list. |
+| `on_toggle` | `Option<ActionEnvelope>` | Intended expansion-toggle action. | Present in the public struct, but see note below. |
+| `on_select` | `Option<ActionEnvelope>` | Action fired when the row is selected. | Defaults to `None`. |
 
-## Next
-- [Widget catalog](/reference/widgets/catalog)
-- [Widget trait](/reference/core/widget-trait)
-- [Runtime model](/docs/learn/runtime-model)
+## Current implementation note
+
+`TreeItem` exposes `on_toggle`, but the checked-in `TreeView` renderer does not currently render a separate expansion affordance or invoke that action for you. Expansion is still reflected through `expanded_ids`, but the interaction path must be composed carefully at the app level.
+
+## Related
+
+[`TreeView`](/reference/widgets/tree-view), [`Breadcrumb`](/reference/widgets/breadcrumb), [`Icon`](/reference/widgets/icon), and [`Text`](/reference/widgets/text).

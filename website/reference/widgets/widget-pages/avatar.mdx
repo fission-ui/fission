@@ -1,41 +1,47 @@
 ---
 title: Avatar
-description: Reference details for Avatar.
+description: Show a person or account identity as an image or fallback initials.
 slug: /widgets/avatar
 ---
 # Avatar
 
-Use it for cross-cutting composition and app-level surface behavior.
+`Avatar` is the identity chip for people, teams, or accounts.
 
+In a real app, an avatar solves two small but important problems at once: it gives a quick visual anchor in dense lists, and it provides a fallback when a profile image is missing. The checked-in widget shows an image when `src` is present and falls back to up to two initials from `name` otherwise.
 
-This is part of the Fission widget API and belongs in the same typed, state-driven model used across the rest of the framework.
+## Example
 
-
-**When you need it**
-- This widget is best when building reusable building blocks that support product patterns.
-- Use predictable state updates as your entry point for all behavior changes.
-- Combine with semantic labels and role attributes for reliable interaction testing.
-
-## Minimal usage
 ```rust
 use fission_widgets::Avatar;
 
 let node = Avatar {
-    ..Default::default()
-}.into_node();
+    name: Some("Maya Patel".into()),
+    src: view.state.profile_photo_url.clone(),
+    size: Some(48.0),
+}
+.build(ctx, view);
 ```
 
-## API surface
-- `name`: `Option<String>`
-- `src`: `Option<String>`
-- `size`: `Option<f32>`
+If the image is unavailable, this renders `MP` inside a circular surface instead of leaving a blank space.
 
-## Implementation checks
-- Pair it with the core trait contract and test rendering output with headless checks for stability.
-- Keep callbacks/closures small and deterministic when possible, then move side effects to async boundaries.
-- If the widget affects layout or input, verify with both state transitions and target-level smoke tests.
+## Field table
 
-## Next
-- [Widget catalog](/reference/widgets/catalog)
-- [Widget trait](/reference/core/widget-trait)
-- [Runtime model](/docs/learn/runtime-model)
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `name` | `Option<String>` | Display name used to derive fallback initials. | Defaults to `None`. If both `name` and `src` are missing, the fallback becomes `?`. |
+| `src` | `Option<String>` | Image source for the avatar. | Defaults to `None`. When present, it wins over initials. |
+| `size` | `Option<f32>` | Diameter of the avatar circle. | Defaults to `40.0`. |
+
+## Accessibility and responsive notes
+
+`Avatar` is visually useful, but it does not carry a semantic label on its own. If the avatar is important to understanding the screen, pair it with nearby text or wrap the surrounding row in meaningful semantics.
+
+Also think about size in context. A small 24px avatar works in tables or compact lists. A 48px or 56px avatar works better in message headers or profile summaries.
+
+## Specific advice
+
+Do not rely on initials alone when the product must disambiguate many similar names. Use adjacent text, secondary metadata, or a richer row layout so identity remains clear.
+
+## Related
+
+[`Image`](/reference/widgets/image), [`Badge`](/reference/widgets/badge), [`Card`](/reference/widgets/card), and [`Text`](/reference/widgets/text).

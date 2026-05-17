@@ -1,41 +1,94 @@
 ---
 title: WebView
-description: Reference details for WebView.
+description: Declare an embedded browser surface and register the desired web address with the runtime.
 slug: /widgets/web-view
 ---
 # WebView
 
-Use it for media, rich text, icons, graphics, or custom visual composition.
+`WebView` is Fission's embedded browser-surface widget.
 
+Use it when part of your app needs to show web content inside the app's own layout: documentation, an account portal, a trusted internal tool, an embedded settings page, or another browser-based surface that should live alongside the rest of your Fission interface.
 
-This is part of the Fission widget API and belongs in the same typed, state-driven model used across the rest of the framework.
+This is a specialized widget. It is not the normal way to build screens in Fission, and it is not a replacement for Fission's own widget tree. Most screens should still be built directly in the shared runtime with ordinary widgets, state, reducers, and explicit effects. `WebView` exists for the narrower case where your product truly needs an embedded web surface.
 
+## What `WebView` actually does
 
-**When you need it**
-- This widget is best when content may be asynchronous, large, or performance-sensitive.
-- Use predictable state updates as your entry point for all behavior changes.
-- Combine with semantic labels and role attributes for reliable interaction testing.
+`WebView` declares a rectangle in your app's layout and tells the runtime which web address should appear there.
 
-## Minimal usage
+That boundary is important. Your Fission app still owns the surrounding layout, buttons, state, and navigation decisions. The embedded browser surface owns page rendering, page-internal navigation, and the browser engine's own behavior.
+
+In other words, `WebView` is not "Fission rendering hypertext markup language (HTML)." It is "Fission reserving space for a host-provided browser surface."
+
+## When to use it
+
+Use `WebView` when all of these are true:
+
+- the content really is web content rather than native app user interface
+- embedding it inside the app is part of the product experience
+- you accept that browser-engine behavior is host-specific and not fully owned by the shared widget tree
+
+Do not use it just because a team already has some HTML lying around. If the screen is a core part of the product and should participate fully in Fission layout, semantics, testing, and state flow, building it directly in Fission is usually the better long-term choice.
+
+## Example
+
+This example shows a help panel that opens product documentation inside the app while keeping the chosen page in app state.
+
 ```rust
+use fission_core::WidgetNodeId;
 use fission_widgets::WebView;
 
-let node = WebView {
-    ..Default::default()
-}.into_node();
+let help_panel = WebView {
+    id: WidgetNodeId::explicit("help_docs"),
+    url: view.state.help_url.clone(),
+    user_agent: None,
+}
+.build(ctx, view);
 ```
 
-## API surface
-- `id`: `WidgetNodeId`
-- `url`: `String`
-- `user_agent`: `Option<String>`
+The important part is not the `clone()` call. It is the ownership model behind it.
 
-## Implementation checks
-- Decide loading fallback, constraints, and accessibility alternatives before adding animation or motion effects.
-- Keep callbacks/closures small and deterministic when possible, then move side effects to async boundaries.
-- If the widget affects layout or input, verify with both state transitions and target-level smoke tests.
+`view.state.help_url` lives in app state, which means your reducers stay in charge of which page the user should see. `WebView` then hands that desired web address to the runtime. The embedded browser surface is host-managed, but the product decision about what should be shown remains explicit in your own app model.
 
-## Next
-- [Widget catalog](/reference/widgets/catalog)
-- [Widget trait](/reference/core/widget-trait)
-- [Runtime model](/docs/learn/runtime-model)
+## Field reference
+
+| Field | Type | Meaning | Notes and default behavior |
+| --- | --- | --- | --- |
+| `id` | `WidgetNodeId` | Stable identity for the embedded browser node. | Required. The runtime uses it as the key in `runtime.web.states`. |
+| `url` | `String` | The page the embedded surface should load. | Required. When the runtime sees this value change, it updates the registered web state and marks it as loading. |
+| `user_agent` | `Option<String>` | Optional custom user-agent string for the embedded surface. | Defaults to `None`. The runtime stores the requested value with the registration. |
+
+## State ownership and trade-offs
+
+A good mental model is to separate three kinds of state.
+
+Your app state should own product intent: which web address to show, whether the web panel is visible, whether the user is allowed to open external links, and what surrounding controls should do.
+
+The runtime owns the registration and per-surface state slot keyed by the widget id. That state shape includes fields such as `url`, `loading`, `can_go_back`, `can_go_forward`, and `title`.
+
+The host shell ultimately owns the actual embedded browser implementation. That includes the browser engine, page loading, page-internal navigation, and any platform-specific browser-surface behavior.
+
+Those boundaries bring trade-offs. `WebView` is useful when embedding web content is the right product call, but it also means you are stepping into a more host-specific surface than ordinary Fission widgets. Browser security rules, cookies, auth flows, focus behavior, clipboard behavior, and page navigation conventions can differ by host implementation.
+
+## Current support status
+
+The current checked-in support is best understood as a defined runtime boundary with partial host support.
+
+The public widget exists. The build path registers the web surface with `BuildCtx::register_web_view(...)`. The runtime syncs that registration into `runtime.web.states` and tracks the requested web address and related metadata fields.
+
+What is not yet present to the same degree is a fully implemented shell-side embedded browser surface and control loop across the checked-in shells. In other words, the runtime contract is there, but the host implementation for this specific embedded surface is not yet as complete as more mature paths such as ordinary widget rendering.
+
+That caveat belongs to `WebView` itself. It is a statement about this specialized embedded browser surface, not about the readiness of Fission's shared runtime or its broader desktop, web, Android, and iOS app model.
+
+## Specific guidance
+
+Keep the desired web address in app state. That makes navigation intent explicit and testable.
+
+Treat surrounding controls such as "Open in browser," "Back," or "Reload" as ordinary app user interface with explicit actions and reducers, even if the embedded browser implementation is host-managed underneath.
+
+Validate the exact target you plan to ship if embedded browsing is product-critical. `WebView` is precisely the kind of surface where platform-specific host behavior matters more than usual.
+
+Also be careful not to assume that all metadata in `runtime.web.states` will be populated end to end today. The state fields exist, but the current shells do not yet drive the complete browser-control story through them.
+
+## Related
+
+[`Video`](/reference/widgets/video), [`Platform runtime`](/reference/core/platform-runtime), [`Modal`](/reference/widgets/modal), and [`Media, animation, portals, and 3D`](/docs/guides/media-animation-portals-and-3d).

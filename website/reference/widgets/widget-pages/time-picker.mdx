@@ -1,41 +1,52 @@
 ---
 title: TimePicker
-description: Reference details for TimePicker.
+description: Choose a local wall-clock time as hour and minute values.
 slug: /widgets/time-picker
 ---
 # TimePicker
 
-Use it when the user needs to interact, choose a value, or submit intent.
+`TimePicker` is the inline time picker in the authoring widget set.
 
+Its value model is intentionally simple: one `hour` from `0` to `23` and one `minute` from `0` to `59`. That makes it a good fit for appointment times, reminder times, and schedule filters where the product cares about a local wall-clock time rather than a full timestamp.
 
-This is part of the Fission widget API and belongs in the same typed, state-driven model used across the rest of the framework.
+## Example
 
-
-**When you need it**
-- This widget is best when the control drives explicit `Action` dispatch or receives values from a reducer-owned state model.
-- Use predictable state updates as your entry point for all behavior changes.
-- Combine with semantic labels and role attributes for reliable interaction testing.
-
-## Minimal usage
 ```rust
 use fission_widgets::TimePicker;
+use std::sync::Arc;
 
 let node = TimePicker {
-    ..Default::default()
-}.into_node();
+hour: view.state.start_hour,
+minute: view.state.start_minute,
+on_change: Some(Arc::new(move |hour, minute| ActionEnvelope {
+    id: set_start_time_id,
+    payload: serde_json::to_vec(&SetStartTime { hour, minute }).unwrap(),
+})),
+}
+.build(ctx, view);
 ```
 
-## API surface
-- `hour`: `u32`
-- `minute`: `u32`
-- `on_change`: `Option<Arc<dyn Fn(u32, u32) -> ActionEnvelope + Send + Sync>>`
+The reducer receives both parts together, which makes it easy to keep the state consistent.
 
-## Implementation checks
-- Keep control values in state, validate there, and surface results through completion actions or reducer transitions.
-- Keep callbacks/closures small and deterministic when possible, then move side effects to async boundaries.
-- If the widget affects layout or input, verify with both state transitions and target-level smoke tests.
+## Field table
 
-## Next
-- [Widget catalog](/reference/widgets/catalog)
-- [Widget trait](/reference/core/widget-trait)
-- [Runtime model](/docs/learn/runtime-model)
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `hour` | `u32` | Current hour value. | Expected range is `0..=23`. |
+| `minute` | `u32` | Current minute value. | Expected range is `0..=59`. |
+| `on_change` | `Option<Arc<dyn Fn(u32, u32) -> ActionEnvelope + Send + Sync>>` | Closure that creates the action for a changed time. | Called with the new hour and minute pair. |
+
+## Current value model and behavior
+
+The checked-in `TimePicker` is built from two [`NumberInput`](/reference/widgets/number-input) steppers separated by a colon. It is not a free-form text parser. Incrementing and decrementing wrap naturally inside the valid hour and minute ranges.
+
+This is good for predictable state updates, but it also means you should not expect locale-aware 12-hour text entry or seconds support from the current widget.
+
+## Product pitfalls to avoid
+
+Keep the source of truth as structured time values, not a formatted display string. Also remember that a local wall-clock time is not the same thing as a timezone-aware instant. If your product schedules jobs globally, connect the picked hour and minute to a real date and timezone in your domain model.
+
+## Related
+
+[`DatePicker`](/reference/widgets/date-picker), [`DateRangePicker`](/reference/widgets/date-range-picker), [`NumberInput`](/reference/widgets/number-input), and [`FormControl`](/reference/widgets/form-control).
+

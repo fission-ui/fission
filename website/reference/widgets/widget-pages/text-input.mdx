@@ -1,50 +1,99 @@
 ---
 title: TextInput
-description: Reference details for TextInput.
+description: Edit controlled text with explicit change, submit, cursor, and input method editor-aware behavior.
 slug: /widgets/text-input
 ---
 # TextInput
 
-Use it when the user needs to interact, choose a value, or submit intent.
+`TextInput` is the main text-editing widget in Fission.
 
+It covers ordinary single-line fields, multiline editors, password fields, syntax-highlighted editing, and input method editor composition. The important architectural rule is the same in every case: the widget does not own your product text. Your app state owns the text, the runtime delivers editing events, reducers update state, and the next `build()` pass renders the new value.
 
-This is part of the Fission widget API and belongs in the same typed, state-driven model used across the rest of the framework.
+## Example
 
-
-**When you need it**
-- This widget is best when the control drives explicit `Action` dispatch or receives values from a reducer-owned state model.
-- Use predictable state updates as your entry point for all behavior changes.
-- Combine with semantic labels and role attributes for reliable interaction testing.
-
-## Minimal usage
 ```rust
 use fission_core::ui::TextInput;
 
 let node = TextInput {
-    ..Default::default()
-}.into_node();
+value: view.state.email.clone(),
+label: Some("Email address".into()),
+placeholder: Some("name@example.com".into()),
+on_change: Some(ctx.bind(
+    SetEmail(String::new()),
+    (|state: &mut SettingsState, action: SetEmail, _| state.email = action.0)
+        as Handler<SettingsState, SetEmail>,
+)),
+on_submit: Some(save_email_action),
+width: Some(320.0),
+..Default::default()
+}
+.into_node();
 ```
 
-## API surface
-- `id`: `Option<NodeId>`
-- `value`: `String`
-- `label`: `Option<TextContent>`
-- `placeholder`: `Option<TextContent>`
-- `helper_text`: `Option<TextContent>`
-- `error_text`: `Option<TextContent>`
-- `counter_text`: `Option<TextContent>`
-- `on_change`: `Option<ActionEnvelope>`
-- `on_submit`: `Option<ActionEnvelope>`
-- `on_editing_complete`: `Option<ActionEnvelope>`
-- `on_tap_outside`: `Option<ActionEnvelope>`
-- `width`: `Option<f32>`
+The empty string inside `SetEmail(String::new())` is only a placeholder so `ctx.bind(...)` knows the action type. When the user edits the field, the runtime replaces the payload with the current `String` before dispatching the action.
 
-## Implementation checks
-- Keep control values in state, validate there, and surface results through completion actions or reducer transitions.
-- Keep callbacks/closures small and deterministic when possible, then move side effects to async boundaries.
-- If the widget affects layout or input, verify with both state transitions and target-level smoke tests.
+## Core field table
 
-## Next
-- [Widget catalog](/reference/widgets/catalog)
-- [Widget trait](/reference/core/widget-trait)
-- [Runtime model](/docs/learn/runtime-model)
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `id` | `Option<NodeId>` | Stable identity for focus, selection, and runtime edit state. | Defaults to `None`. Give important fields stable ids. |
+| `value` | `String` | Current text value. | Controlled by app state. |
+| `label` | `Option<TextContent>` | Semantic and visual label text. | Defaults to `None`. Use this for accessibility instead of relying only on placeholders. |
+| `placeholder` | `Option<TextContent>` | Hint text shown when the field is empty. | Defaults to `None`. |
+| `helper_text` | `Option<TextContent>` | Supporting text below the field. | Defaults to `None`. |
+| `error_text` | `Option<TextContent>` | Validation message below the field. | Defaults to `None`. |
+| `counter_text` | `Option<TextContent>` | Explicit counter text below the field. | Defaults to `None`. |
+| `on_change` | `Option<ActionEnvelope>` | Action fired when the text changes. | The runtime serializes the current `String` into the payload. |
+| `on_submit` | `Option<ActionEnvelope>` | Action fired when the user submits the field. | Uses the payload you provided on the envelope. |
+| `on_editing_complete` | `Option<ActionEnvelope>` | Action fired when editing is explicitly completed. | Defaults to `None`. |
+| `on_tap_outside` | `Option<ActionEnvelope>` | Action fired when the user taps or clicks away from the active field. | Defaults to `None`. |
+| `width` | `Option<f32>` | Fixed width. | Defaults to `None`. |
+| `height` | `Option<f32>` | Fixed height. | Defaults to `None`. |
+| `padding` | `Option<[f32; 4]>` | Inner padding `[left, right, top, bottom]`. | Defaults to themed field padding. |
+
+## Editing behavior table
+
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `multiline` | `bool` | Whether the field accepts newlines. | Defaults to `false`. Multiline fields scroll vertically. |
+| `autofocus` | `bool` | Whether the field should request focus on mount. | Defaults to `false`. |
+| `enabled` | `bool` | Whether the field is interactive. | Defaults to `true`. Disabled fields do not receive focus. |
+| `read_only` | `bool` | Whether the field can be focused and selected but not edited. | Defaults to `false`. |
+| `min_lines` | `Option<usize>` | Minimum visible line count for multiline fields. | Defaults to `None`. |
+| `max_lines` | `Option<usize>` | Maximum visible line count for multiline fields. | Defaults to `None`. |
+| `obscure_text` | `bool` | Whether the field masks characters. | Defaults to `false`. Useful for passwords. |
+| `obscuring_character` | `char` | Character used when masking text. | Defaults to the implementation's bullet masking character. |
+| `prefix` | `Option<Box<Node>>` | Leading decoration inside the field. | Defaults to `None`. |
+| `suffix` | `Option<Box<Node>>` | Trailing decoration inside the field. | Defaults to `None`. |
+| `on_cursor_change` | `Option<ActionEnvelope>` | Action fired when caret or selection anchor changes. | The runtime sends a `CursorChanged` payload. |
+
+## Advanced editor and input table
+
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `keyboard_type` | `TextInputType` | Preferred keyboard or input mode. | Defaults to plain text. Useful for email, number, and phone fields. |
+| `text_input_action` | `TextInputAction` | Preferred return-key action. | Defaults to `Done`. |
+| `text_capitalization` | `TextCapitalization` | Automatic capitalization hint. | Defaults to `None`. |
+| `max_length` | `Option<usize>` | Maximum allowed text length. | Defaults to `None`. |
+| `input_formatters` | `Vec<InputFormatter>` | Structured formatters applied during editing. | Defaults to an empty list. |
+| `borderless` | `bool` | Remove the normal field chrome. | Defaults to `false`. Useful for embedded editors. |
+| `capture_tab` | `bool` | Insert tab characters instead of moving focus. | Defaults to `false`. |
+| `auto_indent` | `bool` | Copy leading whitespace on Enter. | Defaults to `false`. Useful for code-like editors. |
+| `styled_runs` | `Option<Vec<TextRun>>` | Pre-styled text runs for syntax-highlighted rendering. | When present, the concatenated runs must match `value` exactly. |
+| `locale` | `Option<String>` | Locale override for shaping and accessibility. | Defaults to `None`. |
+| `scroll_padding` | `Option<[f32; 4]>` | Extra space kept around the caret during auto-scroll. | Defaults to `None`. |
+
+## How text, actions, and input method editor state work together
+
+`TextInput` is a controlled widget. The runtime handles low-level editing details such as caret movement, selection, clipboard operations, and input method editor composition, then dispatches higher-level events back into your reducer loop. Your reducer updates the text in `AppState`, and `build()` passes that value back in.
+
+This is why `build()` stays pure even for rich text entry. The widget describes the field, the runtime manages the live editing mechanics, and state remains explicit.
+
+## Specific advice
+
+Use a real label for accessibility; placeholder text is not a good substitute because it disappears once typing begins. Keep expensive parsing or validation out of the raw keystroke path unless you truly need it on every change. If a field needs stable focus or selection behavior across rebuilds, give it a stable `id`.
+
+## Related
+
+[`FormControl`](/reference/widgets/form-control), [`Editable`](/reference/widgets/editable), [`Combobox`](/reference/widgets/combobox), and [`Environment, input, and input method editor`](/reference/core/environment-input-and-ime).
+

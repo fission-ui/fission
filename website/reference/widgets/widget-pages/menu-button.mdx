@@ -1,43 +1,63 @@
 ---
 title: MenuButton
-description: Reference details for MenuButton.
+description: Open a menu flyout from a button whose open state lives in your app state.
 slug: /widgets/menu-button
 ---
 # MenuButton
 
-Use it when the user needs to interact, choose a value, or submit intent.
+`MenuButton` is the turnkey "button plus flyout menu" widget.
 
+Use it when the user presses a button to reveal a short list of actions. The widget renders the trigger button and, when `is_open` is true, registers a flyout portal that contains a [`Menu`](/reference/widgets/menu).
 
-This is part of the Fission widget API and belongs in the same typed, state-driven model used across the rest of the framework.
+## Example
 
-
-**When you need it**
-- This widget is best when the control drives explicit `Action` dispatch or receives values from a reducer-owned state model.
-- Use predictable state updates as your entry point for all behavior changes.
-- Combine with semantic labels and role attributes for reliable interaction testing.
-
-## Minimal usage
 ```rust
-use fission_widgets::MenuButton;
+use fission_widgets::{MenuButton, MenuItem};
 
 let node = MenuButton {
-    ..Default::default()
-}.into_node();
+id: WidgetNodeId::explicit("message_actions"),
+label: "Actions".into(),
+is_open: view.state.actions_open,
+on_toggle: Some(toggle_actions_menu_action),
+items: vec![
+    MenuItem {
+        label: "Archive".into(),
+        icon: None,
+        on_select: Some(archive_action),
+    },
+    MenuItem {
+        label: "Delete".into(),
+        icon: None,
+        on_select: Some(delete_action),
+    },
+],
+}
+.build(ctx, view);
 ```
 
-## API surface
-- `id`: `WidgetNodeId`
-- `label`: `String`
-- `items`: `Vec<MenuItem>`
-- `is_open`: `bool`
-- `on_toggle`: `Option<ActionEnvelope>`
+The usual reducer flow is simple: `on_toggle` flips `is_open`, and each menu item's action performs the choice and closes the menu by updating state.
 
-## Implementation checks
-- Keep control values in state, validate there, and surface results through completion actions or reducer transitions.
-- Keep callbacks/closures small and deterministic when possible, then move side effects to async boundaries.
-- If the widget affects layout or input, verify with both state transitions and target-level smoke tests.
+## Field table
 
-## Next
-- [Widget catalog](/reference/widgets/catalog)
-- [Widget trait](/reference/core/widget-trait)
-- [Runtime model](/docs/learn/runtime-model)
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `id` | `WidgetNodeId` | Stable identity for the trigger and portal anchor. | Required. |
+| `label` | `String` | Visible text on the trigger button. | Required. |
+| `items` | `Vec<MenuItem>` | Menu entries to show when open. | Required. |
+| `is_open` | `bool` | Whether the flyout menu is currently visible. | Controlled by app state. |
+| `on_toggle` | `Option<ActionEnvelope>` | Action dispatched when the trigger is pressed. | Defaults to `None`. Usually toggles `is_open`. |
+
+## Portal and action behavior
+
+`MenuButton` does not hide itself after selection unless your reducers say so. That is an intentional part of Fission's explicit state model. The widget describes the menu. Your state decides whether the menu remains open.
+
+The checked-in implementation also uses an internal `Menu` width of `200.0` and max height of `300.0`. If you need different popup sizing, compose [`Menu`](/reference/widgets/menu) and your own portal or popover directly.
+
+## Specific advice
+
+Use `MenuButton` for action menus, not for choosing one persistent value from a form. For persistent value selection, [`Select`](/reference/widgets/select) usually gives clearer product semantics.
+
+## Related
+
+[`Menu`](/reference/widgets/menu), [`MenuItem`](/reference/widgets/menu-item), [`Select`](/reference/widgets/select), and [`Button`](/reference/widgets/button).
+

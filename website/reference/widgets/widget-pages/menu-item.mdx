@@ -1,41 +1,54 @@
 ---
 title: MenuItem
-description: Reference details for MenuItem.
+description: Describe one entry inside a Menu or MenuButton.
 slug: /widgets/menu-item
 ---
 # MenuItem
 
-Use it when the user needs to interact, choose a value, or submit intent.
+`MenuItem` is a data type, not a standalone widget.
 
+You encounter it when building a [`Menu`](/reference/widgets/menu) or [`MenuButton`](/reference/widgets/menu-button). Each item describes one visible row in the menu, and it may also carry an icon source such as scalable vector graphics (SVG) content plus the action that should fire when the user selects it.
 
-This is part of the Fission widget API and belongs in the same typed, state-driven model used across the rest of the framework.
+## Example
 
-
-**When you need it**
-- This widget is best when the control drives explicit `Action` dispatch or receives values from a reducer-owned state model.
-- Use predictable state updates as your entry point for all behavior changes.
-- Combine with semantic labels and role attributes for reliable interaction testing.
-
-## Minimal usage
 ```rust
 use fission_widgets::MenuItem;
 
-let node = MenuItem {
-    ..Default::default()
-}.into_node();
+let items = vec![
+MenuItem {
+    label: "Rename".into(),
+    icon: None,
+    on_select: Some(rename_action),
+},
+MenuItem {
+    label: "Duplicate".into(),
+    icon: None,
+    on_select: Some(duplicate_action),
+},
+];
 ```
 
-## API surface
-- `label`: `String`
-- `icon`: `Option<String>`
-- `on_select`: `Option<ActionEnvelope>`
+These items are only data until a parent widget such as `Menu` turns them into visible rows.
 
-## Implementation checks
-- Keep control values in state, validate there, and surface results through completion actions or reducer transitions.
-- Keep callbacks/closures small and deterministic when possible, then move side effects to async boundaries.
-- If the widget affects layout or input, verify with both state transitions and target-level smoke tests.
+## Field table
 
-## Next
-- [Widget catalog](/reference/widgets/catalog)
-- [Widget trait](/reference/core/widget-trait)
-- [Runtime model](/docs/learn/runtime-model)
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `label` | `String` | Visible text for the menu row. | Required. Keep labels short and action-oriented. |
+| `icon` | `Option<String>` | Optional icon source shown before the label. | Defaults to `None`. Typically a scalable vector graphics (SVG) string used by the icon helper. |
+| `on_select` | `Option<ActionEnvelope>` | Action dispatched when the row is chosen. | Defaults to `None`. An item with no action is visually present but effectively inert. |
+
+## How action flow works here
+
+Unlike [`Combobox`](/reference/widgets/combobox) or [`SegmentedControl`](/reference/widgets/segmented-control), `MenuItem` does not generate actions from a closure. You hand it the final `ActionEnvelope` up front. That makes it a good fit for a fixed set of known actions.
+
+If the selected value must vary per item, build a different payload for each item when you construct the vector.
+
+## Specific advice
+
+There is no built-in disabled item styling in the checked-in `Menu` implementation. If you set `on_select` to `None`, the row still appears but does not behave like a real selectable action. For production UIs, prefer explicit affordances rather than relying on a silent inert row.
+
+## Related
+
+[`Menu`](/reference/widgets/menu), [`MenuButton`](/reference/widgets/menu-button), [`SelectItem`](/reference/widgets/select-item), and [`Button`](/reference/widgets/button).
+

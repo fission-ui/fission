@@ -1,40 +1,46 @@
 ---
 title: DrawerSide
-description: Reference details for DrawerSide.
+description: Choose which edge a Drawer opens from.
 slug: /widgets/drawer-side
 ---
 # DrawerSide
 
-Use it to control how child nodes are arranged, measured, and constrained.
+`DrawerSide` is the small configuration enum that tells a [`Drawer`](/reference/widgets/drawer) which horizontal edge it should attach to.
 
+You usually meet it while building temporary navigation panels, filter trays, or inspector panes. It is not a widget by itself. It is simply the choice between a drawer that enters from the left and a drawer that enters from the right.
 
-This is part of the Fission widget API and belongs in the same typed, state-driven model used across the rest of the framework.
+In product terms, the choice matters because side placement changes the meaning of the panel. A left drawer usually feels like navigation. A right drawer usually feels like details, filters, or tools. Pick one pattern and keep it consistent across the app so people do not have to relearn where secondary user interface lives.
 
+## Example
 
-**When you need it**
-- This widget is best when you need stable structure before styling. Keep layout decisions explicit so state and constraints stay predictable.
-- Use predictable state updates as your entry point for all behavior changes.
-- Combine with semantic labels and role attributes for reliable interaction testing.
-
-## Minimal usage
 ```rust
-use fission_widgets::DrawerSide;
+use fission_widgets::{Drawer, DrawerSide};
+use fission_core::WidgetNodeId;
 
-let node = DrawerSide {
-    ..Default::default()
-}.into_node();
+let drawer = Drawer {
+    id: WidgetNodeId::explicit("project_nav"),
+    side: DrawerSide::Left,
+    is_open: view.state.show_nav,
+    on_dismiss: Some(close_nav),
+    content: Box::new(nav_content),
+    width: Some(320.0),
+};
 ```
 
-## API surface
-- Use `Default::default()` to start and set only required properties.
-- Prefer small, explicit updates so diffs stay readable.
+## Variant table
 
-## Implementation checks
-- Build with the state model first, then layer spacing, alignment, and visual treatment. Layout mistakes are usually cheaper to fix before async behavior is introduced.
-- Keep callbacks/closures small and deterministic when possible, then move side effects to async boundaries.
-- If the widget affects layout or input, verify with both state transitions and target-level smoke tests.
+| Variant | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `Left` | `DrawerSide` | Pins the drawer panel to the left edge of the viewport. | A good fit for navigation or app-wide browsing structure. |
+| `Right` | `DrawerSide` | Pins the drawer panel to the right edge of the viewport. | A good fit for inspectors, filters, settings, or supporting tools. |
 
-## Next
-- [Widget catalog](/reference/widgets/catalog)
-- [Widget trait](/reference/core/widget-trait)
-- [Runtime model](/docs/learn/runtime-model)
+## Specific advice
+
+`DrawerSide` only covers left and right. If your design really wants content to slide down from the top or up from the bottom, `Drawer` is the wrong tool. Use a different overlay pattern such as a [`Modal`](/reference/widgets/modal), a custom [`Portal`](/reference/widgets/portal), or a sheet-style widget once one exists in your design system.
+
+On phones, pay extra attention to hand reach, safe areas, and whether the drawer is replacing primary navigation or supporting an already-visible screen. On desktop and large web layouts, a right-side drawer often works well for detail panels because it leaves the main reading flow undisturbed.
+
+## Related
+
+[`Drawer`](/reference/widgets/drawer), [`Modal`](/reference/widgets/modal), [`Portal`](/reference/widgets/portal), and [`SafeArea`](/reference/widgets/safe-area).
+

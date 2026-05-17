@@ -1,39 +1,54 @@
 ---
 title: Portal
-description: Reference details for Portal.
+description: Render custom overlay content outside the normal layout tree.
 slug: /widgets/portal
 ---
 # Portal
 
-Use it to define how users move between pages, overlays, and routed app sections.
+`Portal` is the low-level escape hatch for rendering a subtree in the global overlay stack instead of inline.
 
+In ordinary layout, a child lives inside its parent's bounds and stacking context. A portal breaks that rule on purpose. It tells the runtime, "render this subtree in the overlay phase against the whole viewport." That is what makes modals, drawers, popovers, and toasts possible.
 
-This is part of the Fission widget API and belongs in the same typed, state-driven model used across the rest of the framework.
+Most app authors should not start with `Portal` directly. Higher-level widgets such as [`Modal`](/reference/widgets/modal), [`Drawer`](/reference/widgets/drawer), [`Popover`](/reference/widgets/popover), and [`Tooltip`](/reference/widgets/tooltip) already handle the common overlay behavior and are easier to keep accessible and predictable.
 
+## Example
 
-**When you need it**
-- This widget is best when structure includes multi-screen flow or route-aware layout changes.
-- Use predictable state updates as your entry point for all behavior changes.
-- Combine with semantic labels and role attributes for reliable interaction testing.
-
-## Minimal usage
 ```rust
+use fission_core::ui::{Container, Spacer, Text};
 use fission_widgets::Portal;
 
-let node = Portal {
-    ..Default::default()
-}.into_node();
+let global_debug_overlay = if view.state.show_debug_banner {
+    Portal {
+        child: Container::new(Text::new("Diagnostics connected").into_node())
+            .padding_all(12.0)
+            .into_node(),
+    }
+    .build(ctx, view)
+} else {
+    Spacer::default().into_node()
+};
 ```
 
-## API surface
-- `child`: `Node`
+Your app state still decides whether the portal exists. The widget only changes where the child is composed.
 
-## Implementation checks
-- Keep navigation changes explicit and tested through action-driven state transitions.
-- Keep callbacks/closures small and deterministic when possible, then move side effects to async boundaries.
-- If the widget affects layout or input, verify with both state transitions and target-level smoke tests.
+## Field table
 
-## Next
-- [Widget catalog](/reference/widgets/catalog)
-- [Widget trait](/reference/core/widget-trait)
-- [Runtime model](/docs/learn/runtime-model)
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `child` | `Node` | The subtree to place in the overlay stack. | Required. The portal itself returns an invisible spacer in normal layout. |
+
+## Runtime boundary
+
+`Portal` uses `BuildCtx::register_portal(...)` during `build()`. That means the overlay registration is explicit and visible to the runtime, not a hidden side effect after the frame has already been built.
+
+The helper registers into the default portal layer. If you need modal, flyout, or toast ordering, use a higher-level widget or call `BuildCtx::register_portal_with_layer(...)` yourself inside a custom widget.
+
+## Specific advice
+
+Use `Portal` when you are authoring your own overlay widget or application-wide overlay system. For normal product work, start with the more specific overlay widget that already matches the interaction. The more behavior you build directly on top of `Portal`, the more responsibility you take on for layering, dismissal, semantics, and testing.
+
+Also remember that a portal changes rendering location, not state ownership. Keep open or closed flags, selected items, and form values in your app state as usual.
+
+## Related
+
+[`Modal`](/reference/widgets/modal), [`Drawer`](/reference/widgets/drawer), [`Popover`](/reference/widgets/popover), [`Tooltip`](/reference/widgets/tooltip), and [`flyout`](/reference/widgets/flyout).

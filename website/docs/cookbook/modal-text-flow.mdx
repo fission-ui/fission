@@ -1,34 +1,326 @@
 ---
 title: Build a modal text flow
-description: Combine text inputs, combobox suggestions, modal focus, and overlays using the patterns exercised by `text-lab`.
+description: Build a dialog with text entry, explicit modal state, and predictable action flow.
 ---
 
 # Build a modal text flow
 
-`examples/text-lab/` exists to prove tricky text flows before they are buried inside a bigger app.
+A real app eventually needs a dialog that collects text.
 
-## Run it
+Maybe it is a compose window, a rename dialog, a comment box, or a quick-create form. The details differ, but the architectural questions stay the same.
 
-```bash
-cargo run -p text-lab
+Where should the modal's open or closed state live?
+
+Where should the draft text live while the user types?
+
+How do the text input events get back into app state?
+
+And how do you keep the flow accessible instead of treating the modal as a visual layer only?
+
+This recipe answers those questions with one concrete example: a **Compose message** modal that asks for a recipient, a subject, and a body.
+
+## The problem we are solving
+
+We want a screen with a button called **Compose**. Pressing it should open a modal dialog. The dialog should contain text fields. As the user types, the current draft should live in app state. Pressing **Apply** should use the current state and close the modal.
+
+That may sound ordinary, but this is exactly where explicit state pays off. Instead of scattering modal logic across widget-local variables, you can describe the whole flow in one predictable model.
+
+## Step 1: keep modal state and text state in `AppState`
+
+The first rule is simple: if the user can see it or lose it, it should usually live in app state.
+
+That includes whether the modal is open and the current values of the fields inside it.
+
+```rust
+use fission::prelude::*;
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
+pub struct ComposeState {
+    pub show_compose_modal: bool,
+    pub draft_to: String,
+    pub draft_subject: String,
+    pub draft_body: String,
+    pub status_message: String,
+}
+
+impl AppState for ComposeState {}
 ```
 
-## What it combines
+This is the right starting point because the modal is part of product behavior, not just a visual flourish. If the modal is open, that matters to the user. If the draft body changes, that definitely matters to the user.
 
-- single-line and multiline `TextInput`
-- inline `Combobox` suggestions
-- a modal with its own text fields
-- `FocusScope` boundaries
-- menu and overlay teardown rules
+## Step 2: define actions for opening, closing, and editing
 
-## Copy the pattern
+Text flows become easier to reason about when every update has a named action.
 
-1. keep text values in `AppState`,
-2. bind one `Set...` action per field,
-3. derive suggestion lists from current query text,
-4. open and close modal state through explicit actions,
-5. let the overlay widgets manage portal registration.
+```rust
+#[derive(fission_macros::Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[serde(transparent)]
+pub struct SetShowComposeModal(pub bool);
 
-## Test it live
+#[derive(fission_macros::Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[serde(transparent)]
+pub struct SetDraftTo(pub String);
 
-The example's `live_e2e.rs` file is a good model for validating popup dismissal and modal reachability through `LiveTestClient`.
+#[derive(fission_macros::Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[serde(transparent)]
+pub struct SetDraftSubject(pub String);
+
+#[derive(fission_macros::Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[serde(transparent)]
+pub struct SetDraftBody(pub String);
+
+#[derive(fission_macros::Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+pub struct ApplyCompose;
+```
+
+The `Set...` actions mirror user editing. `SetShowComposeModal` controls visibility. `ApplyCompose` represents the user choosing to commit the modal.
+
+This is a good beginner pattern because it makes the reducer story very obvious.
+
+## Step 3: write plain reducers for the form fields
+
+The reducer layer should feel unsurprising.
+
+```rust
+fn on_set_show_compose_modal(
+    state: &mut ComposeState,
+    action: SetShowComposeModal,
+    _ctx: &mut ReducerContext<ComposeState>,
+) {
+    state.show_compose_modal = action.0;
+}
+
+fn on_set_draft_to(
+    state: &mut ComposeState,
+    action: SetDraftTo,
+    _ctx: &mut ReducerContext<ComposeState>,
+) {
+    state.draft_to = action.0;
+}
+
+fn on_set_draft_subject(
+    state: &mut ComposeState,
+    action: SetDraftSubject,
+    _ctx: &mut ReducerContext<ComposeState>,
+) {
+    state.draft_subject = action.0;
+}
+
+fn on_set_draft_body(
+    state: &mut ComposeState,
+    action: SetDraftBody,
+    _ctx: &mut ReducerContext<ComposeState>,
+) {
+    state.draft_body = action.0;
+}
+
+fn on_apply_compose(
+    state: &mut ComposeState,
+    _action: ApplyCompose,
+    _ctx: &mut ReducerContext<ComposeState>,
+) {
+    state.status_message = format!(
+        "Prepared message to '{}' with subject '{}'",
+        state.draft_to,
+        state.draft_subject,
+    );
+    state.show_compose_modal = false;
+}
+```
+
+There is no special text-input magic hidden here. Typing updates fields in state. Applying the modal reads the current state and closes the dialog.
+
+That is the core reason Fission's model stays teachable. The modal flow is just state plus actions plus reducers.
+
+## Step 4: bind open and close actions in the main screen
+
+Now render the outer screen and the button that opens the modal.
+
+```rust
+pub struct ComposeScreen;
+
+impl Widget<ComposeState> for ComposeScreen {
+    fn build(&self, ctx: &mut BuildCtx<ComposeState>, view: &View<ComposeState>) -> Node {
+        let open_modal = ctx.bind(
+            SetShowComposeModal(true),
+            on_set_show_compose_modal as Handler<ComposeState, SetShowComposeModal>,
+        );
+        let close_modal = ctx.bind(
+            SetShowComposeModal(false),
+            on_set_show_compose_modal as Handler<ComposeState, SetShowComposeModal>,
+        );
+
+        let content = Column {
+            gap: Some(12.0),
+            children: vec![
+                Button {
+                    on_press: Some(open_modal),
+                    child: Some(Box::new(Text::new("Compose").into_node())),
+                    ..Default::default()
+                }
+                .into_node(),
+                Text::new(view.state.status_message.clone()).into_node(),
+            ],
+            ..Default::default()
+        }
+        .into_node();
+
+        // The modal will be added in the next step.
+        content
+    }
+}
+```
+
+The open and close actions are explicit, which means the app can always answer the question "why is the dialog open right now?"
+
+That answer comes from state, not from a hidden overlay manager that only the widget knows about.
+
+## Step 5: wire text input fields back into state
+
+Inside the modal, each field reads from state and writes back through an action.
+
+```rust
+let set_to = ctx.bind(
+    SetDraftTo(String::new()),
+    on_set_draft_to as Handler<ComposeState, SetDraftTo>,
+);
+let set_subject = ctx.bind(
+    SetDraftSubject(String::new()),
+    on_set_draft_subject as Handler<ComposeState, SetDraftSubject>,
+);
+let set_body = ctx.bind(
+    SetDraftBody(String::new()),
+    on_set_draft_body as Handler<ComposeState, SetDraftBody>,
+);
+
+let modal_fields = Column {
+    gap: Some(10.0),
+    children: vec![
+        TextInput {
+            value: view.state.draft_to.clone(),
+            placeholder: Some("To".into()),
+            on_change: Some(set_to),
+            ..Default::default()
+        }
+        .into_node(),
+        TextInput {
+            value: view.state.draft_subject.clone(),
+            placeholder: Some("Subject".into()),
+            on_change: Some(set_subject),
+            ..Default::default()
+        }
+        .into_node(),
+        TextInput {
+            value: view.state.draft_body.clone(),
+            placeholder: Some("Write your message".into()),
+            on_change: Some(set_body),
+            multiline: true,
+            height: Some(180.0),
+            ..Default::default()
+        }
+        .into_node(),
+    ],
+    ..Default::default()
+}
+.into_node();
+```
+
+This is the essential text flow in Fission.
+
+The input widget does not keep the authoritative text by itself. It shows the current value from `view.state`. When the user edits the field, the widget emits the bound action. The reducer updates state. The next build reads the new value and renders it back into the field.
+
+If you know web user interface, this should feel like a deliberately explicit controlled-input pattern.
+
+## Step 6: show the modal with explicit actions
+
+Now wrap those fields in a modal.
+
+```rust
+let apply = ctx.bind(
+    ApplyCompose,
+    on_apply_compose as Handler<ComposeState, ApplyCompose>,
+);
+
+let modal = Modal {
+    id: WidgetNodeId::explicit("compose_modal"),
+    title: "Compose message".to_string(),
+    is_open: view.state.show_compose_modal,
+    on_dismiss: Some(close_modal.clone()),
+    width: Some(640.0),
+    actions: vec![
+        ModalAction {
+            label: "Cancel".to_string(),
+            on_press: Some(close_modal),
+            is_primary: false,
+        },
+        ModalAction {
+            label: "Apply".to_string(),
+            on_press: Some(apply),
+            is_primary: true,
+        },
+    ],
+    content: Box::new(modal_fields),
+}
+.build(ctx, view);
+```
+
+Then return both the screen content and the modal in the widget tree.
+
+```rust
+Column {
+    gap: Some(0.0),
+    children: vec![content, modal],
+    ..Default::default()
+}
+.into_node()
+```
+
+The important part is not just that a modal appears. It is that the modal follows the same explicit architecture as the rest of the app.
+
+Open state lives in `AppState`.
+
+Dismissal is an action.
+
+Apply is an action.
+
+Text changes are actions.
+
+That consistency is what makes the flow easier to debug and test later.
+
+## Step 7: add focus and accessibility structure
+
+A modal is not only a visual box over the page. It changes how users move through the interface, especially keyboard and assistive-technology users.
+
+That is why the checked-in `text-lab` example wraps modal content in a `FocusScope` barrier. In beginner terms, that means keyboard focus should stay inside the dialog while it is open instead of falling through to controls behind it.
+
+A practical pattern looks like this:
+
+```rust
+let modal_content = FocusScope {
+    id: None,
+    is_barrier: true,
+    children: vec![modal_fields],
+}
+.into_node();
+```
+
+Then use `modal_content` as the modal's `content`.
+
+This matters for accessibility because a modal should behave like a temporary focused task. Keyboard users need a predictable tab order. Screen-reader users need a clear title and dismiss path. Pointer users should not accidentally keep interacting with controls behind the overlay while they think they are inside the dialog.
+
+The best practice is simple: give the modal a clear title, keep the action labels concrete, and treat focus containment as part of the feature rather than an optional polish step.
+
+## What to avoid
+
+Do not keep modal visibility in a widget-local variable if the rest of the app needs to reason about it. If the dialog is a real part of product flow, put it in app state.
+
+Do not let text input widgets become the hidden source of truth for user drafts. If the text matters, keep it in state.
+
+Do not forget dismiss behavior. Users should always have a clear way to cancel or close the dialog.
+
+Do not treat accessibility as a later patch. Focus behavior and readable modal titles are part of getting the flow right.
+
+## Where to go next
+
+If this recipe made the text-update loop click for you, the next useful step is [Build a counter](/docs/cookbook/build-a-counter) for the smallest possible version of the same architecture, or [Write a live interface test](/docs/cookbook/write-a-live-ui-test) to validate that the modal stays reachable and dismisses correctly on a real host.

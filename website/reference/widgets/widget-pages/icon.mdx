@@ -1,43 +1,45 @@
 ---
 title: Icon
-description: Reference details for Icon.
+description: Render a vector icon from path data, scalable vector graphics (SVG) content, or an SVG file.
 slug: /widgets/icon
 ---
 # Icon
 
-Use it for media, rich text, icons, graphics, or custom visual composition.
+`Icon` is the vector-graphic widget for small symbolic visuals.
 
+Use it for toolbar actions, status marks, navigation hints, and compact visual labels. Icons are strongest when they support nearby text or a familiar interaction pattern. Most product interfaces become harder to learn when icons are asked to carry all meaning alone.
 
-This is part of the Fission widget API and belongs in the same typed, state-driven model used across the rest of the framework.
+## Example
 
-
-**When you need it**
-- This widget is best when content may be asynchronous, large, or performance-sensitive.
-- Use predictable state updates as your entry point for all behavior changes.
-- Combine with semantic labels and role attributes for reliable interaction testing.
-
-## Minimal usage
 ```rust
 use fission_core::ui::Icon;
 
-let node = Icon {
-    ..Default::default()
-}.into_node();
+let node = Icon::svg(material::navigation::chevron_right::regular())
+    .size(18.0)
+    .color(view.env.theme.tokens.colors.text_secondary)
+    .into_node();
 ```
 
-## API surface
-- `id`: `Option<NodeId>`
-- `source`: `IconSource`
-- `color`: `Option<Color>`
-- `size`: `Option<f32>`
-- `stroke`: `Option<Stroke>`
+## Field table
 
-## Implementation checks
-- Decide loading fallback, constraints, and accessibility alternatives before adding animation or motion effects.
-- Keep callbacks/closures small and deterministic when possible, then move side effects to async boundaries.
-- If the widget affects layout or input, verify with both state transitions and target-level smoke tests.
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `id` | `Option<NodeId>` | Stable node identity. | Defaults to `None`. |
+| `source` | `IconSource` | Where the icon graphic comes from. | Use path data, inline scalable vector graphics (SVG) content, or a filesystem SVG file. This is the first form you should read when you see SVG on this page. |
+| `color` | `Option<Color>` | Fill color override. | Defaults to the theme's primary text color. |
+| `size` | `Option<f32>` | Square layout size in points. | Defaults to `24.0`. |
+| `stroke` | `Option<Stroke>` | Optional stroke style. | When present, fill is suppressed in the checked-in renderer. |
 
-## Next
-- [Widget catalog](/reference/widgets/catalog)
-- [Widget trait](/reference/core/widget-trait)
-- [Runtime model](/docs/learn/runtime-model)
+## Source choices
+
+`IconSource::Path` is a plain scalable vector graphics (SVG) path string. `IconSource::SvgContent` is full inline SVG markup. `IconSource::File` reads an SVG file from the host filesystem at render time.
+
+That last option is convenient in desktop tooling, but it is less portable than inline or generated SVG content because filesystem access and asset packaging differ across targets. For cross-platform app code, inline or bundled SVG content is often the safer choice.
+
+## Accessibility and responsive notes
+
+The widget is purely visual. If the icon carries meaning, pair it with text or add semantics at the parent level. Also keep size intentional: tiny icons inside dense tables are fine, but touch targets on mobile usually need a larger surrounding button or container.
+
+## Related
+
+[`Image`](/reference/widgets/image), [`Button`](/reference/widgets/button), [`Badge`](/reference/widgets/badge), and [`Text`](/reference/widgets/text).

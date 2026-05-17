@@ -1,41 +1,59 @@
 ---
 title: Composite
-description: Reference details for Composite.
+description: Apply visual transforms such as opacity, translation, scale, and rotation without changing layout structure.
 slug: /widgets/composite
 ---
 # Composite
 
-Use it for cross-cutting composition and app-level surface behavior.
+`Composite` is the visual-effects wrapper in the core widget set.
 
+It lets you change how a child is presented after layout: opacity, translation, scale, rotation, clipping to bounds, and repaint boundaries all live here. That makes it the right tool for many animations and presentation effects, because the layout tree can stay stable while the composited appearance changes.
 
-This is part of the Fission widget API and belongs in the same typed, state-driven model used across the rest of the framework.
+Use `Composite` when the change is visual rather than structural. Do not use it when the real problem is layout size or sibling arrangement. If the child needs different constraints or positioning, use layout widgets first.
 
+## Example
 
-**When you need it**
-- This widget is best when building reusable building blocks that support product patterns.
-- Use predictable state updates as your entry point for all behavior changes.
-- Combine with semantic labels and role attributes for reliable interaction testing.
-
-## Minimal usage
 ```rust
-use fission_core::ui::Composite;
+use fission_core::ui::{Composite, Text};
 
-let node = Composite {
-    ..Default::default()
-}.into_node();
+let node = Composite::new(Text::new("Saving...").into_node())
+    .opacity(0.72)
+    .translate_y(-4.0)
+    .into_node();
 ```
 
-## API surface
-- `id`: `Option<NodeId>`
-- `style`: `CompositeStyle`
-- `child`: `Box<Node>`
+This changes presentation without changing where the surrounding layout thinks the child lives.
 
-## Implementation checks
-- Pair it with the core trait contract and test rendering output with headless checks for stability.
-- Keep callbacks/closures small and deterministic when possible, then move side effects to async boundaries.
-- If the widget affects layout or input, verify with both state transitions and target-level smoke tests.
+## Field table
 
-## Next
-- [Widget catalog](/reference/widgets/catalog)
-- [Widget trait](/reference/core/widget-trait)
-- [Runtime model](/docs/learn/runtime-model)
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `id` | `Option<NodeId>` | Stable node identity. | Defaults to `None`. |
+| `style` | `CompositeStyle` | Visual presentation settings for the child. | Defaults to `CompositeStyle::default()`, which means no extra effect. |
+| `child` | `Box<Node>` | The wrapped child node. | Required. `Composite::default()` uses an empty spacer child. |
+
+## `CompositeStyle` fields
+
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `opacity` | `Option<CompositeScalar>` | Alpha multiplier for the child. | `None` means fully opaque. |
+| `translate_x` | `Option<CompositeScalar>` | Horizontal visual translation. | Does not relayout siblings. |
+| `translate_y` | `Option<CompositeScalar>` | Vertical visual translation. | Does not relayout siblings. |
+| `scale` | `Option<CompositeScalar>` | Uniform visual scale. | `None` means `1.0`. |
+| `rotation` | `Option<CompositeScalar>` | Visual rotation value. | Stored as a composited scalar rather than a full matrix. |
+| `clip_to_bounds` | `bool` | Whether compositing should respect the child's bounds as a clip. | Defaults to `false`. |
+| `repaint_boundary` | `bool` | Hint that the subtree should behave as its own repaint boundary. | Defaults to `false`. |
+
+## Behavior and advice
+
+`Composite` lowers to a structural group with composite styling. That makes it a strong match for animated opacity, slide, and scale effects driven by stable widget identities. It is also usually easier to read than a raw [`Transform`](/reference/widgets/transform) when you only need a common presentation effect.
+
+Prefer `Composite` over `Transform` when the effect is one of the built-in named visual adjustments. Prefer `Transform` only when you already have a real 4x4 matrix or need matrix-level control.
+
+## Specific advice
+
+Because `Composite` does not relayout siblings, it is easy to create a visual overlap by accident. That is often the right result for a fade or slide animation, but not for layout changes. When something should actually take more or less space, change the layout tree instead of trying to fake it with compositing.
+
+## Related
+
+[`Transform`](/reference/widgets/transform), [`Clip`](/reference/widgets/clip), and [`Container`](/reference/widgets/container).

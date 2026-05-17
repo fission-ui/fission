@@ -1,42 +1,55 @@
 ---
 title: Spacer
-description: Reference details for Spacer.
+description: Occupy fixed or flexible empty space in a layout.
 slug: /widgets/spacer
 ---
 # Spacer
 
-Use it to control how child nodes are arranged, measured, and constrained.
+`Spacer` is the invisible space-taking widget.
 
+It solves two different layout problems. First, it can create a fixed gap by giving it a width or height. Second, it can absorb leftover space by giving it `flex_grow > 0.0`. That makes it especially useful inside [`Row`](/reference/widgets/row) and [`Column`](/reference/widgets/column).
 
-This is part of the Fission widget API and belongs in the same typed, state-driven model used across the rest of the framework.
+Use `Spacer` when empty space is a real layout participant. Do not use it for ordinary repeated sibling spacing when `gap` on a row or column would say the same thing more clearly.
 
+## Example
 
-**When you need it**
-- This widget is best when you need stable structure before styling. Keep layout decisions explicit so state and constraints stay predictable.
-- Use predictable state updates as your entry point for all behavior changes.
-- Combine with semantic labels and role attributes for reliable interaction testing.
-
-## Minimal usage
 ```rust
-use fission_core::ui::Spacer;
+use fission_core::ui::{Row, Spacer, Text};
 
-let node = Spacer {
+let node = Row {
+    children: vec![
+        Text::new("Back").into_node(),
+        Spacer {
+            flex_grow: 1.0,
+            ..Default::default()
+        }
+        .into_node(),
+        Text::new("Save").into_node(),
+    ],
     ..Default::default()
-}.into_node();
+}
+.into_node();
 ```
 
-## API surface
-- `id`: `Option<NodeId>`
-- `width`: `Option<f32>`
-- `height`: `Option<f32>`
-- `flex_grow`: `f32`
+## Field table
 
-## Implementation checks
-- Build with the state model first, then layer spacing, alignment, and visual treatment. Layout mistakes are usually cheaper to fix before async behavior is introduced.
-- Keep callbacks/closures small and deterministic when possible, then move side effects to async boundaries.
-- If the widget affects layout or input, verify with both state transitions and target-level smoke tests.
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `id` | `Option<NodeId>` | Stable node identity. | Defaults to `None`. |
+| `width` | `Option<f32>` | Fixed width. | Defaults to `None`. |
+| `height` | `Option<f32>` | Fixed height. | Defaults to `None`. |
+| `flex_grow` | `f32` | Extra space this spacer should absorb. | Defaults to `0.0`. Set this above zero for push-apart behavior. |
 
-## Next
-- [Widget catalog](/reference/widgets/catalog)
-- [Widget trait](/reference/core/widget-trait)
-- [Runtime model](/docs/learn/runtime-model)
+## Layout behavior
+
+`Spacer` lowers to a simple box layout node with no child content. When `flex_grow` is zero, its effect comes only from fixed width or height. When `flex_grow` is positive, it behaves like a flexible spring inside the surrounding layout.
+
+This is why `Spacer` is excellent for toolbars and headers where one group of controls should be pushed away from another.
+
+## Specific advice
+
+Use `gap` on `Row` and `Column` for ordinary repeated spacing, and use `Spacer` when the empty space itself needs to flex. That distinction keeps layouts readable.
+
+## Related
+
+[`Row`](/reference/widgets/row), [`Column`](/reference/widgets/column), [`HStack`](/reference/widgets/h-stack), and [`VStack`](/reference/widgets/v-stack).

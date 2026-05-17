@@ -1,42 +1,61 @@
 ---
 title: Checkbox
-description: Reference details for Checkbox.
+description: Represent an independent yes or no value, or one item in a multi-select set.
 slug: /widgets/checkbox
 ---
 # Checkbox
 
-Use it when the user needs to interact, choose a value, or submit intent.
+`Checkbox` is the standard boolean toggle for independent choices.
 
+Use it when the user is deciding whether something is included, enabled, acknowledged, or selected among many independent items. A checkbox is different from a [`Radio`](/reference/widgets/radio): radios mean "pick exactly one", while checkboxes mean "each option stands on its own".
 
-This is part of the Fission widget API and belongs in the same typed, state-driven model used across the rest of the framework.
+## Example
 
-
-**When you need it**
-- This widget is best when the control drives explicit `Action` dispatch or receives values from a reducer-owned state model.
-- Use predictable state updates as your entry point for all behavior changes.
-- Combine with semantic labels and role attributes for reliable interaction testing.
-
-## Minimal usage
 ```rust
+use fission_core::{Handler, ReducerContext};
 use fission_core::ui::Checkbox;
 
+#[derive(fission_macros::Action, serde::Serialize, serde::Deserialize, Debug, Clone, PartialEq, Eq)]
+struct ToggleNewsletter;
+
+fn on_toggle(state: &mut SettingsState, _action: ToggleNewsletter, _ctx: &mut ReducerContext<SettingsState>) {
+state.receive_newsletter = !state.receive_newsletter;
+}
+
 let node = Checkbox {
-    ..Default::default()
-}.into_node();
+checked: view.state.receive_newsletter,
+label: Some("Receive product updates".into()),
+on_toggle: Some(ctx.bind(
+    ToggleNewsletter,
+    on_toggle as Handler<SettingsState, ToggleNewsletter>,
+)),
+..Default::default()
+}
+.into_node();
 ```
 
-## API surface
-- `id`: `Option<NodeId>`
-- `checked`: `bool`
-- `on_toggle`: `Option<ActionEnvelope>`
-- `label`: `Option<String>`
+The checkbox does not flip itself. It emits an action, the reducer changes `AppState`, and the next build reads the new `checked` value from `View`.
 
-## Implementation checks
-- Keep control values in state, validate there, and surface results through completion actions or reducer transitions.
-- Keep callbacks/closures small and deterministic when possible, then move side effects to async boundaries.
-- If the widget affects layout or input, verify with both state transitions and target-level smoke tests.
+## Field table
 
-## Next
-- [Widget catalog](/reference/widgets/catalog)
-- [Widget trait](/reference/core/widget-trait)
-- [Runtime model](/docs/learn/runtime-model)
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `id` | `Option<NodeId>` | Stable node identity. | Defaults to `None`. |
+| `checked` | `bool` | Whether the checkbox is currently selected. | Defaults to `false`. |
+| `on_toggle` | `Option<ActionEnvelope>` | Action dispatched when the user toggles the checkbox. | Defaults to `None`. |
+| `label` | `Option<String>` | Visible text shown next to the indicator. | Defaults to `None`, but most real checkboxes should have a label. |
+
+## Interaction and accessibility behavior
+
+`Checkbox` lowers a semantic checkbox role with the current checked state, so assistive technology can report it correctly and automated tests can find it by role. The label text is also used as the semantic label when present.
+
+Because the control is controlled by state, it is easy to test. Given a known `checked` value, the same build always produces the same visual and semantic result.
+
+## Specific advice
+
+Prefer a checkbox when the choice can stay pending until a later submit. If the control means an immediate app setting that turns behavior on or off right away, a [`Switch`](/reference/widgets/switch) often reads more naturally.
+
+## Related
+
+[`Switch`](/reference/widgets/switch), [`Radio`](/reference/widgets/radio), [`FormControl`](/reference/widgets/form-control), and [`Button`](/reference/widgets/button).
+

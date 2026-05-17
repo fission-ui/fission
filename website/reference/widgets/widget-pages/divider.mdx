@@ -1,39 +1,44 @@
 ---
 title: Divider
-description: Reference details for Divider.
+description: Separate groups of content with a lightweight visual line.
 slug: /widgets/divider
 ---
 # Divider
 
-Use it to control how child nodes are arranged, measured, and constrained.
+`Divider` is the simplest grouping aid in the widget set.
 
+Use it when content belongs to one surface but still needs visible separation between sections, rows, or tool groups. A divider is lighter than putting every piece of content in its own card.
 
-This is part of the Fission widget API and belongs in the same typed, state-driven model used across the rest of the framework.
+## Example
 
-
-**When you need it**
-- This widget is best when you need stable structure before styling. Keep layout decisions explicit so state and constraints stay predictable.
-- Use predictable state updates as your entry point for all behavior changes.
-- Combine with semantic labels and role attributes for reliable interaction testing.
-
-## Minimal usage
 ```rust
 use fission_widgets::Divider;
 
-let node = Divider {
-    ..Default::default()
-}.into_node();
+let node = VStack {
+    spacing: Some(0.0),
+    children: vec![
+        Text::new("General").into_node(),
+        Divider::default().build(ctx, view),
+        Text::new("Security").into_node(),
+    ],
+}
+.into_node();
 ```
 
-## API surface
-- `orientation`: `Orientation`
+## Field table
 
-## Implementation checks
-- Build with the state model first, then layer spacing, alignment, and visual treatment. Layout mistakes are usually cheaper to fix before async behavior is introduced.
-- Keep callbacks/closures small and deterministic when possible, then move side effects to async boundaries.
-- If the widget affects layout or input, verify with both state transitions and target-level smoke tests.
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `orientation` | `Orientation` | Whether the line runs horizontally or vertically. | Defaults to `Orientation::Horizontal`. |
 
-## Next
-- [Widget catalog](/reference/widgets/catalog)
-- [Widget trait](/reference/core/widget-trait)
-- [Runtime model](/docs/learn/runtime-model)
+## Layout behavior
+
+A horizontal divider grows to fill available width and uses a fixed height of one point. A vertical divider grows to fill available height and uses a fixed width of one point. This makes it a good structural separator inside rows, columns, and menus.
+
+## Specific advice
+
+Use dividers to clarify grouping, not to draw a line between every single thing on screen. If every row gets a divider plus a card plus extra borders, the interface usually becomes noisier instead of clearer.
+
+## Related
+
+[`Card`](/reference/widgets/card), [`Alert`](/reference/widgets/alert), [`Row`](/reference/widgets/row), and [`Column`](/reference/widgets/column).

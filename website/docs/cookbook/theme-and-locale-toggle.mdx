@@ -1,39 +1,329 @@
 ---
 title: Toggle theme and locale
-description: Drive appearance and translation changes through explicit app state and `Env` sync.
+description: Load translation files, keep theme and locale in app state, and synchronize them into Env with with_sync_env.
 ---
 
 # Toggle theme and locale
 
-The `inbox` example is the best checked-in reference for theme and locale switching.
+A production app usually needs two settings screens very early: appearance and language.
 
-## Base environment
+The user expects theme changes to update the whole interface consistently. They also expect language changes to affect labels, buttons, and messages without leaving half the app behind.
 
-Create `Env` once and load translation bundles into `env.i18n`.
+In Fission, the right way to do this is to keep the user's choice in app state and synchronize the environment that widgets read during `build()`.
 
-## Per-frame sync
+This recipe shows that full flow step by step. It also uses the practical translation-loading pattern you should start with first: keep checked-in translation files in your project, load them at compile time with `include_str!`, and add them to `Env` during startup.
 
-Then sync runtime-visible values from app state:
+## The problem we are solving
+
+Imagine a settings screen with two controls.
+
+One switches between light and dark theme.
+
+The other switches between English and Spanish.
+
+We want three things to stay true.
+
+First, the user's choices should live in normal app state so reducers and tests can reason about them.
+
+Second, widgets should read the active theme and locale through `View` and `Env`, not through scattered globals.
+
+Third, the translation files should already be available at startup on desktop, web, Android, and iOS.
+
+## Step 1: put theme and locale in app state
+
+Because the user can change these values during the session, they belong in `AppState`.
 
 ```rust
-.with_sync_env(|state, env| {
-    env.locale = state.locale.clone();
-    env.theme = if state.theme_mode == "Dark" {
-        Theme::dark()
-    } else {
-        Theme::default()
-    };
-})
+use fission::prelude::*;
+use fission_i18n::Locale;
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub enum ThemeMode {
+    Light,
+    Dark,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SettingsState {
+    pub theme_mode: ThemeMode,
+    pub locale: Locale,
+}
+
+impl Default for SettingsState {
+    fn default() -> Self {
+        Self {
+            theme_mode: ThemeMode::Light,
+            locale: Locale("en-US".into()),
+        }
+    }
+}
+
+impl AppState for SettingsState {}
 ```
 
-## Render keyed text
+This is the right place for the user's preference because it is part of product behavior. The same choice may be shown in settings, saved later, or covered by tests.
 
-Use `TextContent::Key(...)` for user-visible text that should translate with locale changes.
+## Step 2: load translation files into the environment
 
-## Verify both axes
+Now create the environment that holds translation bundles.
 
-Before shipping, test:
+Start by adding checked-in translation files such as `i18n/en-US.json` and `i18n/es-ES.json`.
 
-- long strings in the alternate locale,
-- dark and light theme screenshots,
-- focus order and labels after the environment changes.
+A minimal pair might look like this:
+
+```json
+{
+  "settings.title": "Settings",
+  "settings.theme": "Theme",
+  "settings.locale": "Language",
+  "settings.theme.light": "Light",
+  "settings.theme.dark": "Dark"
+}
+```
+
+```json
+{
+  "settings.title": "Configuracion",
+  "settings.theme": "Tema",
+  "settings.locale": "Idioma",
+  "settings.theme.light": "Claro",
+  "settings.theme.dark": "Oscuro"
+}
+```
+
+With those files in place, load them into `Env` during startup.
+
+```rust
+use std::collections::HashMap;
+
+use fission::prelude::*;
+use fission_i18n::{Locale, TranslationBundle};
+
+fn load_bundle(locale: &str, raw: &str) -> TranslationBundle {
+    let messages: HashMap<String, String> =
+        serde_json::from_str(raw).expect("valid translation json");
+
+    TranslationBundle {
+        locale: Locale(locale.to_string()),
+        messages,
+    }
+}
+
+fn create_env() -> Env {
+    let mut env = Env::default();
+
+    env.i18n.add_bundle(load_bundle(
+        "en-US",
+        include_str!("../i18n/en-US.json"),
+    ));
+    env.i18n.add_bundle(load_bundle(
+        "es-ES",
+        include_str!("../i18n/es-ES.json"),
+    ));
+
+    env
+}
+```
+
+This pattern is a good default because it is simple and reliable. The same translation data is compiled into every target, so the first frame can already render in the right language without a network fetch.
+
+## Step 3: mirror state into `Env` with `.with_sync_env(...)`
+
+The environment now knows about available translation bundles, but it still needs the current user-selected values.
+
+That is what `.with_sync_env(...)` is for.
+
+It exists on the public shell builders and receives the current app state plus a mutable `Env`. Use it to synchronize app-driven environment values such as the active theme and locale.
+
+```rust
+use anyhow::Result;
+use fission_shell_desktop::DesktopApp;
+
+fn main() -> Result<()> {
+    DesktopApp::new(SettingsApp)
+        .with_env(create_env())
+        .with_sync_env(|state: &SettingsState, env: &mut Env| {
+            env.locale = state.locale.clone();
+            env.theme = match state.theme_mode {
+                ThemeMode::Light => Theme::default(),
+                ThemeMode::Dark => Theme::dark(),
+            };
+        })
+        .run()
+}
+```
+
+This line is one of the most important pieces of the recipe.
+
+The user's choices still live in `SettingsState`. That remains the source of truth.
+
+`Env` is the shared presentation context that widgets read during build. `.with_sync_env(...)` keeps those two worlds in sync so the entire widget tree sees one coherent current locale and theme.
+
+Use this hook for values that shape the whole user interface.
+
+Do not use it as a side-effect hook. It is not the place to fetch translations from the network, write settings files, or start background jobs.
+
+## Step 4: define actions and reducers for the toggles
+
+Now give the settings screen explicit actions.
+
+```rust
+#[derive(fission_macros::Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+pub struct SetLightTheme;
+
+#[derive(fission_macros::Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+pub struct SetDarkTheme;
+
+#[derive(fission_macros::Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+pub struct SetEnglish;
+
+#[derive(fission_macros::Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+pub struct SetSpanish;
+
+fn on_set_light_theme(
+    state: &mut SettingsState,
+    _action: SetLightTheme,
+    _ctx: &mut ReducerContext<SettingsState>,
+) {
+    state.theme_mode = ThemeMode::Light;
+}
+
+fn on_set_dark_theme(
+    state: &mut SettingsState,
+    _action: SetDarkTheme,
+    _ctx: &mut ReducerContext<SettingsState>,
+) {
+    state.theme_mode = ThemeMode::Dark;
+}
+
+fn on_set_english(
+    state: &mut SettingsState,
+    _action: SetEnglish,
+    _ctx: &mut ReducerContext<SettingsState>,
+) {
+    state.locale = Locale("en-US".into());
+}
+
+fn on_set_spanish(
+    state: &mut SettingsState,
+    _action: SetSpanish,
+    _ctx: &mut ReducerContext<SettingsState>,
+) {
+    state.locale = Locale("es-ES".into());
+}
+```
+
+These reducers do exactly what you want in a production app: they change state and nothing more. The environment update happens through `.with_sync_env(...)`, which means the setting change still follows the normal reducer-to-render loop.
+
+## Step 5: render keyed text and bind the controls
+
+The widget reads state as usual, but user-facing text should come from translation keys rather than hard-coded literals.
+
+```rust
+pub struct SettingsApp;
+
+impl Widget<SettingsState> for SettingsApp {
+    fn build(&self, ctx: &mut BuildCtx<SettingsState>, view: &View<SettingsState>) -> Node {
+        let light = ctx.bind(
+            SetLightTheme,
+            on_set_light_theme as Handler<SettingsState, SetLightTheme>,
+        );
+        let dark = ctx.bind(
+            SetDarkTheme,
+            on_set_dark_theme as Handler<SettingsState, SetDarkTheme>,
+        );
+        let english = ctx.bind(
+            SetEnglish,
+            on_set_english as Handler<SettingsState, SetEnglish>,
+        );
+        let spanish = ctx.bind(
+            SetSpanish,
+            on_set_spanish as Handler<SettingsState, SetSpanish>,
+        );
+
+        Column {
+            gap: Some(12.0),
+            children: vec![
+                Text::new(TextContent::Key("settings.title".into())).into_node(),
+                Text::new(TextContent::Key("settings.theme".into())).into_node(),
+                Row {
+                    children: vec![
+                        Button {
+                            on_press: Some(light),
+                            child: Some(Box::new(
+                                Text::new(TextContent::Key("settings.theme.light".into()))
+                                    .into_node(),
+                            )),
+                            ..Default::default()
+                        }
+                        .into_node(),
+                        Button {
+                            on_press: Some(dark),
+                            child: Some(Box::new(
+                                Text::new(TextContent::Key("settings.theme.dark".into()))
+                                    .into_node(),
+                            )),
+                            ..Default::default()
+                        }
+                        .into_node(),
+                    ],
+                    ..Default::default()
+                }
+                .into_node(),
+                Text::new(TextContent::Key("settings.locale".into())).into_node(),
+                Row {
+                    children: vec![
+                        Button {
+                            on_press: Some(english),
+                            child: Some(Box::new(Text::new("English").into_node())),
+                            ..Default::default()
+                        }
+                        .into_node(),
+                        Button {
+                            on_press: Some(spanish),
+                            child: Some(Box::new(Text::new("Español").into_node())),
+                            ..Default::default()
+                        }
+                        .into_node(),
+                    ],
+                    ..Default::default()
+                }
+                .into_node(),
+            ],
+            ..Default::default()
+        }
+        .into_node()
+    }
+}
+```
+
+The crucial line is `TextContent::Key(...)`. That tells the runtime to resolve the text through the loaded translation bundles using the current `env.locale`.
+
+Because the shell synchronizes `state.locale` into `env.locale`, the next rebuild automatically uses the new language.
+
+The same pattern applies to theming. Widgets that read `view.theme()` or `view.env.theme` will see the synchronized theme value on the next build.
+
+## Why `.with_sync_env(...)` is the right tool
+
+It can be tempting to branch on `view.state.locale` or `view.state.theme_mode` all over the widget tree. Avoid that when you are dealing with app-wide presentation inputs.
+
+Locale and theme are exactly the kind of values that should be centralized. The shell hook keeps the synchronization rule in one place, and widgets can read the environment consistently.
+
+Use `.with_sync_env(...)` for values like theme, locale, or other global presentation context.
+
+Do not put ordinary product data there. Message lists, editor contents, form drafts, and domain objects still belong in `AppState` and should be read from `view.state`.
+
+## What to test before you ship
+
+Once the wiring works, verify the behavior like a real product team.
+
+Check both theme modes with the same screen content so you can catch contrast and spacing problems.
+
+Check both locales with long strings, not only short English labels, because responsive layout bugs often appear there first.
+
+If a language or theme choice should persist across launches, keep the persisted value as normal app state and restore it through your startup flow rather than inventing a separate hidden path.
+
+## Where to go next
+
+If you want the broader explanation of how `Env`, `View`, and synchronized environment values work, read [Input, text, and environment](/docs/guides/input-events-text-and-env) and [Theming and internationalization](/docs/guides/theming-and-i18n). If you want a repo-backed example after finishing this recipe, the `inbox` example is the strongest current demonstration of theme and locale switching.

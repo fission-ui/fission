@@ -1,42 +1,56 @@
 ---
 title: EmptyState
-description: Reference details for EmptyState.
+description: Explain a blank area and guide the user toward the next useful action.
 slug: /widgets/empty-state
 ---
 # EmptyState
 
-Use it for cross-cutting composition and app-level surface behavior.
+`EmptyState` is the guided placeholder for screens or panels with no content yet.
 
+In a real app, an empty region should answer three questions quickly: what is missing, why it is missing, and what the user can do next. This widget packages those ideas into one centered block.
 
-This is part of the Fission widget API and belongs in the same typed, state-driven model used across the rest of the framework.
+## Example
 
-
-**When you need it**
-- This widget is best when building reusable building blocks that support product patterns.
-- Use predictable state updates as your entry point for all behavior changes.
-- Combine with semantic labels and role attributes for reliable interaction testing.
-
-## Minimal usage
 ```rust
 use fission_widgets::EmptyState;
 
 let node = EmptyState {
-    ..Default::default()
-}.into_node();
+    icon: None,
+    title: "No drafts yet".into(),
+    description: Some("Create your first draft to start writing.".into()),
+    action: Some(Box::new(
+        Button {
+            child: Some(Box::new(Text::new("New draft").into_node())),
+            on_press: Some(create_draft_action),
+            ..Default::default()
+        }
+        .into_node(),
+    )),
+}
+.build(ctx, view);
 ```
 
-## API surface
-- `icon`: `Option<Box<Node>>`
-- `title`: `String`
-- `description`: `Option<String>`
-- `action`: `Option<Box<Node>>`
+This is much more helpful than leaving a large blank panel with no explanation.
 
-## Implementation checks
-- Pair it with the core trait contract and test rendering output with headless checks for stability.
-- Keep callbacks/closures small and deterministic when possible, then move side effects to async boundaries.
-- If the widget affects layout or input, verify with both state transitions and target-level smoke tests.
+## Field table
 
-## Next
-- [Widget catalog](/reference/widgets/catalog)
-- [Widget trait](/reference/core/widget-trait)
-- [Runtime model](/docs/learn/runtime-model)
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `icon` | `Option<Box<Node>>` | Optional decorative or explanatory visual. | Defaults to `None`. |
+| `title` | `String` | Main message for the empty state. | Required. |
+| `description` | `Option<String>` | Supporting explanation below the title. | Defaults to `None`. |
+| `action` | `Option<Box<Node>>` | Optional primary action, often a button. | Defaults to `None`. Can be any node. |
+
+## user experience intent
+
+An empty state should teach, not apologize. The best ones describe the missing content in product language and offer a next step when one exists.
+
+The checked-in widget centers its content, which makes it work best for empty screens, side panels, and major content regions. If you need an inline "no results" hint inside a dense list, a smaller custom message often fits better.
+
+## Specific advice
+
+Avoid vague titles like "Nothing here". A user usually wants to know *what* is missing and what they can do about it.
+
+## Related
+
+[`Alert`](/reference/widgets/alert), [`Card`](/reference/widgets/card), [`Button`](/reference/widgets/button), and [`Spinner`](/reference/widgets/spinner).

@@ -1,41 +1,56 @@
 ---
 title: CanvasLowerer
-description: Reference details for CanvasLowerer.
+description: The low-level lowering helper behind canvas(...).
 slug: /widgets/canvas-lowerer
 ---
 # CanvasLowerer
 
-Use it for cross-cutting composition and app-level surface behavior.
+`CanvasLowerer` is the low-level helper that powers the higher-level [`canvas(...)`](/reference/widgets/canvas) function.
 
+Most app authors should not start here. If your goal is "draw a custom visual surface," use `canvas(...)` first. Reach for `CanvasLowerer` only when you are building a reusable custom helper or you need direct control over the lowering closure that emits node ids into the intermediate representation.
 
-This is part of the Fission widget API and belongs in the same typed, state-driven model used across the rest of the framework.
+This type exists because some custom drawing paths are easier to express as direct lowering code than as ordinary widget composition. That is an advanced escape hatch, not the default way to build app user interface.
 
+## Example
 
-**When you need it**
-- This widget is best when building reusable building blocks that support product patterns.
-- Use predictable state updates as your entry point for all behavior changes.
-- Combine with semantic labels and role attributes for reliable interaction testing.
+The example below shows the shape of the type, but in most app code you would wrap this in your own helper rather than constructing it at call sites.
 
-## Minimal usage
 ```rust
+use std::sync::Arc;
+
+use fission_core::ui::{CustomNode, Node};
 use fission_widgets::CanvasLowerer;
 
-let node = CanvasLowerer {
-    ..Default::default()
-}.into_node();
+let sparkline = Node::Custom(CustomNode {
+    debug_tag: "Sparkline".into(),
+    lowerer: Some(Arc::new(CanvasLowerer {
+        width: Some(120.0),
+        height: Some(32.0),
+        painter: Arc::new(|cx| {
+            // Emit paint or layout nodes and return their ids.
+            Vec::new()
+        }),
+    })),
+    render_object: None,
+});
 ```
 
-## API surface
-- `width`: `Option<f32>`
-- `height`: `Option<f32>`
-- `painter`: `Arc<dyn Fn(&mut LoweringContext) -> Vec<NodeId> + Send + Sync>`
+## Field table
 
-## Implementation checks
-- Pair it with the core trait contract and test rendering output with headless checks for stability.
-- Keep callbacks/closures small and deterministic when possible, then move side effects to async boundaries.
-- If the widget affects layout or input, verify with both state transitions and target-level smoke tests.
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `width` | `Option<f32>` | Fixed width for the root box. | `None` leaves width to parent constraints. |
+| `height` | `Option<f32>` | Fixed height for the root box. | `None` leaves height to parent constraints. |
+| `painter` | `Arc<dyn Fn(&mut LoweringContext) -> Vec<NodeId> + Send + Sync>` | Closure that emits child node ids directly into the lowering context. | Required. This is the advanced part of the public contract. |
 
-## Next
-- [Widget catalog](/reference/widgets/catalog)
-- [Widget trait](/reference/core/widget-trait)
-- [Runtime model](/docs/learn/runtime-model)
+## Behavior and escape-hatch guidance
+
+`CanvasLowerer` lowers its emitted node ids into a structural group and wraps that group in a fixed-size box. It does not add semantics, input handling, or a custom render object on its own.
+
+That means it is best for lightweight custom drawing helpers. If the surface also needs pointer handling, text input, or custom hit testing, you are usually in [`CustomNode`](/reference/widgets/custom-node) territory rather than plain `CanvasLowerer` territory.
+
+Another important limit is maintainability. Direct lowering code is powerful, but it is easier to misuse than ordinary widgets. If a layout can be expressed with [`Container`](/reference/widgets/container), [`Row`](/reference/widgets/row), [`Column`](/reference/widgets/column), or [`Composite`](/reference/widgets/composite), prefer those first.
+
+## Related
+
+[`canvas(...)`](/reference/widgets/canvas), [`CustomNode`](/reference/widgets/custom-node), and [`Node`](/reference/widgets/node).

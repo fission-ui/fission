@@ -1,41 +1,53 @@
 ---
 title: Transform
-description: Reference details for Transform.
+description: Apply a raw 4x4 transform matrix to one child.
 slug: /widgets/transform
 ---
 # Transform
 
-Use it to control how child nodes are arranged, measured, and constrained.
+`Transform` is the low-level matrix-transform wrapper.
 
+It applies a raw 4x4 transform matrix to one child. This is useful when you already have matrix math from another part of the system and want to feed that matrix directly into the widget tree.
 
-This is part of the Fission widget API and belongs in the same typed, state-driven model used across the rest of the framework.
+Most app authors should not reach for `Transform` first. If you want common presentation effects such as opacity, translation, scale, or rotation, [`Composite`](/reference/widgets/composite) is usually easier to read and easier to animate.
 
+## Example
 
-**When you need it**
-- This widget is best when you need stable structure before styling. Keep layout decisions explicit so state and constraints stay predictable.
-- Use predictable state updates as your entry point for all behavior changes.
-- Combine with semantic labels and role attributes for reliable interaction testing.
-
-## Minimal usage
 ```rust
-use fission_core::ui::Transform;
+use fission_core::ui::{Text, Transform};
 
-let node = Transform {
-    ..Default::default()
-}.into_node();
+let matrix = [
+    1.0, 0.0, 0.0, 12.0,
+    0.0, 1.0, 0.0,  0.0,
+    0.0, 0.0, 1.0,  0.0,
+    0.0, 0.0, 0.0,  1.0,
+];
+
+let node = Transform::new(
+    Text::new("Translated visually").into_node(),
+    matrix,
+)
+.into_node();
 ```
 
-## API surface
-- `id`: `Option<NodeId>`
-- `transform`: `[f32; 16]`
-- `child`: `Box<Node>`
+## Field table
 
-## Implementation checks
-- Build with the state model first, then layer spacing, alignment, and visual treatment. Layout mistakes are usually cheaper to fix before async behavior is introduced.
-- Keep callbacks/closures small and deterministic when possible, then move side effects to async boundaries.
-- If the widget affects layout or input, verify with both state transitions and target-level smoke tests.
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `id` | `Option<NodeId>` | Stable node identity. | Defaults to `None`. |
+| `transform` | `[f32; 16]` | Raw 4x4 transform matrix. | Defaults to the identity matrix. |
+| `child` | `Box<Node>` | The transformed child. | Required. `Default` uses an empty spacer child. |
 
-## Next
-- [Widget catalog](/reference/widgets/catalog)
-- [Widget trait](/reference/core/widget-trait)
-- [Runtime model](/docs/learn/runtime-model)
+## Behavior and advice
+
+`Transform` forwards the same layout constraints to its child and applies the matrix as a visual transform. Like `Composite`, it does not relayout siblings around the transformed result.
+
+That makes it appropriate for advanced rendering flows, but also easier to misuse than higher-level helpers. If the transformation is really part of layout rather than presentation, change the layout tree instead.
+
+## Specific advice
+
+Prefer `Composite` unless you already need raw matrix control. Matrix-heavy code is harder for teammates to scan, so it is worth paying that complexity cost only when it buys something real.
+
+## Related
+
+[`Composite`](/reference/widgets/composite), [`Clip`](/reference/widgets/clip), and [`Container`](/reference/widgets/container).

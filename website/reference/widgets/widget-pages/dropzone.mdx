@@ -1,42 +1,55 @@
 ---
 title: Dropzone
-description: Reference details for Dropzone.
+description: Build a drop surface that can react when a drag enters, leaves, or lands.
 slug: /widgets/dropzone
 ---
 # Dropzone
 
-Use it for cross-cutting composition and app-level surface behavior.
+`Dropzone` is the richer drag-and-drop surface helper.
 
+Use it when a part of the screen should visibly respond as something is dragged over it, then handle the eventual drop. Typical examples are attachment areas, upload panels, and kanban columns that highlight as the user drags over them.
 
-This is part of the Fission widget API and belongs in the same typed, state-driven model used across the rest of the framework.
+## Example
 
-
-**When you need it**
-- This widget is best when building reusable building blocks that support product patterns.
-- Use predictable state updates as your entry point for all behavior changes.
-- Combine with semantic labels and role attributes for reliable interaction testing.
-
-## Minimal usage
 ```rust
 use fission_widgets::Dropzone;
 
 let node = Dropzone {
-    ..Default::default()
-}.into_node();
+child: Box::new(upload_panel_node),
+on_drag_enter: Some(ctx.bind(SetHoveringUpload(true), on_set_hovering_upload)),
+on_drag_leave: Some(ctx.bind(SetHoveringUpload(false), on_set_hovering_upload)),
+on_drop: Some(ctx.bind(
+    FilesDropped,
+    (|state: &mut ComposerState, _action: FilesDropped, ctx| {
+        if let Some(paths) = ctx.input.as_drop_paths() {
+            state.attachments.extend(paths.iter().cloned());
+        }
+    }) as Handler<ComposerState, FilesDropped>,
+)),
+}
+.build(ctx, view);
 ```
 
-## API surface
-- `child`: `Box<Node>`
-- `on_drop`: `Option<ActionEnvelope>`
-- `on_drag_enter`: `Option<ActionEnvelope>`
-- `on_drag_leave`: `Option<ActionEnvelope>`
+Here the hover state lives in `AppState`, so the next build can re-render the dropzone with a highlight border.
 
-## Implementation checks
-- Pair it with the core trait contract and test rendering output with headless checks for stability.
-- Keep callbacks/closures small and deterministic when possible, then move side effects to async boundaries.
-- If the widget affects layout or input, verify with both state transitions and target-level smoke tests.
+## Field table
 
-## Next
-- [Widget catalog](/reference/widgets/catalog)
-- [Widget trait](/reference/core/widget-trait)
-- [Runtime model](/docs/learn/runtime-model)
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `child` | `Box<Node>` | Visible content wrapped by the drop surface. | Required. |
+| `on_drop` | `Option<ActionEnvelope>` | Action dispatched when something is dropped on the surface. | Read external paths with `ctx.input.as_drop_paths()` or internal bytes with `ctx.input.as_internal_drop()`. |
+| `on_drag_enter` | `Option<ActionEnvelope>` | Action dispatched when a drag enters the bounds. | Useful for setting hover state in `AppState`. |
+| `on_drag_leave` | `Option<ActionEnvelope>` | Action dispatched when a drag leaves the bounds. | Useful for clearing hover state. |
+
+## Internal drags versus file drops
+
+`Dropzone` sits at the point where two kinds of drag input can meet. Internal drags, started by [`Draggable`](/reference/widgets/draggable), arrive as raw bytes. External file drops arrive as host-provided file paths. The widget does not merge those models for you. Your reducer decides which input it expects and how to decode it.
+
+## Specific advice
+
+Keep visual hover feedback in state, not in a hidden mutable local flag. That way a rebuild, test harness, or target-level snapshot sees the same dropzone state the user sees.
+
+## Related
+
+[`Draggable`](/reference/widgets/draggable), [`DragTarget`](/reference/widgets/drag-target), [`FormControl`](/reference/widgets/form-control), and [`GestureDetector`](/reference/widgets/gesture-detector).
+

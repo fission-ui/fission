@@ -1,43 +1,65 @@
 ---
 title: Skeleton
-description: Reference details for Skeleton.
+description: Reserve layout space with a loading placeholder while real content is still on the way.
 slug: /widgets/skeleton
 ---
 # Skeleton
 
-Use it when the user needs to interact, choose a value, or submit intent.
+`Skeleton` is the shape-preserving loading placeholder.
 
+Use it when the layout is already known but the real data has not arrived yet. A skeleton helps the screen feel stable because the user can see where content will appear, even before the text or image is ready.
 
-This is part of the Fission widget API and belongs in the same typed, state-driven model used across the rest of the framework.
+## Example
 
-
-**When you need it**
-- This widget is best when the control drives explicit `Action` dispatch or receives values from a reducer-owned state model.
-- Use predictable state updates as your entry point for all behavior changes.
-- Combine with semantic labels and role attributes for reliable interaction testing.
-
-## Minimal usage
 ```rust
 use fission_widgets::Skeleton;
 
-let node = Skeleton {
-    ..Default::default()
-}.into_node();
+let node = VStack {
+    spacing: Some(12.0),
+    children: vec![
+        Skeleton {
+            id: WidgetNodeId::explicit("profile_avatar_loading"),
+            width: Some(48.0),
+            height: Some(48.0),
+            circle: true,
+            animated: true,
+        }
+        .build(ctx, view),
+        Skeleton {
+            id: WidgetNodeId::explicit("profile_name_loading"),
+            width: Some(180.0),
+            height: Some(18.0),
+            circle: false,
+            animated: true,
+        }
+        .build(ctx, view),
+    ],
+}
+.into_node();
 ```
 
-## API surface
-- `id`: `WidgetNodeId`
-- `width`: `Option<f32>`
-- `height`: `Option<f32>`
-- `circle`: `bool`
-- `animated`: `bool`
+This keeps the loading state close to the final layout instead of replacing everything with a generic spinner.
 
-## Implementation checks
-- Keep control values in state, validate there, and surface results through completion actions or reducer transitions.
-- Keep callbacks/closures small and deterministic when possible, then move side effects to async boundaries.
-- If the widget affects layout or input, verify with both state transitions and target-level smoke tests.
+## Field table
 
-## Next
-- [Widget catalog](/reference/widgets/catalog)
-- [Widget trait](/reference/core/widget-trait)
-- [Runtime model](/docs/learn/runtime-model)
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `id` | `WidgetNodeId` | Stable identity used for animation state. | Required. Give each skeleton a unique id. |
+| `width` | `Option<f32>` | Placeholder width. | Defaults to `100.0`. |
+| `height` | `Option<f32>` | Placeholder height. | Defaults to `20.0`. |
+| `circle` | `bool` | Whether to render the placeholder as a fully rounded shape. | Defaults to `false`. Useful for avatar placeholders. |
+| `animated` | `bool` | Whether the placeholder should pulse in opacity. | Defaults to `true`. |
+
+## User experience guidance
+
+A skeleton is best when you know the final shape of the content. If you have no idea what will load or when, a more generic loading treatment may be more honest.
+
+The checked-in widget animates opacity when `animated` is true, so stable ids matter. If the id changes every build, the animation state cannot behave predictably.
+
+## Specific advice
+
+Match the skeleton shape to the eventual content as closely as is practical. A loading state feels more polished when the placeholder predicts the final layout instead of using random bars everywhere.
+
+## Related
+
+[`Spinner`](/reference/widgets/spinner), [`CircularProgress`](/reference/widgets/circular-progress), [`Card`](/reference/widgets/card), and [`Avatar`](/reference/widgets/avatar).

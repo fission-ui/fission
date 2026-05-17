@@ -1,47 +1,61 @@
 ---
 title: Column
-description: Reference details for Column.
+description: Lay out children vertically using flex-style rules.
 slug: /widgets/column
 ---
 # Column
 
-Use it to control how child nodes are arranged, measured, and constrained.
+`Column` is the main vertical layout primitive in Fission.
 
+It places children top to bottom, with optional gap, flex behavior, wrapping, and accessibility semantics. If you are building screens, forms, cards, settings pages, or content stacks, you will use `Column` constantly.
 
-This is part of the Fission widget API and belongs in the same typed, state-driven model used across the rest of the framework.
+Use `Column` when order flows vertically and children belong in the normal layout stream. Do not use it for layered overlays, absolute positioning, or huge virtualized lists; those are better handled by [`ZStack`](/reference/widgets/z-stack), [`Positioned`](/reference/widgets/positioned), or [`LazyColumn`](/reference/widgets/lazy-column).
 
+## Example
 
-**When you need it**
-- This widget is best when you need stable structure before styling. Keep layout decisions explicit so state and constraints stay predictable.
-- Use predictable state updates as your entry point for all behavior changes.
-- Combine with semantic labels and role attributes for reliable interaction testing.
-
-## Minimal usage
 ```rust
-use fission_core::ui::Column;
+use fission_core::ui::{Column, Text};
+use fission_ir::op::AlignItems;
 
 let node = Column {
+    gap: Some(12.0),
+    align_items: AlignItems::Stretch,
+    children: vec![
+        Text::new("Profile").into_node(),
+        Text::new("Email settings").into_node(),
+        Text::new("Security").into_node(),
+    ],
     ..Default::default()
-}.into_node();
+}
+.into_node();
 ```
 
-## API surface
-- `id`: `Option<NodeId>`
-- `children`: `Vec<Node>`
-- `semantics`: `Option<Semantics>`
-- `flex_grow`: `f32`
-- `flex_shrink`: `f32`
-- `gap`: `Option<f32>`
-- `wrap`: `FlexWrap`
-- `align_items`: `AlignItems`
-- `justify_content`: `JustifyContent`
+## Field table
 
-## Implementation checks
-- Build with the state model first, then layer spacing, alignment, and visual treatment. Layout mistakes are usually cheaper to fix before async behavior is introduced.
-- Keep callbacks/closures small and deterministic when possible, then move side effects to async boundaries.
-- If the widget affects layout or input, verify with both state transitions and target-level smoke tests.
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `id` | `Option<NodeId>` | Stable node identity. | Defaults to `None`. |
+| `children` | `Vec<Node>` | Child nodes laid out from top to bottom. | Defaults to an empty list. |
+| `semantics` | `Option<Semantics>` | Optional accessibility semantics wrapper. | When present, the lowered column is wrapped in a semantics node. |
+| `flex_grow` | `f32` | How much extra space the column absorbs from its parent. | Defaults to `0.0`. |
+| `flex_shrink` | `f32` | How much the column is allowed to shrink when space is tight. | Defaults to `1.0`. |
+| `gap` | `Option<f32>` | Vertical spacing between children. | Defaults to `None`. |
+| `wrap` | `FlexWrap` | Whether children wrap when they overflow. | Defaults to `FlexWrap::NoWrap`. Most columns do not wrap. |
+| `align_items` | `AlignItems` | Cross-axis alignment, which is horizontal in a column. | Defaults to `AlignItems::Stretch`. |
+| `justify_content` | `JustifyContent` | Main-axis distribution, which is vertical in a column. | Defaults to `JustifyContent::Start`. |
 
-## Next
-- [Widget catalog](/reference/widgets/catalog)
-- [Widget trait](/reference/core/widget-trait)
-- [Runtime model](/docs/learn/runtime-model)
+## Layout behavior
+
+`Column` lowers to a vertical flex layout. That means `justify_content` controls vertical distribution and `align_items` controls horizontal placement of each child. Beginners often mix those up because the meaning changes with the layout direction.
+
+`Column` is also a good root for responsive screen sections because it makes spacing and reading order explicit. When a screen becomes scrollable, the common pattern is a [`Scroll`](/reference/widgets/scroll) containing a `Column`.
+
+## Specific advice
+
+Prefer `gap` over sprinkling fixed [`Spacer`](/reference/widgets/spacer) nodes between every child. A spacer is still useful when one child should absorb leftover space, but `gap` usually reads better for ordinary stacked content.
+
+If you only need a simpler convenience wrapper with `children` and `spacing`, use [`VStack`](/reference/widgets/v-stack).
+
+## Related
+
+[`Row`](/reference/widgets/row), [`VStack`](/reference/widgets/v-stack), [`Scroll`](/reference/widgets/scroll), and [`Wrap`](/reference/widgets/wrap).

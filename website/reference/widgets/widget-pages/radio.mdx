@@ -1,42 +1,61 @@
 ---
 title: Radio
-description: Reference details for Radio.
+description: Represent one choice inside a mutually exclusive set of options.
 slug: /widgets/radio
 ---
 # Radio
 
-Use it when the user needs to interact, choose a value, or submit intent.
+`Radio` is the one-of-many choice control.
 
+Use it when exactly one option in a group should be active at a time, such as choosing a plan, a density mode, or a sort order that should stay fully visible on screen. The widget itself only knows whether this one item is selected. Your app state decides which option in the group is the winner.
 
-This is part of the Fission widget API and belongs in the same typed, state-driven model used across the rest of the framework.
+## Example
 
-
-**When you need it**
-- This widget is best when the control drives explicit `Action` dispatch or receives values from a reducer-owned state model.
-- Use predictable state updates as your entry point for all behavior changes.
-- Combine with semantic labels and role attributes for reliable interaction testing.
-
-## Minimal usage
 ```rust
 use fission_core::ui::Radio;
 
-let node = Radio {
-    ..Default::default()
-}.into_node();
+let nodes = view
+.state
+.shipping_methods
+.iter()
+.enumerate()
+.map(|(index, label)| {
+    Radio {
+        checked: view.state.selected_shipping_index == index,
+        label: Some(label.clone()),
+        on_select: Some(ActionEnvelope {
+            id: set_shipping_method_id,
+            payload: serde_json::to_vec(&SetShippingMethod(index)).unwrap(),
+        }),
+        ..Default::default()
+    }
+    .into_node()
+})
+.collect::<Vec<_>>();
 ```
 
-## API surface
-- `id`: `Option<NodeId>`
-- `checked`: `bool`
-- `on_select`: `Option<ActionEnvelope>`
-- `label`: `Option<String>`
+Every radio in the group emits a concrete selection action. The reducer stores the chosen index, and the next build marks exactly one radio as checked.
 
-## Implementation checks
-- Keep control values in state, validate there, and surface results through completion actions or reducer transitions.
-- Keep callbacks/closures small and deterministic when possible, then move side effects to async boundaries.
-- If the widget affects layout or input, verify with both state transitions and target-level smoke tests.
+## Field table
 
-## Next
-- [Widget catalog](/reference/widgets/catalog)
-- [Widget trait](/reference/core/widget-trait)
-- [Runtime model](/docs/learn/runtime-model)
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `id` | `Option<NodeId>` | Stable node identity. | Defaults to `None`. |
+| `checked` | `bool` | Whether this option is the selected one. | Defaults to `false`. |
+| `on_select` | `Option<ActionEnvelope>` | Action fired when the radio is chosen. | Defaults to `None`. |
+| `label` | `Option<String>` | Visible text shown next to the radio indicator. | Defaults to `None`. |
+
+## Group behavior and accessibility
+
+The important product rule is not inside the widget. It is in the reducer: only one item in the group should end up selected after an action. That is why radios pair naturally with an enum or selected index in app state.
+
+One implementation detail is worth knowing: the checked-in visual widget behaves like a radio, but its lowered semantics currently reuse the checkbox role internally. The interaction model still works, but if assistive-technology role precision matters on your target, validate it carefully.
+
+## Specific advice
+
+Use radios only when the available choices are few enough to stay visible together. Once the list becomes long or collapsible, a [`Select`](/reference/widgets/select) or [`Combobox`](/reference/widgets/combobox) usually becomes easier to use.
+
+## Related
+
+[`Checkbox`](/reference/widgets/checkbox), [`Switch`](/reference/widgets/switch), [`SegmentedControl`](/reference/widgets/segmented-control), and [`Select`](/reference/widgets/select).
+
