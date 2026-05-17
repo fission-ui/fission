@@ -1,0 +1,35 @@
+---
+title: AspectRatio
+description: Constrain a child by aspect ratio while leaving size resolution to the layout engine.
+slug: /widgets/aspect-ratio
+---
+# AspectRatio
+
+Use `AspectRatio` when a child should keep a fixed width/height relationship inside the normal box layout system.
+
+## Minimal usage
+
+```rust
+use fission_widgets::AspectRatio;
+
+let node = AspectRatio {
+    ratio: 16.0 / 9.0,
+    child: Box::new(Text::new("Preview").into_node()),
+}
+.build(ctx, view);
+```
+
+## API surface
+
+- `ratio`: `f32`
+- `child`: `Box<Node>`
+
+## Notes
+
+The widget lowers to a box layout node with `aspect_ratio: Some(ratio)`, so the parent constraints still decide the final size.
+
+## Next
+
+- [Layout widgets](/reference/widgets/layout)
+- [Widget trait](/reference/core/widget-trait)
+- [Runtime model](/docs/learn/runtime-model)

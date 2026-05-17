@@ -1,0 +1,35 @@
+---
+title: DragTarget
+description: Accept a dropped payload and route it back through an action.
+slug: /widgets/drag-target
+---
+# DragTarget
+
+`DragTarget` is the high-level wrapper over `GestureDetector` for drop destinations.
+
+## Minimal usage
+
+```rust
+use fission_widgets::DragTarget;
+
+let node = DragTarget {
+    on_drop: Some(drop_action),
+    child: Box::new(Text::new("Drop here").into_node()),
+}
+.build(ctx, view);
+```
+
+## API surface
+
+- `on_drop`: `Option<ActionEnvelope>`
+- `child`: `Box<Node>`
+
+## Notes
+
+Use it with `Draggable` when you want drag-and-drop to stay inside the same action/reducer model as every other interaction.
+
+## Next
+
+- [Input widgets](/reference/widgets/inputs)
+- [Draggable](/reference/widgets/draggable)
+- [Widget trait](/reference/core/widget-trait)

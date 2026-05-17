@@ -1,154 +1,30 @@
 ---
 title: Widget catalog
-description: Complete list of Fission widgets and what they are for.
+description: The widget surface grouped by subsystem and by the examples that already use it.
 ---
 
 # Widget catalog
 
-This is the full widget and render surface exposed through the standard `fission` setup.
+The widget surface is broad, but you almost never need all of it at once.
 
-Start with one category at a time and only expand once the previous layer is clear.
+## Start by job
 
-**Core primitives from `fission_core`**
+- [Layout widgets](/reference/widgets/layout)
+- [Input widgets](/reference/widgets/inputs)
+- [Overlays and navigation](/reference/widgets/overlays-and-navigation)
+- [Display and data widgets](/reference/widgets/display-and-data)
+- [Media and embed widgets](/reference/widgets/media)
 
-- [Align](/reference/widgets/align)
-- [Builder](/reference/widgets/builder)
-- [Button](/reference/widgets/button)
-- [ButtonContentAlign](/reference/widgets/button-content-align)
-- [ButtonVariant](/reference/widgets/button-variant)
-- [Checkbox](/reference/widgets/checkbox)
-- [Column](/reference/widgets/column)
-- [Composite](/reference/widgets/composite)
-- [Container](/reference/widgets/container)
-- [Clip](/reference/widgets/clip)
-- [FocusScope](/reference/widgets/focus-scope)
-- [GestureDetector](/reference/widgets/gesture-detector)
-- [Grid](/reference/widgets/grid)
-- [GridItem](/reference/widgets/grid-item)
-- [Icon](/reference/widgets/icon)
-- [Image](/reference/widgets/image)
-- [LazyColumn](/reference/widgets/lazy-column)
-- [LayoutBuilder](/reference/widgets/layout-builder)
-- [Overlay](/reference/widgets/overlay)
-- [Positioned](/reference/widgets/positioned)
-- [Radio](/reference/widgets/radio)
-- [RichText](/reference/widgets/rich-text)
-- [RichTextRun](/reference/widgets/rich-text-run)
-- [Row](/reference/widgets/row)
-- [SafeArea](/reference/widgets/safe-area)
-- [Scroll](/reference/widgets/scroll)
-- [Slider](/reference/widgets/slider)
-- [Spacer](/reference/widgets/spacer)
-- [Switch](/reference/widgets/switch)
-- [Text](/reference/widgets/text)
-- [TextContent](/reference/widgets/text-content)
-- [TextFontStyle](/reference/widgets/text-font-style)
-- [TextInput](/reference/widgets/text-input)
-- [TextRunStyle](/reference/widgets/text-run-style)
-- [Transform](/reference/widgets/transform)
-- [Video](/reference/widgets/video)
-- [ZStack](/reference/widgets/z-stack)
+## Repo-backed examples to pair with the catalog
 
-**Authoring composition and layout widgets from `fission_widgets`**
+- `widget-gallery` for breadth
+- `text-lab` for text, modal, menu, and combobox behavior
+- `inbox` for app-shell overlays and i18n-heavy UI
+- `animation-gallery` for runtime-owned animation
+- `terminal` and `editor` for specialized surfaces
 
-- [HStack](/reference/widgets/h-stack)
-- [VStack](/reference/widgets/v-stack)
-- [Center](/reference/widgets/center)
-- [Wrap](/reference/widgets/wrap)
-- [SimpleGrid](/reference/widgets/simple-grid)
-- [SplitView](/reference/widgets/split-view)
-- [SplitDirection](/reference/widgets/split-direction)
-- [Card](/reference/widgets/card)
-- [Divider](/reference/widgets/divider)
-- [Transition](/reference/widgets/transition)
-- [Drawer](/reference/widgets/drawer)
-- [DrawerSide](/reference/widgets/drawer-side)
-- [Tabs](/reference/widgets/tabs)
-- [TabItem](/reference/widgets/tab-item)
-- [Accordion](/reference/widgets/accordion)
-- [AccordionItem](/reference/widgets/accordion-item)
-- [Modal](/reference/widgets/modal)
-- [ModalAction](/reference/widgets/modal-action)
-- [Popover](/reference/widgets/popover)
+## Newly covered pages in this rewrite
 
-**Interaction and input widgets**
-
-- [Toast](/reference/widgets/toast)
-- [ToastKind](/reference/widgets/toast-kind)
-- [Tooltip](/reference/widgets/tooltip)
-- [Select](/reference/widgets/select)
-- [SelectItem](/reference/widgets/select-item)
-- [Menu](/reference/widgets/menu)
-- [MenuButton](/reference/widgets/menu-button)
-- [MenuItem](/reference/widgets/menu-item)
-- [Combobox](/reference/widgets/combobox)
-- [SegmentedControl](/reference/widgets/segmented-control)
-- [RangeSlider](/reference/widgets/range-slider)
-- [NumberInput](/reference/widgets/number-input)
-- [Radio](/reference/widgets/radio)
-- [Checkbox](/reference/widgets/checkbox)
-- [Slider](/reference/widgets/slider)
-- [Switch](/reference/widgets/switch)
-- [DatePicker](/reference/widgets/date-picker)
-- [DateRangePicker](/reference/widgets/date-range-picker)
-- [TimePicker](/reference/widgets/time-picker)
-- [FileUpload](/reference/widgets/file-upload)
-- [Editable](/reference/widgets/editable)
-- [FormControl](/reference/widgets/form-control)
-
-**Display and product surface widgets**
-
-- [Avatar](/reference/widgets/avatar)
-- [Badge](/reference/widgets/badge)
-- [Tag](/reference/widgets/tag)
-- [Stat](/reference/widgets/stat)
-- [Calendar](/reference/widgets/calendar)
-- [Timeline](/reference/widgets/timeline)
-- [TimelineItem](/reference/widgets/timeline-item)
-- [DataTable](/reference/widgets/data-table)
-- [TableColumn](/reference/widgets/table-column)
-- [TableRow](/reference/widgets/table-row)
-- [Breadcrumb](/reference/widgets/breadcrumb)
-- [BreadcrumbItem](/reference/widgets/breadcrumb-item)
-- [Link](/reference/widgets/link)
-- [Code](/reference/widgets/code)
-- [Kbd](/reference/widgets/kbd)
-- [CircularProgress](/reference/widgets/circular-progress)
-- [ProgressBar](/reference/widgets/progress-bar)
-- [Spinner](/reference/widgets/spinner)
-- [Skeleton](/reference/widgets/skeleton)
-- [Alert](/reference/widgets/alert)
-- [AlertKind](/reference/widgets/alert-kind)
-- [Hero](/reference/widgets/hero)
-- [Stepper](/reference/widgets/stepper)
-- [EmptyState](/reference/widgets/empty-state)
-- [Dropzone](/reference/widgets/dropzone)
-- [TreeView](/reference/widgets/tree-view)
-- [TreeItem](/reference/widgets/tree-item)
-- [Pagination](/reference/widgets/pagination)
-- [WebView](/reference/widgets/web-view)
-- [DropDown](/reference/widgets/drop-down)
-
-**Navigation and app utilities**
-
-- [Route](/reference/widgets/route)
-- [RouteParams](/reference/widgets/route-params)
-- [Router](/reference/widgets/router)
-- [Portal](/reference/widgets/portal)
-- [CanvasLowerer](/reference/widgets/canvas-lowerer)
-- [canvas(width, height, painter)](/reference/widgets/canvas)
-- [flyout(anchor, content)](/reference/widgets/flyout)
-- [absolute_fill(child)](/reference/widgets/absolute-fill)
-
-The node types are not widgets you compose with directly, but they are part of the exposed surface:
-
-- [Node](/reference/widgets/node)
-- [CustomNode](/reference/widgets/custom-node)
-
-**Runtime command helpers**
-
-- [TerminalLaunchConfig](/reference/widgets/terminal-launch-config)
-- [TerminalSession](/reference/widgets/terminal-session)
-- [TerminalView](/reference/widgets/terminal-view)
-
-Most teams start with [Align](/reference/widgets/align), [Column](/reference/widgets/column), [Row](/reference/widgets/row), [Text](/reference/widgets/text), [Button](/reference/widgets/button), [Image](/reference/widgets/image), and one stateful input (`TextInput`, `Select`, or `Switch`) before moving across the rest of the surface.
+- [AspectRatio](/reference/widgets/aspect-ratio)
+- [Draggable](/reference/widgets/draggable)
+- [DragTarget](/reference/widgets/drag-target)

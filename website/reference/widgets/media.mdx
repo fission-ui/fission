@@ -1,21 +1,32 @@
 ---
-title: Media widgets
-description: Media surfaces, graphics, and custom drawing entry points.
+title: Media and embed widgets
+description: Images, video, terminal, web, canvas, and custom rendering entry points.
 ---
 
-# Media widgets
+# Media and embed widgets
 
-Use media widgets intentionally with constraints. They may impact layout, startup time, and rendering cost.
+This group is where the shared layout/runtime model meets specialized surfaces.
 
-Core entries: `Image`, `Video`, `Icon`, `Code`, and `Kbd`. Build custom drawing with
-`canvas(width, height, painter)` and validate clipping, scaling, and fallback behavior early.
+## Media primitives
 
-Treat these widgets as potentially expensive: define sizing and fallback plans before adding
-animation or large data streams.
+- `Image`
+- `Video`
+- `WebView`
+- `TerminalView`
 
-For each media area decide:
+## Custom drawing and escape hatches
 
-- loading strategy,
-- fallback behavior,
-- accessibility text,
-- container constraints and clipping.
+- `canvas(...)`
+- `CanvasLowerer`
+- `CustomNode`
+- `Node`
+- `Builder`
+
+## Related platform widgets
+
+- `TerminalLaunchConfig`
+- `TerminalSession`
+- `Dropzone`
+- `FileUpload`
+
+For custom-surface proof, pair this section with the terminal, chart-gallery, and editor examples.

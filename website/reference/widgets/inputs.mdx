@@ -1,25 +1,39 @@
 ---
 title: Input widgets
-description: Inputs and controls and where their events should go.
+description: User intent, editing, selection, drag-and-drop, and form controls.
 ---
 
 # Input widgets
 
-Inputs map to explicit actions first. Keep handlers small, then move async work to commands,
-services, or jobs.
+Input widgets should map to explicit actions first and async work second.
 
-Start there first when building interactive screens:
+## Common controls
 
-Core input widgets:
-`Button`, `Checkbox`, `Radio`, `Slider`, `Switch`, `TextInput`, `NumberInput`, `Select`,
-`SelectItem`, `Menu`, `MenuButton`, `MenuItem`, `Combobox`, `RangeSlider`, `DropDown`,
-`DatePicker`, `DateRangePicker`, `TimePicker`, `FileUpload`, and `Editable`.
+- `Button`
+- `Checkbox`
+- `Radio`
+- `Slider`
+- `Switch`
+- `TextInput`
+- `NumberInput`
+- `Select` / `SelectItem`
+- `Combobox`
+- `SegmentedControl`
+- `DatePicker`, `DateRangePicker`, `TimePicker`
 
-Pattern:
+## Drag, drop, and lower-level input
 
-- user interaction -> action,
-- action -> reducer or async boundary,
-- async response -> completion action -> state update.
+- `GestureDetector`
+- `Draggable`
+- `DragTarget`
+- `Dropzone`
+- `Editable`
 
-If a value comes from validation or persistence, treat that as command/service responsibility and
-route the result through completion actions back into reducers.
+## Form composition helpers
+
+- `FormControl`
+- `DropDown`
+- `FileUpload`
+- `RangeSlider`
+
+Pair this section with the text-lab example when the hard part is input behavior rather than layout.

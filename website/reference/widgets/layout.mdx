@@ -1,20 +1,39 @@
 ---
 title: Layout widgets
-description: Layout and composition widgets for stable geometry.
+description: Structure, constraints, and geometry primitives.
 ---
 
 # Layout widgets
 
-Layout widgets define how children are arranged, measured, and aligned.
+Use this group to shape space before you worry about product details.
 
-Most teams should finish the structure pass before adding control-specific behavior. The result is simpler:
+## Core structure
 
-- `Align`, `Column`, `Row`, `Grid`, `GridItem`, `LazyColumn`, `Overlay`, `SafeArea`,
-  `Scroll`, `Spacer`, `ZStack`, `SplitView`, `SplitDirection`, `SimpleGrid`, `Wrap`,
-  `Center`, `Positioned`, `Transform`, `Container`, and `GestureDetector`.
+The most common primitives are:
 
-Use `HStack`, `VStack`, and authoring-style helpers when team language prefers explicit row/column naming.
+- `Container`
+- `Row` / `Column`
+- `Scroll`
+- `Spacer`
+- `Grid` / `GridItem`
+- `ZStack` / `Positioned`
 
-A stable layout strategy keeps wide screens and narrow screens feeling like one coherent product.
+## High-level layout helpers
 
-When a widget page in this section looks unfamiliar, open it directly and confirm what geometry it owns, because the easiest path to predictable behavior is a predictable tree shape.
+When the pattern is already established in the repo, reach for:
+
+- `HStack` / `VStack`
+- `Center`
+- `SimpleGrid`
+- `SplitView`
+- `Wrap`
+- `AspectRatio`
+- `SafeArea`
+
+## Escape hatches
+
+- `LayoutBuilder` when layout depends on current constraints
+- `Transform` and `Clip` for composition boundaries
+- `absolute_fill(...)` when a child should take the available stack bounds
+
+Use the widget-gallery and chart/inbox examples to see which of these are already exercised in real screens.

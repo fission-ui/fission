@@ -1,0 +1,39 @@
+---
+title: Draggable
+description: Wrap a child in drag-start and drag-end behavior with an explicit payload.
+slug: /widgets/draggable
+---
+# Draggable
+
+`Draggable` is the high-level wrapper over `GestureDetector` for drag sources.
+
+## Minimal usage
+
+```rust
+use fission_widgets::Draggable;
+
+let node = Draggable {
+    payload: b"label:inbox".to_vec(),
+    child: Box::new(Text::new("Drag me").into_node()),
+    on_drag_start: None,
+    on_drag_end: None,
+}
+.build(ctx, view);
+```
+
+## API surface
+
+- `payload`: `Vec<u8>`
+- `child`: `Box<Node>`
+- `on_drag_start`: `Option<ActionEnvelope>`
+- `on_drag_end`: `Option<ActionEnvelope>`
+
+## Notes
+
+Use it when the drag payload is explicit and the drop target will decode or route that payload through normal reducer actions.
+
+## Next
+
+- [Input widgets](/reference/widgets/inputs)
+- [DragTarget](/reference/widgets/drag-target)
+- [Widget trait](/reference/core/widget-trait)
