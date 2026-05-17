@@ -9,6 +9,8 @@ pub struct WebView {
     pub id: WidgetNodeId,
     pub url: String,
     pub user_agent: Option<String>,
+    pub width: Option<f32>,
+    pub height: Option<f32>,
 }
 
 impl<S: fission_core::AppState> Widget<S> for WebView {
@@ -24,6 +26,8 @@ impl<S: fission_core::AppState> Widget<S> for WebView {
             lowerer: Some(std::sync::Arc::new(WebViewLowerer {
                 id: self.id,
                 url: self.url.clone(),
+                width: self.width,
+                height: self.height,
             })),
             render_object: None,
         })
@@ -34,6 +38,8 @@ impl<S: fission_core::AppState> Widget<S> for WebView {
 struct WebViewLowerer {
     id: WidgetNodeId,
     url: String,
+    width: Option<f32>,
+    height: Option<f32>,
 }
 
 impl LowerDyn for WebViewLowerer {
@@ -45,8 +51,8 @@ impl LowerDyn for WebViewLowerer {
             Op::Layout(LayoutOp::Embed {
                 kind: EmbedKind::Web,
                 widget_id: self.id,
-                width: None,
-                height: None,
+                width: self.width,
+                height: self.height,
             }),
         );
 

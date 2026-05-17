@@ -1,0 +1,15 @@
+[package]
+name = "embed-video"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "embed_video"
+
+[dependencies]
+anyhow = "1.0"
+fission = { path = "../../crates/authoring/fission" }
+serde = { version = "1.0", features = ["derive"] }
+
+[dev-dependencies]
+fission-test = { path = "../../crates/tools/fission-test" }

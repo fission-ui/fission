@@ -12,6 +12,7 @@ pub use mock::MockVideoBackend;
 #[allow(unexpected_cfgs)]
 mod mac {
     use super::{VideoBackend, VideoEvent, VideoPlayer};
+    use cocoa::appkit::NSWindowOrderingMode;
     use cocoa::base::{id, nil, YES};
     use cocoa::foundation::{NSString, NSURL};
 
@@ -42,6 +43,10 @@ mod mac {
             Self(StrongPtr::retain(ptr))
         }
 
+        unsafe fn owned(ptr: id) -> Self {
+            Self(StrongPtr::new(ptr))
+        }
+
         fn as_id(&self) -> id {
             *self.0
         }
@@ -54,7 +59,7 @@ mod mac {
     }
 
     struct LayerContext {
-        root_layer: id,
+        parent_view: id,
         scale_factor: f64,
         bounds_height: f64,
     }
@@ -99,7 +104,7 @@ mod mac {
                 let bounds: CGRect = msg_send![view, bounds];
 
                 LayerContext {
-                    root_layer: layer,
+                    parent_view: view,
                     scale_factor: if scale == 0.0 { 1.0 } else { scale },
                     bounds_height: bounds.size.height,
                 }
@@ -160,7 +165,7 @@ mod mac {
             if frames.is_empty() {
                 for layer in layers.values() {
                     unsafe {
-                        let () = msg_send![layer.layer.as_id(), removeFromSuperlayer];
+                        layer.detach();
                     }
                 }
                 layers.clear();
@@ -179,7 +184,7 @@ mod mac {
                     true
                 } else {
                     unsafe {
-                        let () = msg_send![layer.layer.as_id(), removeFromSuperlayer];
+                        layer.detach();
                     }
                     false
                 }
@@ -193,9 +198,7 @@ mod mac {
             if let Ok(mut layers) = self.layers.lock() {
                 for layer in layers.values() {
                     unsafe {
-                        let layer_id = layer.layer.as_id();
-                        let () = msg_send![layer_id, setPlayer: nil];
-                        let () = msg_send![layer_id, removeFromSuperlayer];
+                        layer.detach();
                     }
                 }
                 layers.clear();
@@ -204,12 +207,18 @@ mod mac {
     }
 
     struct VideoLayer {
+        view: RetainedId,
         layer: RetainedId,
     }
 
     impl VideoLayer {
         fn new(_widget_id: WidgetNodeId, player: &RetainedId, ctx: &LayerContext) -> Self {
             unsafe {
+                let frame = CGRect::new(&CGPoint::new(0.0, 0.0), &CGSize::new(1.0, 1.0));
+                let view_alloc: id = msg_send![class!(NSView), alloc];
+                let view: id = msg_send![view_alloc, initWithFrame: frame];
+                let () = msg_send![view, setWantsLayer: YES];
+
                 let layer: id =
                     msg_send![class!(AVPlayerLayer), playerLayerWithPlayer: player.as_id()];
                 let gravity = NSString::alloc(nil).init_str("AVLayerVideoGravityResizeAspect");
@@ -221,8 +230,15 @@ mod mac {
                 // let () = msg_send![layer, setBackgroundColor: red];
                 let () = msg_send![layer, setZPosition: 1.0f64];
 
-                let () = msg_send![ctx.root_layer, addSublayer: layer];
+                let () = msg_send![view, setLayer: layer];
+                let () = msg_send![
+                    ctx.parent_view,
+                    addSubview: view
+                    positioned: NSWindowOrderingMode::NSWindowAbove
+                    relativeTo: nil
+                ];
                 Self {
+                    view: RetainedId::owned(view),
                     layer: RetainedId::new(layer),
                 }
             }
@@ -234,9 +250,21 @@ mod mac {
                 let () = msg_send![layer_id, setContentsScale: ctx.scale_factor];
                 let () = msg_send![layer_id, setPlayer: player.as_id()];
                 let cg_rect = cg_rect_from_layout(rect, ctx);
-                let () = msg_send![layer_id, setFrame: cg_rect];
-                let () = msg_send![ctx.root_layer, addSublayer: layer_id];
+                let view_id = self.view.as_id();
+                let () = msg_send![view_id, setFrame: cg_rect];
+                let () = msg_send![
+                    ctx.parent_view,
+                    addSubview: view_id
+                    positioned: NSWindowOrderingMode::NSWindowAbove
+                    relativeTo: nil
+                ];
             }
+        }
+
+        unsafe fn detach(&self) {
+            let layer_id = self.layer.as_id();
+            let () = msg_send![layer_id, setPlayer: nil];
+            let () = msg_send![self.view.as_id(), removeFromSuperview];
         }
     }
 

@@ -369,7 +369,7 @@ impl Widget<InboxState> for EmailDetail {
                                         loop_playback: false,
                                         ..Default::default()
                                     }
-                                    .into_node(),
+                                    .build(ctx, view),
                                 ),
                             }
                             .build(ctx, view),

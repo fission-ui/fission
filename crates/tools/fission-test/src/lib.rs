@@ -6,7 +6,9 @@ use fission_core::{
 };
 use fission_ir::{CoreIR, NodeId};
 use fission_layout::{LayoutEngine, LayoutSize, LayoutSnapshot, TextMeasurer};
-use fission_render::{BoxShadow, Color, DisplayList, DisplayOp, LayoutRect, RenderScene, Renderer};
+use fission_render::{
+    embed_surface_id, BoxShadow, Color, DisplayList, DisplayOp, LayoutRect, RenderScene, Renderer,
+};
 use fission_render_vello::parley::FontContext;
 use fission_render_vello::VelloTextMeasurer;
 use fission_theme::fonts;
@@ -275,6 +277,7 @@ impl<S: AppState> TestHarness<S> {
                 self.runtime.clear_reducers();
                 let animation_requests = ctx.take_animation_requests();
                 let video_nodes = ctx.take_video_registrations();
+                let web_nodes = ctx.take_web_registrations();
                 let portals_with_ids = ctx.take_portals();
 
                 let portals = portals_with_ids
@@ -299,6 +302,7 @@ impl<S: AppState> TestHarness<S> {
                     self.runtime.enqueue_animation(target, request);
                 }
                 self.runtime.sync_video_nodes(&video_nodes);
+                self.runtime.sync_web_nodes(&web_nodes);
 
                 if portals.is_empty() {
                     tree
@@ -817,6 +821,17 @@ fn generate_display_list_with_visited(
                         path: path.clone(),
                         fill: fill.as_ref().map(map_fill),
                         stroke: stroke.as_ref().map(map_stroke),
+                        bounds: geom.rect,
+                        node_id: Some(node_id),
+                    });
+                }
+                fission_ir::Op::Layout(fission_ir::LayoutOp::Embed {
+                    kind, widget_id, ..
+                }) => {
+                    list.push(DisplayOp::DrawSurface {
+                        rect: geom.rect,
+                        surface_id: embed_surface_id(kind, *widget_id),
+                        position: 0,
                         bounds: geom.rect,
                         node_id: Some(node_id),
                     });

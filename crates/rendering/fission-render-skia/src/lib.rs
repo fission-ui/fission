@@ -1,17 +1,20 @@
 use anyhow::Result;
 use fission_layout::TextMeasurer;
-use fission_theme::fonts;
 use fission_render::{
-    BoxShadow, Color as RenderColor, DisplayList, DisplayOp, Fill, ImageFit, RenderScene,
-    Renderer, Stroke,
+    surface_placeholder_color, BoxShadow, Color as RenderColor, DisplayList, DisplayOp, Fill,
+    ImageFit, RenderScene, Renderer, Stroke,
+};
+use fission_theme::fonts;
+use once_cell::sync::OnceCell;
+use skia_safe::textlayout::{
+    FontCollection, ParagraphBuilder, ParagraphStyle, TextDecoration, TextStyle,
+    TypefaceFontProvider,
 };
 use skia_safe::wrapper::NativeTransmutableWrapper;
 use skia_safe::{
     BlurStyle, Canvas, Color as SkColor, Data, Font, FontArguments, FontMetrics, FontMgr,
     MaskFilter, Matrix, Paint, RRect, Rect, Typeface, Vector,
 };
-use skia_safe::textlayout::{ParagraphBuilder, ParagraphStyle, TextDecoration, TextStyle, FontCollection, TypefaceFontProvider};
-use once_cell::sync::OnceCell;
 use std::fs;
 
 pub struct SkiaRenderer<'a> {
@@ -42,7 +45,13 @@ fn default_typeface() -> &'static Typeface {
 
 impl SkiaTextMeasurer {
     // Private helper to build a paragraph
-    fn build_paragraph_internal(&self, text: &str, font_size: f32, color: SkColor, max_width: Option<f32>) -> skia_safe::textlayout::Paragraph {
+    fn build_paragraph_internal(
+        &self,
+        text: &str,
+        font_size: f32,
+        color: SkColor,
+        max_width: Option<f32>,
+    ) -> skia_safe::textlayout::Paragraph {
         let mut collection = FontCollection::new();
         let mut provider = TypefaceFontProvider::new();
         provider.register_typeface(default_typeface().clone(), Some("Default"));
@@ -57,9 +66,9 @@ impl SkiaTextMeasurer {
 
         let mut builder = ParagraphBuilder::new(&style, collection);
         builder.add_text(text);
-        
+
         let mut paragraph = builder.build();
-        let width = max_width.unwrap_or(10000.0); 
+        let width = max_width.unwrap_or(10000.0);
         paragraph.layout(width);
         paragraph
     }
@@ -67,30 +76,56 @@ impl SkiaTextMeasurer {
 
 impl TextMeasurer for SkiaTextMeasurer {
     fn measure(&self, text: &str, font_size: f32, available_width: Option<f32>) -> (f32, f32) {
-        let paragraph = self.build_paragraph_internal(text, font_size, SkColor::BLACK, available_width);
+        let paragraph =
+            self.build_paragraph_internal(text, font_size, SkColor::BLACK, available_width);
         (paragraph.max_width(), paragraph.height())
     }
 
-    fn hit_test(&self, text: &str, font_size: f32, available_width: Option<f32>, x: f32, y: f32) -> usize {
-        let paragraph = self.build_paragraph_internal(text, font_size, SkColor::BLACK, available_width);
+    fn hit_test(
+        &self,
+        text: &str,
+        font_size: f32,
+        available_width: Option<f32>,
+        x: f32,
+        y: f32,
+    ) -> usize {
+        let paragraph =
+            self.build_paragraph_internal(text, font_size, SkColor::BLACK, available_width);
         let pos = paragraph.get_glyph_position_at_coordinate((x, y));
         pos.position as usize
     }
 
-    fn get_line_metrics(&self, text: &str, font_size: f32, available_width: Option<f32>) -> Vec<fission_layout::LineMetric> {
-        let paragraph = self.build_paragraph_internal(text, font_size, SkColor::BLACK, available_width);
-        paragraph.get_line_metrics().into_iter().map(|lm| fission_layout::LineMetric {
-            start_index: lm.start_index as usize,
-            end_index: lm.end_index as usize,
-            baseline: lm.baseline as f32,
-            height: lm.height as f32,
-            width: lm.width as f32,
-        }).collect()
+    fn get_line_metrics(
+        &self,
+        text: &str,
+        font_size: f32,
+        available_width: Option<f32>,
+    ) -> Vec<fission_layout::LineMetric> {
+        let paragraph =
+            self.build_paragraph_internal(text, font_size, SkColor::BLACK, available_width);
+        paragraph
+            .get_line_metrics()
+            .into_iter()
+            .map(|lm| fission_layout::LineMetric {
+                start_index: lm.start_index as usize,
+                end_index: lm.end_index as usize,
+                baseline: lm.baseline as f32,
+                height: lm.height as f32,
+                width: lm.width as f32,
+            })
+            .collect()
     }
 
-    fn get_caret_position(&self, text: &str, font_size: f32, available_width: Option<f32>, caret_index: usize) -> (f32, f32) {
-        let paragraph = self.build_paragraph_internal(text, font_size, SkColor::BLACK, available_width);
-        
+    fn get_caret_position(
+        &self,
+        text: &str,
+        font_size: f32,
+        available_width: Option<f32>,
+        caret_index: usize,
+    ) -> (f32, f32) {
+        let paragraph =
+            self.build_paragraph_internal(text, font_size, SkColor::BLACK, available_width);
+
         let line_metrics = paragraph.get_line_metrics();
         let mut caret_x = 0.0;
         let mut caret_y = 0.0;
@@ -99,7 +134,8 @@ impl TextMeasurer for SkiaTextMeasurer {
             if caret_index >= lm.start_index as usize && caret_index <= lm.end_index as usize {
                 // Caret is on this line. Calculate X position within this line.
                 let text_on_line = &text[lm.start_index as usize..caret_index];
-                let (width_until_caret, _) = self.measure(text_on_line, font_size, Some(lm.width as f32)); // Measure sub-segment, constrained by line width
+                let (width_until_caret, _) =
+                    self.measure(text_on_line, font_size, Some(lm.width as f32)); // Measure sub-segment, constrained by line width
                 caret_x = width_until_caret;
                 caret_y = lm.baseline as f32; // Use baseline as Y for caret position.
                 break;
@@ -140,7 +176,8 @@ impl<'r> SkiaRenderer<'r> {
                         *radius,
                         *radius,
                     );
-                    self.canvas.clip_rrect(rrect, skia_safe::ClipOp::Intersect, true);
+                    self.canvas
+                        .clip_rrect(rrect, skia_safe::ClipOp::Intersect, true);
                 }
                 DisplayOp::OpacityLayer { alpha, bounds } => {
                     let rect = Rect::new(bounds.x(), bounds.y(), bounds.right(), bounds.bottom());
@@ -156,11 +193,7 @@ impl<'r> SkiaRenderer<'r> {
                     let m11 = matrix[5];
                     let m03 = matrix[12];
                     let m13 = matrix[13];
-                    let m = Matrix::new_all(
-                        m00, m01, m03,
-                        m10, m11, m13,
-                        0.0, 0.0, 1.0,
-                    );
+                    let m = Matrix::new_all(m00, m01, m03, m10, m11, m13, 0.0, 0.0, 1.0);
                     self.canvas.concat(&m);
                 }
                 DisplayOp::CachedScene { list, .. } => {
@@ -277,7 +310,7 @@ impl<'r> SkiaRenderer<'r> {
                     } else {
                         None
                     };
-                    
+
                     let mut collection = FontCollection::new();
                     let mut provider = TypefaceFontProvider::new();
                     provider.register_typeface(default_typeface().clone(), Some("Default"));
@@ -292,9 +325,9 @@ impl<'r> SkiaRenderer<'r> {
 
                     let mut builder = ParagraphBuilder::new(&style, collection);
                     builder.add_text(text);
-                    
+
                     let mut paragraph = builder.build();
-                    let width = max_width.unwrap_or(10000.0); 
+                    let width = max_width.unwrap_or(10000.0);
                     paragraph.layout(width);
 
                     paragraph.paint(self.canvas, (position.x, position.y));
@@ -318,18 +351,23 @@ impl<'r> SkiaRenderer<'r> {
                         let mut text_style = skia_safe::textlayout::TextStyle::new();
                         text_style.set_font_families(&["Default"]);
                         text_style.set_font_size(run.style.font_size);
-                        text_style.set_color(SkColor::from_argb(run.style.color.a, run.style.color.r, run.style.color.g, run.style.color.b));
+                        text_style.set_color(SkColor::from_argb(
+                            run.style.color.a,
+                            run.style.color.r,
+                            run.style.color.g,
+                            run.style.color.b,
+                        ));
                         paragraph_builder.push_style(&text_style);
                         paragraph_builder.add_text(&run.text);
                     }
-                    
+
                     let mut paragraph = paragraph_builder.build();
                     let max_width = if *wrap && bounds.width() > 0.0 {
                         Some(bounds.width())
                     } else {
                         None
                     };
-                    let width = max_width.unwrap_or(10000.0); 
+                    let width = max_width.unwrap_or(10000.0);
                     paragraph.layout(width);
 
                     paragraph.paint(self.canvas, (position.x, position.y));
@@ -398,10 +436,8 @@ impl<'r> SkiaRenderer<'r> {
                     ..
                 } => {
                     let mut paint = Paint::default();
-                    let r = ((surface_id * 50 + position / 20) % 255) as u8;
-                    let g = ((surface_id * 30 + position / 30) % 255) as u8;
-                    let b = ((surface_id * 70 + position / 40) % 255) as u8;
-                    paint.set_color(SkColor::from_rgb(r, g, b));
+                    let color = surface_placeholder_color(*surface_id, *position);
+                    paint.set_color(SkColor::from_rgb(color.r, color.g, color.b));
 
                     self.canvas.draw_rect(
                         Rect::new(rect.x(), rect.y(), rect.right(), rect.bottom()),

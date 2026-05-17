@@ -1,7 +1,7 @@
 use anyhow::{anyhow, Result};
 use fission_render::{
-    Color as RenderColor, DisplayList, DisplayOp, Fill, ImageFit, LineCap, LineJoin, RenderScene,
-    Stroke, TextRun,
+    surface_placeholder_color, Color as RenderColor, DisplayList, DisplayOp, Fill, ImageFit,
+    LineCap, LineJoin, RenderScene, Stroke, TextRun,
 };
 use fontdue::{
     layout::{CoordinateSystem, Layout, LayoutSettings, TextStyle as FontdueTextStyle},
@@ -574,12 +574,7 @@ impl SoftwareRenderer {
                     position,
                     ..
                 } => {
-                    let color = RenderColor {
-                        r: ((surface_id * 50 + position / 20) % 255) as u8,
-                        g: ((surface_id * 30 + position / 30) % 255) as u8,
-                        b: ((surface_id * 70 + position / 40) % 255) as u8,
-                        a: 255,
-                    };
+                    let color = surface_placeholder_color(*surface_id, *position);
                     self.draw_rect(*rect, Some(&Fill::Solid(color)), None, 0.0, None)?;
                 }
             }

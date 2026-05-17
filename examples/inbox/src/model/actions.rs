@@ -47,9 +47,6 @@ pub struct OpenSystemLink(pub String);
 pub struct OpenInAppLink(pub String);
 
 #[fission_action]
-pub struct StartAuth;
-
-#[fission_action]
 pub struct SelectFolder(pub Folder);
 
 #[fission_action]

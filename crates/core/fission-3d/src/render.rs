@@ -39,10 +39,26 @@ impl Vertex {
 
 pub struct Scene3DRenderer {
     pipeline: RenderPipeline,
+    uniform_layout: wgpu::BindGroupLayout,
     depth_texture: Texture,
     depth_view: TextureView,
     width: u32,
     height: u32,
+}
+
+#[repr(C)]
+#[derive(Copy, Clone, Debug, Pod, Zeroable)]
+struct SceneUniforms {
+    aspect: f32,
+    _pad: [f32; 3],
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Scene3DViewport {
+    pub x: f32,
+    pub y: f32,
+    pub width: f32,
+    pub height: f32,
 }
 
 impl Scene3DRenderer {
@@ -52,9 +68,23 @@ impl Scene3DRenderer {
             source: wgpu::ShaderSource::Wgsl(include_str!("shader.wgsl").into()),
         });
 
+        let uniform_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("fission-3d uniforms layout"),
+            entries: &[wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::VERTEX,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            }],
+        });
+
         let pipeline_layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
             label: Some("fission-3d layout"),
-            bind_group_layouts: &[],
+            bind_group_layouts: &[&uniform_layout],
             push_constant_ranges: &[],
         });
 
@@ -81,7 +111,7 @@ impl Scene3DRenderer {
                 topology: PrimitiveTopology::TriangleList,
                 strip_index_format: None,
                 front_face: wgpu::FrontFace::Ccw,
-                cull_mode: Some(wgpu::Face::Back),
+                cull_mode: None,
                 unclipped_depth: false,
                 polygon_mode: wgpu::PolygonMode::Fill,
                 conservative: false,
@@ -123,6 +153,7 @@ impl Scene3DRenderer {
             pipeline,
             depth_texture,
             depth_view,
+            uniform_layout,
             width,
             height,
         }
@@ -155,6 +186,53 @@ impl Scene3DRenderer {
     }
 
     pub fn render(&mut self, device: &Device, queue: &Queue, view: &TextureView, scene: &Scene3D) {
+        self.render_in_rect(
+            device,
+            queue,
+            view,
+            scene,
+            Scene3DViewport {
+                x: 0.0,
+                y: 0.0,
+                width: self.width as f32,
+                height: self.height as f32,
+            },
+        );
+    }
+
+    pub fn render_in_rect(
+        &mut self,
+        device: &Device,
+        queue: &Queue,
+        view: &TextureView,
+        scene: &Scene3D,
+        viewport: Scene3DViewport,
+    ) {
+        let Some((viewport, scissor)) = clamp_scene3d_viewport(viewport, self.width, self.height)
+        else {
+            return;
+        };
+
+        use wgpu::util::DeviceExt;
+
+        let uniforms = SceneUniforms {
+            aspect: (viewport.width / viewport.height).max(0.01),
+            _pad: [0.0; 3],
+        };
+        let uniform_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("fission-3d uniforms"),
+            contents: bytemuck::bytes_of(&uniforms),
+            usage: wgpu::BufferUsages::UNIFORM,
+        });
+        let uniform_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("fission-3d uniforms bind group"),
+            layout: &self.uniform_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: uniform_buffer.as_entire_binding(),
+            }],
+        });
+
         // Construct mesh for primitives
         let mut vertices: Vec<Vertex> = Vec::new();
         let mut indices: Vec<u32> = Vec::new();
@@ -170,14 +248,6 @@ impl Scene3DRenderer {
                 } => {
                     let hs = size / 2.0;
                     let (x, y, z) = (center.x, center.y, center.z);
-                    let base_idx = vertices.len() as u32;
-                    let c = [
-                        color.r as f32 / 255.0,
-                        color.g as f32 / 255.0,
-                        color.b as f32 / 255.0,
-                        color.a as f32 / 255.0,
-                    ];
-
                     let p = [
                         [x - hs, y - hs, z - hs],
                         [x + hs, y - hs, z - hs],
@@ -188,68 +258,7 @@ impl Scene3DRenderer {
                         [x + hs, y + hs, z + hs],
                         [x - hs, y + hs, z + hs],
                     ];
-
-                    for pos in p {
-                        vertices.push(Vertex {
-                            position: pos,
-                            color: c,
-                        });
-                    }
-
-                    // Front
-                    indices.extend_from_slice(&[
-                        base_idx,
-                        base_idx + 1,
-                        base_idx + 2,
-                        base_idx,
-                        base_idx + 2,
-                        base_idx + 3,
-                    ]);
-                    // Back
-                    indices.extend_from_slice(&[
-                        base_idx + 5,
-                        base_idx + 4,
-                        base_idx + 7,
-                        base_idx + 5,
-                        base_idx + 7,
-                        base_idx + 6,
-                    ]);
-                    // Left
-                    indices.extend_from_slice(&[
-                        base_idx + 4,
-                        base_idx,
-                        base_idx + 3,
-                        base_idx + 4,
-                        base_idx + 3,
-                        base_idx + 7,
-                    ]);
-                    // Right
-                    indices.extend_from_slice(&[
-                        base_idx + 1,
-                        base_idx + 5,
-                        base_idx + 6,
-                        base_idx + 1,
-                        base_idx + 6,
-                        base_idx + 2,
-                    ]);
-                    // Top
-                    indices.extend_from_slice(&[
-                        base_idx + 3,
-                        base_idx + 2,
-                        base_idx + 6,
-                        base_idx + 3,
-                        base_idx + 6,
-                        base_idx + 7,
-                    ]);
-                    // Bottom
-                    indices.extend_from_slice(&[
-                        base_idx + 4,
-                        base_idx + 5,
-                        base_idx + 1,
-                        base_idx + 4,
-                        base_idx + 1,
-                        base_idx,
-                    ]);
+                    push_cube(&mut vertices, &mut indices, p, color);
                 }
                 Primitive3D::Sphere {
                     center,
@@ -329,7 +338,6 @@ impl Scene3DRenderer {
             return;
         }
 
-        use wgpu::util::DeviceExt;
         let v_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("fission-3d vbuf"),
             contents: bytemuck::cast_slice(&vertices),
@@ -370,11 +378,198 @@ impl Scene3DRenderer {
             });
 
             rpass.set_pipeline(&self.pipeline);
+            rpass.set_bind_group(0, &uniform_bind_group, &[]);
+            rpass.set_viewport(
+                viewport.x,
+                viewport.y,
+                viewport.width,
+                viewport.height,
+                0.0,
+                1.0,
+            );
+            rpass.set_scissor_rect(scissor.0, scissor.1, scissor.2, scissor.3);
             rpass.set_vertex_buffer(0, v_buf.slice(..));
             rpass.set_index_buffer(i_buf.slice(..), wgpu::IndexFormat::Uint32);
             rpass.draw_indexed(0..indices.len() as u32, 0, 0..1);
         }
 
         queue.submit(std::iter::once(encoder.finish()));
+    }
+}
+
+fn push_cube(
+    vertices: &mut Vec<Vertex>,
+    indices: &mut Vec<u32>,
+    p: [[f32; 3]; 8],
+    color: &fission_core::op::Color,
+) {
+    push_face(vertices, indices, [p[0], p[1], p[2], p[3]], color, 0.86);
+    push_face(vertices, indices, [p[5], p[4], p[7], p[6]], color, 0.64);
+    push_face(vertices, indices, [p[4], p[0], p[3], p[7]], color, 0.72);
+    push_face(vertices, indices, [p[1], p[5], p[6], p[2]], color, 1.0);
+    push_face(vertices, indices, [p[3], p[2], p[6], p[7]], color, 1.18);
+    push_face(vertices, indices, [p[4], p[5], p[1], p[0]], color, 0.52);
+}
+
+fn push_face(
+    vertices: &mut Vec<Vertex>,
+    indices: &mut Vec<u32>,
+    positions: [[f32; 3]; 4],
+    color: &fission_core::op::Color,
+    shade: f32,
+) {
+    let base_idx = vertices.len() as u32;
+    let color = shaded_color(color, shade);
+    for position in positions {
+        vertices.push(Vertex { position, color });
+    }
+    indices.extend_from_slice(&[
+        base_idx,
+        base_idx + 1,
+        base_idx + 2,
+        base_idx,
+        base_idx + 2,
+        base_idx + 3,
+    ]);
+}
+
+fn shaded_color(color: &fission_core::op::Color, shade: f32) -> [f32; 4] {
+    [
+        ((color.r as f32 / 255.0) * shade).clamp(0.0, 1.0),
+        ((color.g as f32 / 255.0) * shade).clamp(0.0, 1.0),
+        ((color.b as f32 / 255.0) * shade).clamp(0.0, 1.0),
+        color.a as f32 / 255.0,
+    ]
+}
+
+fn clamp_scene3d_viewport(
+    viewport: Scene3DViewport,
+    target_width: u32,
+    target_height: u32,
+) -> Option<(Scene3DViewport, (u32, u32, u32, u32))> {
+    if target_width == 0
+        || target_height == 0
+        || !viewport.x.is_finite()
+        || !viewport.y.is_finite()
+        || !viewport.width.is_finite()
+        || !viewport.height.is_finite()
+        || viewport.width <= 0.0
+        || viewport.height <= 0.0
+    {
+        return None;
+    }
+
+    let target_width_f = target_width as f32;
+    let target_height_f = target_height as f32;
+    let x0 = viewport.x.max(0.0).min(target_width_f);
+    let y0 = viewport.y.max(0.0).min(target_height_f);
+    let x1 = (viewport.x + viewport.width).max(0.0).min(target_width_f);
+    let y1 = (viewport.y + viewport.height).max(0.0).min(target_height_f);
+
+    if x1 <= x0 || y1 <= y0 {
+        return None;
+    }
+
+    let scissor_x = x0.floor() as u32;
+    let scissor_y = y0.floor() as u32;
+    let scissor_right = (x1.ceil() as u32).min(target_width);
+    let scissor_bottom = (y1.ceil() as u32).min(target_height);
+    let scissor_width = scissor_right.saturating_sub(scissor_x);
+    let scissor_height = scissor_bottom.saturating_sub(scissor_y);
+
+    if scissor_width == 0 || scissor_height == 0 {
+        return None;
+    }
+
+    Some((
+        Scene3DViewport {
+            x: x0,
+            y: y0,
+            width: x1 - x0,
+            height: y1 - y0,
+        },
+        (scissor_x, scissor_y, scissor_width, scissor_height),
+    ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{clamp_scene3d_viewport, push_cube, Scene3DViewport};
+    use fission_core::op::Color;
+
+    #[test]
+    fn viewport_clamps_to_render_target() {
+        let (viewport, scissor) = clamp_scene3d_viewport(
+            Scene3DViewport {
+                x: -10.0,
+                y: 20.25,
+                width: 130.0,
+                height: 90.0,
+            },
+            100,
+            80,
+        )
+        .expect("viewport should intersect target");
+
+        assert_eq!(
+            viewport,
+            Scene3DViewport {
+                x: 0.0,
+                y: 20.25,
+                width: 100.0,
+                height: 59.75,
+            }
+        );
+        assert_eq!(scissor, (0, 20, 100, 60));
+    }
+
+    #[test]
+    fn viewport_outside_target_is_skipped() {
+        assert!(clamp_scene3d_viewport(
+            Scene3DViewport {
+                x: 120.0,
+                y: 0.0,
+                width: 20.0,
+                height: 20.0,
+            },
+            100,
+            80,
+        )
+        .is_none());
+    }
+
+    #[test]
+    fn cube_mesh_duplicates_faces_with_shading() {
+        let mut vertices = Vec::new();
+        let mut indices = Vec::new();
+        let p = [
+            [-1.0, -1.0, -1.0],
+            [1.0, -1.0, -1.0],
+            [1.0, 1.0, -1.0],
+            [-1.0, 1.0, -1.0],
+            [-1.0, -1.0, 1.0],
+            [1.0, -1.0, 1.0],
+            [1.0, 1.0, 1.0],
+            [-1.0, 1.0, 1.0],
+        ];
+
+        push_cube(
+            &mut vertices,
+            &mut indices,
+            p,
+            &Color {
+                r: 20,
+                g: 184,
+                b: 166,
+                a: 255,
+            },
+        );
+
+        assert_eq!(vertices.len(), 24);
+        assert_eq!(indices.len(), 36);
+        let first_face_color = vertices[0].color;
+        assert!(vertices
+            .iter()
+            .any(|vertex| vertex.color != first_face_color));
     }
 }

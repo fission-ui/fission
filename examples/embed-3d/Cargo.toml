@@ -1,0 +1,16 @@
+[package]
+name = "embed-3d"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "embed_3d"
+
+[dependencies]
+anyhow = "1.0"
+fission = { path = "../../crates/authoring/fission" }
+fission-3d = { path = "../../crates/core/fission-3d" }
+serde = { version = "1.0", features = ["derive"] }
+
+[dev-dependencies]
+fission-test = { path = "../../crates/tools/fission-test" }

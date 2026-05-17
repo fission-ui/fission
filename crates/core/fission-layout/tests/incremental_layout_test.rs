@@ -2,7 +2,10 @@ use fission_ir::op::{Color, TextRun, TextStyle};
 use fission_ir::{FlexDirection, LayoutOp as IrLayoutOp, NodeId};
 use fission_layout::{LayoutEngine, LayoutInputNode, LayoutSize, TextMeasurer};
 use std::collections::HashSet;
-use std::sync::{Arc, atomic::{AtomicUsize, Ordering}};
+use std::sync::{
+    atomic::{AtomicUsize, Ordering},
+    Arc,
+};
 
 #[derive(Clone)]
 struct CountingMeasurer {
@@ -158,7 +161,15 @@ fn incremental_layout_reuses_clean_sibling_subtrees() {
         "clean sibling subtree should be reused"
     );
     assert!(
-        second.get_node_geometry(second_id).unwrap().content_size.width
-            > first.get_node_geometry(second_id).unwrap().content_size.width
+        second
+            .get_node_geometry(second_id)
+            .unwrap()
+            .content_size
+            .width
+            > first
+                .get_node_geometry(second_id)
+                .unwrap()
+                .content_size
+                .width
     );
 }

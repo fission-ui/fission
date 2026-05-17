@@ -23,9 +23,9 @@ use fission_core::env::VideoStatus;
 use fission_core::lowering::LoweringContext;
 use fission_core::ui::custom_render::downcast_render_object;
 use fission_core::{
-    Action, ActionId, AlertRequest, AppState, AuthenticateRequest, BuildCtx, Env, InputEvent,
-    KeyCode, KeyEvent as FissionKeyEvent, OpenUrlRequest, PointerButton, PointerEvent, Runtime,
-    RuntimeEffect, ServiceBindings, View, Widget, AUTHENTICATE, OPEN_URL, SHOW_ALERT,
+    Action, ActionId, AppState, BuildCtx, Env, InputEvent, KeyCode, KeyEvent as FissionKeyEvent,
+    OpenUrlRequest, PointerButton, PointerEvent, Runtime, RuntimeEffect, ServiceBindings, View,
+    Widget, OPEN_URL,
 };
 use fission_core::{ActionInput, CapabilityInvocationPayload, Effect};
 use fission_diagnostics::prelude as diag;
@@ -65,6 +65,11 @@ mod video_backend;
 use video_backend::MacVideoBackend;
 #[cfg(not(target_os = "macos"))]
 use video_backend::MockVideoBackend;
+mod web_backend;
+#[cfg(target_os = "macos")]
+use web_backend::MacWebBackend;
+#[cfg(not(target_os = "macos"))]
+use web_backend::MockWebBackend;
 
 mod clipboard;
 use clipboard::DesktopClipboard;
@@ -108,21 +113,6 @@ fn register_builtin_operation_capabilities(async_registry: &mut AsyncRegistry) {
         |request: OpenUrlRequest, _| async move {
             let _ = request.in_app;
             open_host_url(&request.url).map_err(|error| error.to_string())?;
-            Ok(())
-        },
-    );
-    async_registry.register_operation_capability(
-        AUTHENTICATE,
-        |request: AuthenticateRequest, _| async move {
-            let _ = request.callback_scheme;
-            open_host_url(&request.url).map_err(|error| error.to_string())?;
-            Ok(())
-        },
-    );
-    async_registry.register_operation_capability(
-        SHOW_ALERT,
-        |request: AlertRequest, _| async move {
-            eprintln!("[alert] {}: {}", request.title, request.message);
             Ok(())
         },
     );
@@ -537,11 +527,7 @@ fn pending_work_redraw_interval(
     }
 }
 
-fn resize_is_unsettled(
-    pending_resize: bool,
-    needs_settled_frame: bool,
-    live_resize: bool,
-) -> bool {
+fn resize_is_unsettled(pending_resize: bool, needs_settled_frame: bool, live_resize: bool) -> bool {
     pending_resize || needs_settled_frame || live_resize
 }
 
@@ -2223,6 +2209,10 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
         let video_backend: Arc<dyn VideoBackend> = Arc::new(MacVideoBackend::new(&window));
         #[cfg(not(target_os = "macos"))]
         let video_backend: Arc<dyn VideoBackend> = Arc::new(MockVideoBackend::new());
+        #[cfg(target_os = "macos")]
+        let web_backend = MacWebBackend::new(&window);
+        #[cfg(not(target_os = "macos"))]
+        let web_backend = MockWebBackend::new();
         let mut players: HashMap<WidgetNodeId, ActivePlayer> = HashMap::new();
 
         let mut last_cursor_position: Option<PhysicalPosition<f64>> = None;
@@ -2814,10 +2804,10 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                         let now = Instant::now();
 
                         // Video Logic
-                        let surfaces = pipeline.take_video_surfaces();
+                        let mut surfaces = pipeline.video_surfaces.clone();
                         let mut active_nodes = std::collections::HashSet::new();
 
-                        for surface in &surfaces {
+                        for surface in &mut surfaces {
                             active_nodes.insert(surface.widget_id);
 
                             // Create player if missing
@@ -2826,8 +2816,9 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                     let source = &state.asset_source;
                                     if !source.is_empty() {
                                         let player = video_backend.create_player(source);
+                                        surface.surface_id = player.surface_id();
                                         if let Some(state) = runtime.runtime_state.video.states.get_mut(&surface.widget_id) {
-                                            state.surface_id = Some(player.surface_id());
+                                            state.surface_id = Some(surface.surface_id);
                                         }
                                         players.insert(surface.widget_id, ActivePlayer {
                                             player,
@@ -2838,6 +2829,8 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                         });
                                     }
                                 }
+                            } else if let Some(active_player) = players.get(&surface.widget_id) {
+                                surface.surface_id = active_player.player.surface_id();
                             }
                         }
 
@@ -2846,6 +2839,8 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
 
                         // Update backend
                         video_backend.present_surfaces(&surfaces);
+                        let web_surfaces = pipeline.web_surfaces.clone();
+                        web_backend.present_surfaces(&web_surfaces);
 
                         // Video Logic - Process Player Events and Sync State
                         for (widget_id, active_player) in players.iter_mut() {
@@ -3797,20 +3792,27 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                             }
                                         }
 
-                                        for (_, _rect, payload) in &pipeline.scene_3d_surfaces {
+                                        for (_, rect, payload) in &pipeline.scene_3d_surfaces {
                                             if let Ok(primitives) =
                                                 bincode::deserialize::<Vec<fission_3d::Primitive3D>>(payload)
                                             {
                                                 let scene3d = fission_3d::Scene3D {
-                                                    width: Some(render_target_size.0 as f32),
-                                                    height: Some(render_target_size.1 as f32),
+                                                    width: Some(rect.size.width),
+                                                    height: Some(rect.size.height),
                                                     primitives,
                                                 };
-                                                render_state.scene3d_renderer.render(
+                                                let scale = scale_factor as f32;
+                                                render_state.scene3d_renderer.render_in_rect(
                                                     &device_handle.device,
                                                     &device_handle.queue,
                                                     &render_state.surface.target_view,
                                                     &scene3d,
+                                                    fission_3d::render::Scene3DViewport {
+                                                        x: rect.origin.x * scale,
+                                                        y: rect.origin.y * scale,
+                                                        width: rect.size.width * scale,
+                                                        height: rect.size.height * scale,
+                                                    },
                                                 );
                                             }
                                         }
@@ -4531,13 +4533,12 @@ mod tests {
         animation_redraw_interval, clamp_copy_extent_to_texture, cursor_icon_for,
         downscale_rgba_box, layout_size_to_image_dimensions, logical_viewport_to_physical_size,
         logical_viewport_to_render_target_size, native_window_size_for_logical_viewport,
-        normalize_scale_factor, physical_size_to_layout_size,
-        resize_is_unsettled, resolve_build_viewport,
-        repeating_animation_redraw_interval, sync_tracked_target_texture_size_to_surface,
+        normalize_scale_factor, physical_size_to_layout_size, repeating_animation_redraw_interval,
+        resize_is_unsettled, resolve_build_viewport, sync_tracked_target_texture_size_to_surface,
         texture_plans_fit_device_limits, LiveResizeController, WindowViewportState,
     };
-    use crate::InvalidationSet;
     use crate::pipeline::CompositorTexturePlan;
+    use crate::InvalidationSet;
     use fission_core::env::{ActiveAnimation, AnimationStateMap};
     use fission_core::{AnimationPropertyId, WidgetNodeId};
     use fission_ir::semantics::MouseCursor;
@@ -4684,7 +4685,11 @@ mod tests {
         resize.note_resize(now);
 
         assert!(resize.is_live(now + Duration::from_millis(30)));
-        assert!(resize_is_unsettled(false, false, resize.is_live(now + Duration::from_millis(30))));
+        assert!(resize_is_unsettled(
+            false,
+            false,
+            resize.is_live(now + Duration::from_millis(30))
+        ));
         assert!(!resize.is_live(now + Duration::from_millis(95)));
     }
 
@@ -4709,8 +4714,7 @@ mod tests {
         let target = LayoutSize::new(1024.0, 768.0);
         let mut invalidations = InvalidationSet::default();
 
-        let build_viewport =
-            resolve_build_viewport(Some(target), target, true, &mut invalidations);
+        let build_viewport = resolve_build_viewport(Some(target), target, true, &mut invalidations);
 
         assert!(!invalidations.build);
         assert_eq!(build_viewport, target);
@@ -4875,8 +4879,9 @@ mod tests {
 
     #[test]
     fn logical_resize_requests_logical_window_dimensions() {
-        let requested =
-            native_window_size_for_logical_viewport(fission_layout::LayoutSize::new(1600.0, 2200.0));
+        let requested = native_window_size_for_logical_viewport(fission_layout::LayoutSize::new(
+            1600.0, 2200.0,
+        ));
 
         assert_eq!(requested.width, 1600.0);
         assert_eq!(requested.height, 2200.0);

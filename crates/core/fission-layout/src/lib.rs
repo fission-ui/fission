@@ -33,8 +33,8 @@ use fission_diagnostics::prelude as diag;
 use fission_ir::op::{RichTextAnnotation, TextParagraphStyle, TextRun};
 use fission_ir::{FlexDirection as IrFlexDirection, FlexWrap as IrFlexWrap, NodeId};
 use serde::{Deserialize, Serialize};
-use std::collections::{HashMap, HashSet};
 use std::collections::hash_map::DefaultHasher;
+use std::collections::{HashMap, HashSet};
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
@@ -486,7 +486,6 @@ impl LayoutGraphState {
         self.rebuild_topology(validation);
     }
 
-
     fn rebuild_topology(&mut self, mut validation: LayoutGraphValidationState) {
         self.parents.clear();
         self.children.clear();
@@ -598,7 +597,11 @@ mod tests {
     use super::{LayoutEngine, LayoutGraphState, LayoutInputNode};
     use fission_ir::{LayoutOp, NodeId};
 
-    fn box_node(id: NodeId, parent_id: Option<NodeId>, children_ids: Vec<NodeId>) -> LayoutInputNode {
+    fn box_node(
+        id: NodeId,
+        parent_id: Option<NodeId>,
+        children_ids: Vec<NodeId>,
+    ) -> LayoutInputNode {
         LayoutInputNode {
             id,
             parent_id,
@@ -1087,7 +1090,15 @@ impl LayoutEngine {
         if !self.graph_state.nodes.contains_key(&root) {
             anyhow::bail!("[verify] missing node {:?}", root);
         }
-        if !self.graph_state.roots.contains(&root) && self.graph_state.parents.get(&root).copied().flatten().is_some() {
+        if !self.graph_state.roots.contains(&root)
+            && self
+                .graph_state
+                .parents
+                .get(&root)
+                .copied()
+                .flatten()
+                .is_some()
+        {
             anyhow::bail!("[verify] root {:?} is not a graph root", root);
         }
         if let Some(last_layout_version) = self.graph_state.last_layout_version {
@@ -1468,7 +1479,8 @@ impl LayoutEngine {
         let Some(previous_geometry) = reuse.previous_snapshot.nodes.get(&node_id) else {
             return Ok(None);
         };
-        let Some(previous_constraints) = reuse.previous_snapshot.constraints.get(&node_id).copied() else {
+        let Some(previous_constraints) = reuse.previous_snapshot.constraints.get(&node_id).copied()
+        else {
             return Ok(None);
         };
         if previous_constraints != current_constraints {
@@ -1485,8 +1497,11 @@ impl LayoutEngine {
             let Some(previous_geometry) = reuse.previous_snapshot.nodes.get(&current_id) else {
                 return Ok(None);
             };
-            let Some(previous_constraints) =
-                reuse.previous_snapshot.constraints.get(&current_id).copied()
+            let Some(previous_constraints) = reuse
+                .previous_snapshot
+                .constraints
+                .get(&current_id)
+                .copied()
             else {
                 return Ok(None);
             };
@@ -1615,30 +1630,30 @@ impl LayoutEngine {
                 let mut measured_children: Vec<(NodeId, BoxConstraints, LayoutSize)> = Vec::new();
                 if !rich_text_inline_children {
                     for child_id in &flow_children {
-                        let (child_width, child_height, child_max_width, child_max_height) =
-                            self.graph_state
-                                .node(*child_id)
-                                .map(|child| match &child.op {
-                                    LayoutOp::Box {
-                                        width,
-                                        height,
-                                        max_width,
-                                        max_height,
-                                        ..
-                                    } => (*width, *height, *max_width, *max_height),
-                                    LayoutOp::Scroll {
-                                        width,
-                                        height,
-                                        max_width,
-                                        max_height,
-                                        ..
-                                    } => (*width, *height, *max_width, *max_height),
-                                    LayoutOp::Embed { width, height, .. } => {
-                                        (*width, *height, None, None)
-                                    }
-                                    _ => (None, None, None, None),
-                                })
-                                .unwrap_or((None, None, None, None));
+                        let (child_width, child_height, child_max_width, child_max_height) = self
+                            .graph_state
+                            .node(*child_id)
+                            .map(|child| match &child.op {
+                                LayoutOp::Box {
+                                    width,
+                                    height,
+                                    max_width,
+                                    max_height,
+                                    ..
+                                } => (*width, *height, *max_width, *max_height),
+                                LayoutOp::Scroll {
+                                    width,
+                                    height,
+                                    max_width,
+                                    max_height,
+                                    ..
+                                } => (*width, *height, *max_width, *max_height),
+                                LayoutOp::Embed { width, height, .. } => {
+                                    (*width, *height, None, None)
+                                }
+                                _ => (None, None, None, None),
+                            })
+                            .unwrap_or((None, None, None, None));
                         let mut child_constraints = base_child_constraints;
                         let stretch_width = child_constraints.min_w == child_constraints.max_w
                             && child_width.is_none()
@@ -1698,7 +1713,7 @@ impl LayoutEngine {
                                 child_id,
                                 abs_constraints,
                                 origin,
-                            out,
+                                out,
                                 constraints_out,
                                 measure_cache,
                                 scroll_source,
@@ -1935,7 +1950,7 @@ impl LayoutEngine {
                                 child_id,
                                 child_constraints,
                                 child_origin,
-                            out,
+                                out,
                                 constraints_out,
                                 measure_cache,
                                 scroll_source,
@@ -1955,7 +1970,7 @@ impl LayoutEngine {
                                 child_id,
                                 abs_constraints,
                                 origin,
-                            out,
+                                out,
                                 constraints_out,
                                 measure_cache,
                                 scroll_source,
@@ -2228,7 +2243,7 @@ impl LayoutEngine {
                                     entry.id,
                                     child_constraints,
                                     LayoutPoint::ZERO,
-                            out,
+                                    out,
                                     constraints_out,
                                     measure_cache,
                                     scroll_source,
@@ -2385,7 +2400,7 @@ impl LayoutEngine {
                                 child_id,
                                 abs_constraints,
                                 origin,
-                            out,
+                                out,
                                 constraints_out,
                                 measure_cache,
                                 scroll_source,
@@ -2549,7 +2564,7 @@ impl LayoutEngine {
                         *child_id,
                         cell_constraints,
                         LayoutPoint::ZERO,
-                            out,
+                        out,
                         constraints_out,
                         measure_cache,
                         scroll_source,
@@ -2635,7 +2650,7 @@ impl LayoutEngine {
                         *child_id,
                         constraints,
                         origin,
-                            out,
+                        out,
                         constraints_out,
                         measure_cache,
                         scroll_source,
@@ -2675,7 +2690,7 @@ impl LayoutEngine {
                         *child_id,
                         child_constraints,
                         LayoutPoint::ZERO,
-                            out,
+                        out,
                         constraints_out,
                         measure_cache,
                         scroll_source,
@@ -2708,7 +2723,7 @@ impl LayoutEngine {
                                 child_id,
                                 abs_constraints,
                                 origin,
-                            out,
+                                out,
                                 constraints_out,
                                 measure_cache,
                                 scroll_source,
@@ -2729,7 +2744,7 @@ impl LayoutEngine {
                         *child_id,
                         child_constraints,
                         LayoutPoint::ZERO,
-                            out,
+                        out,
                         constraints_out,
                         measure_cache,
                         scroll_source,
@@ -2760,7 +2775,7 @@ impl LayoutEngine {
                         *child_id,
                         child_constraints,
                         LayoutPoint::new(origin.x + dx, origin.y + dy),
-                            out,
+                        out,
                         constraints_out,
                         measure_cache,
                         scroll_source,
@@ -2794,7 +2809,7 @@ impl LayoutEngine {
                         *child_id,
                         BoxConstraints::loose(constraints.max_w, constraints.max_h),
                         LayoutPoint::ZERO,
-                            out,
+                        out,
                         constraints_out,
                         measure_cache,
                         scroll_source,
@@ -2827,7 +2842,7 @@ impl LayoutEngine {
                         *child_id,
                         child_constraints,
                         child_origin,
-                            out,
+                        out,
                         constraints_out,
                         measure_cache,
                         scroll_source,
@@ -2880,7 +2895,7 @@ impl LayoutEngine {
                         *child_id,
                         child_constraints,
                         LayoutPoint::ZERO,
-                            out,
+                        out,
                         constraints_out,
                         measure_cache,
                         scroll_source,
@@ -2901,7 +2916,7 @@ impl LayoutEngine {
                         *child_id,
                         child_constraints,
                         LayoutPoint::new(origin.x + x, origin.y + y),
-                            out,
+                        out,
                         constraints_out,
                         measure_cache,
                         scroll_source,
@@ -2937,7 +2952,7 @@ impl LayoutEngine {
                         *child_id,
                         BoxConstraints::tight(size),
                         origin,
-                            out,
+                        out,
                         constraints_out,
                         measure_cache,
                         scroll_source,
@@ -2955,7 +2970,7 @@ impl LayoutEngine {
                         *child_id,
                         constraints,
                         origin,
-                            out,
+                        out,
                         constraints_out,
                         measure_cache,
                         scroll_source,
@@ -2985,7 +3000,7 @@ impl LayoutEngine {
                         *child_id,
                         loose,
                         origin,
-                            out,
+                        out,
                         constraints_out,
                         measure_cache,
                         scroll_source,
@@ -3055,7 +3070,7 @@ impl LayoutEngine {
                                     inline_box.height,
                                 )),
                                 LayoutPoint::new(origin.x + inline_box.x, origin.y + inline_box.y),
-                            out,
+                                out,
                                 constraints_out,
                                 measure_cache,
                                 scroll_source,

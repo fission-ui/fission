@@ -262,7 +262,9 @@ impl<'a, S: AppState> Effects<'a, S> {
     }
 
     pub fn release_resource(&mut self, resource_id: u64) {
-        self.add(Effect::Runtime(RuntimeEffect::ReleaseResource { resource_id }));
+        self.add(Effect::Runtime(RuntimeEffect::ReleaseResource {
+            resource_id,
+        }));
     }
 }
 

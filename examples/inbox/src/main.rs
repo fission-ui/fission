@@ -16,9 +16,7 @@ mod model;
 
 use components::{EmailDetail, EmailList, RightSidebar, Sidebar};
 use features::{BrowserModal, ComposeModal, ContactsModal, SettingsModal};
-use fission_core::{
-    ActionRegistry, AuthenticateRequest, OpenUrlRequest, ReducerContext, AUTHENTICATE, OPEN_URL,
-};
+use fission_core::{ActionRegistry, OpenUrlRequest, ReducerContext, OPEN_URL};
 use model::*;
 
 // --- APP ---
@@ -267,20 +265,6 @@ fn on_open_in_app_link(
         OpenUrlRequest {
             url: action.0,
             in_app: true,
-        },
-    );
-}
-
-fn on_start_auth(
-    _state: &mut InboxState,
-    _action: StartAuth,
-    ctx: &mut ReducerContext<InboxState>,
-) {
-    ctx.effects.capability(
-        AUTHENTICATE,
-        AuthenticateRequest {
-            url: "https://auth.example.com/login".into(),
-            callback_scheme: "fission-inbox://callback".into(),
         },
     );
 }
@@ -635,7 +619,6 @@ fn main() -> anyhow::Result<()> {
     let mut registry = ActionRegistry::new();
     registry.register(reduce_with!(on_open_system_link));
     registry.register(reduce_with!(on_open_in_app_link));
-    registry.register(reduce_with!(on_start_auth));
 
     app.absorb_registry(registry);
 

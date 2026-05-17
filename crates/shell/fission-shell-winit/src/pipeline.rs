@@ -1,3 +1,4 @@
+use crate::web_backend::WebSurfaceFrame;
 use anyhow::Result;
 use fission_core::diff::diff_ir;
 use fission_core::env::{AnimationStateMap, Env, VideoStateMap, WebStateMap};
@@ -12,8 +13,8 @@ use fission_ir::{
 };
 use fission_layout::{LayoutEngine, LayoutInputNode, LayoutRect, LayoutSize, LayoutSnapshot};
 use fission_render::{
-    BoxShadow, Color as RenderColor, DisplayList, DisplayOp, Fill, LayerClip, RenderLayer,
-    RenderNode, RenderScene, Renderer, Stroke,
+    embed_surface_id, BoxShadow, Color as RenderColor, DisplayList, DisplayOp, Fill, LayerClip,
+    RenderLayer, RenderNode, RenderScene, Renderer, Stroke,
 };
 use fission_shell::VideoSurfaceFrame;
 use serde::Serialize;
@@ -163,6 +164,7 @@ pub struct Pipeline {
     boundary_cache: HashMap<NodeId, BoundaryCacheEntry>,
     pub last_scroll_offsets: HashMap<NodeId, u32>,
     pub video_surfaces: Vec<VideoSurfaceFrame>,
+    pub web_surfaces: Vec<WebSurfaceFrame>,
     pub scene_3d_surfaces: Vec<(WidgetNodeId, LayoutRect, Vec<u8>)>,
     pub last_viewport: Option<LayoutRect>,
     pub layout_invariant_violation_count: u32,
@@ -198,6 +200,7 @@ impl Pipeline {
             boundary_cache: HashMap::new(),
             last_scroll_offsets: HashMap::new(),
             video_surfaces: Vec::new(),
+            web_surfaces: Vec::new(),
             scene_3d_surfaces: Vec::new(),
             last_viewport: None,
             layout_invariant_violation_count: 0,
@@ -219,6 +222,10 @@ impl Pipeline {
 
     pub fn take_video_surfaces(&mut self) -> Vec<VideoSurfaceFrame> {
         std::mem::take(&mut self.video_surfaces)
+    }
+
+    pub fn take_web_surfaces(&mut self) -> Vec<WebSurfaceFrame> {
+        std::mem::take(&mut self.web_surfaces)
     }
 
     pub fn invalidate_layout_all(&mut self) {
@@ -370,7 +377,7 @@ impl Pipeline {
         scroll_map: &ScrollStateMap,
         animation_map: &AnimationStateMap,
         video_map: &VideoStateMap,
-        _web_map: &WebStateMap,
+        web_map: &WebStateMap,
     ) -> Result<PipelineStats> {
         let render_viewport = LayoutRect::new(
             0.0,
@@ -401,6 +408,7 @@ impl Pipeline {
             .expect("snapshot missing before render");
 
         self.video_surfaces.clear();
+        self.web_surfaces.clear();
         self.scene_3d_surfaces.clear();
         if let Some(root) = ir.root {
             collect_video_surfaces(
@@ -408,9 +416,11 @@ impl Pipeline {
                 ir,
                 snapshot,
                 video_map,
+                web_map,
                 scroll_map,
                 LayoutPoint::ZERO,
                 &mut self.video_surfaces,
+                &mut self.web_surfaces,
                 &mut self.scene_3d_surfaces,
             );
         }
@@ -1682,14 +1692,34 @@ fn push_video_surface(
     }
 }
 
+fn push_web_surface(
+    web_surfaces: &mut Vec<WebSurfaceFrame>,
+    widget_id: WidgetNodeId,
+    rect: LayoutRect,
+    web_map: &WebStateMap,
+) {
+    if let Some(state) = web_map.states.get(&widget_id) {
+        if !state.url.trim().is_empty() {
+            web_surfaces.push(WebSurfaceFrame {
+                widget_id,
+                url: state.url.clone(),
+                user_agent: state.user_agent.clone(),
+                rect,
+            });
+        }
+    }
+}
+
 fn collect_video_surfaces(
     node_id: NodeId,
     ir: &CoreIR,
     snapshot: &LayoutSnapshot,
     video_map: &VideoStateMap,
+    web_map: &WebStateMap,
     scroll_map: &ScrollStateMap,
     accumulated_offset: LayoutPoint,
     video_surfaces: &mut Vec<VideoSurfaceFrame>,
+    web_surfaces: &mut Vec<WebSurfaceFrame>,
     scene_3d_surfaces: &mut Vec<(WidgetNodeId, LayoutRect, Vec<u8>)>,
 ) {
     let mut visited = HashSet::new();
@@ -1698,9 +1728,11 @@ fn collect_video_surfaces(
         ir,
         snapshot,
         video_map,
+        web_map,
         scroll_map,
         accumulated_offset,
         video_surfaces,
+        web_surfaces,
         scene_3d_surfaces,
         &mut visited,
     );
@@ -1711,9 +1743,11 @@ fn collect_video_surfaces_with_visited(
     ir: &CoreIR,
     snapshot: &LayoutSnapshot,
     video_map: &VideoStateMap,
+    web_map: &WebStateMap,
     scroll_map: &ScrollStateMap,
     accumulated_offset: LayoutPoint,
     video_surfaces: &mut Vec<VideoSurfaceFrame>,
+    web_surfaces: &mut Vec<WebSurfaceFrame>,
     scene_3d_surfaces: &mut Vec<(WidgetNodeId, LayoutRect, Vec<u8>)>,
     visited: &mut HashSet<NodeId>,
 ) {
@@ -1743,6 +1777,14 @@ fn collect_video_surfaces_with_visited(
             let translated_rect = translate_rect(geom.rect, accumulated_offset);
             push_video_surface(video_surfaces, *widget_id, translated_rect, video_map);
         } else if let Op::Layout(LayoutOp::Embed {
+            kind: EmbedKind::Web,
+            widget_id,
+            ..
+        }) = &node.op
+        {
+            let translated_rect = translate_rect(geom.rect, accumulated_offset);
+            push_web_surface(web_surfaces, *widget_id, translated_rect, web_map);
+        } else if let Op::Layout(LayoutOp::Embed {
             kind: EmbedKind::Custom(payload),
             widget_id,
             ..
@@ -1758,9 +1800,11 @@ fn collect_video_surfaces_with_visited(
                 ir,
                 snapshot,
                 video_map,
+                web_map,
                 scroll_map,
                 child_offset,
                 video_surfaces,
+                web_surfaces,
                 scene_3d_surfaces,
                 visited,
             );
@@ -1942,6 +1986,17 @@ fn build_local_paint_list(
                 content: content.clone(),
                 fill: fill.as_ref().map(map_fill),
                 stroke: stroke.as_ref().map(map_stroke),
+                bounds: rect,
+                node_id: Some(node_id),
+            });
+        }
+        Op::Layout(LayoutOp::Embed {
+            kind, widget_id, ..
+        }) => {
+            list.push(DisplayOp::DrawSurface {
+                rect,
+                surface_id: embed_surface_id(kind, *widget_id),
+                position: 0,
                 bounds: rect,
                 node_id: Some(node_id),
             });
@@ -2229,8 +2284,8 @@ mod tests {
     use fission_ir::op::{Color, Fill, RichTextAnnotation, TextRun, TextStyle};
     use fission_ir::semantics::ActionTrigger;
     use fission_ir::{
-        ActionEntry, CompositeScalar, CompositeStyle, CoreIR, LayoutOp, NodeId, Op, PaintOp,
-        WidgetNodeId,
+        ActionEntry, CompositeScalar, CompositeStyle, CoreIR, EmbedKind, LayoutOp, NodeId, Op,
+        PaintOp, WidgetNodeId,
     };
     use fission_layout::{LayoutEngine, LayoutRect, LayoutSize};
     use fission_render::{DisplayOp, RenderScene, Renderer};
@@ -2413,6 +2468,41 @@ mod tests {
                 );
             }
             other => panic!("expected rich text op, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn embed_layout_ops_flow_into_surface_display_ops() {
+        let node_id = NodeId::derived(14, &[0]);
+        let widget_id = WidgetNodeId::explicit("embed.surface");
+        let mut ir = CoreIR::new();
+        ir.add_node(
+            node_id,
+            Op::Layout(LayoutOp::Embed {
+                kind: EmbedKind::Web,
+                widget_id,
+                width: Some(320.0),
+                height: Some(180.0),
+            }),
+            vec![],
+        );
+
+        let node = ir.nodes.get(&node_id).expect("embed node");
+        let rect = LayoutRect::new(12.0, 24.0, 320.0, 180.0);
+        let list = build_local_paint_list(&ir, node_id, node, rect).expect("display list");
+
+        match list.ops.first() {
+            Some(DisplayOp::DrawSurface {
+                rect: surface_rect,
+                bounds,
+                node_id: Some(surface_node_id),
+                ..
+            }) => {
+                assert_eq!(*surface_rect, rect);
+                assert_eq!(*bounds, rect);
+                assert_eq!(*surface_node_id, node_id);
+            }
+            other => panic!("expected surface display op, got {other:?}"),
         }
     }
 

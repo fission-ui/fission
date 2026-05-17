@@ -69,23 +69,6 @@ pub enum CapabilityInvocationPayload {
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
-pub struct AlertRequest {
-    pub title: String,
-    pub message: String,
-}
-
-pub struct AlertCapability;
-
-impl OperationCapability for AlertCapability {
-    type Request = AlertRequest;
-    type Ok = ();
-    type Err = String;
-}
-
-pub const SHOW_ALERT: CapabilityType<AlertCapability> =
-    CapabilityType::new("fission.ui.alert");
-
-#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub struct OpenUrlRequest {
     pub url: String,
     pub in_app: bool,
@@ -99,25 +82,7 @@ impl OperationCapability for OpenUrlCapability {
     type Err = String;
 }
 
-pub const OPEN_URL: CapabilityType<OpenUrlCapability> =
-    CapabilityType::new("fission.ui.open_url");
-
-#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
-pub struct AuthenticateRequest {
-    pub url: String,
-    pub callback_scheme: String,
-}
-
-pub struct AuthenticateCapability;
-
-impl OperationCapability for AuthenticateCapability {
-    type Request = AuthenticateRequest;
-    type Ok = ();
-    type Err = String;
-}
-
-pub const AUTHENTICATE: CapabilityType<AuthenticateCapability> =
-    CapabilityType::new("fission.auth.external_session");
+pub const OPEN_URL: CapabilityType<OpenUrlCapability> = CapabilityType::new("fission.ui.open_url");
 
 /// Generic request for opening one or more local/user-granted files.
 ///
@@ -189,5 +154,18 @@ mod tests {
         let bytes = serde_json::to_vec(&result).unwrap();
         let decoded: PickOpenFilesResult = serde_json::from_slice(&bytes).unwrap();
         assert_eq!(decoded, result);
+    }
+
+    #[test]
+    fn open_url_round_trips() {
+        let request = OpenUrlRequest {
+            url: "https://fission.dev".into(),
+            in_app: false,
+        };
+
+        let bytes = serde_json::to_vec(&request).unwrap();
+        let decoded: OpenUrlRequest = serde_json::from_slice(&bytes).unwrap();
+
+        assert_eq!(decoded, request);
     }
 }

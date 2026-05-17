@@ -1,4 +1,4 @@
-use crate::model::{InboxState, OpenInAppLink, OpenSystemLink, StartAuth, ToggleBrowserDemo};
+use crate::model::{InboxState, OpenInAppLink, OpenSystemLink, ToggleBrowserDemo};
 use fission_core::ui::{Container, Node, Text};
 use fission_core::{reduce_with, BuildCtx, View, Widget, WidgetNodeId};
 use fission_widgets::{HStack, Modal, ModalAction, VStack, WebView};
@@ -42,6 +42,8 @@ impl Widget<InboxState> for BrowserModal {
                                         id: WidgetNodeId::explicit("demo_webview"),
                                         url: view.state.browser_url.clone(),
                                         user_agent: None,
+                                        width: Some(webview_width),
+                                        height: Some(300.0),
                                     }
                                     .build(ctx, view),
                                 )
@@ -89,25 +91,6 @@ impl Widget<InboxState> for BrowserModal {
                                     ],
                                 }
                                 .into_node(),
-                            ],
-                        }
-                        .into_node(),
-                        // Section 3: Auth
-                        VStack {
-                            spacing: Some(8.0),
-                            children: vec![
-                                Text::new("Mechanism 3: Secure Auth").size(16.0).into_node(),
-                                fission_widgets::Button {
-                                    variant: fission_widgets::ButtonVariant::Filled,
-                                    child: Some(Box::new(
-                                        Text::new("Log in with Provider")
-                                            .color(tokens.colors.on_primary)
-                                            .into_node(),
-                                    )),
-                                    on_press: Some(StartAuth.into()),
-                                    ..Default::default()
-                                }
-                                .build(ctx, view),
                             ],
                         }
                         .into_node(),

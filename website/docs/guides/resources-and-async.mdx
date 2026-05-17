@@ -83,7 +83,7 @@ A common mistake is starting the same job repeatedly from `build()`. If the work
 
 A capability looks similar to a job from the reducer's point of view, but it has a different purpose.
 
-A capability is for host or device work that belongs to the shell side of the app boundary. Opening a web address, starting an authentication session, or showing a native file picker are good examples. Fission ships typed built-in capabilities such as `OPEN_URL`, `AUTHENTICATE`, and `PICK_OPEN_FILES`.
+A capability is for host or device work that belongs to the shell side of the app boundary. Opening a web address or showing a native file picker are good examples. Fission currently ships typed built-in capabilities such as `OPEN_URL` and `PICK_OPEN_FILES`. Product-specific host work, such as authentication, payments, or device integrations, should be modeled as custom capabilities registered by the shell.
 
 Use a capability when the question is not "run my app logic in the background" but "ask the host to do something that only the host can do."
 
@@ -119,7 +119,7 @@ Why keep capabilities separate from reducers? For the same reason as jobs: reduc
 
 Do not use a capability for ordinary application background work that could run as a job or service. If the work does not need the host boundary, a capability is usually the wrong abstraction.
 
-A common mistake is treating capabilities as a generic escape hatch for anything asynchronous. Resist that temptation. Use them for host-owned actions specifically.
+A common mistake is treating capabilities as a generic escape hatch for anything asynchronous. Resist that temptation. Use them for host-owned actions specifically. If the user interface should show an alert inside your app, build it with Fission UI. Reach for a capability only when the host itself must own the operation.
 
 ## Services: long-lived external conversations
 

@@ -9,7 +9,13 @@ const startHere = ['counter', 'widget-gallery', 'text-lab'].map((slug) => exampl
 const productionExamples = ['inbox', 'terminal', 'editor', 'chart-gallery'].map(
   (slug) => exampleMap.get(slug)!,
 );
-const surfaceExamples = ['animation-gallery', 'icons-gallery'].map((slug) => exampleMap.get(slug)!);
+const surfaceExamples = [
+  'animation-gallery',
+  'icons-gallery',
+  'embed-video',
+  'embed-webview',
+  'embed-3d',
+].map((slug) => exampleMap.get(slug)!);
 const targetExamples = ['web-smoke', 'mobile-smoke'].map((slug) => exampleMap.get(slug)!);
 
 const routes = [

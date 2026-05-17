@@ -8,8 +8,8 @@ use fission_ir::op::{
     TextParagraphStyle, TextWidthBasis,
 };
 use fission_render::{
-    Color as RenderColor, DisplayList, DisplayOp, LayerClip, RenderLayer, RenderNode, RenderScene,
-    Renderer, TextStyle as RenderTextStyle,
+    surface_placeholder_color, Color as RenderColor, DisplayList, DisplayOp, LayerClip,
+    RenderLayer, RenderNode, RenderScene, Renderer, TextStyle as RenderTextStyle,
 };
 use vello::kurbo::{Affine, BezPath, Rect, RoundedRect};
 // Minimal imports from peniko
@@ -2405,7 +2405,27 @@ impl<'a> VelloRenderer<'a> {
                         }
                     }
                 }
-                DisplayOp::DrawSurface { .. } => {}
+                DisplayOp::DrawSurface {
+                    rect,
+                    surface_id,
+                    position,
+                    ..
+                } => {
+                    let color = surface_placeholder_color(*surface_id, *position);
+                    let shape = Rect::new(
+                        rect.origin.x as f64,
+                        rect.origin.y as f64,
+                        (rect.origin.x + rect.size.width) as f64,
+                        (rect.origin.y + rect.size.height) as f64,
+                    );
+                    self.scene.fill(
+                        Fill::NonZero,
+                        self.current_transform,
+                        Color::from_rgba8(color.r, color.g, color.b, color.a),
+                        None,
+                        &shape,
+                    );
+                }
             }
         }
         Ok(())

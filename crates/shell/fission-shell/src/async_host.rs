@@ -1,6 +1,6 @@
 use fission_core::{
-    ActionEnvelope, BoxFuture, CapabilityCtx, CapabilityType, JobCtx, JobRef,
-    JobSpec, OperationCapability, ResourceExecutionContext, ServiceCtx, ServiceRunner, ServiceSpec,
+    ActionEnvelope, BoxFuture, CapabilityCtx, CapabilityType, JobCtx, JobRef, JobSpec,
+    OperationCapability, ResourceExecutionContext, ServiceCtx, ServiceRunner, ServiceSpec,
     ServiceType,
 };
 use std::collections::HashMap;

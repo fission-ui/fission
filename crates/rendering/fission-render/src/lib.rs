@@ -1,5 +1,5 @@
-use fission_ir::op::{RichTextAnnotation, TextParagraphStyle};
-use fission_ir::NodeId;
+use fission_ir::op::{EmbedKind, RichTextAnnotation, TextParagraphStyle};
+use fission_ir::{NodeId, WidgetNodeId};
 pub use fission_layout::{LayoutPoint, LayoutRect, LayoutSize, LayoutUnit};
 use serde::{Deserialize, Serialize};
 
@@ -175,6 +175,25 @@ pub enum DisplayOp {
     },
 }
 
+pub fn embed_surface_id(kind: &EmbedKind, widget_id: WidgetNodeId) -> u64 {
+    let kind_tag = match kind {
+        EmbedKind::Video => 0xF151_0000_0000_0001,
+        EmbedKind::Web => 0xF151_0000_0000_0002,
+        EmbedKind::Custom(_) => 0xF151_0000_0000_0003,
+    };
+    let raw = widget_id.as_u128();
+    (raw as u64) ^ ((raw >> 64) as u64).rotate_left(13) ^ kind_tag
+}
+
+pub fn surface_placeholder_color(surface_id: u64, position: u64) -> Color {
+    Color {
+        r: (surface_id.wrapping_mul(50).wrapping_add(position / 20) % 255) as u8,
+        g: (surface_id.wrapping_mul(30).wrapping_add(position / 30) % 255) as u8,
+        b: (surface_id.wrapping_mul(70).wrapping_add(position / 40) % 255) as u8,
+        a: 255,
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct DisplayList {
     pub ops: Vec<DisplayOp>,
@@ -326,5 +345,32 @@ pub trait Renderer {
 
     fn render(&mut self, display_list: &DisplayList) -> anyhow::Result<()> {
         self.render_scene(&RenderScene::from_display_list(display_list.clone()))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{embed_surface_id, surface_placeholder_color};
+    use fission_ir::{EmbedKind, WidgetNodeId};
+
+    #[test]
+    fn embed_surface_id_is_stable_and_kind_specific() {
+        let id = WidgetNodeId::explicit("embed.demo");
+
+        assert_eq!(
+            embed_surface_id(&EmbedKind::Video, id),
+            embed_surface_id(&EmbedKind::Video, id)
+        );
+        assert_ne!(
+            embed_surface_id(&EmbedKind::Video, id),
+            embed_surface_id(&EmbedKind::Web, id)
+        );
+    }
+
+    #[test]
+    fn surface_placeholder_color_uses_wrapping_arithmetic() {
+        let color = surface_placeholder_color(u64::MAX, u64::MAX);
+
+        assert_eq!(color.a, 255);
     }
 }

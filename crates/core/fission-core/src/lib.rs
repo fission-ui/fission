@@ -67,10 +67,9 @@ pub use async_runtime::{
     ServiceRunner, ServiceSlot, ServiceSpec, ServiceType,
 };
 pub use capability::{
-    AlertCapability, AlertRequest, AuthenticateCapability, AuthenticateRequest, CapabilityCtx,
-    CapabilityInvocationPayload, CapabilityType, OpenUrlCapability, OpenUrlRequest,
+    CapabilityCtx, CapabilityInvocationPayload, CapabilityType, OpenUrlCapability, OpenUrlRequest,
     OperationCapability, PickOpenFilesCapability, PickOpenFilesError, PickOpenFilesRequest,
-    PickOpenFilesResult, PickedFile, AUTHENTICATE, OPEN_URL, PICK_OPEN_FILES, SHOW_ALERT,
+    PickOpenFilesResult, PickedFile, OPEN_URL, PICK_OPEN_FILES,
 };
 pub use context::{Effects, ReducerContext}; // New
 pub use effect::{ActionInput, Effect, EffectEnvelope, RuntimeEffect};

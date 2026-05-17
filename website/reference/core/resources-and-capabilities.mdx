@@ -17,15 +17,82 @@ That difference is the most important thing to keep clear when using this page.
 
 A capability is the public contract for asking the host to perform an operation the shared app should not perform directly.
 
-Examples include opening a web address, starting an external authentication flow, showing a native alert, or opening a user-granted file picker. Fission exposes built-in capability IDs such as `SHOW_ALERT`, `OPEN_URL`, `AUTHENTICATE`, and `PICK_OPEN_FILES`.
+Examples include opening a web address or opening a user-granted file picker. Fission currently ships built-in capability IDs for `OPEN_URL` and `PICK_OPEN_FILES`.
 
 The public types behind this surface include `OperationCapability`, `CapabilityType<C>`, and `CapabilityCtx`.
+
+Authentication flows and native operating-system alerts are deliberately not built in right now. If you need an in-app alert, use normal Fission UI such as `Modal`, `Drawer`, `Toast`, or your own overlay. If you need a true host-owned prompt or a product-specific authentication flow, define a custom capability and register a shell provider for the hosts that support it.
 
 A capability invocation is the act of requesting one of these operations through `ctx.effects.capability(...)` with a typed request payload. The reducer chooses that operation explicitly, and the runtime routes the eventual success or error back through follow-up actions.
 
 Use a capability when the host boundary is the reason the work exists.
 
 Do not use a capability as a generic async escape hatch for ordinary app-owned background work. If the host does not need to do it, it is probably better modeled as a job or service.
+
+### Defining your own operation capability
+
+Application and library authors can add capabilities without changing `fission-core`. A capability is just a typed contract plus a shell-side provider.
+
+```rust
+use fission::prelude::*;
+use serde::{Deserialize, Serialize};
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct StartPaymentRequest {
+    pub checkout_id: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct StartPaymentOk {
+    pub receipt_id: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct StartPaymentErr {
+    pub message: String,
+}
+
+pub struct StartPaymentCapability;
+
+impl OperationCapability for StartPaymentCapability {
+    type Request = StartPaymentRequest;
+    type Ok = StartPaymentOk;
+    type Err = StartPaymentErr;
+}
+
+pub const START_PAYMENT: CapabilityType<StartPaymentCapability> =
+    CapabilityType::new("com.example.payment.start");
+```
+
+Reducers invoke it the same way they invoke built-ins:
+
+```rust
+ctx.effects
+    .capability(
+        START_PAYMENT,
+        StartPaymentRequest {
+            checkout_id: state.checkout_id.clone(),
+        },
+    )
+    .on_ok(ctx.effects.bind(PaymentFinished, reduce_with!(on_payment_finished)))
+    .on_err(ctx.effects.bind(PaymentFailed, reduce_with!(on_payment_failed)));
+```
+
+The host shell chooses whether to support that capability and registers the provider:
+
+```rust
+app.with_async(|asyncs| {
+    asyncs.register_operation_capability(
+        START_PAYMENT,
+        |request: StartPaymentRequest, _ctx| async move {
+            let receipt_id = run_host_payment_flow(request.checkout_id).await?;
+            Ok(StartPaymentOk { receipt_id })
+        },
+    );
+});
+```
+
+Use reverse-DNS names such as `com.example.payment.start` for application-specific capabilities. That avoids collisions with framework-owned names such as `fission.ui.open_url`.
 
 ## Resources
 

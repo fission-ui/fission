@@ -5,7 +5,7 @@ description: Ask the host to do platform-specific work without hiding side effec
 
 # Run typed host work
 
-Sooner or later, every real app needs something that the operating system, browser, or device must do on its behalf. Opening a native file picker, opening an external web address, or starting an authentication prompt are common examples.
+Sooner or later, every real app needs something that the operating system, browser, or device must do on its behalf. Opening a native file picker, opening an external web address, or handing a product-specific flow to the host are common examples.
 
 In Fission, this is called host work.
 
@@ -227,7 +227,7 @@ This is worth noticing. The widget tree stays simple because host work is not hi
 
 This recipe used both a capability and a job because the feature crosses two boundaries.
 
-Use a capability when only the host can do the work. Native file pickers, authentication prompts, opening external web addresses, and similar device or operating-system tasks belong here.
+Use a capability when only the host can do the work. Native file pickers, opening external web addresses, payment handoffs, authentication handoffs, and similar device or operating-system tasks belong here. Fission ships `OPEN_URL` and `PICK_OPEN_FILES`; app-specific operations should define their own `OperationCapability` and register a provider in the shell.
 
 Use a job when the work is app-owned, one-shot, and request-and-response shaped. Parsing imported bytes, saving a document, loading one response from a web service, or generating one export all fit that shape.
 

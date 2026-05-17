@@ -41,6 +41,8 @@ let help_panel = WebView {
     id: WidgetNodeId::explicit("help_docs"),
     url: view.state.help_url.clone(),
     user_agent: None,
+    width: Some(480.0),
+    height: Some(320.0),
 }
 .build(ctx, view);
 ```
@@ -56,6 +58,8 @@ The important part is not the `clone()` call. It is the ownership model behind i
 | `id` | `WidgetNodeId` | Stable identity for the embedded browser node. | Required. The runtime uses it as the key in `runtime.web.states`. |
 | `url` | `String` | The page the embedded surface should load. | Required. When the runtime sees this value change, it updates the registered web state and marks it as loading. |
 | `user_agent` | `Option<String>` | Optional custom user-agent string for the embedded surface. | Defaults to `None`. The runtime stores the requested value with the registration. |
+| `width` | `Option<f32>` | Requested layout width for the embedded surface. | Use `Some(...)` for a fixed-size panel. Use `None` when the parent layout should decide the width. |
+| `height` | `Option<f32>` | Requested layout height for the embedded surface. | Use `Some(...)` for a fixed-height panel. Use `None` when the parent layout should decide the height. |
 
 ## State ownership and trade-offs
 

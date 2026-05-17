@@ -214,13 +214,10 @@ app.with_async(|asyncs| {
 
 Current first-party capabilities in `fission-core` are:
 
-- `SHOW_ALERT`
 - `OPEN_URL`
-- `AUTHENTICATE`
 - `PICK_OPEN_FILES`
 
-These are the current operation-capability slice. They do not yet represent the full capability
-architecture described in ADR 0003.
+Native alerts, authentication handoffs, payment handoffs, and product-specific device integrations should be modeled as custom operation capabilities registered by the shell that supports them. These are the current operation-capability slice. They do not yet represent the full capability architecture described in ADR 0003.
 
 ### 6.2 Current file capability shape
 
