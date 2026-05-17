@@ -1,5 +1,5 @@
 use fission_core::{
-    reduce_with, AppState, BuildCtx, JobRef, JobResource, ReducerContext, ResourceKey, Runtime,
+    with_reducer, AppState, BuildCtx, JobRef, JobResource, ReducerContext, ResourceKey, Runtime,
     TimerResource,
 };
 use serde::{Deserialize, Serialize};
@@ -12,15 +12,13 @@ struct TestState {
 
 impl AppState for TestState {}
 
-#[fission_macros::fission_action]
-struct TimerFired;
-
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 struct TickPayload {
     label: String,
 }
 
-fn on_timer_fired(state: &mut TestState, _: TimerFired, ctx: &mut ReducerContext<TestState>) {
+#[fission_macros::fission_reducer(TimerFired)]
+fn on_timer_fired(state: &mut TestState, ctx: &mut ReducerContext<TestState>) {
     let payload: TickPayload = ctx.input.timer_tick().expect("timer payload");
     state.ticks += 1;
     state.last_payload = payload.label;
@@ -113,7 +111,7 @@ fn timer_resources_dispatch_actions_from_runtime_tick() {
         .unwrap();
 
     let mut ctx = BuildCtx::new();
-    let on_tick = ctx.bind(TimerFired, reduce_with!(on_timer_fired));
+    let on_tick = with_reducer!(ctx, TimerFired, on_timer_fired);
     runtime.clear_reducers();
     runtime.absorb_registry(ctx.registry);
 

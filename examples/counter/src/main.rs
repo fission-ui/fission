@@ -7,25 +7,13 @@ struct CounterState {
 
 impl AppState for CounterState {}
 
-#[fission_action]
-struct Increment;
-
-#[fission_action]
-struct Decrement;
-
-fn increment(
-    state: &mut CounterState,
-    _action: Increment,
-    _ctx: &mut ReducerContext<CounterState>,
-) {
+#[fission_reducer(Increment)]
+fn increment(state: &mut CounterState) {
     state.count += 1;
 }
 
-fn decrement(
-    state: &mut CounterState,
-    _action: Decrement,
-    _ctx: &mut ReducerContext<CounterState>,
-) {
+#[fission_reducer(Decrement)]
+fn decrement(state: &mut CounterState) {
     state.count -= 1;
 }
 

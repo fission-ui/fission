@@ -10,10 +10,8 @@ struct SmokeState {
 
 impl AppState for SmokeState {}
 
-#[fission_action]
-struct Increment;
-
-fn on_increment(state: &mut SmokeState, _action: Increment, _ctx: &mut ReducerContext<SmokeState>) {
+#[fission_reducer(Increment)]
+fn on_increment(state: &mut SmokeState) {
     state.taps += 1;
 }
 

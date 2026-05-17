@@ -56,7 +56,7 @@ pub mod widgets {
     pub use fission_widgets::*;
 }
 
-/// Derive and attribute macros — `#[fission_action]`, `#[fission_action]`, and friends.
+/// Derive and attribute macros — `#[fission_action]`, `#[fission_reducer]`, and friends.
 pub mod macros {
     pub use fission_core::{reduce, reduce_with, with_reducer};
     pub use fission_macros::*;
@@ -133,7 +133,7 @@ pub use fission_shell_mobile::MobileApp;
 pub use fission_shell_web::WebApp;
 
 // Macros
-pub use fission_macros::{fission_action, Action as ActionDerive};
+pub use fission_macros::{fission_action, fission_reducer, Action as ActionDerive};
 
 // ── Prelude ──────────────────────────────────────────────────────────────
 
@@ -165,7 +165,7 @@ pub mod prelude {
     pub use fission_icons::material;
 
     // Macros
-    pub use fission_macros::{fission_action, Action};
+    pub use fission_macros::{fission_action, fission_reducer, Action};
 
     // Shell
     #[cfg(not(any(target_os = "android", target_os = "ios", target_arch = "wasm32")))]

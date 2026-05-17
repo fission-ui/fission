@@ -105,7 +105,7 @@ pub use view::{Selector, View, Widget};
 /// ```rust,ignore
 /// use fission::prelude::*;
 ///
-/// let on_press = ctx.bind(Increment, reduce_with!(on_increment));
+/// let on_press = with_reducer!(ctx, Increment, on_increment);
 /// ```
 #[macro_export]
 macro_rules! reduce_with {

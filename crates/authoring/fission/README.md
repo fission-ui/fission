@@ -22,15 +22,9 @@ struct MyState {
 }
 impl AppState for MyState {}
 
-// 2. Define an action
-#[fission_action]
-struct Increment;
-
-fn on_increment(
-    state: &mut MyState,
-    _action: Increment,
-    _ctx: &mut ReducerContext<MyState>,
-) {
+// 2. Define a reducer. This also generates the Increment action.
+#[fission_reducer(Increment)]
+fn on_increment(state: &mut MyState) {
     state.count += 1;
 }
 
@@ -91,13 +85,15 @@ State changes flow exclusively through **Actions** and **Reducers**. Actions are
 This makes the UI fully deterministic: given the same state and the same sequence of actions, you get the same output -- guaranteed.
 
 ```rust
-#[fission_action]
-struct Increment;
-
-fn on_increment(state: &mut CounterState, _action: Increment, _ctx: &mut ReducerContext<CounterState>) {
+#[fission_reducer(Increment)]
+fn on_increment(state: &mut CounterState) {
     state.value += 1;
 }
 let action = with_reducer!(ctx, Increment, on_increment);
+
+// Manual actions remain supported when an action is shared or public.
+#[fission_action]
+struct Reset;
 ```
 
 ## Effects system
@@ -353,7 +349,7 @@ Output is structured JSON, suitable for piping into analysis tools or dashboards
 | `fission-i18n` | Internationalisation -- locale registry and string lookups |
 | `fission-semantics` | Accessibility roles and semantic tree types |
 | `fission-widgets` | Higher-level authoring widgets (Modal, Popover, Tabs, SplitView, etc.) |
-| `fission-macros` | Action derive / attribute macros (`#[fission_action]`, `#[fission_action]`) |
+| `fission-macros` | Action and reducer macros (`#[fission_reducer]`, `#[fission_action]`) |
 | `fission-icons` | Material Design icon set, generated from bundled SVGs |
 | `fission-render` | Rendering primitives -- display list, paint ops, text styles |
 | `fission-render-vello` | Vello/wgpu rendering backend |

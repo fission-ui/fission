@@ -15,11 +15,11 @@ Before we start, one reassuring note about the Rust syntax: you do not need to u
 
 This page will show some Rust scaffolding that appears often in Fission code:
 
-- `#[fission_action]` asks Fission to add the standard action helper behavior automatically.
+- `#[fission_reducer]` asks Fission to generate the action and reducer wrapper automatically. `#[fission_action]` remains available when you want to declare an action manually.
 - `impl Something for MyType {}` tells Rust that a type participates in a framework contract.
 - angle brackets such as `Widget<NoteState>` or `ReducerContext<NoteState>` mean "this thing is being used with `NoteState`."
 - `&` means "borrow this value without taking ownership" and `&mut` means "borrow it and allow changes."
-- `reduce_with!(...)` is a small type hint for the compiler. At this stage, you can read it as "use this function as the reducer for that action."
+- `with_reducer!(...)` binds an action value to the reducer that should handle it.
 
 When you see those forms below, focus first on the role they play in the framework. You can let Rust fluency catch up over time.
 
@@ -55,56 +55,24 @@ A useful rule is this: if losing the value would change the meaning of the produ
 
 Once you have state, you need a way to describe what the user is trying to do. That is what an `Action` is for. An action is a named, typed message such as "update the draft", "press Save", or "save finished successfully".
 
-```rust
-#[fission_action]
-#[serde(transparent)]
-pub struct UpdateDraft(pub String);
-
-#[fission_action]
-pub struct SavePressed;
-
-#[fission_action]
-pub struct SaveSucceeded;
-
-#[fission_action]
-pub struct SaveFailed;
-```
-
-Again, the framework idea matters more than the syntax.
-
-`UpdateDraft(pub String)` is a one-field wrapper around a string. In plain English, it means "an action that carries new draft text." Rust lets you write short wrapper types this way instead of always naming the field. Later, when the reducer reads `action.0`, that just means "the first and only value inside this wrapper."
-
-`SavePressed`, `SaveSucceeded`, and `SaveFailed` are zero-field structs. They are simply named action types with no extra data attached.
-
-The `#[fission_action]` line is the framework-facing scaffolding that makes each type usable as a Fission action. It applies the standard action derives for you, so for now you can read it as "make this type work as a serializable action value."
-
 Fission uses actions instead of button callbacks that secretly capture whatever happened to be in scope. That choice matters more as an app grows. An action says what happened in app terms. A reducer then decides what that means.
 
-A reducer is just a function that receives the current state plus an action and updates the state in response. If you have never seen the word before, do not let it sound more mysterious than it is. A reducer reduces "what happened" into "the new state".
+A reducer is just a function that receives the current state plus an action and updates the state in response. If you have never seen the word before, do not let it sound more mysterious than it is. A reducer reduces "what happened" into "the new state". The compact way to write this in Fission is `#[fission_reducer]`: it generates the action type and the normal reducer wrapper from one function.
 
 ```rust
-fn on_update_draft(
-    state: &mut NoteState,
-    action: UpdateDraft,
-    _ctx: &mut ReducerContext<NoteState>,
-) {
-    state.draft = action.0;
+#[fission_reducer(UpdateDraft)]
+fn on_update_draft(state: &mut NoteState, draft: String) {
+    state.draft = draft;
     state.save_error = None;
 }
 
-fn on_save_succeeded(
-    state: &mut NoteState,
-    _action: SaveSucceeded,
-    _ctx: &mut ReducerContext<NoteState>,
-) {
+#[fission_reducer(SaveSucceeded)]
+fn on_save_succeeded(state: &mut NoteState) {
     state.saving = false;
 }
 
-fn on_save_failed(
-    state: &mut NoteState,
-    _action: SaveFailed,
-    _ctx: &mut ReducerContext<NoteState>,
-) {
+#[fission_reducer(SaveFailed)]
+fn on_save_failed(state: &mut NoteState) {
     state.saving = false;
     state.save_error = Some("Could not save the note".into());
 }
@@ -112,7 +80,7 @@ fn on_save_failed(
 
 The syntax in a reducer signature is easier than it first appears.
 
-`state: &mut NoteState` means the reducer receives a mutable reference to the current app state, so it is allowed to change that state. `action: UpdateDraft` means this reducer only handles one specific action type. `_ctx: &mut ReducerContext<NoteState>` means the runtime also provides reducer context, but this reducer is not using it yet. The leading underscore is Rust's way of saying "yes, I know this parameter exists, but I am intentionally not reading it in this function."
+`state: &mut NoteState` means the reducer receives a mutable reference to the current app state, so it is allowed to change that state. `#[fission_reducer(UpdateDraft)]` means this reducer handles the generated `UpdateDraft` action. The `draft: String` parameter becomes the payload inside that generated action, so the widget can later construct `UpdateDraft(String::new())` when it wires the text field.
 
 So if you strip away the syntax noise, the first reducer reads like this: "when an `UpdateDraft` action arrives, change the note state by replacing the draft and clearing any old save error."
 
@@ -139,10 +107,7 @@ pub struct NoteEditor;
 
 impl Widget<NoteState> for NoteEditor {
     fn build(&self, ctx: &mut BuildCtx<NoteState>, view: &View<NoteState>) -> Node {
-        let save = ctx.bind(
-            SavePressed,
-            reduce_with!(on_save_pressed),
-        );
+        let save = with_reducer!(ctx, SavePressed, on_save_pressed);
 
         Column {
             gap: Some(16.0),
@@ -151,10 +116,7 @@ impl Widget<NoteState> for NoteEditor {
                 TextInput {
                     value: view.state.draft.clone(),
                     placeholder: Some("Write something...".into()),
-                    on_change: Some(ctx.bind(
-                        UpdateDraft(String::new()),
-                        reduce_with!(on_update_draft),
-                    )),
+                    on_change: Some(with_reducer!(ctx, UpdateDraft(String::new()), on_update_draft)),
                     ..Default::default()
                 }
                 .into_node(),
@@ -181,8 +143,8 @@ The Rust scaffolding around the widget is doing a few predictable jobs.
 Inside the widget, there are a few pieces of syntax that are worth translating instead of ignoring:
 
 - `view.state.draft.clone()` means "read the current draft text from state and make a copy of the string so the text input can own it."
-- `UpdateDraft(String::new())` is a placeholder action value used so `ctx.bind(...)` knows which action type to wire up. The runtime replaces the placeholder string with the real current input text when the user edits the field.
-- `reduce_with!(on_update_draft)` and `reduce_with!(on_save_pressed)` are explicit type hints. They help Rust understand which reducer function should handle each action without making the example spell out the full handler type.
+- `UpdateDraft(String::new())` is a placeholder action value used so `with_reducer!(...)` knows which action type to wire up. The runtime replaces the placeholder string with the real current input text when the user edits the field.
+- `with_reducer!(ctx, action, reducer)` creates the `ActionEnvelope` a widget stores for later dispatch.
 - `Box::new(...)` is Rust's way of putting one value inside another heap-allocated container. In these user interface examples, you can usually read it as "nest this child widget here."
 - `..Default::default()` means "use the normal default values for every field I did not set by hand."
 
@@ -244,11 +206,8 @@ The first job is requesting side effects in an explicit way. A side effect is an
 That keeps the reducer itself predictable. The reducer still decides when a save should begin, but it does not secretly become the file system or the network stack.
 
 ```rust
-fn on_save_pressed(
-    state: &mut NoteState,
-    _action: SavePressed,
-    ctx: &mut ReducerContext<NoteState>,
-) {
+#[fission_reducer(SavePressed)]
+fn on_save_pressed(state: &mut NoteState, ctx: &mut ReducerContext<NoteState>) {
     if state.saving {
         return;
     }
@@ -273,7 +232,7 @@ fn on_save_pressed(
 
 If the chained method calls look intimidating, read them left to right in everyday language.
 
-First, `ctx.effects.app(...)` asks the runtime to run a named save job. Then `.on_ok(...)` says which action to dispatch if that job succeeds. Then `.on_err(...)` says which action to dispatch if it fails. The `ctx.effects.bind(...reduce_with!())` calls inside that chain are the same kind of type-guiding scaffolding you already saw in `build()`: they connect a future action to the reducer that should handle it.
+First, `ctx.effects.app(...)` asks the runtime to run a named save job. Then `.on_ok(...)` says which action to dispatch if that job succeeds. Then `.on_err(...)` says which action to dispatch if it fails. The `ctx.effects.bind(...reduce_with!())` calls inside that chain connect a future action to the reducer that should handle it; manual binding remains available for effect callbacks and other advanced flows.
 
 The save job itself is defined elsewhere. What matters here is the shape of the flow. The reducer updates state to say "saving has started" and then asks the runtime to perform the save outside the reducer.
 

@@ -964,10 +964,8 @@ pub struct CounterState {
 
 impl AppState for CounterState {}
 
-#[fission_action]
-pub struct Increment;
-
-fn on_increment(state: &mut CounterState, _action: Increment, _ctx: &mut ReducerContext<CounterState>) {
+#[fission_reducer(Increment)]
+fn on_increment(state: &mut CounterState) {
     state.count += 1;
 }
 

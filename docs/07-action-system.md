@@ -33,16 +33,25 @@ The action system is designed to be:
 
 ---
 
-## 2. Action Types (`#[fission_action]`)
+## 2. Action Types (`#[fission_reducer]` and `#[fission_action]`)
 
-An action is defined as a pure data type.
+For the common one-action-to-one-reducer case, define the reducer and let `#[fission_reducer]` generate the action type.
+
+```rust
+#[fission_reducer(Increment)]
+fn increment(state: &mut CounterState) {
+    state.value += 1;
+}
+```
+
+For shared or public action types, define the action manually with `#[fission_action]`.
 
 ```rust
 #[fission_action]
-pub struct Increment;
+pub struct ResetCounter;
 ```
 
-The `#[fission_action]` macro generates:
+Both macros generate:
 
 - a stable `ActionId`
 - canonical encoding/decoding logic
@@ -95,12 +104,13 @@ pub struct BuildCtx<S> {
 Binding an action:
 
 ```rust
-fn on_increment(state: &mut CounterState, _: Increment) {
+#[fission_reducer(Increment)]
+fn on_increment(state: &mut CounterState) {
     state.value += 1;
 }
 
 Button {
-    on_press: Some(ctx.bind::<Increment>(on_increment)),
+    on_press: Some(with_reducer!(ctx, Increment, on_increment)),
     ..Default::default()
 }
 ```

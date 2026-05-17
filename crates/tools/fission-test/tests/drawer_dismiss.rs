@@ -1,7 +1,7 @@
 use anyhow::Result;
 use fission_core::event::{PointerButton, PointerEvent};
 use fission_core::ui::{Node, Text};
-use fission_core::{reduce_with, AppState, BuildCtx, ReducerContext, View, Widget};
+use fission_core::{with_reducer, AppState, BuildCtx, View, Widget};
 use fission_test::TestHarness;
 use fission_widgets::{Drawer, DrawerSide};
 
@@ -11,15 +11,13 @@ struct State {
 }
 impl AppState for State {}
 
-#[fission_macros::fission_action]
-struct DismissDrawer;
+#[fission_macros::fission_reducer(DismissDrawer)]
+fn dismiss(state: &mut State) {
+    state.drawer_open = false;
+}
 
 #[test]
 fn drawer_renders_content_and_backdrop_dismisses() -> Result<()> {
-    fn dismiss(state: &mut State, _: DismissDrawer, _ctx: &mut ReducerContext<State>) {
-        state.drawer_open = false;
-    }
-
     struct Root;
     impl Widget<State> for Root {
         fn build(&self, ctx: &mut BuildCtx<State>, view: &View<State>) -> Node {
@@ -28,7 +26,7 @@ fn drawer_renders_content_and_backdrop_dismisses() -> Result<()> {
                 id: fission_core::WidgetNodeId::explicit("drawer"),
                 side: DrawerSide::Left,
                 is_open: view.state.drawer_open,
-                on_dismiss: Some(ctx.bind(DismissDrawer, reduce_with!(dismiss))),
+                on_dismiss: Some(with_reducer!(ctx, DismissDrawer, dismiss)),
                 content: Box::new(content),
                 width: Some(300.0),
             }

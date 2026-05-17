@@ -54,7 +54,7 @@ as `ActionEnvelope` (type-erased ID + JSON bytes) so the reducer pipeline stays 
 ### BuildCtx
 
 The mutable context passed to `Widget::build()`. Use it to:
-- **Bind** actions to handlers: `with_reducer!(ctx, MyAction { .. }, my_handler)`
+- **Bind** actions to handlers: `with_reducer!(ctx, MyAction { .. }, my_handler)` or `#[fission_reducer(MyAction)]` for compact one-reducer actions
 - **Register portals** (overlays, modals, toasts)
 - **Request animations**
 
@@ -84,9 +84,11 @@ use fission::prelude::*;
 struct Counter { count: i32 }
 impl AppState for Counter {}
 
-// 2. Define an action
-#[fission_action]
-struct Increment;
+// 2. Define a reducer. This also generates the Increment action.
+#[fission_reducer(Increment)]
+fn handle_increment(state: &mut Counter) {
+    state.count += 1;
+}
 
 // 3. Build the widget tree
 struct CounterWidget;
@@ -107,14 +109,6 @@ impl Widget<Counter> for CounterWidget {
     }
 }
 
-// 4. Reducer
-fn handle_increment(
-    state: &mut Counter,
-    _action: Increment,
-    _ctx: &mut ReducerContext<Counter>,
-) {
-    state.count += 1;
-}
 ```
 
 ## Crate feature flags

@@ -1,13 +1,12 @@
-# 7.2 `#[fission_action]` Overview
+# 7.2 `#[fission_reducer]` and `#[fission_action]` Overview
 
-This section describes the `#[fission_action]` system: how actions are defined, identified, validated, and integrated into the Core and authoring layers.
-The derive macro is the primary author-facing mechanism for defining custom actions without sacrificing determinism or introspectability.
+This section describes the action macro system: `#[fission_reducer]` for compact one-reducer actions, and `#[fission_action]` for manually declared action types that need reuse or public documentation.
 
 ---
 
-## 7.2.1 Purpose of `#[fission_action]`
+## 7.2.1 Purpose of the action macros
 
-The derive macro exists to:
+The macros exist to:
 
 - avoid stringly-typed action identifiers,
 - generate stable, globally unique action IDs,
@@ -22,29 +21,34 @@ It provides ergonomics without leaking closures into the system.
 
 An action is defined as a Rust type.
 
-Example:
+Recommended compact form:
 
 ```rust
-#[fission_action]
-pub struct Increment;
-```
+#[fission_reducer(Increment)]
+fn increment(state: &mut CounterState) {
+    state.count += 1;
+}
 
-More complex actions may include payload data:
-
-```rust
-#[fission_action]
-pub struct SetCount {
-    pub value: i32,
+#[fission_reducer(SetCount)]
+fn set_count(state: &mut CounterState, value: i32) {
+    state.count = value;
 }
 ```
 
-The type definition is the single source of truth.
+Manual form for shared actions:
+
+```rust
+#[fission_action]
+pub struct ResetCounter;
+```
+
+The generated or manual action type remains the single source of truth for dispatch identity.
 
 ---
 
 ## 7.2.3 Generated Artifacts
 
-Deriving `Action` generates:
+The action macros generate:
 
 - a stable `ActionId`,
 - serialization and deserialization logic,
@@ -87,7 +91,7 @@ Schemas are part of the Core action metadata.
 
 ## 7.2.6 Integration With Semantics
 
-Actions defined via `#[fission_action]` can be:
+Actions defined via `#[fission_reducer]` or `#[fission_action]` can be:
 
 - attached to semantic roles,
 - exposed to accessibility systems,
@@ -167,13 +171,13 @@ These constraints are enforced at compile time.
 
 ## 7.2.12 Summary
 
-`#[fission_action]` provides:
+`#[fission_reducer]` and `#[fission_action]` provide:
 
-- ergonomic, type-safe action definitions,
+- ergonomic, type-safe action and reducer definitions,
 - stable and inspectable action identities,
 - seamless integration with semantics and reducers,
 - strong guarantees for testing and replay.
 
-It is the bridge between author ergonomics and Core correctness.
+They are the bridge between author ergonomics and Core correctness.
 
 ---

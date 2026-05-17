@@ -8,14 +8,19 @@ struct State {
 impl AppState for State {}
 
 #[fission_action]
-struct Increment;
+struct ManualAction;
 
-fn on_increment(state: &mut State, _action: Increment, _ctx: &mut ReducerContext<State>) {
+#[fission_reducer(Increment)]
+fn on_increment(state: &mut State) {
     state.count += 1;
 }
 
 #[test]
-fn prelude_exports_action_attribute_and_reducer_helpers() {
+fn prelude_exports_action_and_reducer_helpers() {
+    assert_eq!(
+        ManualAction::static_id(),
+        ActionId::from_name("prelude_macros::ManualAction")
+    );
     assert_eq!(
         Increment::static_id(),
         ActionId::from_name("prelude_macros::Increment")
