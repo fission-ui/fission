@@ -1,0 +1,59 @@
+---
+title: Quickstart
+description: The shortest useful paths for trying Fission from this repository or from a new app scaffold.
+---
+
+# Quickstart
+
+Pick the shortest path that matches what you need to prove.
+
+## Run a checked-in example first
+
+If you want to feel the framework before scaffolding anything, start with a real crate from `examples/`.
+
+```bash
+cargo run -p counter
+cargo run -p widget-gallery
+cargo run -p text-lab
+```
+
+Those three examples cover the basics, the widget surface, and text-heavy interaction.
+
+## Scaffold a new app
+
+If you want your own project structure immediately, use the first-party CLI.
+
+```bash
+cargo install fission-cli
+fission init my-app
+cd my-app
+cargo run
+```
+
+That scaffold creates:
+
+- `src/app.rs` for the shared app widget,
+- `src/main.rs` for the default desktop entrypoint,
+- `src/lib.rs` for shared helpers,
+- `fission.toml` for target metadata,
+- `platforms/<target>/` folders as you add more hosts.
+
+## Add more targets only when the desktop loop is stable
+
+```bash
+cargo fission add-target web ios android --project-dir my-app
+```
+
+Then use the generated scripts:
+
+- `./platforms/web/run-browser.sh`
+- `./platforms/ios/run-sim.sh`
+- `./platforms/android/run-emulator.sh`
+
+The checked-in smoke examples under `examples/mobile-smoke/` and `examples/web-smoke/` are good references for what those targets look like in practice.
+
+## Use docs by intent
+
+- new to the model: [Runtime model](/docs/learn/runtime-model)
+- building app structure: [App structure](/docs/guides/app-structure)
+- need exact APIs: [Reference overview](/reference/overview/overview)

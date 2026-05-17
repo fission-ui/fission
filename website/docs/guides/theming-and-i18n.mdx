@@ -1,0 +1,58 @@
+---
+title: Theming and i18n
+description: Keep appearance and language selection explicit by driving both through `Env`.
+---
+
+# Theming and i18n
+
+Theme and locale are explicit runtime inputs in Fission.
+
+## Theme
+
+`fission-theme` exposes a `Theme` value with:
+
+- primitive tokens for color, spacing, type, radius, and elevation,
+- derived component themes for buttons, inputs, tabs, tooltips, tree views, and more.
+
+The most common pattern is:
+
+```rust
+.with_sync_env(|state, env| {
+    env.theme = if state.dark_mode {
+        Theme::dark()
+    } else {
+        Theme::default()
+    };
+})
+```
+
+That is the same approach used in checked-in examples like `inbox`, `editor`, `chart-gallery`, and `terminal`.
+
+## I18n
+
+`fission-i18n` is intentionally small:
+
+- `Locale`
+- `TranslationBundle`
+- `I18nRegistry`
+
+You load bundles into `env.i18n`, set `env.locale`, and render keyed content through `TextContent::Key(...)`.
+
+The inbox example includes large English and Spanish bundle setup in code, which makes the locale flow easy to inspect.
+
+## Keep both explicit
+
+Avoid hidden globals for theme and language.
+
+Use:
+
+- `with_env(...)` for your base bundle setup,
+- `with_sync_env(...)` for per-frame app-driven updates,
+- reducer actions for user-selected theme or locale changes.
+
+## Check these before shipping
+
+- long translated strings still fit,
+- focus order stays readable in every language,
+- dark and light themes both exercise the same layout,
+- screenshots and tests cover the UI state you actually toggle in product code.

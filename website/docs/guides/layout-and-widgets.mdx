@@ -1,0 +1,50 @@
+---
+title: Layout and widgets
+description: Build screens from the core primitives first, then add higher-level composition widgets where they pay for themselves.
+---
+
+# Layout and widgets
+
+Fission has both core primitives from `fission_core::ui` and higher-level authoring widgets from `fission_widgets`.
+
+## Start with the core structure
+
+For most screens, start with:
+
+- `Container`
+- `Row` / `Column`
+- `Scroll`
+- `Spacer`
+- `Grid` or `Wrap` when the layout really needs it
+
+These map directly to the layout engine and keep geometry easy to inspect.
+
+## Add authoring widgets for common patterns
+
+Reach for higher-level widgets when the pattern is already established in the repo:
+
+- `HStack`, `VStack`, `Center`, `SimpleGrid`, `SplitView`
+- `Modal`, `Popover`, `Drawer`, `Tooltip`, `Toast`
+- `Select`, `Combobox`, `SegmentedControl`, `DatePicker`
+- `Card`, `Badge`, `Timeline`, `TreeView`, `DataTable`
+
+The widget gallery is the fastest way to see how these behave in one place.
+
+## Use stable IDs only for runtime behavior
+
+Widgets like `AspectRatio`, `Transition`, `Portal`, and media/terminal widgets often need stable IDs or explicit runtime registration. Plain layout containers usually do not.
+
+## Inspect geometry instead of guessing
+
+Use `view.get_rect(...)` and the test harness when you need to reason about:
+
+- anchored overlays,
+- drop targets,
+- responsive breakpoints,
+- custom canvas or embed placement.
+
+## Good next steps
+
+- [Reference: layout widgets](/reference/widgets/layout)
+- [Reference: widget catalog](/reference/widgets/catalog)
+- [Cookbook: build a counter](/docs/cookbook/build-a-counter)

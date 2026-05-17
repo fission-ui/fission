@@ -1,0 +1,39 @@
+---
+title: Toggle theme and locale
+description: Drive appearance and translation changes through explicit app state and `Env` sync.
+---
+
+# Toggle theme and locale
+
+The `inbox` example is the best checked-in reference for theme and locale switching.
+
+## Base environment
+
+Create `Env` once and load translation bundles into `env.i18n`.
+
+## Per-frame sync
+
+Then sync runtime-visible values from app state:
+
+```rust
+.with_sync_env(|state, env| {
+    env.locale = state.locale.clone();
+    env.theme = if state.theme_mode == "Dark" {
+        Theme::dark()
+    } else {
+        Theme::default()
+    };
+})
+```
+
+## Render keyed text
+
+Use `TextContent::Key(...)` for user-visible text that should translate with locale changes.
+
+## Verify both axes
+
+Before shipping, test:
+
+- long strings in the alternate locale,
+- dark and light theme screenshots,
+- focus order and labels after the environment changes.

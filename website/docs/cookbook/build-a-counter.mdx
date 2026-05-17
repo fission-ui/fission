@@ -1,0 +1,38 @@
+---
+title: Build a counter
+description: Use the checked-in counter example to understand the smallest complete Fission app loop.
+---
+
+# Build a counter
+
+The `counter` example is not just a button and a number. It also shows selector usage, text input, modal overlays, animation requests, and a small custom canvas.
+
+## Run it
+
+```bash
+cargo run -p counter
+```
+
+## Copy the basic structure
+
+1. define `CounterState` and implement `AppState`,
+2. define typed actions like `Increment`,
+3. bind reducers with `ctx.bind(...)`,
+4. return a widget tree from `build()`.
+
+## Add one runtime-owned feature at a time
+
+The example adds several features without changing the model:
+
+- `TextInput` with `UpdateText`
+- modal show/hide through `ToggleModal`
+- `Checkbox` state through `ToggleChecked`
+- `AnimationRequest` against a stable widget ID
+
+That is a good template for expanding a first app without switching architectural styles halfway through.
+
+## Useful follow-ups
+
+- [App structure](/docs/guides/app-structure)
+- [Reference: state system](/reference/core/state-system)
+- [Reference: Button](/reference/widgets/button)

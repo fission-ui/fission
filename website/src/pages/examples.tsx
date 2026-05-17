@@ -1,52 +1,111 @@
 import Link from '@docusaurus/Link';
 import Layout from '@theme/Layout';
+import {repoExamples} from '../data/siteContent';
 import styles from './experience.module.css';
 
-const examples = [
-  {
-    title: 'Counter',
-    summary:
-      'One action at a time, one clear state transition. Best for understanding how reducers, build, and render stay in sync.',
-    doc: '/docs/tutorials/counter',
-  },
-  {
-    title: 'Todo',
-    summary:
-      'A practical step beyond the counter: multiple actions, filtered rendering, and progressive async patterns.',
-    doc: '/docs/tutorials/todo',
-  },
-  {
-    title: 'Accessible dashboard',
-    summary:
-      'A complete app-first path that introduces `TextContent::Key`, locale switching, and semantics for stable UI checks.',
-    doc: '/docs/guide/i18n-and-accessibility',
-  },
-];
+const starters = repoExamples.filter((example) => example.bucket === 'starter' || example.bucket === 'surface');
+const productExamples = repoExamples.filter((example) => example.bucket === 'product');
+const targetExamples = repoExamples.filter((example) => example.bucket === 'target');
+
+function repoHref(path: string) {
+  return `https://github.com/worka-ai/fission/tree/main/${path}`;
+}
+
+function ExampleCard({
+  title,
+  crate,
+  repoPath,
+  summary,
+  features,
+  commands,
+  docsHref,
+  referenceHref,
+  testPath,
+}: (typeof repoExamples)[number]) {
+  return (
+    <article className={styles.card}>
+      <div className={styles.metaRow}>
+        <span className={styles.pill}>{crate}</span>
+        <code>{repoPath}</code>
+      </div>
+      <h2>{title}</h2>
+      <p>{summary}</p>
+      <ul className={styles.list}>
+        {features.map((feature) => (
+          <li key={feature}>{feature}</li>
+        ))}
+      </ul>
+      <div className={styles.commandStack}>
+        {commands.map((command) => (
+          <code className={styles.commandBlock} key={command}>
+            {command}
+          </code>
+        ))}
+      </div>
+      <div className={styles.linkRow}>
+        <Link className={styles.link} to={repoHref(repoPath)}>
+          Repo path
+        </Link>
+        {docsHref ? (
+          <Link className={styles.link} to={docsHref}>
+            Docs
+          </Link>
+        ) : null}
+        {referenceHref ? (
+          <Link className={styles.link} to={referenceHref}>
+            Reference
+          </Link>
+        ) : null}
+        {testPath ? (
+          <Link className={styles.link} to={repoHref(testPath)}>
+            Tests / notes
+          </Link>
+        ) : null}
+      </div>
+    </article>
+  );
+}
+
+function ExampleSection({title, lead, entries}: {title: string; lead: string; entries: typeof repoExamples}) {
+  return (
+    <section className={styles.section}>
+      <p className={styles.eyebrow}>{title}</p>
+      <p className={styles.lead}>{lead}</p>
+      <div className={styles.grid}>
+        {entries.map((entry) => (
+          <ExampleCard key={entry.slug} {...entry} />
+        ))}
+      </div>
+    </section>
+  );
+}
 
 export default function Examples() {
   return (
-    <Layout title="Examples" description="Explore Fission examples.">
+    <Layout title='Examples' description='Checked-in Fission examples backed by real repo content and tests.'>
       <main className={`container ${styles.pageShell}`}>
         <section className={styles.section}>
           <h1 className={styles.heading}>Examples</h1>
           <p className={styles.lead}>
-            Read examples in order with purpose. Each one reinforces the onboarding flow:
-            learn state, keep it deterministic, then move side effects into async boundaries.
+            Every entry on this page maps to a real crate under <code>examples/</code>. Use it to pick the
+            smallest proof for the subsystem you want to understand.
           </p>
         </section>
-        <section className={styles.section}>
-          <div className={styles.grid}>
-            {examples.map((item) => (
-              <article className={styles.card} key={item.title}>
-                <h2>{item.title}</h2>
-                <p>{item.summary}</p>
-                <Link className={styles.link} to={item.doc}>
-                  Start this example
-                </Link>
-              </article>
-            ))}
-          </div>
-        </section>
+        <ExampleSection
+          title='Start here'
+          lead='Use these when you are learning the app loop, the widget surface, or the text/input model.'
+          entries={starters}
+        />
+        <ExampleSection
+          title='Product-like samples'
+          lead='Use these when you need proof that the framework can host layered, stateful application UI.'
+          entries={productExamples}
+        />
+        <ExampleSection
+          title='Target smoke paths'
+          lead='Use these when you need concrete browser or mobile host flows instead of high-level target claims.'
+          entries={targetExamples}
+        />
       </main>
     </Layout>
   );

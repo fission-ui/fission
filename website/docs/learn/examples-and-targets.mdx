@@ -1,0 +1,38 @@
+---
+title: Examples and targets
+description: Which checked-in examples map to which parts of the framework and target story.
+---
+
+# Examples and targets
+
+The fastest way to understand Fission is to run the example that already proves the feature you care about.
+
+| Example | Best for | Notes |
+| --- | --- | --- |
+| `counter` | first reducer and widget loop | also includes modal, checkbox, text input, animation, and custom canvas usage |
+| `widget-gallery` | breadth of built-in widgets | backed by live UI tests and a visual audit |
+| `text-lab` | text input, combobox, modal focus, IME-sensitive flows | useful before building editor-style UIs |
+| `terminal` | terminal embedding and timer-driven polling | exercises clipboard and long-lived session state |
+| `inbox` | theme, locale, portals, capabilities | most product-like app shell in the repo |
+| `fission-editor` | custom render nodes, timers, portals, terminal panel, large live test suite | best proof that the framework can host complex tooling UI |
+| `animation-gallery` | runtime-owned animation primitives | demonstrates opacity, translation, scale, rotation, and scroll-linked motion |
+| `chart-gallery` | charts plus 3D embed path | includes `Scene3D` examples |
+| `mobile-smoke` | mobile host packaging | checked-in iOS and Android scripts |
+| `web-smoke` | browser host packaging | checked-in wasm build and serve script |
+
+## Target paths in this repo
+
+- desktop: normal development loop through `cargo run`
+- web: `examples/web-smoke/platforms/web/run-browser.sh`
+- iOS: `examples/mobile-smoke/platforms/ios/run-sim.sh`
+- Android: `examples/mobile-smoke/platforms/android/run-emulator.sh`
+
+The CLI generates the same style of host folders for new apps.
+
+## Use the right proof for the question
+
+- "Can I build a normal app shell?" -> `inbox`
+- "Can I build a tool UI?" -> `fission-editor`
+- "Can I trust text input and overlays?" -> `text-lab`
+- "Can I ship to browser or mobile?" -> `web-smoke` and `mobile-smoke`
+- "What widgets already exist?" -> `widget-gallery` and [Reference](/reference/widgets/catalog)

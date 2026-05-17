@@ -1,0 +1,48 @@
+---
+title: Platform shells and CLI
+description: Use the shell builders and the CLI-generated hosts without hiding platform reality.
+---
+
+# Platform shells and CLI
+
+The core app model is shared, but each shell still has a concrete job.
+
+## Shell builders
+
+The repo exposes:
+
+- `DesktopApp`
+- `MobileApp`
+- `WebApp`
+
+All three wrap the same runtime and offer builder hooks such as:
+
+- `with_title(...)`
+- `with_state_init(...)`
+- `with_startup_action(...)`
+- desktop-only `with_env(...)`
+- `with_sync_env(...)`
+- `with_async(...)`
+
+Desktop and mobile also expose `with_test_control_port(...)` for live-driver workflows.
+
+## CLI workflow
+
+The CLI intentionally stays small:
+
+```bash
+fission init my-app
+cargo fission add-target web ios android --project-dir my-app
+```
+
+Use the generated target folders as host wrappers around the same shared app code.
+
+## Stay precise about target maturity
+
+This repo already includes checked-in smoke flows for mobile and web, but the docs should still treat them as concrete host paths with prerequisites, not hand-wave them as identical to desktop.
+
+For exact commands and caveats, keep the target READMEs close:
+
+- `examples/mobile-smoke/README.md`
+- `examples/web-smoke/README.md`
+- generated `platforms/<target>/README.md`

@@ -1,0 +1,60 @@
+---
+title: Input, text, and environment
+description: Handle pointer, keyboard, IME, clipboard, and viewport-driven behavior through the shared runtime.
+---
+
+# Input, text, and environment
+
+The shared runtime normalizes input before it reaches widgets or reducers.
+
+## Input events
+
+`InputEvent` covers:
+
+- `Pointer` events for mouse, touch, and stylus,
+- `Keyboard` events with a small cross-platform key model,
+- `Ime` events for preedit and commit,
+- `Gesture` events like tap and pan,
+- `Lifecycle` events like init, pause, resume, and resize.
+
+That keeps reducers and tests off platform-specific event APIs.
+
+## Text input is runtime-owned
+
+`TextInput` and text-heavy custom widgets depend on runtime-managed editing state for:
+
+- caret and selection,
+- undo/redo history,
+- IME preedit,
+- clipboard integration,
+- affordances like selection handles and magnifier state.
+
+The checked-in `text-lab` example exists specifically to exercise these flows before they are hidden inside a bigger app.
+
+## Clipboard and IME are explicit shell contracts
+
+Core defines two traits that shells implement:
+
+- `Clipboard` for `get_text()` and `set_text()`
+- `ImeHandler` for allowed-state and cursor-area updates
+
+This keeps copy/paste and composed text testable instead of buried in platform code.
+
+## `Env` is how viewport and locale reach widgets
+
+Use `view.env` or helper methods like `view.viewport_size()` when layout or text depends on:
+
+- theme,
+- locale,
+- viewport size,
+- window insets,
+- measuring behavior.
+
+Use shell `with_sync_env(...)` when those values should track app state, such as a user-selected locale or theme mode.
+
+## Good repo references
+
+- `examples/text-lab/` for text input and combobox flows
+- `examples/editor/` for custom IME-aware editing surfaces
+- `examples/terminal/` for clipboard-sensitive keyboard workflows
+- `examples/inbox/` for locale and theme sync through `Env`

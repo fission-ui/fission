@@ -1,0 +1,89 @@
+---
+title: Runtime model
+description: The shared app contract behind desktop, web, iOS, and Android targets.
+---
+
+# Runtime model
+
+A Fission app is easier to reason about when you separate the parts the framework owns from the parts your app owns.
+
+## Your app owns `AppState`
+
+`AppState` is the durable product model that reducers mutate.
+
+Typical examples in this repo:
+
+- the counter's current value and modal state,
+- the inbox app's locale, theme mode, and selected message,
+- the editor's open buffers and workspace state.
+
+## The runtime owns cross-frame interaction state
+
+`RuntimeState` holds things that should not live in your business model:
+
+- scroll offsets,
+- active animations,
+- text-edit buffers and selections,
+- drag state,
+- video and web embed state,
+- hero/portal bookkeeping.
+
+That split keeps reducers focused on product rules while the runtime handles interaction mechanics.
+
+## `Env` carries explicit external context
+
+`Env` is not global. It is a value passed through the build pipeline and updated explicitly by shells.
+
+It includes:
+
+- `theme`,
+- `i18n` bundles,
+- `locale`,
+- `window_insets`,
+- `viewport_size`,
+- optional text measurer plumbing.
+
+Desktop exposes `with_env(...)`, while desktop, mobile, and web wrappers all expose `with_sync_env(...)` so environment changes stay explicit.
+
+## `build()` is pure
+
+Every widget implements the same contract:
+
+```rust
+fn build(&self, ctx: &mut BuildCtx<S>, view: &View<S>) -> Node
+```
+
+Inside `build()`:
+
+- read state through `view`,
+- bind actions and declare runtime work through `ctx`,
+- return a deterministic `Node` tree.
+
+Do not perform I/O, start threads, or reach into platform state from `build()`.
+
+## `BuildCtx` is the bridge to runtime-owned behavior
+
+`BuildCtx` lets widgets do four important things without breaking purity:
+
+- bind typed actions to reducer handlers,
+- declare `JobResource`, `ServiceResource`, or `TimerResource`,
+- register portals, videos, and web views,
+- request animation for stable widget IDs.
+
+## `View` is more than state access
+
+`View<S>` exposes:
+
+- `state` for app data,
+- `runtime` for animation/media/text-edit state,
+- `env` for theme, locale, and viewport data,
+- prior layout snapshots for geometry queries,
+- helpers like `animation_value(...)` and `get_rect(...)`.
+
+Selectors let you derive stable view models without coupling every widget to the entire state shape.
+
+## Read next
+
+- [Rendering pipeline](/docs/learn/rendering-pipeline)
+- [Resources and async](/docs/guides/resources-and-async)
+- [Environment, input, and text](/docs/guides/input-events-text-and-env)

@@ -1,87 +1,59 @@
 ---
-title: Start here
-description: Start here if you have never used Fission before.
+title: Docs
+sidebar_position: 1
+description: Start with the lane that matches the work you are doing in Fission.
 ---
 
-import Tabs from '@theme/Tabs';
-import TabItem from '@theme/TabItem';
+# Docs
 
-# Start here
+Fission is easier to learn when you stay in one lane at a time.
 
-If this is your first day with Fission, your goal is simple: get one small interaction working and learn the same pattern once.
+## Learn
 
-Here is the shortest path that gets you to a meaningful app loop quickly:
+Use the Learn lane when you need the framework model first:
 
-1. Install the CLI and create a baseline app.
-2. Make a small state change and confirm it works.
-3. Add one second interaction.
-4. Decide where async work belongs.
-5. Generate your next target only when behavior is stable.
+- what the shared app/runtime contract is,
+- how widgets become layout and paint output,
+- which examples and target paths are already proven in this repo.
 
-## Recommended learning path
+Start with [Learn overview](/docs/learn/overview).
 
-The fastest safe path is:
+## Guides
 
-- [What is Fission](/docs/getting-started/what-is-fission)
-- [Install and setup](/docs/getting-started/install)
-- [Build your first app](/docs/getting-started/first-app)
-- [Playground-driven workflow](/docs/guide/playground-driven-workflow)
-- [Widgets and layout](/docs/guide/widgets-and-layout)
-- [State and actions](/docs/guide/state-and-actions)
-- [Commands, services, and jobs](/docs/guide/commands-services-jobs)
-- [Counter tutorial](/docs/tutorials/counter)
-- [Todo tutorial](/docs/tutorials/todo)
+Use Guides when you are implementing a subsystem in a real app:
 
-## How Fission targets your workflow
+- app structure,
+- async resources and capabilities,
+- input, text, IME, and environment sync,
+- theming, i18n, media, portals, 3D, shells, and diagnostics.
 
-Fission is designed around this rule: *build trust in state first, then scale runtime coverage*.
+Start with [App structure](/docs/guides/app-structure).
 
-Use one path now and come back later to switch target mode once behavior is stable.
+## Cookbook
 
-<Tabs>
-<TabItem value="default" label="Default path" default>
+Use Cookbook when you want a practical recipe backed by checked-in code:
 
-Start with a runnable app generated from the current machine and Rust toolchain:
+- build a counter,
+- wire a capability,
+- keep a timer or service alive,
+- add platform targets,
+- drive a live UI test.
 
-```bash
-cargo install fission-cli
-fission init my-fission-app
-cd my-fission-app
-cargo run
-```
+Start with [Build a counter](/docs/cookbook/build-a-counter).
 
-This validates your app loop before any platform-specific generated host is added.
+## Reference
 
-</TabItem>
-<TabItem value="custom" label="Local checkout path">
+Use Reference when you need the exact public surface:
 
-Use this for local crate development and deeper framework diagnostics:
+- core runtime types,
+- shell and CLI contracts,
+- subsystem summaries,
+- widget pages grouped by job.
 
-```bash
-git clone https://github.com/worka-ai/fission.git
-cd fission
-FISSION_CHECKOUT="$PWD"
-cargo install --locked --path "$FISSION_CHECKOUT/crates/tools/fission-cli"
-cd ..
-fission init my-fission-app --local-path "$FISSION_CHECKOUT"
-cd my-fission-app
-cargo run
-```
-</TabItem>
-</Tabs>
+Open [Reference overview](/reference/overview/overview).
 
-## Add targets when behavior is ready
+## Repo-backed pages outside the docs lanes
 
-You can add platforms as needed with the same project manifest (`fission.toml`):
-
-```bash
-cargo fission add-target web ios android
-```
-
-Generated targets are run from the generated app root:
-
-- `./platforms/web/run-browser.sh`
-- `./platforms/ios/run-sim.sh`
-- `./platforms/android/run-emulator.sh`
-
-Read each generated target README before testing each runtime.
+- [Examples](/examples) maps the checked-in example crates.
+- [Playground](/playground) shows the fastest local loops.
+- [Showcase](/showcase) highlights the most product-like samples in the repo.

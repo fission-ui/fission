@@ -1,0 +1,30 @@
+---
+title: Add platform targets
+description: Generate and run browser, iOS, and Android hosts once the shared desktop loop is stable.
+---
+
+# Add platform targets
+
+Once the desktop loop is working, use the CLI to add host projects.
+
+```bash
+fission init my-app
+cargo fission add-target web ios android --project-dir my-app
+```
+
+## Generated outputs
+
+The CLI writes target folders under `platforms/` and updates `fission.toml`.
+
+## Run commands
+
+- web: `./platforms/web/run-browser.sh`
+- iOS: `./platforms/ios/run-sim.sh`
+- Android: `./platforms/android/run-emulator.sh`
+
+## Use the checked-in smoke examples as a reference
+
+- `examples/web-smoke/`
+- `examples/mobile-smoke/`
+
+Those examples show what a working host folder and README should look like before you adapt the path to your own app.

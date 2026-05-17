@@ -1,0 +1,58 @@
+---
+title: Media, animation, portals, and 3D
+description: Runtime-owned motion and embedded surfaces without giving up deterministic layout and tests.
+---
+
+# Media, animation, portals, and 3D
+
+Fission keeps motion and embeds inside the same explicit runtime model as the rest of the UI.
+
+## Animation
+
+Animations are requested against stable widget IDs through `BuildCtx`.
+
+The runtime stores active animation state and exposes current values through `View::animation_value(...)`.
+
+Built-in properties include:
+
+- opacity,
+- translation X/Y,
+- scale,
+- rotation,
+- custom numeric properties.
+
+The `animation-gallery` example is the clearest reference.
+
+## Portals and overlays
+
+Overlays are not ad-hoc DOM escapes. Widgets register portal content into ordered layers:
+
+- default,
+- modal,
+- flyout,
+- toast.
+
+`Modal`, `Popover`, `Drawer`, `Tooltip`, `Menu`, `Select`, and the editor's custom overlays all use this mechanism.
+
+## Media and embeds
+
+The runtime collects registrations for:
+
+- video widgets,
+- web views,
+- surface-style embeds.
+
+That keeps layout, hit testing, and test visibility consistent even when a platform backend owns the actual playback or web surface.
+
+## 3D today
+
+The current 3D path is `Scene3D` from `fission-3d`. It lowers to an embed-style layout op and is exercised by `chart-gallery`.
+
+Treat it as a bounded viewport inside the normal layout system, not as a second app runtime.
+
+## Good repo references
+
+- `examples/animation-gallery/`
+- `examples/chart-gallery/`
+- `examples/inbox/` for portal-heavy app UI
+- `examples/editor/` for layered flyouts, hover UI, and command palette overlays

@@ -4,7 +4,7 @@ import type * as Preset from '@docusaurus/preset-classic';
 
 const config: Config = {
   title: 'Fission',
-  tagline: 'Build desktop, web, and mobile apps in Rust from one codebase',
+  tagline: 'Deterministic Rust UI with a shared runtime for desktop, web, iOS, and Android.',
   favicon: 'img/favicon.ico',
   future: {
     v4: true,
@@ -49,7 +49,7 @@ const config: Config = {
       {
         id: 'reference',
         path: 'reference',
-        routeBasePath: '/reference',
+        routeBasePath: 'reference',
         sidebarPath: './reference-sidebars.ts',
         editUrl: 'https://github.com/worka-ai/fission/edit/main/website/reference',
       },
@@ -68,21 +68,30 @@ const config: Config = {
       },
       items: [
         {
-          to: '/docs/getting-started/what-is-fission',
-          label: 'Docs',
+          to: '/docs/learn/overview',
+          label: 'Learn',
           position: 'left',
-          activeBasePath: '/docs',
+          activeBasePath: '/docs/learn',
         },
         {
-          to: '/reference/overview/',
+          to: '/docs/guides/app-structure',
+          label: 'Guides',
+          position: 'left',
+          activeBasePath: '/docs/guides',
+        },
+        {
+          to: '/docs/cookbook/build-a-counter',
+          label: 'Cookbook',
+          position: 'left',
+          activeBasePath: '/docs/cookbook',
+        },
+        {
+          to: '/reference/overview/overview',
           label: 'Reference',
           position: 'left',
           activeBasePath: '/reference',
         },
         {to: '/examples', label: 'Examples', position: 'left'},
-        {to: '/playground', label: 'Playground', position: 'left'},
-        {to: '/showcase', label: 'Showcase', position: 'left'},
-        {to: '/blog', label: 'Blog', position: 'right'},
         {
           href: 'https://github.com/worka-ai/fission',
           label: 'GitHub',
@@ -96,60 +105,39 @@ const config: Config = {
         {
           title: 'Learn',
           items: [
-            {
-              label: 'Why Fission',
-              to: '/docs/getting-started/what-is-fission',
-            },
-            {
-              label: 'First App',
-              to: '/docs/getting-started/first-app',
-            },
-            {
-              label: 'Playground',
-              to: '/playground',
-            },
-            {
-              label: 'Accessibility and i18n',
-              to: '/docs/guide/i18n-and-accessibility',
-            },
+            {label: 'Overview', to: '/docs/learn/overview'},
+            {label: 'Quickstart', to: '/docs/learn/quickstart'},
+            {label: 'Runtime model', to: '/docs/learn/runtime-model'},
           ],
         },
         {
-          title: 'Reference',
+          title: 'Guides',
           items: [
-            {
-              label: 'Core Framework',
-              to: '/reference/core/widget-trait',
-            },
-            {
-              label: 'CLI',
-              to: '/reference/cli/overview',
-            },
-            {
-              label: 'Widgets',
-              to: '/reference/widgets/catalog',
-            },
+            {label: 'App structure', to: '/docs/guides/app-structure'},
+            {label: 'Resources and async', to: '/docs/guides/resources-and-async'},
+            {label: 'Testing and diagnostics', to: '/docs/guides/testing-and-diagnostics'},
           ],
         },
         {
-          title: 'Community',
+          title: 'Cookbook',
           items: [
-            {
-              label: 'Blog',
-              to: '/blog',
-            },
-            {
-              label: 'Examples',
-              to: '/examples',
-            },
-            {
-              label: 'GitHub',
-              href: 'https://github.com/worka-ai/fission',
-            },
+            {label: 'Build a counter', to: '/docs/cookbook/build-a-counter'},
+            {label: 'Add platform targets', to: '/docs/cookbook/add-platform-targets'},
+            {label: 'Write a live UI test', to: '/docs/cookbook/write-a-live-ui-test'},
+          ],
+        },
+        {
+          title: 'Explore',
+          items: [
+            {label: 'Reference', to: '/reference/overview/overview'},
+            {label: 'Examples', to: '/examples'},
+            {label: 'Playground', to: '/playground'},
+            {label: 'Showcase', to: '/showcase'},
+            {label: 'GitHub', href: 'https://github.com/worka-ai/fission'},
           ],
         },
       ],
-      copyright: `Copyright © ${new Date().getFullYear()} Fission. Built with Docusaurus. Fission is actively being developed; core runtime and docs workflow are in active use while adjacent tooling and ecosystem support continue to improve.`,
+      copyright: `Copyright © ${new Date().getFullYear()} Fission. Built with Docusaurus. The site tracks the real runtime, shell, and example surface in this repository.`,
       logo: {
         alt: 'Fission',
         src: 'img/logo.svg',

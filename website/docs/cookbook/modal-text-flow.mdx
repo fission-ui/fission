@@ -1,0 +1,34 @@
+---
+title: Build a modal text flow
+description: Combine text inputs, combobox suggestions, modal focus, and overlays using the patterns exercised by `text-lab`.
+---
+
+# Build a modal text flow
+
+`examples/text-lab/` exists to prove tricky text flows before they are buried inside a bigger app.
+
+## Run it
+
+```bash
+cargo run -p text-lab
+```
+
+## What it combines
+
+- single-line and multiline `TextInput`
+- inline `Combobox` suggestions
+- a modal with its own text fields
+- `FocusScope` boundaries
+- menu and overlay teardown rules
+
+## Copy the pattern
+
+1. keep text values in `AppState`,
+2. bind one `Set...` action per field,
+3. derive suggestion lists from current query text,
+4. open and close modal state through explicit actions,
+5. let the overlay widgets manage portal registration.
+
+## Test it live
+
+The example's `live_e2e.rs` file is a good model for validating popup dismissal and modal reachability through `LiveTestClient`.

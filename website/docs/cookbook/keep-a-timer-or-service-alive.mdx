@@ -1,0 +1,32 @@
+---
+title: Keep a timer or service alive
+description: Declare runtime-managed resources that follow the widget tree instead of hiding polling in ad-hoc loops.
+---
+
+# Keep a timer or service alive
+
+Use build-time resources when work should exist while a screen or subtree exists.
+
+## Timer resource
+
+`examples/terminal/` and `examples/editor/` both use timer resources to keep runtime polling explicit.
+
+```rust
+ctx.resources.timer(
+    TimerResource::new(ResourceKey::new("terminal-session-poll"), Duration::from_millis(16), Poll)
+        .on_tick(poll_action),
+);
+```
+
+## Service resource
+
+Use `ServiceResource` when the runtime should keep a long-lived service active and reconcile it by key and dependency payload.
+
+## Pick the right policy
+
+- `RestartOnChange` when config changes should rebuild the resource
+- `PreserveOnChange` when UI changes should not interrupt the live instance
+
+## Why use resources instead of shell hooks
+
+Resources are visible to the runtime, keyed, restartable, and testable. That is much easier to reason about than frame hooks or hidden threads.

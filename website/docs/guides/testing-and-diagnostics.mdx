@@ -1,0 +1,53 @@
+---
+title: Testing and diagnostics
+description: Use the deterministic runtime to test reducers, widget trees, live targets, and frame-level diagnostics.
+---
+
+# Testing and diagnostics
+
+Fission's shared runtime matters most when you can verify behavior at the right layer.
+
+## Recommended test order
+
+1. reducer tests for state transitions,
+2. headless widget/runtime tests with `fission-test`,
+3. live integration tests with `fission-test-driver`,
+4. target smoke scripts for mobile or web packaging.
+
+## Headless test tools
+
+`fission-test` gives you:
+
+- `TestHarness` for build/lower/layout/pump flows,
+- `TestDriver` queries for text and semantics,
+- mock rendering and snapshot-friendly assertions.
+
+Use it when you want runtime behavior without opening a real window.
+
+## Live test tools
+
+`fission-test-driver::LiveTestClient` talks to a running app over the shell's HTTP control server.
+
+It can:
+
+- tap or scroll,
+- type text or press keys,
+- capture screenshots,
+- inspect visible text,
+- inspect the semantic tree,
+- resize the test surface.
+
+The example crates under `examples/*/tests/live_e2e.rs` are the best reference material.
+
+## Diagnostics
+
+`fission-diagnostics` emits structured events for frame, layout, paint, input, animation, media, and invariant categories.
+
+Important environment variables include:
+
+- `FISSION_DIAG`
+- `FISSION_DIAG_LEVEL`
+- `FISSION_DIAG_SINK`
+- `FISSION_DIAG_SAMPLING`
+
+Use diagnostics when you already know the problem is in a specific frame stage and want stage-level evidence.

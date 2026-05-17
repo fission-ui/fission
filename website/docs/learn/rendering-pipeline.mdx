@@ -1,0 +1,61 @@
+---
+title: Rendering pipeline
+description: How Fission turns a widget tree into layout, paint, and platform output.
+---
+
+# Rendering pipeline
+
+Every frame follows the same broad path:
+
+```text
+Widget::build -> Node tree -> Core IR -> LayoutSnapshot -> Display list -> Renderer
+```
+
+## Build
+
+Widgets read `View` and return a `Node` tree. This is where branching, composition, and action binding happen.
+
+## Lower
+
+The node tree is lowered into Core IR. This flattens the authoring tree into layout, paint, semantics, and embed operations that are easier to diff and inspect.
+
+This stage is also where:
+
+- custom `LowerDyn` nodes inject their own IR,
+- portal overlays are composed,
+- media and web embeds are registered,
+- animation requests are attached to stable widget IDs.
+
+## Layout
+
+`fission-layout` resolves constraints, flex behavior, grid geometry, scroll extents, and embed rectangles into a `LayoutSnapshot`.
+
+Because layout snapshots are explicit, you can inspect bounds in tests instead of guessing from pixels.
+
+## Paint and render
+
+The pipeline compiles visible nodes into a display list. Desktop uses the Vello + wgpu rendering path; the same app model can then be hosted by web or mobile shells.
+
+## Why the pipeline matters
+
+When something is wrong, the stage where output first diverges usually tells you where to debug.
+
+- wrong text or branch: state or `build()`
+- wrong size or position: layout
+- right geometry but wrong pixels: paint or theme
+- target-specific launch or input issue: shell/runtime boundary
+
+## Where custom work plugs in
+
+If the built-in widget surface is not enough, use:
+
+- `CustomNode` and `LowerDyn` for custom IR,
+- `canvas(...)` for lightweight drawing helpers,
+- `Scene3D` for the current 3D embed path,
+- shell-side async registration for platform capabilities.
+
+## Read next
+
+- [Runtime model](/docs/learn/runtime-model)
+- [Reference: rendering pipeline](/reference/core/rendering-pipeline)
+- [Reference: testing and diagnostics](/reference/core/testing-and-diagnostics)

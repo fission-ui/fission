@@ -1,41 +1,49 @@
+import Link from '@docusaurus/Link';
 import Layout from '@theme/Layout';
+import {showcaseStories} from '../data/siteContent';
 import styles from './experience.module.css';
 
-const stories = [
-  {
-    title: 'Core playground sample',
-    description:
-      'A stable sequence for validating reducer determinism, focus order, and render updates with minimal surface area.',
-  },
-  {
-    title: 'Widget gallery',
-    description:
-      'A practical composition set that demonstrates layout primitives, semantic labels, and component consistency.',
-  },
-  {
-    title: 'Command workflow app',
-    description: 'A guided example for async services, background updates, and user-feedback patterns.',
-  },
-];
+function repoHref(path: string) {
+  return `https://github.com/worka-ai/fission/tree/main/${path}`;
+}
 
 export default function Showcase() {
   return (
-    <Layout title="Showcase" description="Fission apps and practical implementation stories.">
+    <Layout title='Showcase' description='The most product-proof examples and target stories currently checked into the Fission repo.'>
       <main className={`container ${styles.pageShell}`}>
         <section className={styles.section}>
           <h1 className={styles.heading}>Showcase</h1>
           <p className={styles.lead}>
-            We are building a showcase that mirrors a shipping team’s onboarding path: model first, validation second,
-            expansion third. Each story is intentionally chosen to answer “when do I use this now?”
+            These are the stories worth pointing at when someone asks whether the framework already covers more than a
+            starter counter. Every card on this page maps to real code in this repo.
           </p>
         </section>
         <section className={styles.section}>
-          {stories.map((story) => (
-            <article className={styles.card} key={story.title}>
-              <h2>{story.title}</h2>
-              <p>{story.description}</p>
-            </article>
-          ))}
+          <div className={styles.grid}>
+            {showcaseStories.map((story) => (
+              <article className={styles.card} key={story.title}>
+                <div className={styles.metaRow}>
+                  <span className={styles.pill}>repo-backed</span>
+                  <code>{story.repoPath}</code>
+                </div>
+                <h2>{story.title}</h2>
+                <p>{story.summary}</p>
+                <ul className={styles.list}>
+                  {story.proofs.map((proof) => (
+                    <li key={proof}>{proof}</li>
+                  ))}
+                </ul>
+                <div className={styles.linkRow}>
+                  <Link className={styles.link} to={repoHref(story.repoPath)}>
+                    Open repo path
+                  </Link>
+                  <Link className={styles.link} to={story.href}>
+                    Related page
+                  </Link>
+                </div>
+              </article>
+            ))}
+          </div>
         </section>
       </main>
     </Layout>

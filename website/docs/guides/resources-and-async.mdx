@@ -1,0 +1,69 @@
+---
+title: Resources and async
+description: Use effects, resources, capabilities, jobs, and services without putting side effects in reducers.
+---
+
+# Resources and async
+
+Reducers stay pure in Fission. All external work goes through explicit runtime contracts.
+
+## Use reducer effects for event-driven work
+
+Inside `ReducerContext`, `ctx.effects` lets you queue:
+
+- `capability(...)` for host/device operations,
+- `app(...)` for one-shot jobs,
+- `start_service(...)`, `command(...)`, and `stop_service(...)` for long-lived services.
+
+Those effects return through normal reducer actions via `on_ok(...)`, `on_err(...)`, or service event bindings.
+
+## Use build-time resources for work that should stay alive
+
+`BuildCtx.resources` lets widgets declare runtime-managed resources each frame:
+
+- `JobResource`
+- `ServiceResource`
+- `TimerResource`
+
+The runtime reconciles them by key and dependency payload.
+
+That is the right tool for:
+
+- editor polling,
+- long-lived background sync,
+- repeated timer ticks tied to visible UI,
+- work that should start and stop with the current widget tree.
+
+## Understand resource policies
+
+Each resource declaration has a policy:
+
+- `RestartOnChange` restarts the resource when dependencies change,
+- `PreserveOnChange` keeps the current instance alive even if deps changed.
+
+Use stable keys and explicit deps so restarts happen only when you mean them to.
+
+## Built-in capabilities in the repo
+
+The core crate exposes typed capability IDs for common host work:
+
+- `SHOW_ALERT`
+- `OPEN_URL`
+- `AUTHENTICATE`
+- `PICK_OPEN_FILES`
+
+The inbox example uses `OPEN_URL` and `AUTHENTICATE`. Custom capabilities are registered through shell `with_async(...)` setup.
+
+## Jobs vs services vs resources
+
+- one user action, one response: job
+- long-running external process with commands/events: service
+- something that should exist while a widget subtree exists: resource
+- simple periodic wakeups: timer resource
+
+## Where to look in the repo
+
+- `examples/inbox/` for capability-backed reducer flows
+- `examples/editor/` for resource-driven jobs and timers
+- `examples/terminal/` for timer-based polling
+- `crates/shell/fission-shell-desktop/README.md` for shell-side async registration

@@ -1,91 +1,157 @@
 import Link from '@docusaurus/Link';
 import Layout from '@theme/Layout';
+import {docLanes, proofPoints, repoExamples} from '../data/siteContent';
 import styles from './index.module.css';
 
-const storySteps = [
+const featuredExamples = repoExamples.filter((example) =>
+  ['counter', 'inbox', 'editor', 'mobile-smoke'].includes(example.slug),
+);
+
+const subsystemCards = [
   {
-    step: 'Start',
-    title: 'Write one Rust app model',
+    title: 'App/runtime model',
     detail:
-      'Model state, actions, and UI in one file. The same structure is used by every runtime target.',
+      'The shared model now surfaces `AppState`, `View`, `BuildCtx`, reducers, runtime-owned state, and the widget -> IR -> layout -> paint path.',
+    href: '/docs/learn/runtime-model',
+    cta: 'Read the model',
   },
   {
-    step: 'Validate',
-    title: 'Rebuild quickly and verify behavior',
+    title: 'Resources and capabilities',
     detail:
-      'Run the generated app, confirm one interaction end-to-end, and lock the reducer behavior before adding complexity.',
+      'Jobs, services, timers, and typed host capabilities are documented from both the guide and reference angle.',
+    href: '/reference/core/resources-and-capabilities',
+    cta: 'Open runtime ref',
   },
   {
-    step: 'Expand',
-    title: 'Generate targets only when they are needed',
+    title: 'Input, IME, and clipboard',
     detail:
-      'Add web, iOS, or Android targets and use the generated scripts to validate each target early in your release flow.',
+      'The docs now call out the shared input event model, text-edit runtime state, shell clipboard/IME traits, and `text-lab` as the proving ground.',
+    href: '/docs/guides/input-events-text-and-env',
+    cta: 'See input guide',
+  },
+  {
+    title: 'Portals, media, and 3D',
+    detail:
+      'Animation requests, portal layers, video/web registrations, and `Scene3D` are mapped to the examples that already use them.',
+    href: '/docs/guides/media-animation-portals-and-3d',
+    cta: 'See runtime features',
+  },
+  {
+    title: 'Shells, CLI, and tests',
+    detail:
+      'Desktop/mobile/web shell builders, generated targets, live-driver tests, and diagnostics are tied back to the checked-in smoke flows.',
+    href: '/docs/guides/testing-and-diagnostics',
+    cta: 'See verification path',
   },
 ];
 
-const strengths = [
-  {
-    title: 'One model. Many runtimes.',
-    detail:
-      'Fission keeps business logic in Rust state and uses generated host projects for platform packaging.',
-  },
-  {
-    title: 'Deterministic behavior',
-    detail:
-      'Actions and reducers give predictable transitions that are easy to test, replay, and reason about.',
-  },
-  {
-    title: 'Production-oriented iteration',
-    detail:
-      'Split sync work into reducers, jobs, services, and commands so UI code stays predictable and testable.',
-  },
-];
+function repoHref(path: string) {
+  return `https://github.com/worka-ai/fission/tree/main/${path}`;
+}
 
 function Hero() {
   return (
     <header className={styles.hero}>
       <div className='container'>
-        <p className={styles.kicker}>Rust UI framework for products that ship</p>
+        <p className={styles.kicker}>Deterministic Rust UI, backed by real repo examples</p>
         <h1 className={styles.title}>
-          Build one typed model and ship predictable UI across desktop, web, iOS, and Android.
+          One shared runtime for counters, inboxes, editors, terminals, charts, and target hosts.
         </h1>
         <p className={styles.subtitle}>
-          Fission gives teams a practical path from first interaction to platform launch: model state and actions first,
-          prove behavior in fast local loops, then add targets with confidence.
+          This site now leads with what Fission already proves: typed state and reducers, explicit runtime
+          resources, text/IME handling, portals, theming, i18n, tests, and desktop/web/mobile host paths.
         </p>
         <div className={styles.ctaRow}>
-          <Link className={styles.primaryCta} to='/docs/getting-started/what-is-fission'>
-            Start learning Fission
+          <Link className={styles.primaryCta} to='/docs/learn/overview'>
+            Start with Learn
           </Link>
-          <Link className={styles.secondaryCta} to='/docs/getting-started/install'>
-            Install CLI
+          <Link className={styles.secondaryCta} to='/reference/overview/overview'>
+            Browse Reference
           </Link>
-          <Link className={styles.tertiaryCta} to='/docs/guide/commands-services-jobs'>
-            Learn async boundaries
+          <Link className={styles.tertiaryCta} to='/examples'>
+            Inspect repo examples
           </Link>
         </div>
-        <p className={styles.quickCommand} aria-label='One command quick start'>
-          <span className={styles.quickLabel}>Quick start</span>
-          <code>cargo install fission-cli && fission init my-app</code>
-        </p>
+        <div className={styles.commandPanel}>
+          <div>
+            <p className={styles.commandLabel}>Run something real</p>
+            <code>cargo run -p counter</code>
+          </div>
+          <div>
+            <p className={styles.commandLabel}>Scaffold a new app</p>
+            <code>fission init my-app</code>
+          </div>
+        </div>
       </div>
     </header>
   );
 }
 
-function Progress() {
+function ProofStrip() {
   return (
     <section className={styles.section}>
       <div className='container'>
-        <p className={styles.sectionLead}>The workflow used for every new team:</p>
-        <div className={styles.proofGrid}>
-          {storySteps.map((item) => (
-            <article className={styles.card} key={item.title}>
-              <p className={styles.storyLabel}>{item.step}</p>
-              <h2 className={styles.storyTitle}>{item.title}</h2>
-              <p className={styles.storyCopy}>{item.detail}</p>
-              <Link className={styles.cardCta} to='/docs/guide/playground-driven-workflow'>
-                Open workflow
+        <div className={styles.statGrid}>
+          {proofPoints.map((item) => (
+            <article className={styles.statCard} key={item.title}>
+              <p className={styles.storyLabel}>{item.title}</p>
+              <p className={styles.statCopy}>{item.detail}</p>
+            </article>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function FeaturedExamples() {
+  return (
+    <section className={styles.section}>
+      <div className='container'>
+        <p className={styles.sectionLead}>What the repo already proves</p>
+        <div className={styles.cardGrid}>
+          {featuredExamples.map((example) => (
+            <article className={styles.card} key={example.slug}>
+              <div className={styles.cardHeader}>
+                <p className={styles.storyLabel}>{example.crate}</p>
+                <code>{example.commands[0]}</code>
+              </div>
+              <h2>{example.title}</h2>
+              <p>{example.summary}</p>
+              <ul className={styles.featureList}>
+                {example.features.map((feature) => (
+                  <li key={feature}>{feature}</li>
+                ))}
+              </ul>
+              <div className={styles.cardMetaRow}>
+                <Link className={styles.cardCta} to='/examples'>
+                  View example map
+                </Link>
+                <Link className={styles.cardMetaLink} to={repoHref(example.repoPath)}>
+                  Open repo path
+                </Link>
+              </div>
+            </article>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function DocLanes() {
+  return (
+    <section className={styles.section}>
+      <div className='container'>
+        <p className={styles.sectionLead}>The new documentation lanes</p>
+        <div className={styles.cardGrid}>
+          {docLanes.map((lane) => (
+            <article className={styles.card} key={lane.title}>
+              <p className={styles.storyLabel}>{lane.title}</p>
+              <h2>{lane.summary}</h2>
+              <p>{lane.detail}</p>
+              <Link className={styles.cardCta} to={lane.href}>
+                Open {lane.title}
               </Link>
             </article>
           ))}
@@ -95,18 +161,18 @@ function Progress() {
   );
 }
 
-function ProductDifferentiators() {
+function Coverage() {
   return (
     <section className={styles.section}>
       <div className='container'>
-        <p className={styles.sectionLead}>What teams choose this approach for:</p>
+        <p className={styles.sectionLead}>What this rewrite now covers directly</p>
         <div className={styles.cardGrid}>
-          {strengths.map((item) => (
+          {subsystemCards.map((item) => (
             <article className={styles.card} key={item.title}>
               <h2>{item.title}</h2>
               <p>{item.detail}</p>
-              <Link className={styles.cardCta} to='/docs/guide/widgets-and-layout'>
-                View related guide
+              <Link className={styles.cardCta} to={item.href}>
+                {item.cta}
               </Link>
             </article>
           ))}
@@ -120,11 +186,13 @@ export default function Home() {
   return (
     <Layout
       title='Fission'
-      description='Rust UI framework for deterministic, production-oriented apps across desktop, web, iOS, and Android.'>
+      description='Deterministic Rust UI across desktop, web, iOS, and Android, with docs grounded in the real repo surface.'>
       <div className={styles.page}>
         <Hero />
-        <Progress />
-        <ProductDifferentiators />
+        <ProofStrip />
+        <FeaturedExamples />
+        <DocLanes />
+        <Coverage />
       </div>
     </Layout>
   );

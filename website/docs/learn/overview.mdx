@@ -1,0 +1,52 @@
+---
+title: Learn overview
+description: What Fission is, where the shared runtime helps, and what this repository already proves.
+---
+
+# Learn overview
+
+Fission is a Rust UI framework built around one typed app model, a shared runtime, and a deterministic rendering pipeline.
+
+The shape of a Fission app is consistent across targets:
+
+1. keep product data in `AppState`,
+2. express user intent with typed `Action`s,
+3. update state in reducers,
+4. build a widget tree from `View`,
+5. let the runtime lower, lay out, paint, and present it.
+
+## What the repo already proves
+
+This repository is more than a widget catalog.
+
+- `examples/counter/` shows state, selectors, text input, modal overlays, and animation requests.
+- `examples/inbox/` shows theme switching, locale switching, portals, and capability-driven host work.
+- `examples/text-lab/` isolates text input, comboboxes, modal focus, and IME-sensitive flows.
+- `examples/editor/` uses custom rendering, timers, portals, terminal integration, and extensive live tests.
+- `examples/mobile-smoke/` and `examples/web-smoke/` prove the generated mobile and browser host paths.
+
+## Target reality today
+
+The repo and CLI support the same shared app model across desktop, web, iOS, and Android, but not all paths are equally mature.
+
+- desktop (`DesktopApp`) is the normal local development path,
+- web has a checked-in `web-smoke` example and CLI-generated host scaffolds,
+- iOS and Android have checked-in smoke flows plus generated host projects,
+- the docs call out smoke-path constraints instead of treating every target as identical.
+
+## The core mental model
+
+Three pieces matter most:
+
+- `View<S>` is the read-only projection of app state, runtime state, and environment.
+- `BuildCtx<S>` is where widgets bind actions, declare resources, register portals, and request animation.
+- the runtime owns time, input routing, text-edit state, scroll offsets, media state, and replay-friendly diagnostics.
+
+If you remember that `build()` is pure and the runtime owns everything cross-frame, the rest of the framework stays readable.
+
+## Read next
+
+- [Quickstart](/docs/learn/quickstart)
+- [Runtime model](/docs/learn/runtime-model)
+- [Rendering pipeline](/docs/learn/rendering-pipeline)
+- [Examples and targets](/docs/learn/examples-and-targets)

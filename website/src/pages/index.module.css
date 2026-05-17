@@ -1,39 +1,47 @@
 .page {
   background:
-    radial-gradient(circle at 12% -10%, rgba(14, 165, 116, 0.10), transparent 42%),
-    radial-gradient(circle at 88% -8%, rgba(14, 165, 233, 0.10), transparent 52%),
+    radial-gradient(circle at 12% -10%, rgba(14, 165, 116, 0.1), transparent 42%),
+    radial-gradient(circle at 88% -8%, rgba(14, 165, 233, 0.1), transparent 52%),
     linear-gradient(180deg, #fbfdff 0%, #f8fbff 64%, #ffffff 100%);
   color: var(--ifm-font-color-base);
   min-height: 100vh;
 }
 
+:global([data-theme='dark']) .page {
+  background:
+    radial-gradient(circle at 12% -10%, rgba(45, 212, 191, 0.16), transparent 44%),
+    radial-gradient(circle at 88% -8%, rgba(45, 212, 191, 0.12), transparent 52%),
+    linear-gradient(180deg, #020617 0%, #060d1c 68%, #091225 100%);
+}
+
 .hero {
-  padding: 5.2rem 0 4.2rem;
+  padding: 5.2rem 0 3.3rem;
 }
 
 .kicker {
+  margin: 0 0 0.75rem;
   text-transform: uppercase;
-  letter-spacing: 0.12em;
+  letter-spacing: 0.14em;
   font-size: 0.78rem;
   color: var(--ifm-color-primary-dark);
   font-weight: 700;
-  margin-bottom: 0.7rem;
 }
 
 .title {
-  max-width: 18ch;
+  max-width: 16ch;
   margin: 0;
-  line-height: 1.08;
-  font-size: clamp(2.1rem, 5vw, 3.5rem);
+  line-height: 0.98;
+  font-size: clamp(2.5rem, 6vw, 4.5rem);
   color: var(--ifm-heading-color);
+  font-family: "Iowan Old Style", "Palatino Linotype", "Book Antiqua", Georgia, serif;
 }
 
 .subtitle {
-  margin-top: 1.2rem;
-  max-width: 67ch;
+  margin-top: 1.25rem;
+  max-width: 70ch;
   font-size: 1.08rem;
   color: var(--ifm-font-color-base);
-  line-height: 1.6;
+  line-height: 1.68;
 }
 
 .ctaRow {
@@ -44,8 +52,8 @@
 }
 
 .ctaRow a {
-  border-radius: 0.75rem;
-  padding: 0.68rem 1rem;
+  border-radius: 0.85rem;
+  padding: 0.72rem 1rem;
   font-weight: 650;
   display: inline-block;
   text-align: center;
@@ -62,85 +70,121 @@
   color: var(--ifm-font-color-base);
 }
 
-.quickCommand {
-  margin: 1.4rem 0 0;
-  display: inline-flex;
-  flex-wrap: wrap;
-  gap: 0.45rem;
-  align-items: center;
+.commandPanel {
+  margin-top: 1.5rem;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 0.8rem;
+}
+
+.commandPanel > div {
+  background: color-mix(in srgb, var(--ifm-card-background-color) 88%, transparent);
+  border: 1px solid var(--ifm-color-emphasis-300);
+  border-radius: 1rem;
+  padding: 0.9rem 1rem;
+}
+
+.commandLabel {
+  margin: 0 0 0.45rem;
+  font-size: 0.76rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  font-weight: 700;
   color: var(--ifm-font-color-secondary);
 }
 
-.quickLabel {
-  font-size: 0.86rem;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  font-weight: 700;
-}
-
-.quickCommand code {
-  font-family: var(--ifm-font-family-monospace);
-  padding: 0.2rem 0.55rem;
+.commandPanel code,
+.cardHeader code {
+  display: block;
+  white-space: nowrap;
+  overflow-x: auto;
 }
 
 .section {
-  padding: 3.2rem 0;
+  padding: 1.6rem 0 2rem;
 }
 
 .sectionLead {
-  margin-bottom: 0.6rem;
-  font-size: 1.05rem;
+  margin: 0 0 0.7rem;
+  font-size: 0.98rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  font-weight: 700;
   color: var(--ifm-font-color-secondary);
 }
 
-.proofGrid,
+.statGrid,
 .cardGrid {
-  margin-top: 1rem;
   display: grid;
-  gap: 0.9rem;
+  gap: 0.95rem;
   grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
 }
 
+.statCard,
 .card {
   background: var(--ifm-card-background-color);
   border: 1px solid var(--ifm-color-emphasis-300);
-  border-radius: 0.75rem;
-  padding: 0.95rem;
+  border-radius: 1rem;
+  padding: 1rem;
+}
+
+.card {
   display: flex;
   flex-direction: column;
-  gap: 0.7rem;
-  color: var(--ifm-font-color-base);
+  gap: 0.75rem;
 }
 
 .card h2,
-.card p {
+.card p,
+.statCopy {
   margin: 0;
-  color: var(--ifm-font-color-base);
 }
 
 .card h2 {
-  margin-bottom: 0.55rem;
-  font-size: 1.06rem;
+  font-size: 1.15rem;
+  color: var(--ifm-font-color-base);
+}
+
+.card p,
+.statCopy {
+  color: var(--ifm-font-color-secondary);
+  line-height: 1.62;
+}
+
+.cardHeader,
+.cardMetaRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.6rem;
 }
 
 .storyLabel {
   text-transform: uppercase;
-  letter-spacing: 0.09em;
+  letter-spacing: 0.1em;
   font-size: 0.72rem;
   color: var(--ifm-color-emphasis-700);
-  margin: 0 0 0.42rem;
+  margin: 0;
+  font-weight: 700;
 }
 
-.storyCopy {
-  line-height: 1.56;
+.featureList {
+  margin: 0;
+  padding-left: 1.1rem;
   color: var(--ifm-font-color-base);
-  margin-bottom: 0.65rem;
 }
 
-.cardCta {
-  margin-top: auto;
-  color: var(--ifm-link-color);
+.featureList li + li {
+  margin-top: 0.35rem;
+}
+
+.cardCta,
+.cardMetaLink {
   font-weight: 600;
+}
+
+.cardMetaLink {
+  color: var(--ifm-font-color-secondary);
 }
 
 :global([data-theme='dark']) .primaryCta {
@@ -149,7 +193,7 @@
 
 @media screen and (max-width: 768px) {
   .hero {
-    padding-top: 4.4rem;
+    padding-top: 4.3rem;
   }
 
   .title {

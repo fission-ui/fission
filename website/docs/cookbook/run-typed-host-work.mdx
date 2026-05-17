@@ -1,0 +1,40 @@
+---
+title: Run typed host work
+description: Trigger URL open, auth, file pick, or your own capability without breaking reducer purity.
+---
+
+# Run typed host work
+
+Use a reducer effect when the app needs the host to do one thing and report back.
+
+## Built-in capability example
+
+The repo already exposes typed capability IDs such as `OPEN_URL`, `AUTHENTICATE`, `SHOW_ALERT`, and `PICK_OPEN_FILES`.
+
+In a reducer:
+
+```rust
+ctx.effects
+    .capability(OPEN_URL, OpenUrlRequest {
+        url: state.docs_url.clone(),
+        in_app: false,
+    })
+    .on_err(ctx.effects.bind(OpenUrlFailed, on_open_url_failed));
+```
+
+The inbox example uses this pattern for external links and auth flows.
+
+## Custom capability example
+
+When you need your own host operation:
+
+1. define an `OperationCapability` type,
+2. trigger it from a reducer effect,
+3. register its handler in shell `with_async(...)` setup,
+4. route success or failure back through typed actions.
+
+## When not to use a capability
+
+- repeated or stateful background work -> use a service
+- periodic wakeups tied to UI presence -> use a timer resource
+- one-shot app-owned async work -> use a job

@@ -1,0 +1,36 @@
+---
+title: Write a live UI test
+description: Drive a real Fission window or browser host through the built-in HTTP test control server.
+---
+
+# Write a live UI test
+
+The repo uses `fission-test-driver::LiveTestClient` across many examples.
+
+## Typical flow
+
+1. launch the app with `FISSION_TEST_CONTROL_PORT=<port>`,
+2. wait for readiness,
+3. interact through text, coordinates, or key presses,
+4. capture screenshots or semantic tree data,
+5. shut the app down cleanly.
+
+## Minimal sketch
+
+```rust
+let client = LiveTestClient::connect(control_port);
+client.wait_for_ready(15_000)?;
+client.tap_text("Increment")?;
+client.assert_text_visible("Count: 1")?;
+client.screenshot("/tmp/counter.png")?;
+client.quit()?;
+```
+
+## Good reference tests in this repo
+
+- `examples/text-lab/tests/live_e2e.rs`
+- `examples/widget-gallery/tests/live_e2e.rs`
+- `examples/animation-gallery/tests/live_e2e.rs`
+- `examples/editor/tests/live_e2e.rs`
+
+Use a live test when you need proof of shell input, overlay behavior, semantics exposure, or pixels.
