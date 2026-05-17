@@ -12,18 +12,15 @@ In read mode it renders a low-emphasis button showing the current value. In edit
 ## Example
 
 ```rust
-use fission_widgets::Editable;
+use fission::prelude::*;
 
 let node = Editable {
 id: Some(WidgetNodeId::explicit("rename_project")),
 value: view.state.project_name_draft.clone(),
 placeholder: "Untitled project".into(),
 is_editing: view.state.renaming_project,
-on_change: Some(ctx.bind(
-    SetProjectNameDraft(String::new()),
-    on_set_project_name_draft as Handler<AppState, SetProjectNameDraft>,
-)),
-on_edit: Some(ctx.bind(BeginProjectRename, on_begin_project_rename)),
+on_change: Some(with_reducer!(ctx, SetProjectNameDraft(String::new()), on_set_project_name_draft)),
+on_edit: Some(with_reducer!(ctx, BeginProjectRename, on_begin_project_rename)),
 on_submit: Some(finish_project_rename_action),
 on_cancel: Some(cancel_project_rename_action),
 }

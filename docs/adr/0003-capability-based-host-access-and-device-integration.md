@@ -679,7 +679,7 @@ Example:
 
 ```rust
 pub mod thermal_camera_cap {
-    use fission_core::capability::SessionCapability;
+    use fission::core::capability::SessionCapability;
     use serde::{Deserialize, Serialize};
 
     pub struct ThermalCameraSession;

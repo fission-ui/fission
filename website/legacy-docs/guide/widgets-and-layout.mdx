@@ -23,7 +23,7 @@ struct DashboardState {
 
 impl AppState for DashboardState {}
 
-#[derive(Action, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[fission_action]
 struct Increment;
 
 fn on_increment(
@@ -38,7 +38,7 @@ struct Dashboard;
 
 impl Widget<DashboardState> for Dashboard {
     fn build(&self, ctx: &mut BuildCtx<DashboardState>, view: &View<DashboardState>) -> Node {
-        let increment = ctx.bind(Increment, on_increment as Handler<DashboardState, Increment>);
+        let increment = with_reducer!(ctx, Increment, on_increment);
 
         Container {
             child: Some(Box::new(

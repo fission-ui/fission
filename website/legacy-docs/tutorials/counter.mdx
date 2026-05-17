@@ -14,7 +14,7 @@ If your scaffold already has a decrement action, skip directly to verification.
 Open `src/app.rs` and add:
 
 ```rust
-#[derive(Action, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[fission_action]
 struct Decrement;
 
 fn on_decrement(
@@ -31,8 +31,8 @@ fn on_decrement(
 Bind both actions and render a second button.
 
 ```rust
-let increment = ctx.bind(Increment, on_increment as Handler<CounterState, Increment>);
-let decrement = ctx.bind(Decrement, on_decrement as Handler<CounterState, Decrement>);
+let increment = with_reducer!(ctx, Increment, on_increment);
+let decrement = with_reducer!(ctx, Decrement, on_decrement);
 
 Column {
     gap: Some(16.0),

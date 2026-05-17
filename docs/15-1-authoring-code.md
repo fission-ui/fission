@@ -27,14 +27,14 @@ State contains no UI concerns and no implicit behavior.
 Actions are descriptors, not callbacks.
 
 ```rust
-#[derive(Action, Debug, Clone, PartialEq, Eq, Hash)]
+#[fission_action]
 enum CounterAction {
     Increment,
 }
 ```
 
 Notes:
-- `#[derive(Action)]` assigns a stable identity.
+- `#[fission_action]` assigns a stable identity.
 - Actions are hashable and replayable.
 - No closures are captured.
 

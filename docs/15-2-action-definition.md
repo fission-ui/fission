@@ -25,7 +25,7 @@ Actions are *data*, not behavior.
 For the Counter application, a single action is sufficient.
 
 ```rust
-#[derive(Action, Debug, Clone, PartialEq, Eq, Hash)]
+#[fission_action]
 enum CounterAction {
     Increment,
 }
@@ -38,7 +38,7 @@ Properties:
 
 ---
 
-## 15.2.3 `#[derive(Action)]` Semantics
+## 15.2.3 `#[fission_action]` Semantics
 
 The `Action` derive macro generates:
 

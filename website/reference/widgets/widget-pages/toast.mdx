@@ -12,7 +12,7 @@ Use it when the app needs to acknowledge something quickly without interrupting 
 ## Example
 
 ```rust
-use fission_widgets::{Toast, ToastKind};
+use fission::prelude::*;
 
 let node = Toast {
     id: WidgetNodeId::explicit("reply_sent_toast"),

@@ -12,7 +12,7 @@ It covers ordinary single-line fields, multiline editors, password fields, synta
 ## Example
 
 ```rust
-use fission_core::ui::TextInput;
+use fission::core::ui::TextInput;
 
 let node = TextInput {
 value: view.state.email.clone(),
@@ -20,8 +20,7 @@ label: Some("Email address".into()),
 placeholder: Some("name@example.com".into()),
 on_change: Some(ctx.bind(
     SetEmail(String::new()),
-    (|state: &mut SettingsState, action: SetEmail, _| state.email = action.0)
-        as Handler<SettingsState, SetEmail>,
+    reduce_with!((|state: &mut SettingsState, action: SetEmail, _| state.email = action.0)),
 )),
 on_submit: Some(save_email_action),
 width: Some(320.0),

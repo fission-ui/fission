@@ -12,19 +12,19 @@ Use it when a part of the screen should visibly respond as something is dragged 
 ## Example
 
 ```rust
-use fission_widgets::Dropzone;
+use fission::prelude::*;
 
 let node = Dropzone {
 child: Box::new(upload_panel_node),
-on_drag_enter: Some(ctx.bind(SetHoveringUpload(true), on_set_hovering_upload)),
-on_drag_leave: Some(ctx.bind(SetHoveringUpload(false), on_set_hovering_upload)),
+on_drag_enter: Some(with_reducer!(ctx, SetHoveringUpload(true), on_set_hovering_upload)),
+on_drag_leave: Some(with_reducer!(ctx, SetHoveringUpload(false), on_set_hovering_upload)),
 on_drop: Some(ctx.bind(
     FilesDropped,
-    (|state: &mut ComposerState, _action: FilesDropped, ctx| {
+    reduce_with!((|state: &mut ComposerState, _action: FilesDropped, ctx| {
         if let Some(paths) = ctx.input.as_drop_paths() {
             state.attachments.extend(paths.iter().cloned());
         }
-    }) as Handler<ComposerState, FilesDropped>,
+    })),
 )),
 }
 .build(ctx, view);

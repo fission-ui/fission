@@ -14,13 +14,13 @@ Use `Overlay` when the relationship is naturally "main thing plus one covering l
 ## Example
 
 ```rust
-use fission_core::ui::{Container, Overlay, Text};
+use fission::core::ui::{Container, Overlay, Text};
 
 let node = Overlay {
     content: Box::new(Text::new("Invoice list").into_node()),
     overlay: Box::new(
         Container::new(Text::new("Syncing...").into_node())
-            .bg(fission_core::op::Color {
+            .bg(fission::core::op::Color {
                 r: 0,
                 g: 0,
                 b: 0,

@@ -52,19 +52,19 @@ This state does not try to store platform picker internals. It stores what your 
 A good action list tells the story of the feature.
 
 ```rust
-#[derive(fission_macros::Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[fission_action]
 pub struct ImportPressed;
 
-#[derive(fission_macros::Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[fission_action]
 pub struct FilesPicked;
 
-#[derive(fission_macros::Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[fission_action]
 pub struct FilePickFailed;
 
-#[derive(fission_macros::Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[fission_action]
 pub struct ImportParsed;
 
-#[derive(fission_macros::Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[fission_action]
 pub struct ImportParseFailed;
 ```
 
@@ -94,11 +94,11 @@ fn on_import_pressed(
         )
         .on_ok(ctx.effects.bind(
             FilesPicked,
-            on_files_picked as Handler<ImportState, FilesPicked>,
+            reduce_with!(on_files_picked),
         ))
         .on_err(ctx.effects.bind(
             FilePickFailed,
-            on_file_pick_failed as Handler<ImportState, FilePickFailed>,
+            reduce_with!(on_file_pick_failed),
         ));
 }
 ```
@@ -137,11 +137,11 @@ fn on_files_picked(
         .app(PARSE_IMPORTED_TEXT_JOB, file.bytes)
         .on_ok(ctx.effects.bind(
             ImportParsed,
-            on_import_parsed as Handler<ImportState, ImportParsed>,
+            reduce_with!(on_import_parsed),
         ))
         .on_err(ctx.effects.bind(
             ImportParseFailed,
-            on_import_parse_failed as Handler<ImportState, ImportParseFailed>,
+            reduce_with!(on_import_parse_failed),
         ));
 }
 ```
@@ -195,7 +195,7 @@ impl Widget<ImportState> for ImportScreen {
     fn build(&self, ctx: &mut BuildCtx<ImportState>, view: &View<ImportState>) -> Node {
         let import = ctx.bind(
             ImportPressed,
-            on_import_pressed as Handler<ImportState, ImportPressed>,
+            reduce_with!(on_import_pressed),
         );
 
         Column {

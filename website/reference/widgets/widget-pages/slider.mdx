@@ -12,7 +12,7 @@ It is a good fit for volumes, percentages, zoom levels, opacity, and other value
 ## Example
 
 ```rust
-use fission_core::ui::Slider;
+use fission::core::ui::Slider;
 
 let node = Slider {
 value: view.state.volume,
@@ -20,8 +20,7 @@ min: 0.0,
 max: 1.0,
 on_change: Some(ctx.bind(
     SetVolume(0.0),
-    (|state: &mut PlayerState, action: SetVolume, _| state.volume = action.0)
-        as Handler<PlayerState, SetVolume>,
+    reduce_with!((|state: &mut PlayerState, action: SetVolume, _| state.volume = action.0)),
 )),
 ..Default::default()
 }

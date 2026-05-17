@@ -117,7 +117,7 @@ This solves the “callback problem” without closures.
 
 ### 2.2 Why ActionEnvelope continuations
 This reuses the same concept as UI bindings:
-- `ctx.bind(ActionType, handler) -> ActionEnvelope`
+- `with_reducer!(ctx, action, handler) -> ActionEnvelope`
 - effect completion dispatches an ActionEnvelope
 
 Apps generally do **not** match on `EffectResult` directly.

@@ -14,7 +14,7 @@ Use `Composite` when the change is visual rather than structural. Do not use it 
 ## Example
 
 ```rust
-use fission_core::ui::{Composite, Text};
+use fission::core::ui::{Composite, Text};
 
 let node = Composite::new(Text::new("Saving...").into_node())
     .opacity(0.72)

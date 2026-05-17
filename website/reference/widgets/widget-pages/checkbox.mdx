@@ -12,10 +12,10 @@ Use it when the user is deciding whether something is included, enabled, acknowl
 ## Example
 
 ```rust
-use fission_core::{Handler, ReducerContext};
-use fission_core::ui::Checkbox;
+use fission::core::{Handler, ReducerContext};
+use fission::core::ui::Checkbox;
 
-#[derive(fission_macros::Action, serde::Serialize, serde::Deserialize, Debug, Clone, PartialEq, Eq)]
+#[fission_action]
 struct ToggleNewsletter;
 
 fn on_toggle(state: &mut SettingsState, _action: ToggleNewsletter, _ctx: &mut ReducerContext<SettingsState>) {
@@ -27,7 +27,7 @@ checked: view.state.receive_newsletter,
 label: Some("Receive product updates".into()),
 on_toggle: Some(ctx.bind(
     ToggleNewsletter,
-    on_toggle as Handler<SettingsState, ToggleNewsletter>,
+    reduce_with!(on_toggle),
 )),
 ..Default::default()
 }

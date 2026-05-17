@@ -14,19 +14,19 @@ Use `Container` when you need to shape or decorate a single child. Do not use it
 ## Example
 
 ```rust
-use fission_core::ui::{Container, Text};
+use fission::core::ui::{Container, Text};
 
 let card = Container::new(Text::new("Billing summary").into_node())
     .padding_all(16.0)
     .width(320.0)
-    .bg(fission_core::op::Color {
+    .bg(fission::core::op::Color {
         r: 245,
         g: 247,
         b: 250,
         a: 255,
     })
     .border(
-        fission_core::op::Color {
+        fission::core::op::Color {
             r: 210,
             g: 214,
             b: 220,

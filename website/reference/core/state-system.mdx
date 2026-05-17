@@ -78,7 +78,7 @@ Do not treat `ReducerContext` as long-lived storage. It exists only while the re
 
 Two binding patterns matter most in ordinary app code.
 
-Use `ctx.bind(action, handler)` inside `build()` when the action wiring is local to the widget tree. This is the most common pattern for buttons, text fields, and local interactions.
+Use `with_reducer!(ctx, action, handler)` inside `build()` when the action wiring is local to the widget tree. This is the most common pattern for buttons, text fields, and local interactions.
 
 Use `ActionRegistry` and shell-side registration when reducers should be registered in a more centralized startup-style path.
 

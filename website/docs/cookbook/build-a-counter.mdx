@@ -30,9 +30,8 @@ A counter screen needs one durable piece of product state: the current count. Th
 
 ```rust
 use fission::prelude::*;
-use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Default, Clone, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone)]
 pub struct CounterState {
     pub count: i32,
 }
@@ -60,17 +59,17 @@ Next, define what the user is trying to do.
 In Fission, an `Action` is a typed message that names an event in app terms. Here, the event is simple: the user pressed the increment button.
 
 ```rust
-#[derive(fission_macros::Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[fission_action]
 pub struct Increment;
 ```
 
 This may feel more formal than an inline click handler, but that formality is the point. `Increment` gives the event a name that the whole app can understand. Tests can dispatch it. Reducers can handle it. Logs can refer to it. As apps grow, this becomes much easier to reason about than anonymous closures scattered across the widget tree.
 
-Here again, most of the long line is scaffolding.
+Here again, the attribute is scaffolding.
 
 - `pub struct Increment;` is the part to focus on first. It declares a named action type.
 - Because there are no fields inside it, this action simply means "the increment event happened." It does not need to carry extra data.
-- `#[derive(fission_macros::Action, ...)]` is the framework-facing helper line that makes the type usable as a Fission action. You do not need to understand every derive name yet. For now, it is enough to know that the framework needs this line so the action can be sent through the runtime.
+- `#[fission_action]` is the framework-facing helper line that makes the type usable as a Fission action. It applies the standard action derives for you so you do not have to repeat them on every action.
 
 ## Step 3: write the reducer that changes state
 
@@ -117,10 +116,7 @@ pub struct CounterApp;
 
 impl Widget<CounterState> for CounterApp {
     fn build(&self, ctx: &mut BuildCtx<CounterState>, view: &View<CounterState>) -> Node {
-        let increment = ctx.bind(
-            Increment,
-            on_increment as Handler<CounterState, Increment>,
-        );
+        let increment = with_reducer!(ctx, Increment, on_increment);
 
         Column {
             gap: Some(16.0),
@@ -152,23 +148,18 @@ If you have never written a Rust trait implementation before, you can read the w
 
 The `view` parameter is the read-only input to `build()`. That is why the label uses `view.state.count`. The widget is reading the current state, not storing its own version of the number.
 
-The `ctx` parameter is the wiring helper. `ctx.bind(...)` connects a widget event to an action and reducer handler. In plain language, this line says: when something triggers this event, dispatch `Increment` and run `on_increment`.
+The `ctx` parameter is the wiring helper. `with_reducer!(ctx, Increment, on_increment)` connects a widget event to an action and reducer handler. In plain language, this line says: when something triggers this event, dispatch `Increment` and run `on_increment`.
 
-That binding line also contains one piece of Rust syntax that beginners often trip over:
+That binding line uses a small Fission macro so the code reads like the idea it represents:
 
 ```rust
-let increment = ctx.bind(
-    Increment,
-    on_increment as Handler<CounterState, Increment>,
-);
+let increment = with_reducer!(ctx, Increment, on_increment);
 ```
 
-The important part is the meaning, not the cast syntax.
-
-- `ctx.bind(...)` asks Fission to create a reusable event binding.
+- `with_reducer!(...)` asks Fission to create a reusable event binding.
+- `ctx` is the build context that owns the binding for this build pass.
 - `Increment` says which action should be dispatched.
 - `on_increment` says which reducer function should handle that action.
-- `as Handler<CounterState, Increment>` is mostly a type hint for Rust. It helps the compiler understand exactly how to treat `on_increment`. At this stage, you can read it as scaffolding that says "use this function as the handler for this action."
 
 Then the widget returns a `Column` with two children. The first child is a `Text` widget that renders the current count. The second child is a `Button` whose `on_press` field uses the binding we just created.
 
@@ -194,10 +185,7 @@ The last step is giving the shared app logic a real host window.
 For a first app, desktop is the easiest starting point because it gives you the shortest feedback loop. The shell code is small:
 
 ```rust
-use anyhow::Result;
-use fission_shell_desktop::DesktopApp;
-
-fn main() -> Result<()> {
+fn main() -> anyhow::Result<()> {
     DesktopApp::new(CounterApp).run()
 }
 ```
@@ -212,16 +200,15 @@ Once the pieces make sense, it helps to see them as one complete `src/app.rs` fi
 
 ```rust
 use fission::prelude::*;
-use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Default, Clone, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone)]
 pub struct CounterState {
     pub count: i32,
 }
 
 impl AppState for CounterState {}
 
-#[derive(fission_macros::Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[fission_action]
 pub struct Increment;
 
 fn on_increment(
@@ -236,10 +223,7 @@ pub struct CounterApp;
 
 impl Widget<CounterState> for CounterApp {
     fn build(&self, ctx: &mut BuildCtx<CounterState>, view: &View<CounterState>) -> Node {
-        let increment = ctx.bind(
-            Increment,
-            on_increment as Handler<CounterState, Increment>,
-        );
+        let increment = with_reducer!(ctx, Increment, on_increment);
 
         Column {
             gap: Some(16.0),
@@ -269,7 +253,7 @@ If you read the full file and feel that some lines still look more like Rust cer
 - the widget reading `view.state.count`,
 - and the button binding that dispatches `Increment`.
 
-Those lines teach the Fission model. The derives, trait implementations, and handler type hints are the surrounding framework scaffolding that makes the model compile cleanly in Rust.
+Those lines teach the Fission model. The action attribute, trait implementations, and reducer helpers are the surrounding framework scaffolding that makes the model compile cleanly in Rust.
 
 ## What happens when the button is pressed
 

@@ -23,7 +23,7 @@ The full flow looks like this:
 4. The bound reducer runs and updates `AppState`.
 5. Fission builds the user interface again from the updated state.
 
-The key term in the middle is `ActionEnvelope`. That is just Fission's packaged form of an action: the action type plus its encoded payload. Most app authors do not build an `ActionEnvelope` by hand. You usually create it with `ctx.bind(...)`, which both:
+The key term in the middle is `ActionEnvelope`. That is just Fission's packaged form of an action: the action type plus its encoded payload. Most app authors do not build an `ActionEnvelope` by hand. You usually create it with `with_reducer!(...)`, which both:
 
 - registers the reducer that should handle the action, and
 - returns the packaged action value the button will dispatch.
@@ -37,12 +37,9 @@ This example shows a realistic "Save draft" button from a compose screen. The im
 - the button label should reflect the current state
 
 ```rust
-use fission_core::{BuildCtx, Handler, ReducerContext, View, Widget};
-use fission_core::ui::{Button, ButtonVariant, Node, Text};
-use fission_macros::Action;
-use serde::{Deserialize, Serialize};
+use fission::prelude::*;
 
-#[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[fission_action]
 struct SaveDraft;
 
 struct ComposerState {
@@ -67,10 +64,7 @@ struct SaveDraftButton;
 
 impl Widget<ComposerState> for SaveDraftButton {
     fn build(&self, ctx: &mut BuildCtx<ComposerState>, view: &View<ComposerState>) -> Node {
-        let save_draft = ctx.bind(
-            SaveDraft,
-            on_save_draft as Handler<ComposerState, SaveDraft>,
-        );
+        let save_draft = with_reducer!(ctx, SaveDraft, on_save_draft);
 
         let can_save = !view.state.is_saving
             && !view.state.title.trim().is_empty()
@@ -97,13 +91,13 @@ impl Widget<ComposerState> for SaveDraftButton {
 
 Even if you are new to Rust, the structure is more important than every keyword.
 
-The `#[derive(...)]` line is mostly framework and serialization scaffolding. In practice, it tells Fission and Serde how to recognize and move the `SaveDraft` action through the runtime. You do not need to understand each derive in depth to understand the button flow.
+The `#[fission_action]` line is framework and serialization scaffolding. It tells Fission how to recognize and move the `SaveDraft` action through the runtime without making you repeat the same derives on every action type.
 
 `fn on_save_draft(...)` is the reducer function. It receives mutable app state, the action value, and a `ReducerContext`. This reducer is deliberately small. It does not try to save to disk or call a server directly. It only updates state to say "a save is now in progress." That keeps the button path deterministic and easy to test.
 
-`impl Widget<ComposerState> for SaveDraftButton` is Rust's way of saying "this type knows how to build user interface for `ComposerState`." Inside that `build()` method, `view.state` gives read-only access to the current state, and `ctx.bind(...)` creates the action the button will dispatch.
+`impl Widget<ComposerState> for SaveDraftButton` is Rust's way of saying "this type knows how to build user interface for `ComposerState`." Inside that `build()` method, `view.state` gives read-only access to the current state, and `with_reducer!(...)` creates the action the button will dispatch.
 
-The `as Handler<ComposerState, SaveDraft>` part is a Rust type hint. You can read it as "treat `on_save_draft` as the reducer for the `SaveDraft` action in this app state." It is there to help the compiler connect the pieces. Conceptually, the important part is still just "this button triggers that reducer."
+The `with_reducer!(ctx, SaveDraft, on_save_draft)` call connects the concrete action value to the reducer that handles it without forcing the example to spell out `Handler<ComposerState, SaveDraft>` by hand.
 
 Finally, notice the `disabled: !can_save` line. That is good production behavior. The app does not wait until after a bad press to discover the action should be rejected. It communicates availability clearly in the user interface and prevents double submission while saving is already underway.
 

@@ -14,9 +14,9 @@ Use `canvas(...)` for lightweight visual work such as charts, badges, custom ind
 ## Example
 
 ```rust
-use fission_core::op::{Color as IrColor, Fill, PaintOp};
-use fission_core::{NodeBuilder, Op};
-use fission_widgets::canvas;
+use fission::core::op::{Color as IrColor, Fill, PaintOp};
+use fission::core::{NodeBuilder, Op};
+use fission::prelude::*;
 
 let node = canvas(Some(120.0), Some(24.0), |cx| {
     let bar = NodeBuilder::new(

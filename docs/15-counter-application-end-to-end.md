@@ -37,7 +37,7 @@ State is explicit, serializable, and reducer-owned.
 ### 15.2.2 Action Definition
 
 ```rust
-#[derive(Action)]
+#[fission_action]
 enum CounterAction {
     Increment,
 }

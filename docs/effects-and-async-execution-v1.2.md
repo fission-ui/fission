@@ -137,7 +137,7 @@ where F: Fn(&mut S, A, &mut ReducerContext<S>) {
 
 ## 4. Registry Semantics
 
-- **One Handler per Action Type:** `ActionId` is derived from the struct type name (e.g., `fission_core::Navigate`).
+- **One Handler per Action Type:** `ActionId` is derived from the struct type name (e.g., `fission::core::Navigate`).
 - **Global & Static:** Handlers are function pointers registered once per session. No "per-button" closures.
 - **Routing:** Different buttons using the same Action Type must distinguish behavior via the **Action Fields** (payload), not by binding different closures.
 
@@ -172,10 +172,10 @@ where F: Fn(&mut S, A, &mut ReducerContext<S>) {
 
 ```rust
 // 1. Define Actions
-#[derive(Action, ...)]
+#[fission_action]
 struct LoadChart;
 
-#[derive(Action, ...)]
+#[fission_action]
 struct ChartLoaded; // Empty struct, payload comes from Context!
 
 // 2. Reducer (Trigger)

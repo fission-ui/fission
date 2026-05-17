@@ -16,15 +16,15 @@ Use it when the child should fill an existing layered area. Do not reach for it 
 A common pattern is a dimming scrim behind a modal or popover.
 
 ```rust
-use fission_core::ui::{Container, Text, ZStack};
-use fission_widgets::absolute_fill;
+use fission::core::ui::{Container, Text, ZStack};
+use fission::prelude::*;
 
 let node = ZStack {
     children: vec![
         Text::new("Main content").into_node(),
         absolute_fill(
             Container::new(Text::new("").into_node())
-                .bg(fission_core::op::Color {
+                .bg(fission::core::op::Color {
                     r: 0,
                     g: 0,
                     b: 0,

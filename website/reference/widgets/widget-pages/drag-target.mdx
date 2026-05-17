@@ -12,17 +12,17 @@ It wraps a child and dispatches one action when something is dropped on it. Use 
 ## Example
 
 ```rust
-use fission_widgets::{DragTarget, Draggable};
+use fission::prelude::*;
 
 let node = DragTarget {
 child: Box::new(Text::new("Drop here to move").into_node()),
 on_drop: Some(ctx.bind(
     MoveCardHere,
-    (|state: &mut BoardState, _action: MoveCardHere, ctx| {
+    reduce_with!((|state: &mut BoardState, _action: MoveCardHere, ctx| {
         if let Some(bytes) = ctx.input.as_internal_drop() {
             state.pending_drop_card_id = Some(String::from_utf8(bytes.to_vec()).unwrap());
         }
-    }) as Handler<BoardState, MoveCardHere>,
+    })),
 )),
 }
 .build(ctx, view);

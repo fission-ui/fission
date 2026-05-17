@@ -33,16 +33,16 @@ The action system is designed to be:
 
 ---
 
-## 2. Action Types (`#[derive(Action)]`)
+## 2. Action Types (`#[fission_action]`)
 
 An action is defined as a pure data type.
 
 ```rust
-#[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[fission_action]
 pub struct Increment;
 ```
 
-The `#[derive(Action)]` macro generates:
+The `#[fission_action]` macro generates:
 
 - a stable `ActionId`
 - canonical encoding/decoding logic

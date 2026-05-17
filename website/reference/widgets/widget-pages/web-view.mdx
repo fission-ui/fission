@@ -34,8 +34,8 @@ Do not use it just because a team already has some HTML lying around. If the scr
 This example shows a help panel that opens product documentation inside the app while keeping the chosen page in app state.
 
 ```rust
-use fission_core::WidgetNodeId;
-use fission_widgets::WebView;
+use fission::core::WidgetNodeId;
+use fission::prelude::*;
 
 let help_panel = WebView {
     id: WidgetNodeId::explicit("help_docs"),

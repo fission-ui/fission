@@ -14,8 +14,8 @@ This fits Fission's architecture well because the animation target still comes f
 ## Example
 
 ```rust
-use fission_core::{AnimationPropertyId, WidgetNodeId};
-use fission_widgets::Transition;
+use fission::core::{AnimationPropertyId, WidgetNodeId};
+use fission::prelude::*;
 
 let banner = Transition {
     id: WidgetNodeId::explicit("save_banner"),

@@ -50,7 +50,7 @@ Aliases are explicit, versioned mappings.
 Example (conceptual):
 
 ```rust
-#[derive(Action)]
+#[fission_action]
 #[action(alias = "app::counter::Increment@v1")]
 pub struct IncrementV2;
 ```

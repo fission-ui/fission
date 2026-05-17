@@ -12,15 +12,15 @@ Use it when the user is turning a behavior on or off right now, such as enabling
 ## Example
 
 ```rust
-use fission_core::ui::Switch;
+use fission::core::ui::Switch;
 
 let node = Switch {
 checked: view.state.notifications_enabled,
 on_toggle: Some(ctx.bind(
     ToggleNotifications,
-    (|state: &mut SettingsState, _action: ToggleNotifications, _| {
+    reduce_with!((|state: &mut SettingsState, _action: ToggleNotifications, _| {
         state.notifications_enabled = !state.notifications_enabled;
-    }) as Handler<SettingsState, ToggleNotifications>,
+    })),
 )),
 ..Default::default()
 }

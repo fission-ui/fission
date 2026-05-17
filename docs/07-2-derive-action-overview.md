@@ -1,11 +1,11 @@
-# 7.2 `#[derive(Action)]` Overview
+# 7.2 `#[fission_action]` Overview
 
-This section describes the `#[derive(Action)]` system: how actions are defined, identified, validated, and integrated into the Core and authoring layers.
+This section describes the `#[fission_action]` system: how actions are defined, identified, validated, and integrated into the Core and authoring layers.
 The derive macro is the primary author-facing mechanism for defining custom actions without sacrificing determinism or introspectability.
 
 ---
 
-## 7.2.1 Purpose of `#[derive(Action)]`
+## 7.2.1 Purpose of `#[fission_action]`
 
 The derive macro exists to:
 
@@ -25,14 +25,14 @@ An action is defined as a Rust type.
 Example:
 
 ```rust
-#[derive(Action)]
+#[fission_action]
 pub struct Increment;
 ```
 
 More complex actions may include payload data:
 
 ```rust
-#[derive(Action)]
+#[fission_action]
 pub struct SetCount {
     pub value: i32,
 }
@@ -87,7 +87,7 @@ Schemas are part of the Core action metadata.
 
 ## 7.2.6 Integration With Semantics
 
-Actions defined via `#[derive(Action)]` can be:
+Actions defined via `#[fission_action]` can be:
 
 - attached to semantic roles,
 - exposed to accessibility systems,
@@ -167,7 +167,7 @@ These constraints are enforced at compile time.
 
 ## 7.2.12 Summary
 
-`#[derive(Action)]` provides:
+`#[fission_action]` provides:
 
 - ergonomic, type-safe action definitions,
 - stable and inspectable action identities,

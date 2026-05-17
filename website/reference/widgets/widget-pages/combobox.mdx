@@ -12,7 +12,7 @@ It combines a [`TextInput`](/reference/widgets/text-input) with a popover list. 
 ## Example
 
 ```rust
-use fission_widgets::Combobox;
+use fission::prelude::*;
 use std::sync::Arc;
 
 let node = Combobox {
@@ -24,11 +24,11 @@ width: Some(280.0),
 max_popup_height: Some(240.0),
 on_change: Some(ctx.bind(
     SetAssigneeQuery(String::new()),
-    on_set_assignee_query as Handler<AppState, SetAssigneeQuery>,
+    reduce_with!(on_set_assignee_query),
 )),
 on_toggle: Some(ctx.bind(
     ToggleAssigneeOpen,
-    on_toggle_assignee_open as Handler<AppState, ToggleAssigneeOpen>,
+    reduce_with!(on_toggle_assignee_open),
 )),
 on_select: Some(Arc::new(move |name| ActionEnvelope {
     id: choose_person_id,

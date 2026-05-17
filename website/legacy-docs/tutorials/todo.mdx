@@ -41,13 +41,13 @@ struct TodoItem {
 
 impl AppState for TodoState {}
 
-#[derive(Action, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[fission_action]
 struct UpdateDraft(String);
-#[derive(Action, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[fission_action]
 struct AddTodo;
-#[derive(Action, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[fission_action]
 struct ToggleTodo(u32);
-#[derive(Action, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[fission_action]
 struct LoadTodosDone;
 
 fn on_update_draft(
@@ -76,7 +76,7 @@ fn on_add_todo(
     });
     state.input.clear();
 
-    let on_ok = ctx.effects.bind(LoadTodosDone, on_load_todos_done as fn(&mut TodoState, LoadTodosDone, &mut ReducerContext<TodoState>));
+    let on_ok = ctx.effects.bind(LoadTodosDone, reduce_with!(on_load_todos_done));
     let _ = on_ok;
     ctx.effects.app("todo_load_job", state.input.clone()).on_ok(on_ok);
 }
@@ -106,12 +106,12 @@ struct TodoApp;
 
 impl Widget<TodoState> for TodoApp {
     fn build(&self, ctx: &mut BuildCtx<TodoState>, view: &View<TodoState>) -> Node {
-        let update = ctx.bind(UpdateDraft, on_update_draft as Handler<TodoState, UpdateDraft>);
-        let add = ctx.bind(AddTodo, on_add_todo as Handler<TodoState, AddTodo>);
+        let update = with_reducer!(ctx, UpdateDraft, on_update_draft);
+        let add = with_reducer!(ctx, AddTodo, on_add_todo);
 
         let mut rows = Vec::new();
         for item in &view.state.items {
-            let toggle = ctx.bind(ToggleTodo(item.id), on_toggle_todo as Handler<TodoState, ToggleTodo>);
+            let toggle = with_reducer!(ctx, ToggleTodo(item.id), on_toggle_todo);
             rows.push(
                 Row {
                     children: vec![
