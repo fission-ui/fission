@@ -3,7 +3,7 @@
 use crate::model::*;
 use fission_core::op::Color;
 use fission_core::ui::{Container, GestureDetector, Node, Positioned, Text, ZStack};
-use fission_core::{BuildCtx, Handler, PortalLayer, View, Widget, WidgetNodeId};
+use fission_core::{BuildCtx, reduce_with, PortalLayer, View, Widget, WidgetNodeId};
 use fission_widgets::Spacer;
 
 pub struct HoverTooltip;
@@ -19,10 +19,10 @@ impl Widget<EditorState> for HoverTooltip {
 
         let dismiss = ctx.bind(
             DismissHover,
-            (|s: &mut EditorState, _, _| {
+            reduce_with!((|s: &mut EditorState, _, _| {
                 s.show_hover = false;
                 s.hover_info = None;
-            }) as Handler<EditorState, DismissHover>,
+            })),
         );
 
         let bg = Color { r: 45, g: 45, b: 46, a: 255 };

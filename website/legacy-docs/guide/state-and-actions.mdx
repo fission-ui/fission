@@ -25,7 +25,7 @@ struct TodoState {
 
 impl AppState for TodoState {}
 
-#[derive(Action, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[fission_action]
 struct AddTodo;
 
 fn on_add_todo(
@@ -38,7 +38,7 @@ fn on_add_todo(
     state.next_id += 1;
 }
 
-#[derive(Action, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[fission_action]
 struct Noop;
 ```
 

@@ -1,6 +1,6 @@
 use crate::model::{InboxState, OpenInAppLink, OpenSystemLink, StartAuth, ToggleBrowserDemo};
 use fission_core::ui::{Container, Node, Text};
-use fission_core::{BuildCtx, Handler, View, Widget, WidgetNodeId};
+use fission_core::{reduce_with, BuildCtx, View, Widget, WidgetNodeId};
 use fission_widgets::{HStack, Modal, ModalAction, VStack, WebView};
 
 pub struct BrowserModal;
@@ -17,8 +17,9 @@ impl Widget<InboxState> for BrowserModal {
             is_open: true,
             on_dismiss: Some(ctx.bind(
                 ToggleBrowserDemo(false),
-                (|s: &mut InboxState, a, _| s.show_browser_demo = a.0)
-                    as Handler<InboxState, ToggleBrowserDemo>,
+                reduce_with!(
+                    (|s: &mut InboxState, a: ToggleBrowserDemo, _| s.show_browser_demo = a.0)
+                ),
             )),
             width: Some(modal_width),
             content: Box::new(
@@ -119,8 +120,9 @@ impl Widget<InboxState> for BrowserModal {
                 is_primary: true,
                 on_press: Some(ctx.bind(
                     ToggleBrowserDemo(false),
-                    (|s: &mut InboxState, a, _| s.show_browser_demo = a.0)
-                        as Handler<InboxState, ToggleBrowserDemo>,
+                    reduce_with!(
+                        (|s: &mut InboxState, a: ToggleBrowserDemo, _| s.show_browser_demo = a.0)
+                    ),
                 )),
             }],
         }

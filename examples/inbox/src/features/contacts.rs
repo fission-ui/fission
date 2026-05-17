@@ -1,6 +1,6 @@
 use crate::model::{InboxState, SetContactsOpen, ToggleContactSelection};
 use fission_core::ui::Node;
-use fission_core::{BuildCtx, Handler, View, Widget, WidgetNodeId};
+use fission_core::{reduce_with, BuildCtx, View, Widget, WidgetNodeId};
 use fission_widgets::{DataTable, Modal, ModalAction, TableColumn, TableRow};
 use serde_json;
 use std::sync::Arc;
@@ -13,13 +13,15 @@ impl Widget<InboxState> for ContactsModal {
         let toggle_id = ctx
             .bind(
                 ToggleContactSelection("".into()),
-                (|s: &mut InboxState, a: ToggleContactSelection, _| {
-                    if let Some(pos) = s.contact_selected_ids.iter().position(|id| id == &a.0) {
-                        s.contact_selected_ids.remove(pos);
-                    } else {
-                        s.contact_selected_ids.push(a.0);
-                    }
-                }) as Handler<InboxState, ToggleContactSelection>,
+                reduce_with!(
+                    (|s: &mut InboxState, a: ToggleContactSelection, _| {
+                        if let Some(pos) = s.contact_selected_ids.iter().position(|id| id == &a.0) {
+                            s.contact_selected_ids.remove(pos);
+                        } else {
+                            s.contact_selected_ids.push(a.0);
+                        }
+                    })
+                ),
             )
             .id;
         let data = vec![
@@ -43,7 +45,7 @@ impl Widget<InboxState> for ContactsModal {
             is_open: true,
             on_dismiss: Some(ctx.bind(
                 SetContactsOpen(false),
-                (|s, a, _| s.show_contacts = a.0) as Handler<InboxState, SetContactsOpen>,
+                reduce_with!((|s: &mut InboxState, a: SetContactsOpen, _| s.show_contacts = a.0)),
             )),
             width: Some((viewport_width - 48.0).clamp(320.0, 560.0)),
             content: Box::new(
@@ -79,7 +81,9 @@ impl Widget<InboxState> for ContactsModal {
                 is_primary: true,
                 on_press: Some(ctx.bind(
                     SetContactsOpen(false),
-                    (|s, a, _| s.show_contacts = a.0) as Handler<InboxState, SetContactsOpen>,
+                    reduce_with!(
+                        (|s: &mut InboxState, a: SetContactsOpen, _| s.show_contacts = a.0)
+                    ),
                 )),
             }],
         }

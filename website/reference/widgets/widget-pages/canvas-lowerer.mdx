@@ -18,8 +18,8 @@ The example below shows the shape of the type, but in most app code you would wr
 ```rust
 use std::sync::Arc;
 
-use fission_core::ui::{CustomNode, Node};
-use fission_widgets::CanvasLowerer;
+use fission::core::ui::{CustomNode, Node};
+use fission::prelude::*;
 
 let sparkline = Node::Custom(CustomNode {
     debug_tag: "Sparkline".into(),

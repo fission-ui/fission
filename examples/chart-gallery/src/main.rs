@@ -1,3 +1,4 @@
+use fission::prelude::fission_reducer;
 use fission_3d::{Point3D, Primitive3D, Scene3D};
 use fission_charts::{
     Axis, BarSeries, BoxplotSeries, CandlestickSeries, Chart, CustomSeries, DataValue, Dataset,
@@ -8,8 +9,7 @@ use fission_charts::{
 };
 use fission_core::op::Color;
 use fission_core::ui::{Button, ButtonVariant, Column, Container, Node, Row, Scroll, Text};
-use fission_core::{ActionEnvelope, AppState, BuildCtx, View, Widget};
-use fission_macros::Action;
+use fission_core::{with_reducer, ActionEnvelope, AppState, BuildCtx, View, Widget};
 use fission_shell_desktop::DesktopApp;
 use serde::{Deserialize, Serialize};
 
@@ -36,15 +36,21 @@ impl Default for GalleryState {
 
 impl AppState for GalleryState {}
 
-#[derive(Action, Serialize, Deserialize, Clone, Debug)]
-pub struct SelectChart(pub usize, pub usize);
+#[fission_reducer(SelectChart)]
+fn select_chart(state: &mut GalleryState, category: usize, chart: usize) {
+    state.selected_category = category;
+    state.selected_chart = chart;
+}
 
-#[derive(Action, Serialize, Deserialize, Clone, Debug)]
-pub struct ToggleSmooth(pub bool);
+#[fission_reducer(ToggleSmooth)]
+fn toggle_smooth(state: &mut GalleryState, _value: bool) {
+    state.smooth = !state.smooth;
+}
 
-#[derive(Action, Serialize, Deserialize, Clone, Debug)]
-#[serde(transparent)]
-pub struct UpdateScale(pub f32);
+#[fission_reducer(UpdateScale, no_eq)]
+fn update_scale(state: &mut GalleryState, value: f32) {
+    state.data_scale = value;
+}
 
 struct GalleryApp;
 
@@ -52,33 +58,11 @@ impl Widget<GalleryState> for GalleryApp {
     fn build(&self, ctx: &mut BuildCtx<GalleryState>, view: &View<GalleryState>) -> Node {
         let viewport_width = view.viewport_size().width.max(0.0);
         let sidebar_width = (viewport_width * 0.22).clamp(180.0, 260.0);
-        let select_chart_id = ctx
-            .bind(
-                SelectChart(0, 0),
-                (|s: &mut GalleryState, a: SelectChart, _| {
-                    s.selected_category = a.0;
-                    s.selected_chart = a.1;
-                }) as fission_core::registry::Handler<GalleryState, SelectChart>,
-            )
-            .id;
+        let select_chart_id = with_reducer!(ctx, SelectChart(0, 0), select_chart).id;
 
-        let toggle_smooth_id = ctx
-            .bind(
-                ToggleSmooth(false),
-                (|s: &mut GalleryState, _a: ToggleSmooth, _| {
-                    s.smooth = !s.smooth;
-                }) as fission_core::registry::Handler<GalleryState, ToggleSmooth>,
-            )
-            .id;
+        let toggle_smooth_id = with_reducer!(ctx, ToggleSmooth(false), toggle_smooth).id;
 
-        let update_scale_id = ctx
-            .bind(
-                UpdateScale(0.0),
-                (|s: &mut GalleryState, a: UpdateScale, _| {
-                    s.data_scale = a.0;
-                }) as fission_core::registry::Handler<GalleryState, UpdateScale>,
-            )
-            .id;
+        let update_scale_id = with_reducer!(ctx, UpdateScale(0.0), update_scale).id;
 
         // Sidebar labels — indices MUST match the (category, chart) match arms below.
         let categories = vec![

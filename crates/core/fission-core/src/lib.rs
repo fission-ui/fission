@@ -67,11 +67,10 @@ pub use async_runtime::{
     ServiceRunner, ServiceSlot, ServiceSpec, ServiceType,
 };
 pub use capability::{
-    AlertRequest, AuthenticateRequest, CapabilityCtx, CapabilityInvocationPayload,
-    CapabilityType, OpenUrlRequest, OperationCapability, PickOpenFilesError,
-    PickOpenFilesRequest, PickOpenFilesResult, PickedFile, AlertCapability, AuthenticateCapability,
-    OpenUrlCapability, PickOpenFilesCapability, AUTHENTICATE, OPEN_URL, PICK_OPEN_FILES,
-    SHOW_ALERT,
+    AlertCapability, AlertRequest, AuthenticateCapability, AuthenticateRequest, CapabilityCtx,
+    CapabilityInvocationPayload, CapabilityType, OpenUrlCapability, OpenUrlRequest,
+    OperationCapability, PickOpenFilesCapability, PickOpenFilesError, PickOpenFilesRequest,
+    PickOpenFilesResult, PickedFile, AUTHENTICATE, OPEN_URL, PICK_OPEN_FILES, SHOW_ALERT,
 };
 pub use context::{Effects, ReducerContext}; // New
 pub use effect::{ActionInput, Effect, EffectEnvelope, RuntimeEffect};
@@ -98,6 +97,44 @@ pub use ui::{
     LayoutBuilder, Lower, LowerDyn, Node, Row, Text,
 };
 pub use view::{Selector, View, Widget};
+
+/// Coerces a reducer function item or non-capturing closure to the handler
+/// function-pointer type Rust can infer from the surrounding `ctx.bind(...)`
+/// call.
+///
+/// ```rust,ignore
+/// use fission::prelude::*;
+///
+/// let on_press = with_reducer!(ctx, Increment, on_increment);
+/// ```
+#[macro_export]
+macro_rules! reduce_with {
+    ($handler:expr $(,)?) => {
+        $handler as $crate::Handler<_, _>
+    };
+}
+
+/// Short alias for [`reduce_with!`].
+#[macro_export]
+macro_rules! reduce {
+    ($handler:expr $(,)?) => {
+        $crate::reduce_with!($handler)
+    };
+}
+
+/// Binds an action to a reducer in one expression.
+///
+/// ```rust,ignore
+/// use fission::prelude::*;
+///
+/// let on_press = with_reducer!(ctx, Increment, on_increment);
+/// ```
+#[macro_export]
+macro_rules! with_reducer {
+    ($ctx:expr, $action:expr, $handler:expr $(,)?) => {
+        $ctx.bind($action, $crate::reduce_with!($handler))
+    };
+}
 
 /// A frame-tick action that advances the runtime clock by a delta.
 ///

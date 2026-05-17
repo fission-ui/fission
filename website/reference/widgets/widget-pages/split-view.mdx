@@ -14,11 +14,11 @@ Use `SplitView` when the product really has two panes that share space. Do not u
 ## Example
 
 ```rust
-use fission_core::ui::Text;
-use fission_widgets::{SplitDirection, SplitView};
+use fission::core::ui::Text;
+use fission::prelude::*;
 
 let node = SplitView {
-    id: fission_core::WidgetNodeId::explicit("mail_shell"),
+    id: fission::core::WidgetNodeId::explicit("mail_shell"),
     direction: SplitDirection::Horizontal,
     first: Box::new(Text::new("Folders").into_node()),
     second: Box::new(Text::new("Message list").into_node()),

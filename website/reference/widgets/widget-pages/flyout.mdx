@@ -14,9 +14,9 @@ Use `flyout(...)` when the higher-level overlay widgets are too opinionated for 
 ## Example
 
 ```rust
-use fission_core::{NodeId, PortalLayer, WidgetNodeId};
-use fission_core::ui::{Button, Container, Text};
-use fission_widgets::flyout;
+use fission::core::{NodeId, PortalLayer, WidgetNodeId};
+use fission::core::ui::{Button, Container, Text};
+use fission::prelude::*;
 
 let anchor_id = NodeId::derived(WidgetNodeId::explicit("help_button").as_u128(), &[]);
 

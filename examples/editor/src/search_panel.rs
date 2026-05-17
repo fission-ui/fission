@@ -3,7 +3,7 @@ use fission_core::op::Color;
 use fission_core::ui::{
     Button, ButtonContentAlign, ButtonVariant, Column, Container, Node, Scroll, Text, TextInput,
 };
-use fission_core::{ActionEnvelope, BuildCtx, FlexDirection, Handler, View, Widget};
+use fission_core::{reduce_with, ActionEnvelope, BuildCtx, FlexDirection, View, Widget};
 use fission_widgets::{HStack, VStack};
 use serde_json;
 
@@ -26,20 +26,18 @@ impl Widget<EditorState> for SearchPanel {
 
         let update_query = ctx.bind(
             UpdateSearchQuery(String::new()),
-            (|s: &mut EditorState, a: UpdateSearchQuery, _| s.search_query = a.0)
-                as Handler<EditorState, UpdateSearchQuery>,
+            reduce_with!((|s: &mut EditorState, a: UpdateSearchQuery, _| s.search_query = a.0)),
         );
 
         let execute = ctx.bind(
             ExecuteSearch,
-            (|s: &mut EditorState, _, _| s.run_search()) as Handler<EditorState, ExecuteSearch>,
+            reduce_with!((|s: &mut EditorState, _, _| s.run_search())),
         );
 
         let open_id = ctx
             .bind(
                 OpenFile(String::new()),
-                (|s: &mut EditorState, a: OpenFile, _| s.open_file(a.0))
-                    as Handler<EditorState, OpenFile>,
+                reduce_with!((|s: &mut EditorState, a: OpenFile, _| s.open_file(a.0))),
             )
             .id;
 

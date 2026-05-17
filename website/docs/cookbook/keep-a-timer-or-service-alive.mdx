@@ -64,7 +64,7 @@ A timer resource is the right tool when the runtime should keep delivering ticks
 Start by defining an action that will run on every tick.
 
 ```rust
-#[derive(fission_macros::Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[fission_action]
 pub struct ClockTick;
 
 fn on_clock_tick(
@@ -87,7 +87,7 @@ impl Widget<DashboardState> for DashboardScreen {
     fn build(&self, ctx: &mut BuildCtx<DashboardState>, view: &View<DashboardState>) -> Node {
         let tick = ctx.bind(
             ClockTick,
-            on_clock_tick as Handler<DashboardState, ClockTick>,
+            reduce_with!(on_clock_tick),
         );
 
         ctx.resources.timer(
@@ -187,28 +187,28 @@ That extra shape is the cost of making the lifecycle explicit instead of magical
 If the sync session should exist while a screen is visible, declare it as a resource.
 
 ```rust
-#[derive(fission_macros::Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[fission_action]
 pub struct SyncStarted;
 
-#[derive(fission_macros::Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[fission_action]
 pub struct SyncEventArrived;
 
-#[derive(fission_macros::Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[fission_action]
 pub struct SyncStartFailed;
 
 impl Widget<DashboardState> for DashboardScreen {
     fn build(&self, ctx: &mut BuildCtx<DashboardState>, view: &View<DashboardState>) -> Node {
         let on_started = ctx.bind(
             SyncStarted,
-            on_sync_started as Handler<DashboardState, SyncStarted>,
+            reduce_with!(on_sync_started),
         );
         let on_event = ctx.bind(
             SyncEventArrived,
-            on_sync_event as Handler<DashboardState, SyncEventArrived>,
+            reduce_with!(on_sync_event),
         );
         let on_start_failed = ctx.bind(
             SyncStartFailed,
-            on_sync_start_failed as Handler<DashboardState, SyncStartFailed>,
+            reduce_with!(on_sync_start_failed),
         );
 
         ctx.resources.service(

@@ -14,9 +14,9 @@ Use `Wrap` when wrapping behavior is the important part of the layout. Do not us
 ## Example
 
 ```rust
-use fission_core::ui::Text;
+use fission::core::ui::Text;
 use fission_ir::op::FlexDirection;
-use fission_widgets::Wrap;
+use fission::prelude::*;
 
 let node = Wrap {
     direction: FlexDirection::Row,

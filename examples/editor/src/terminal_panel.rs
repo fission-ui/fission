@@ -1,7 +1,7 @@
 use crate::model::{BottomPanelTab, EditorState};
 use fission_core::op::Color;
 use fission_core::ui::{Button, ButtonVariant, Container, Node, Text};
-use fission_core::{BuildCtx, Handler, View, Widget};
+use fission_core::{reduce_with, BuildCtx, View, Widget};
 use fission_ir::NodeId;
 use fission_widgets::{HStack, Spacer, TerminalView, VStack};
 use std::path::Path;
@@ -45,18 +45,22 @@ impl Widget<EditorState> for TerminalPanel {
         let is_problems = view.state.bottom_panel_tab == BottomPanelTab::Problems;
         let set_terminal = ctx.bind(
             crate::model::SetBottomPanelTab(BottomPanelTab::Terminal),
-            (|s: &mut EditorState, a: crate::model::SetBottomPanelTab, _| {
-                s.bottom_panel_tab = a.0;
-                if a.0 == BottomPanelTab::Terminal {
-                    s.ensure_terminal_session();
-                }
-            }) as Handler<EditorState, crate::model::SetBottomPanelTab>,
+            reduce_with!(
+                (|s: &mut EditorState, a: crate::model::SetBottomPanelTab, _| {
+                    s.bottom_panel_tab = a.0;
+                    if a.0 == BottomPanelTab::Terminal {
+                        s.ensure_terminal_session();
+                    }
+                })
+            ),
         );
         let set_problems = ctx.bind(
             crate::model::SetBottomPanelTab(BottomPanelTab::Problems),
-            (|s: &mut EditorState, a: crate::model::SetBottomPanelTab, _| {
-                s.bottom_panel_tab = a.0;
-            }) as Handler<EditorState, crate::model::SetBottomPanelTab>,
+            reduce_with!(
+                (|s: &mut EditorState, a: crate::model::SetBottomPanelTab, _| {
+                    s.bottom_panel_tab = a.0;
+                })
+            ),
         );
 
         let tab =

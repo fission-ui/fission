@@ -3,7 +3,7 @@ use crate::model::{
 };
 use chrono::{Datelike, Local};
 use fission_core::ui::{Button, ButtonVariant, Container, Node, Row, Switch, Text, TextContent};
-use fission_core::{BuildCtx, Handler, View, Widget, WidgetNodeId};
+use fission_core::{reduce_with, BuildCtx, View, Widget, WidgetNodeId};
 use fission_icons::material;
 use fission_widgets::{
     Calendar, Card, HStack, Icon, Menu, MenuItem, Skeleton, Spinner, Stepper, VStack,
@@ -29,31 +29,33 @@ impl Widget<InboxState> for RightSidebar {
         let meet_camera_id = ctx
             .bind(
                 SetMeetCameraOn(false),
-                (|s: &mut InboxState, a: SetMeetCameraOn, _| s.meet_camera_on = a.0)
-                    as Handler<InboxState, SetMeetCameraOn>,
+                reduce_with!((|s: &mut InboxState, a: SetMeetCameraOn, _| s.meet_camera_on = a.0)),
             )
             .id;
         let meet_mic_id = ctx
             .bind(
                 SetMeetMicOn(false),
-                (|s: &mut InboxState, a: SetMeetMicOn, _| s.meet_mic_on = a.0)
-                    as Handler<InboxState, SetMeetMicOn>,
+                reduce_with!((|s: &mut InboxState, a: SetMeetMicOn, _| s.meet_mic_on = a.0)),
             )
             .id;
         let calendar_id = ctx
             .bind(
                 SetCalendarSelected(today),
-                (|s: &mut InboxState, a: SetCalendarSelected, _| s.calendar_selected = Some(a.0))
-                    as Handler<InboxState, SetCalendarSelected>,
+                reduce_with!(
+                    (|s: &mut InboxState, a: SetCalendarSelected, _| s.calendar_selected =
+                        Some(a.0))
+                ),
             )
             .id;
         let toast_id = ctx
             .bind(
                 ShowToast("".into()),
-                (|s: &mut InboxState, a: ShowToast, _| {
-                    s.toast_message = Some(a.0);
-                    s.show_toast = true;
-                }) as Handler<InboxState, ShowToast>,
+                reduce_with!(
+                    (|s: &mut InboxState, a: ShowToast, _| {
+                        s.toast_message = Some(a.0);
+                        s.show_toast = true;
+                    })
+                ),
             )
             .id;
 

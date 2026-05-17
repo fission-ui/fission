@@ -15,8 +15,8 @@ Use `Builder` for short, local composition helpers. Do not use it as a place to 
 
 ```rust
 use fission::prelude::*;
-use fission_core::ui::Text;
-use fission_core::ui::widgets::builder::Builder;
+use fission::core::ui::Text;
+use fission::core::ui::widgets::builder::Builder;
 
 let greeting = Builder::new(|_ctx, view: &View<MyState>| {
     let label = if view.state.is_signed_in {

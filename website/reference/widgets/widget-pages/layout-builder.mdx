@@ -14,8 +14,8 @@ Use `LayoutBuilder` when layout-dependent branching is the point of the componen
 ## Example
 
 ```rust
-use fission_core::ui::{Column, Row, Text};
-use fission_core::ui::widgets::builder::LayoutBuilder;
+use fission::core::ui::{Column, Row, Text};
+use fission::core::ui::widgets::builder::LayoutBuilder;
 
 let node = LayoutBuilder::new(|_ctx, _view, constraints| {
     if constraints.max_w > 720.0 {

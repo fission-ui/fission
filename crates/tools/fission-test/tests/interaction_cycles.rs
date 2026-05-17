@@ -76,12 +76,9 @@ fn checkbox_toggle_has_no_ir_cycles() -> Result<()> {
     use fission_widgets::Checkbox;
 
     use fission_core::event::{PointerButton, PointerEvent};
-    use serde::{Deserialize, Serialize};
 
-    #[derive(fission_macros::Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
-    struct Toggle;
-
-    fn on_toggle(state: &mut AppState, _a: Toggle) {
+    #[fission_macros::fission_reducer(Toggle)]
+    fn on_toggle(state: &mut AppState) {
         state.checked = !state.checked;
     }
 
@@ -94,7 +91,7 @@ fn checkbox_toggle_has_no_ir_cycles() -> Result<()> {
         ) -> fission_core::ui::Node {
             Checkbox {
                 checked: view.state.checked,
-                on_toggle: Some(ctx.bind(Toggle, on_toggle as fn(&mut AppState, Toggle))),
+                on_toggle: Some(fission_core::with_reducer!(ctx, Toggle, on_toggle)),
                 label: Some("check".into()),
                 ..Default::default()
             }

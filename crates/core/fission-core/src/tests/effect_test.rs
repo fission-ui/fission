@@ -1,8 +1,7 @@
-use crate::registry::Handler;
 use crate::runtime::Runtime;
 use crate::{
-    Action, ActionEnvelope, ActionId, AppState, CapabilityType, Effect, OperationCapability,
-    ReducerContext,
+    reduce_with, Action, ActionEnvelope, ActionId, AppState, CapabilityType, Effect,
+    OperationCapability, ReducerContext,
 };
 use serde::{Deserialize, Serialize};
 
@@ -43,10 +42,9 @@ fn on_upload_requested<'a, 'b, 'c>(
     ctx: &mut ReducerContext<'a, 'b, 'c, TestState>,
 ) {
     state.loading = true;
-    let on_ok = ctx.effects.bind(
-        UploadFinished,
-        on_upload_finished as Handler<TestState, UploadFinished>,
-    );
+    let on_ok = ctx
+        .effects
+        .bind(UploadFinished, reduce_with!(on_upload_finished));
     ctx.effects
         .capability(
             UPLOAD_FILE,
@@ -94,8 +92,8 @@ fn test_capability_effect_loop() {
         .unwrap();
 
     let mut registry = crate::registry::ActionRegistry::new();
-    registry.register(on_upload_requested as Handler<TestState, UploadRequested>);
-    registry.register(on_upload_finished as Handler<TestState, UploadFinished>);
+    registry.register(reduce_with!(on_upload_requested));
+    registry.register(reduce_with!(on_upload_finished));
     runtime.absorb_registry(registry);
 
     runtime
@@ -135,7 +133,7 @@ fn test_operation_capability_effect() {
         .unwrap();
 
     let mut registry = crate::registry::ActionRegistry::new();
-    registry.register(on_upload_requested as Handler<TestState, UploadRequested>);
+    registry.register(reduce_with!(on_upload_requested));
     runtime.absorb_registry(registry);
 
     runtime

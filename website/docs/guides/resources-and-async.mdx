@@ -62,11 +62,11 @@ fn on_save_requested(
         )
         .on_ok(ctx.effects.bind(
             SaveSucceeded,
-            on_save_succeeded as Handler<EditorState, SaveSucceeded>,
+            reduce_with!(on_save_succeeded),
         ))
         .on_err(ctx.effects.bind(
             SaveFailed,
-            on_save_failed as Handler<EditorState, SaveFailed>,
+            reduce_with!(on_save_failed),
         ));
 }
 ```
@@ -106,11 +106,11 @@ fn on_pick_file(
         )
         .on_ok(ctx.effects.bind(
             FilePicked,
-            on_file_picked as Handler<EditorState, FilePicked>,
+            reduce_with!(on_file_picked),
         ))
         .on_err(ctx.effects.bind(
             FilePickFailed,
-            on_file_pick_failed as Handler<EditorState, FilePickFailed>,
+            reduce_with!(on_file_pick_failed),
         ));
 }
 ```
@@ -142,15 +142,15 @@ ctx.effects
     })
     .on_started(ctx.effects.bind(
         LanguageServiceStarted,
-        on_language_started as Handler<EditorState, LanguageServiceStarted>,
+        reduce_with!(on_language_started),
     ))
     .on_event(ctx.effects.bind(
         LanguageServiceEvent,
-        on_language_event as Handler<EditorState, LanguageServiceEvent>,
+        reduce_with!(on_language_event),
     ))
     .on_start_failed(ctx.effects.bind(
         LanguageServiceStartFailed,
-        on_language_start_failed as Handler<EditorState, LanguageServiceStartFailed>,
+        reduce_with!(on_language_start_failed),
     ));
 ```
 
@@ -181,11 +181,11 @@ ctx.effects
     )
     .on_ok(ctx.effects.bind(
         CompletionsLoaded,
-        on_completions_loaded as Handler<EditorState, CompletionsLoaded>,
+        reduce_with!(on_completions_loaded),
     ))
     .on_err(ctx.effects.bind(
         CompletionRequestFailed,
-        on_completion_request_failed as Handler<EditorState, CompletionRequestFailed>,
+        reduce_with!(on_completion_request_failed),
     ));
 ```
 
@@ -271,7 +271,7 @@ The terminal example uses exactly this pattern.
 ```rust
 let poll_terminal = ctx.bind(
     PollTerminal,
-    poll_terminal as Handler<TerminalExampleState, PollTerminal>,
+    reduce_with!(poll_terminal),
 );
 
 ctx.resources.timer(

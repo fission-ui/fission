@@ -18,13 +18,11 @@ fission-icons = { path = "../fission-icons", version = "0.1.1" }
 fission-render = { path = "../../rendering/fission-render", version = "0.1.1" }
 fission-diagnostics = { path = "../../tools/fission-diagnostics", version = "0.1.1" }
 fission-test-driver = { path = "../../tools/fission-test-driver", version = "0.1.1" }
+fission-shell-mobile = { path = "../../shell/fission-shell-mobile", version = "0.1.1" }
 serde = { version = "1.0", features = ["derive"] }
 
 [target.'cfg(not(any(target_os = "android", target_os = "ios", target_arch = "wasm32")))'.dependencies]
 fission-shell-desktop = { path = "../../shell/fission-shell-desktop", version = "0.1.1" }
-
-[target.'cfg(any(target_os = "android", target_os = "ios"))'.dependencies]
-fission-shell-mobile = { path = "../../shell/fission-shell-mobile", version = "0.1.1" }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 fission-shell-web = { path = "../../shell/fission-shell-web", version = "0.1.1" }

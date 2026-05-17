@@ -1,7 +1,7 @@
 use crate::model::{EditorState, ToggleFindReplace, UpdateFindQuery, UpdateReplaceQuery, FindNext, FindPrevious, ReplaceOne, ReplaceAll};
 use fission_core::op::Color;
 use fission_core::ui::{Button, ButtonVariant, Container, Node, Text, TextInput};
-use fission_core::{BuildCtx, Handler, View, Widget};
+use fission_core::{BuildCtx, reduce_with, View, Widget};
 use fission_widgets::{HStack, Spacer};
 
 pub struct FindReplaceBar;
@@ -19,48 +19,43 @@ impl Widget<EditorState> for FindReplaceBar {
 
         let update_find = ctx.bind(
             UpdateFindQuery(String::new()),
-            (|s: &mut EditorState, a: UpdateFindQuery, _| {
+            reduce_with!((|s: &mut EditorState, a: UpdateFindQuery, _| {
                 s.find_query = a.0;
                 s.find_next(); // Auto-search as you type
-            }) as Handler<EditorState, UpdateFindQuery>,
+            })),
         );
 
         let update_replace = ctx.bind(
             UpdateReplaceQuery(String::new()),
-            (|s: &mut EditorState, a: UpdateReplaceQuery, _| s.replace_query = a.0)
-                as Handler<EditorState, UpdateReplaceQuery>,
+            reduce_with!((|s: &mut EditorState, a: UpdateReplaceQuery, _| s.replace_query = a.0)),
         );
 
         let find_next = ctx.bind(
             FindNext,
-            (|s: &mut EditorState, _, _| s.find_next())
-                as Handler<EditorState, FindNext>,
+            reduce_with!((|s: &mut EditorState, _, _| s.find_next())),
         );
 
         let find_prev = ctx.bind(
             FindPrevious,
-            (|s: &mut EditorState, _, _| s.find_previous())
-                as Handler<EditorState, FindPrevious>,
+            reduce_with!((|s: &mut EditorState, _, _| s.find_previous())),
         );
 
         let replace_one = ctx.bind(
             ReplaceOne,
-            (|s: &mut EditorState, _, _| s.replace_one())
-                as Handler<EditorState, ReplaceOne>,
+            reduce_with!((|s: &mut EditorState, _, _| s.replace_one())),
         );
 
         let replace_all = ctx.bind(
             ReplaceAll,
-            (|s: &mut EditorState, _, _| s.replace_all())
-                as Handler<EditorState, ReplaceAll>,
+            reduce_with!((|s: &mut EditorState, _, _| s.replace_all())),
         );
 
         let close = ctx.bind(
             ToggleFindReplace,
-            (|s: &mut EditorState, _, _| {
+            reduce_with!((|s: &mut EditorState, _, _| {
                 s.show_find_replace = false;
                 s.find_matches.clear();
-            }) as Handler<EditorState, ToggleFindReplace>,
+            })),
         );
 
         // Match count

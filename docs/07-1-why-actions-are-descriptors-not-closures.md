@@ -137,7 +137,7 @@ Performance is predictable.
 
 Authoring ergonomics are preserved by:
 
-- derive macros (e.g. `#[derive(Action)]`),
+- derive macros (e.g. `#[fission_action]`),
 - concise action declarations,
 - explicit reducer definitions.
 

@@ -1,11 +1,11 @@
+use fission::prelude::fission_reducer;
 use fission_core::ui::{
     Button, ButtonVariant, Column, Composite, Container, Node, Row, Scroll, Text,
 };
 use fission_core::{
-    op::Color as IrColor, AnimationPropertyId, AnimationRequest, AnimationStartValue, AppState,
-    BuildCtx, EasingFunction, FlexDirection, Handler, View, Widget, WidgetNodeId,
+    op::Color as IrColor, with_reducer, AnimationPropertyId, AnimationRequest, AnimationStartValue,
+    AppState, BuildCtx, EasingFunction, FlexDirection, View, Widget, WidgetNodeId,
 };
-use fission_macros::Action;
 use fission_shell_desktop::DesktopApp;
 use fission_widgets::{Transition, Wrap};
 use lazy_static::lazy_static;
@@ -37,11 +37,15 @@ impl Default for AnimationGalleryState {
 
 impl AppState for AnimationGalleryState {}
 
-#[derive(Action, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-struct ToggleScene;
+#[fission_reducer(ToggleScene)]
+fn toggle_scene(state: &mut AnimationGalleryState) {
+    state.scene_active = !state.scene_active;
+}
 
-#[derive(Action, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-struct ToggleCustom;
+#[fission_reducer(ToggleCustom)]
+fn toggle_custom(state: &mut AnimationGalleryState) {
+    state.custom_active = !state.custom_active;
+}
 
 struct AnimationGalleryApp;
 
@@ -110,23 +114,13 @@ impl Widget<AnimationGalleryState> for AnimationGalleryApp {
             children: vec![
                 Button {
                     child: Some(Box::new(Text::new("Toggle scene").into_node())),
-                    on_press: Some(ctx.bind(
-                        ToggleScene,
-                        (|state: &mut AnimationGalleryState, _, _| {
-                            state.scene_active = !state.scene_active;
-                        }) as Handler<AnimationGalleryState, ToggleScene>,
-                    )),
+                    on_press: Some(with_reducer!(ctx, ToggleScene, toggle_scene)),
                     ..Default::default()
                 }
                 .into_node(),
                 Button {
                     child: Some(Box::new(Text::new("Toggle custom pulse").into_node())),
-                    on_press: Some(ctx.bind(
-                        ToggleCustom,
-                        (|state: &mut AnimationGalleryState, _, _| {
-                            state.custom_active = !state.custom_active;
-                        }) as Handler<AnimationGalleryState, ToggleCustom>,
-                    )),
+                    on_press: Some(with_reducer!(ctx, ToggleCustom, toggle_custom)),
                     variant: ButtonVariant::Outline,
                     ..Default::default()
                 }

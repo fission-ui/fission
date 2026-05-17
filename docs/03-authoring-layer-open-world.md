@@ -99,7 +99,7 @@ It is *not* the mechanism for reading app state.
 
 ```rust
 Button {
-    on_press: Some(ctx.bind(Increment, on_increment)),
+    on_press: Some(with_reducer!(ctx, Increment, on_increment)),
     ..Default::default()
 }
 ```
@@ -252,7 +252,7 @@ Core IR operation names below are illustrative.
 
 ### 10.1 Action and handler
 ```rust
-#[derive(Action)]
+#[fission_action]
 pub struct StarPressed;
 
 fn on_star_pressed(state: &mut AppState, _: StarPressed) {
@@ -270,7 +270,7 @@ pub struct StarButton {
 impl Widget<AppState> for StarButton {
     fn build(&self, ctx: &mut BuildCtx<AppState>, view: &View<AppState>) -> Node {
         // Bind handler at authoring site (ergonomic)
-        let on_press = ctx.bind(StarPressed, on_star_pressed);
+        let on_press = with_reducer!(ctx, StarPressed, on_star_pressed);
 
         // Resolve style from theme deterministically
         let style = view.theme.components.button.primary;

@@ -31,7 +31,7 @@ pub struct CounterState {
 
 impl AppState for CounterState {}
 
-#[derive(Action, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[fission_action]
 struct Increment;
 
 fn on_increment(
@@ -46,7 +46,7 @@ pub struct CounterApp;
 
 impl Widget<CounterState> for CounterApp {
     fn build(&self, ctx: &mut BuildCtx<CounterState>, view: &View<CounterState>) -> Node {
-        let increment = ctx.bind(Increment, on_increment as Handler<CounterState, Increment>);
+        let increment = with_reducer!(ctx, Increment, on_increment);
 
         Column {
             gap: Some(16.0),

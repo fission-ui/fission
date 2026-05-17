@@ -15,8 +15,8 @@ That design is important for cross-platform work. The same `current_path` state 
 
 ```rust
 use std::sync::Arc;
-use fission_core::ui::Text;
-use fission_widgets::{Route, Router};
+use fission::core::ui::Text;
+use fission::prelude::*;
 
 let router = Router {
     current_path: view.state.current_path.clone(),

@@ -1,7 +1,7 @@
 use crate::model::{DiagSeverity, EditorState, OpenFile};
 use fission_core::op::Color;
 use fission_core::ui::{Button, ButtonContentAlign, ButtonVariant, Container, Node, Scroll, Text};
-use fission_core::{ActionEnvelope, BuildCtx, FlexDirection, Handler, View, Widget};
+use fission_core::{reduce_with, ActionEnvelope, BuildCtx, FlexDirection, View, Widget};
 use fission_widgets::VStack;
 use serde_json;
 
@@ -43,8 +43,7 @@ impl Widget<EditorState> for DiagnosticsPanel {
         let open_id = ctx
             .bind(
                 OpenFile(String::new()),
-                (|s: &mut EditorState, a: OpenFile, _| s.open_file(a.0))
-                    as Handler<EditorState, OpenFile>,
+                reduce_with!((|s: &mut EditorState, a: OpenFile, _| s.open_file(a.0))),
             )
             .id;
 

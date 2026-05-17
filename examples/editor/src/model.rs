@@ -1,5 +1,5 @@
+use fission::prelude::fission_action;
 use fission_core::{AppState, JobRef, JobSpec};
-use fission_macros::Action;
 use fission_widgets::{TerminalLaunchConfig, TerminalSession};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
@@ -1161,22 +1161,22 @@ pub struct CompletionItem {
 
 // --- Actions ---
 
-#[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[fission_action]
 pub struct OpenFile(pub String);
 
-#[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[fission_action]
 pub struct CloseTab(pub usize);
 
-#[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[fission_action]
 pub struct SelectTab(pub usize);
 
-#[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[fission_action]
 pub struct ToggleTreeNode(pub String);
 
-#[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[fission_action]
 pub struct SelectTreeNode(pub String);
 
-#[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[fission_action]
 pub struct ApplyEditorEdit {
     pub range_start: usize,
     pub range_end: usize,
@@ -1185,179 +1185,179 @@ pub struct ApplyEditorEdit {
     pub anchor: usize,
 }
 
-#[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[fission_action]
 pub struct SetEditorPreedit {
     pub text: String,
 }
 
-#[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[fission_action]
 pub struct ToggleCommandPalette;
 
-#[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[fission_action]
 #[serde(transparent)]
 pub struct UpdateCommandQuery(pub String);
 
-#[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[fission_action]
 pub struct ToggleSidebar;
 
-#[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[fission_action]
 pub struct ToggleTerminal;
 
-#[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[fission_action]
 pub struct SetSidebarSection(pub SidebarSection);
 
-#[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[fission_action]
 pub struct SaveFile;
 
-#[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[fission_action]
 pub struct SaveAllFiles;
 
-#[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[fission_action]
 pub struct DismissMenu;
 
-#[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[fission_action]
 pub struct ShowMenuStatus(pub String);
 
-#[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[fission_action]
 pub struct SetBottomPanelTab(pub BottomPanelTab);
 
-#[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[fission_action]
 pub struct ShowContextStatus(pub String);
 
-#[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[fission_action]
 pub struct RenameContextTarget;
 
-#[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[fission_action]
 pub struct DeleteContextTarget;
 
-#[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[fission_action]
 #[serde(transparent)]
 pub struct UpdateSearchQuery(pub String);
 
-#[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[fission_action]
 pub struct ExecuteSearch;
 
-#[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[fission_action]
 pub struct SelectCompletion(pub usize);
 
-#[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[fission_action]
 pub struct DismissCompletions;
 
-#[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[fission_action]
 pub struct RefreshGitStatus;
 
 #[allow(dead_code)]
-#[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[fission_action]
 pub struct NavigateDiagnostic {
     pub path: String,
     pub line: usize,
 }
 
-#[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq)]
+#[fission_action(no_eq)]
 pub struct ShowContextMenu {
     pub x: f32,
     pub y: f32,
     pub target: Option<String>,
 }
 
-#[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[fission_action]
 pub struct DismissContextMenu;
 
-#[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[fission_action]
 #[serde(transparent)]
 pub struct CreateFile(pub String);
 
-#[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[fission_action]
 #[serde(transparent)]
 pub struct CreateFolder(pub String);
 
-#[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[fission_action]
 pub struct RefreshTree;
 
-#[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[fission_action]
 pub struct ToggleFindReplace;
 
-#[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[fission_action]
 #[serde(transparent)]
 pub struct UpdateFindQuery(pub String);
 
-#[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[fission_action]
 #[serde(transparent)]
 pub struct UpdateReplaceQuery(pub String);
 
-#[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[fission_action]
 pub struct FindNext;
 
-#[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[fission_action]
 pub struct FindPrevious;
 
-#[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[fission_action]
 pub struct ReplaceOne;
 
-#[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[fission_action]
 pub struct ReplaceAll;
 
 #[allow(dead_code)]
-#[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[fission_action]
 #[serde(transparent)]
 pub struct ShowHover(pub String);
 
 #[allow(dead_code)]
-#[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[fission_action]
 pub struct DismissHover;
 
 #[allow(dead_code)]
-#[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[fission_action]
 #[serde(transparent)]
 pub struct DeleteFile(pub String);
 
 #[allow(dead_code)]
-#[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[fission_action]
 pub struct RenameFile {
     pub old: String,
     pub new_name: String,
 }
 
 #[allow(dead_code)]
-#[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[fission_action]
 pub struct StartRename(pub String);
 
-#[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[fission_action]
 pub struct ConfirmRename;
 
-#[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[fission_action]
 pub struct CancelRename;
 
-#[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[fission_action]
 #[serde(transparent)]
 pub struct UpdateRenameInput(pub String);
 
-#[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[fission_action]
 pub struct SetActiveMenu(pub Option<String>);
 
 #[allow(dead_code)]
-#[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[fission_action]
 pub struct GoToLine(pub usize);
 
-#[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[fission_action]
 pub struct GoToDefinition;
 
-#[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[fission_action]
 pub struct Undo;
 
-#[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[fission_action]
 pub struct Redo;
 
-#[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[fission_action]
 pub struct CopySelection;
 
-#[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[fission_action]
 pub struct CutSelection;
 
-#[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[fission_action]
 pub struct PasteClipboard;
 
-#[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[fission_action]
 pub struct UpdateCursorPosition {
     pub caret: usize,
     pub anchor: usize,
@@ -1365,38 +1365,38 @@ pub struct UpdateCursorPosition {
 
 /// Action dispatched by the editor render node to update the model's scroll
 /// position so that scroll-follows-cursor works.
-#[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq)]
+#[fission_action(no_eq)]
 pub struct UpdateScrollY(pub f32);
 
-#[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[fission_action]
 pub struct ShiftActiveFileWindow {
     pub forward: bool,
 }
 
-#[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[fission_action]
 pub struct EditorStarted {
     pub root_path: PathBuf,
 }
 
-#[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[fission_action]
 pub struct TreeScanCompleted;
 
-#[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[fission_action]
 pub struct TreeScanFailed;
 
-#[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[fission_action]
 pub struct GitStatusLoaded;
 
-#[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[fission_action]
 pub struct GitStatusFailed;
 
-#[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[fission_action]
 pub struct PollTerminal;
 
 #[derive(Debug, Default, Serialize, Deserialize, Clone, PartialEq, Eq)]
 pub struct PollTerminalTick;
 
-#[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[fission_action]
 pub struct PollLsp;
 
 #[derive(Debug, Default, Serialize, Deserialize, Clone, PartialEq, Eq)]

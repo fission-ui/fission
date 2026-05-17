@@ -134,8 +134,8 @@ Now let us build the translation environment step by step.
 ```rust
 use std::collections::HashMap;
 
+use fission::i18n::{Locale, TranslationBundle};
 use fission::prelude::*;
-use fission_i18n::{Locale, TranslationBundle};
 
 fn load_bundle(locale: &str, raw_yaml: &str) -> anyhow::Result<TranslationBundle> {
     let messages: HashMap<String, String> = serde_yaml::from_str(raw_yaml)?;

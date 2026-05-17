@@ -57,7 +57,7 @@ pub enum ButtonContentAlign {
 /// # Example
 ///
 /// ```rust,ignore
-/// let on_press = ctx.bind(Submit, handle_submit as fn(&mut S, Submit));
+/// let on_press = ctx.bind(Submit, reduce_with!(handle_submit));
 ///
 /// Button {
 ///     child: Some(Box::new(Text::new("Submit").into_node())),

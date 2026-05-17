@@ -5,7 +5,7 @@ use crate::model::{
 use chrono::Local;
 use fission_core::op::ImageFit;
 use fission_core::ui::{Button, ButtonVariant, Container, Node, Scroll, Text, TextContent, Video};
-use fission_core::{ActionEnvelope, BuildCtx, Handler, View, Widget, WidgetNodeId};
+use fission_core::{reduce_with, ActionEnvelope, BuildCtx, View, Widget, WidgetNodeId};
 use fission_icons::material;
 use fission_widgets::{
     Accordion, AccordionItem, Alert, AlertKind, AspectRatio, Avatar, Card, Code, Divider, HStack,
@@ -76,44 +76,44 @@ impl Widget<InboxState> for EmailDetail {
         let reply_id = ctx
             .bind(
                 SelectReplyMode(0),
-                (|s: &mut InboxState, a: SelectReplyMode, _| s.reply_mode = a.0)
-                    as Handler<InboxState, SelectReplyMode>,
+                reduce_with!((|s: &mut InboxState, a: SelectReplyMode, _| s.reply_mode = a.0)),
             )
             .id;
         let reply_body_id = ctx
             .bind(
                 SetReplyBody("".into()),
-                (|s: &mut InboxState, a: SetReplyBody, _| s.reply_body = a.0)
-                    as Handler<InboxState, SetReplyBody>,
+                reduce_with!((|s: &mut InboxState, a: SetReplyBody, _| s.reply_body = a.0)),
             )
             .id;
         let send_reply_id = ctx
             .bind(
                 SendReply(0),
-                (|s: &mut InboxState, a: SendReply, _| {
-                    let body = s.reply_body.trim().to_string();
-                    if body.is_empty() {
-                        return;
-                    }
-                    if let Some(thread) = s.emails.iter_mut().find(|e| e.id == a.0) {
-                        let msg_id = s.next_message_id;
-                        s.next_message_id += 1;
-                        thread.messages.push(EmailMessage {
-                            id: msg_id,
-                            from: "You".into(),
-                            to: vec![thread.sender.clone()],
-                            cc: Vec::new(),
-                            body: body.clone(),
-                            sent_at: Local::now().naive_local(),
-                        });
-                        thread.folders.insert(Folder::Sent);
-                        thread.is_read = true;
-                        thread.refresh_preview();
-                    }
-                    s.reply_body.clear();
-                    s.show_toast = true;
-                    s.toast_message = Some("Reply sent".into());
-                }) as Handler<InboxState, SendReply>,
+                reduce_with!(
+                    (|s: &mut InboxState, a: SendReply, _| {
+                        let body = s.reply_body.trim().to_string();
+                        if body.is_empty() {
+                            return;
+                        }
+                        if let Some(thread) = s.emails.iter_mut().find(|e| e.id == a.0) {
+                            let msg_id = s.next_message_id;
+                            s.next_message_id += 1;
+                            thread.messages.push(EmailMessage {
+                                id: msg_id,
+                                from: "You".into(),
+                                to: vec![thread.sender.clone()],
+                                cc: Vec::new(),
+                                body: body.clone(),
+                                sent_at: Local::now().naive_local(),
+                            });
+                            thread.folders.insert(Folder::Sent);
+                            thread.is_read = true;
+                            thread.refresh_preview();
+                        }
+                        s.reply_body.clear();
+                        s.show_toast = true;
+                        s.toast_message = Some("Reply sent".into());
+                    })
+                ),
             )
             .id;
 
@@ -147,8 +147,7 @@ impl Widget<InboxState> for EmailDetail {
                 )),
                 on_press: Some(ctx.bind(
                     Navigate(folder_path.clone()),
-                    (|s: &mut InboxState, a: Navigate, _| s.navigate_to(a.0))
-                        as Handler<InboxState, Navigate>,
+                    reduce_with!((|s: &mut InboxState, a: Navigate, _| s.navigate_to(a.0))),
                 )),
                 content_align: fission_core::ui::ButtonContentAlign::Start,
                 ..Default::default()
@@ -197,8 +196,7 @@ impl Widget<InboxState> for EmailDetail {
                     )),
                     on_press: Some(ctx.bind(
                         ToggleToast(true),
-                        (|s: &mut InboxState, _: ToggleToast, _| s.show_toast = true)
-                            as Handler<InboxState, ToggleToast>,
+                        reduce_with!((|s: &mut InboxState, _: ToggleToast, _| s.show_toast = true)),
                     )),
                     ..Default::default()
                 }
@@ -262,9 +260,11 @@ impl Widget<InboxState> for EmailDetail {
                 is_expanded: view.state.details_expanded,
                 on_toggle: Some(ctx.bind(
                     ToggleDetails,
-                    (|s: &mut InboxState, _: ToggleDetails, _| {
-                        s.details_expanded = !s.details_expanded
-                    }) as Handler<InboxState, ToggleDetails>,
+                    reduce_with!(
+                        (|s: &mut InboxState, _: ToggleDetails, _| {
+                            s.details_expanded = !s.details_expanded
+                        })
+                    ),
                 )),
                 content: Container::new(
                     Text {

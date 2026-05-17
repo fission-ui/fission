@@ -86,12 +86,12 @@ Reducers may be composed or layered as needed.
 
 ## 3.4.5 Typed Actions and Dispatch
 
-Actions are defined using `#[derive(Action)]`.
+Actions are defined using `#[fission_action]`.
 
 Example:
 
 ```rust
-#[derive(Action)]
+#[fission_action]
 #[action(namespace = "com.example.app", stable = true)]
 pub enum CounterAction {
     #[action(alias = "counter.increment")]

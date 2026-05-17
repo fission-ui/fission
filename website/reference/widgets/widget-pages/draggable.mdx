@@ -12,7 +12,7 @@ It takes a visible child and a payload of bytes. When the user begins dragging, 
 ## Example
 
 ```rust
-use fission_widgets::Draggable;
+use fission::prelude::*;
 
 let node = Draggable {
 payload: view.state.card_id.as_bytes().to_vec(),

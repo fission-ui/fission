@@ -23,7 +23,7 @@ use serde::{Deserialize, Serialize};
 ///     max: 1.0,
 ///     on_change: Some(ctx.bind(
 ///         VolumeChanged,
-///         handle_volume as fn(&mut S, VolumeChanged),
+///         reduce_with!(handle_volume),
 ///     )),
 ///     ..Default::default()
 /// }

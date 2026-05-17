@@ -1,5 +1,5 @@
 use fission_core::ui::{Container, Node, Row};
-use fission_core::{BuildCtx, Env, Handler, View, Widget, WidgetNodeId};
+use fission_core::{reduce_with, BuildCtx, Env, View, Widget, WidgetNodeId};
 use fission_i18n::{Locale, TranslationBundle};
 use fission_shell_desktop::DesktopApp;
 use fission_theme::Theme;
@@ -17,7 +17,7 @@ mod model;
 use components::{EmailDetail, EmailList, RightSidebar, Sidebar};
 use features::{BrowserModal, ComposeModal, ContactsModal, SettingsModal};
 use fission_core::{
-    ActionRegistry, AuthenticateRequest, OPEN_URL, AUTHENTICATE, OpenUrlRequest, ReducerContext,
+    ActionRegistry, AuthenticateRequest, OpenUrlRequest, ReducerContext, AUTHENTICATE, OPEN_URL,
 };
 use model::*;
 
@@ -65,7 +65,9 @@ impl Widget<InboxState> for InboxApp {
                 is_open: view.state.show_mobile_menu,
                 on_dismiss: Some(ctx.bind(
                     SetMobileMenuOpen(false),
-                    (|s, a, _| s.show_mobile_menu = a.0) as Handler<InboxState, SetMobileMenuOpen>,
+                    reduce_with!(
+                        (|s: &mut InboxState, a: SetMobileMenuOpen, _| s.show_mobile_menu = a.0)
+                    ),
                 )),
                 content: Box::new(Sidebar.build(ctx, view)),
                 width: Some(mobile_drawer_width),
@@ -86,7 +88,7 @@ impl Widget<InboxState> for InboxApp {
                     .unwrap_or_else(|| "Action completed successfully".into()),
                 on_close: Some(ctx.bind(
                     ToggleToast(false),
-                    (|s, _, _| s.show_toast = false) as Handler<InboxState, ToggleToast>,
+                    reduce_with!((|s: &mut InboxState, _a: ToggleToast, _| s.show_toast = false)),
                 )),
             }
             .build(ctx, view);
@@ -631,9 +633,9 @@ fn main() -> anyhow::Result<()> {
 
     // Register global handlers
     let mut registry = ActionRegistry::new();
-    registry.register(on_open_system_link as Handler<InboxState, OpenSystemLink>);
-    registry.register(on_open_in_app_link as Handler<InboxState, OpenInAppLink>);
-    registry.register(on_start_auth as Handler<InboxState, StartAuth>);
+    registry.register(reduce_with!(on_open_system_link));
+    registry.register(reduce_with!(on_open_in_app_link));
+    registry.register(reduce_with!(on_start_auth));
 
     app.absorb_registry(registry);
 

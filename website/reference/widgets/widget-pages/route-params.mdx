@@ -14,7 +14,7 @@ This is intentionally simple. Route parameters are just text. The router does no
 ## Example
 
 ```rust
-use fission_widgets::RouteParams;
+use fission::prelude::*;
 
 let builder = |params: &RouteParams| {
     let project_id = params

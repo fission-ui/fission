@@ -31,7 +31,7 @@ Responsive layout is where this enum becomes more important than it first appear
 This example shows a mail-style screen that uses a horizontal split on wide layouts and a vertical split on tighter ones.
 
 ```rust
-use fission_widgets::{SplitDirection, SplitView};
+use fission::prelude::*;
 
 let direction = if is_wide_layout {
     SplitDirection::Horizontal

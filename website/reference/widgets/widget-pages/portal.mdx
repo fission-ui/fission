@@ -14,8 +14,8 @@ Most app authors should not start with `Portal` directly. Higher-level widgets s
 ## Example
 
 ```rust
-use fission_core::ui::{Container, Spacer, Text};
-use fission_widgets::Portal;
+use fission::core::ui::{Container, Spacer, Text};
+use fission::prelude::*;
 
 let global_debug_overlay = if view.state.show_debug_banner {
     Portal {

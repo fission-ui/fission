@@ -318,7 +318,7 @@ pub struct WebRegistration {
 ///
 /// ```rust,ignore
 /// fn build(&self, ctx: &mut BuildCtx<S>, view: &View<S>) -> Node {
-///     let on_press = ctx.bind(MyAction { .. }, handler as fn(&mut S, MyAction));
+///     let on_press = ctx.bind(MyAction { .. }, reduce_with!(handler));
 ///     Button { on_press: Some(on_press), ..Default::default() }.into_node()
 /// }
 /// ```

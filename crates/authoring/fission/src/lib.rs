@@ -19,9 +19,10 @@
 //! use fission::theme::*;             // Theming
 //! use fission::icons::material::*;   // Material icons
 //! use fission::shell::DesktopApp;    // Desktop shell
-//! use fission::macros::Action;       // Derive macros
 //! use fission::text_engine::*;       // Rope-backed text buffer
 //! ```
+
+extern crate self as fission;
 
 // ── Sub-crate re-exports ─────────────────────────────────────────────────
 
@@ -55,8 +56,9 @@ pub mod widgets {
     pub use fission_widgets::*;
 }
 
-/// Derive macros — `#[derive(Action)]` and friends.
+/// Derive and attribute macros — `#[fission_action]`, `#[fission_reducer]`, and friends.
 pub mod macros {
+    pub use fission_core::{reduce, reduce_with, with_reducer};
     pub use fission_macros::*;
 }
 
@@ -69,7 +71,6 @@ pub mod icons {
 pub mod shell {
     #[cfg(not(any(target_os = "android", target_os = "ios", target_arch = "wasm32")))]
     pub use fission_shell_desktop::*;
-    #[cfg(any(target_os = "android", target_os = "ios"))]
     pub use fission_shell_mobile::*;
     #[cfg(target_arch = "wasm32")]
     pub use fission_shell_web::*;
@@ -85,6 +86,9 @@ pub mod diagnostics {
     pub use fission_diagnostics::*;
 }
 
+/// Serialization traits and derives used by Fission action macros.
+pub use serde;
+
 // text_engine re-export will be added when fission-text-engine is restored
 
 /// Test driver — LiveTestClient, TestCommand, TestResponse.
@@ -99,12 +103,14 @@ pub use fission_core::ui::*;
 
 // Core action/state types
 pub use fission_core::{
-    Action, ActionEnvelope, ActionId, AppState, BuildCtx, Handler, PortalLayer, View, Widget,
-    WidgetNodeId,
+    Action, ActionEnvelope, ActionId, AnimationPropertyId, AnimationRequest, AnimationStartValue,
+    AppState, BuildCtx, FlexDirection, Handler, NodeBuilder, Op, PortalLayer, ReducerContext,
+    Selector, View, Widget, WidgetNodeId,
 };
 
 // Core event types
 pub use fission_core::event::{InputEvent, KeyCode, KeyEvent, PointerButton, PointerEvent};
+pub use fission_core::{reduce, reduce_with, with_reducer};
 
 // Core env types
 pub use fission_core::env::Env;
@@ -122,13 +128,12 @@ pub use fission_widgets::{HStack, Icon, Spacer, VStack};
 // Platform shells
 #[cfg(not(any(target_os = "android", target_os = "ios", target_arch = "wasm32")))]
 pub use fission_shell_desktop::DesktopApp;
-#[cfg(any(target_os = "android", target_os = "ios"))]
 pub use fission_shell_mobile::MobileApp;
 #[cfg(target_arch = "wasm32")]
 pub use fission_shell_web::WebApp;
 
 // Macros
-pub use fission_macros::Action as ActionDerive;
+pub use fission_macros::{fission_action, fission_reducer, Action as ActionDerive};
 
 // ── Prelude ──────────────────────────────────────────────────────────────
 
@@ -141,10 +146,12 @@ pub mod prelude {
     // Actions
     pub use fission_core::env::Env;
     pub use fission_core::event::{InputEvent, KeyCode, KeyEvent, PointerButton, PointerEvent};
-    pub use fission_core::op::Color;
+    pub use fission_core::op::{Color, Fill, PaintOp};
+    pub use fission_core::{reduce, reduce_with, with_reducer};
     pub use fission_core::{
-        Action, ActionEnvelope, ActionId, AppState, BuildCtx, Effects, Handler, PortalLayer,
-        ReducerContext, View, Widget, WidgetNodeId,
+        Action, ActionEnvelope, ActionId, AnimationPropertyId, AnimationRequest,
+        AnimationStartValue, AppState, BuildCtx, Effects, FlexDirection, Handler, NodeBuilder, Op,
+        PortalLayer, ReducerContext, Selector, View, Widget, WidgetNodeId,
     };
 
     // Layout
@@ -158,14 +165,13 @@ pub mod prelude {
     pub use fission_icons::material;
 
     // Macros
-    pub use fission_macros::Action;
+    pub use fission_macros::{fission_action, fission_reducer, Action};
 
     // Shell
     #[cfg(not(any(target_os = "android", target_os = "ios", target_arch = "wasm32")))]
     pub use fission_shell_desktop::DesktopApp;
     #[cfg(target_os = "android")]
     pub use fission_shell_mobile::AndroidApp;
-    #[cfg(any(target_os = "android", target_os = "ios"))]
     pub use fission_shell_mobile::MobileApp;
     #[cfg(target_arch = "wasm32")]
     pub use fission_shell_web::WebApp;

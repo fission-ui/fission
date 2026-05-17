@@ -14,14 +14,14 @@ Use `AspectRatio` when the child should scale responsively while preserving shap
 ## Example
 
 ```rust
-use fission_core::ui::{Container, Text};
-use fission_widgets::AspectRatio;
+use fission::core::ui::{Container, Text};
+use fission::prelude::*;
 
 let node = AspectRatio {
     ratio: 16.0 / 9.0,
     child: Box::new(
         Container::new(Text::new("Preview").into_node())
-            .bg(fission_core::op::Color {
+            .bg(fission::core::op::Color {
                 r: 32,
                 g: 37,
                 b: 49,

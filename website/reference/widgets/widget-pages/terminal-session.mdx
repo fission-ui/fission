@@ -40,7 +40,7 @@ The usual flow is to create a session once, store the handle in app state, and t
 
 ```rust
 use std::sync::Arc;
-use fission_widgets::{TerminalLaunchConfig, TerminalSession};
+use fission::prelude::*;
 
 let session: Arc<TerminalSession> = TerminalSession::spawn(TerminalLaunchConfig {
     program: std::env::var("SHELL").ok(),

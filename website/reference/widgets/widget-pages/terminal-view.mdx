@@ -22,7 +22,7 @@ Do not start here if you only need to display logs or captured output. In that c
 ## Example
 
 ```rust
-use fission_widgets::TerminalView;
+use fission::prelude::*;
 
 let terminal = TerminalView::new(session.clone(), panel_width, panel_height)
     .font_size(13.0)

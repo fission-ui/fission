@@ -6,7 +6,7 @@ use fission_core::ui::{
     Button, ButtonContentAlign, ButtonVariant, Checkbox, Container, Node, Row, Text, TextContent,
 };
 use fission_core::ActionEnvelope;
-use fission_core::{BuildCtx, Handler, NodeId, View, Widget, WidgetNodeId};
+use fission_core::{reduce_with, BuildCtx, NodeId, View, Widget, WidgetNodeId};
 use fission_icons::material;
 use fission_widgets::{
     Badge, DateRangePicker, Divider, DropDown, EmptyState, HStack, Hero, Icon, LazyColumn,
@@ -100,90 +100,96 @@ impl Widget<InboxState> for EmailList {
         let filter_id = ctx
             .bind(
                 SetFilterMode(0),
-                (|s: &mut InboxState, a: SetFilterMode, _| s.filter_mode = a.0)
-                    as Handler<InboxState, SetFilterMode>,
+                reduce_with!((|s: &mut InboxState, a: SetFilterMode, _| s.filter_mode = a.0)),
             )
             .id;
         let page_id = ctx
             .bind(
                 SetPage(0),
-                (|s: &mut InboxState, a: SetPage, _| s.page = a.0) as Handler<InboxState, SetPage>,
+                reduce_with!((|s: &mut InboxState, a: SetPage, _| s.page = a.0)),
             )
             .id;
         let filters_open_id = ctx
             .bind(
                 SetAdvancedFiltersOpen(false),
-                (|s: &mut InboxState, a: SetAdvancedFiltersOpen, _| s.show_advanced_filters = a.0)
-                    as Handler<InboxState, SetAdvancedFiltersOpen>,
+                reduce_with!(
+                    (|s: &mut InboxState, a: SetAdvancedFiltersOpen, _| s.show_advanced_filters =
+                        a.0)
+                ),
             )
             .id;
         let sort_id = ctx
             .bind(
                 SetSortOption("Newest".into()),
-                (|s: &mut InboxState, a: SetSortOption, _| s.sort_option = a.0)
-                    as Handler<InboxState, SetSortOption>,
+                reduce_with!((|s: &mut InboxState, a: SetSortOption, _| s.sort_option = a.0)),
             )
             .id;
         let search_id = ctx
             .bind(
                 UpdateSearch("".into()),
-                (|s: &mut InboxState, a: UpdateSearch, _| s.search_query = a.0)
-                    as Handler<InboxState, UpdateSearch>,
+                reduce_with!((|s: &mut InboxState, a: UpdateSearch, _| s.search_query = a.0)),
             )
             .id;
         let select_id = ctx
             .bind(
                 ToggleEmailSelection(0),
-                (|s: &mut InboxState, a: ToggleEmailSelection, _| {
-                    if let Some(pos) = s.selected_emails.iter().position(|id| *id == a.0) {
-                        s.selected_emails.remove(pos);
-                    } else {
-                        s.selected_emails.push(a.0);
-                    }
-                }) as Handler<InboxState, ToggleEmailSelection>,
+                reduce_with!(
+                    (|s: &mut InboxState, a: ToggleEmailSelection, _| {
+                        if let Some(pos) = s.selected_emails.iter().position(|id| *id == a.0) {
+                            s.selected_emails.remove(pos);
+                        } else {
+                            s.selected_emails.push(a.0);
+                        }
+                    })
+                ),
             )
             .id;
         let flag_id = ctx
             .bind(
                 ToggleFlag(0),
-                (|s: &mut InboxState, a: ToggleFlag, _| {
-                    if let Some(email) = s.emails.iter_mut().find(|e| e.id == a.0) {
-                        email.is_flagged = !email.is_flagged;
-                        if email.is_flagged {
-                            email.folders.insert(Folder::Starred);
-                        } else {
-                            email.folders.remove(&Folder::Starred);
+                reduce_with!(
+                    (|s: &mut InboxState, a: ToggleFlag, _| {
+                        if let Some(email) = s.emails.iter_mut().find(|e| e.id == a.0) {
+                            email.is_flagged = !email.is_flagged;
+                            if email.is_flagged {
+                                email.folders.insert(Folder::Starred);
+                            } else {
+                                email.folders.remove(&Folder::Starred);
+                            }
                         }
-                    }
-                }) as Handler<InboxState, ToggleFlag>,
+                    })
+                ),
             )
             .id;
         let navigate_id = ctx
             .bind(
                 Navigate("".into()),
-                (|s: &mut InboxState, a: Navigate, _| {
-                    s.navigate_to(a.0);
-                    s.show_mobile_menu = false;
-                    if let Some(id) = s.selected_email_id {
-                        if let Some(email) = s.emails.iter_mut().find(|e| e.id == id) {
-                            email.is_read = true;
+                reduce_with!(
+                    (|s: &mut InboxState, a: Navigate, _| {
+                        s.navigate_to(a.0);
+                        s.show_mobile_menu = false;
+                        if let Some(id) = s.selected_email_id {
+                            if let Some(email) = s.emails.iter_mut().find(|e| e.id == id) {
+                                email.is_read = true;
+                            }
                         }
-                    }
-                }) as Handler<InboxState, Navigate>,
+                    })
+                ),
             )
             .id;
         let tab_id = ctx
             .bind(
                 SelectTab(0),
-                (|s: &mut InboxState, a: SelectTab, _| s.active_tab = a.0)
-                    as Handler<InboxState, SelectTab>,
+                reduce_with!((|s: &mut InboxState, a: SelectTab, _| s.active_tab = a.0)),
             )
             .id;
         let _menu_toggle = ctx.bind(
             ToggleFilterDropdown,
-            (|s: &mut InboxState, _: ToggleFilterDropdown, _| {
-                s.show_filter_dropdown = !s.show_filter_dropdown
-            }) as Handler<InboxState, ToggleFilterDropdown>,
+            reduce_with!(
+                (|s: &mut InboxState, _: ToggleFilterDropdown, _| {
+                    s.show_filter_dropdown = !s.show_filter_dropdown
+                })
+            ),
         );
 
         // Header

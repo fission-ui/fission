@@ -12,7 +12,7 @@ You encounter it when a text widget should either render a literal string direct
 ## Example
 
 ```rust
-use fission_core::ui::{Text, TextContent};
+use fission::core::ui::{Text, TextContent};
 
 let title = Text::new(TextContent::Key("settings.title".into())).into_node();
 let caption = Text::new(TextContent::Literal("Version 1.2.0".into())).into_node();

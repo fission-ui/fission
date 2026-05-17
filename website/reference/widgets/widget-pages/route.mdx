@@ -21,7 +21,7 @@ There is no built-in wildcard matching, query-string parsing, or browser-history
 
 ```rust
 use std::sync::Arc;
-use fission_widgets::{Route, RouteParams};
+use fission::prelude::*;
 
 let project_route = Route {
     path: "/projects/:id".into(),

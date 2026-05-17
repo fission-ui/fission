@@ -14,9 +14,9 @@ The important state rule is that the popover does not decide when it is open. Yo
 ## Example
 
 ```rust
-use fission_core::{Handler, WidgetNodeId};
-use fission_core::ui::{Button, Text};
-use fission_widgets::{Menu, MenuItem, Popover};
+use fission::core::{Handler, WidgetNodeId};
+use fission::core::ui::{Button, Text};
+use fission::prelude::*;
 
 let popover = Popover {
     id: WidgetNodeId::explicit("sort_popover"),
@@ -24,9 +24,9 @@ let popover = Popover {
     on_toggle: None,
     on_close: Some(ctx.bind(
         ToggleSortMenu(false),
-        (|state: &mut AppState, action: ToggleSortMenu, _| {
+        reduce_with!((|state: &mut AppState, action: ToggleSortMenu, _| {
             state.show_sort_menu = action.0;
-        }) as Handler<AppState, ToggleSortMenu>,
+        })),
     )),
     trigger: Box::new(
         Button {

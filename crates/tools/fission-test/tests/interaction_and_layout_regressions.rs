@@ -1,5 +1,5 @@
 use fission_core::ui::{Container, Node, Text};
-use fission_core::{AppState, BuildCtx, View, Widget};
+use fission_core::{reduce_with, AppState, BuildCtx, ReducerContext, View, Widget};
 use fission_test::TestHarness;
 use fission_widgets::{NumberInput, SplitDirection, SplitView};
 
@@ -11,11 +11,18 @@ struct State {
 }
 impl AppState for State {}
 
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, fission_macros::Action)]
+#[fission_macros::fission_action(no_eq)]
 struct DismissAction;
 
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, fission_macros::Action)]
+#[fission_macros::fission_action(no_eq)]
 struct IncrementAction;
+
+fn ignore_increment(
+    _state: &mut State,
+    _action: IncrementAction,
+    _ctx: &mut ReducerContext<State>,
+) {
+}
 
 #[test]
 fn test_stepper_button_layout() {
@@ -25,14 +32,8 @@ fn test_stepper_button_layout() {
             Container::new(
                 NumberInput {
                     value: 9.0,
-                    on_increment: Some(ctx.bind(
-                        IncrementAction,
-                        (|_, _, _| {}) as fission_core::Handler<State, IncrementAction>,
-                    )),
-                    on_decrement: Some(ctx.bind(
-                        IncrementAction,
-                        (|_, _, _| {}) as fission_core::Handler<State, IncrementAction>,
-                    )),
+                    on_increment: Some(ctx.bind(IncrementAction, reduce_with!(ignore_increment))),
+                    on_decrement: Some(ctx.bind(IncrementAction, reduce_with!(ignore_increment))),
                     ..Default::default()
                 }
                 .build(ctx, _view),
@@ -135,7 +136,7 @@ fn test_email_list_width() {
 
 #[test]
 fn test_modal_backdrop_dismiss() {
-    use fission_core::Handler;
+    use fission_core::reduce_with;
     use fission_widgets::Modal;
 
     struct ModalTest;
@@ -148,9 +149,11 @@ fn test_modal_backdrop_dismiss() {
                 is_open: true,
                 on_dismiss: Some(ctx.bind(
                     DismissAction,
-                    (|s: &mut State, _, _| {
-                        s.modal_open = false;
-                    }) as Handler<State, DismissAction>,
+                    reduce_with!(
+                        (|s: &mut State, _, _| {
+                            s.modal_open = false;
+                        })
+                    ),
                 )),
                 actions: vec![],
                 width: Some(300.0),
@@ -194,7 +197,7 @@ fn test_modal_backdrop_dismiss() {
 #[test]
 fn test_modal_close_button_dismiss() {
     use fission_core::event::{PointerButton, PointerEvent};
-    use fission_core::Handler;
+    use fission_core::reduce_with;
     use fission_widgets::Modal;
 
     struct ModalTest;
@@ -207,9 +210,11 @@ fn test_modal_close_button_dismiss() {
                 is_open: true,
                 on_dismiss: Some(ctx.bind(
                     DismissAction,
-                    (|s: &mut State, _, _| {
-                        s.modal_open = false;
-                    }) as Handler<State, DismissAction>,
+                    reduce_with!(
+                        (|s: &mut State, _, _| {
+                            s.modal_open = false;
+                        })
+                    ),
                 )),
                 actions: vec![],
                 width: Some(300.0),

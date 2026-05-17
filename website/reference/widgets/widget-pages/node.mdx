@@ -14,7 +14,7 @@ Use `Node` when you need a common type for heterogeneous children or conditional
 ## Example
 
 ```rust
-use fission_core::ui::{Container, Node, Text};
+use fission::core::ui::{Container, Node, Text};
 
 fn status_chip(online: bool) -> Node {
     let label = if online { "Online" } else { "Offline" };

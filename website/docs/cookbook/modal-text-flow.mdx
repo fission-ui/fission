@@ -54,23 +54,23 @@ This is the right starting point because the modal is part of product behavior, 
 Text flows become easier to reason about when every update has a named action.
 
 ```rust
-#[derive(fission_macros::Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[fission_action]
 #[serde(transparent)]
 pub struct SetShowComposeModal(pub bool);
 
-#[derive(fission_macros::Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[fission_action]
 #[serde(transparent)]
 pub struct SetDraftTo(pub String);
 
-#[derive(fission_macros::Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[fission_action]
 #[serde(transparent)]
 pub struct SetDraftSubject(pub String);
 
-#[derive(fission_macros::Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[fission_action]
 #[serde(transparent)]
 pub struct SetDraftBody(pub String);
 
-#[derive(fission_macros::Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[fission_action]
 pub struct ApplyCompose;
 ```
 
@@ -144,11 +144,11 @@ impl Widget<ComposeState> for ComposeScreen {
     fn build(&self, ctx: &mut BuildCtx<ComposeState>, view: &View<ComposeState>) -> Node {
         let open_modal = ctx.bind(
             SetShowComposeModal(true),
-            on_set_show_compose_modal as Handler<ComposeState, SetShowComposeModal>,
+            reduce_with!(on_set_show_compose_modal),
         );
         let close_modal = ctx.bind(
             SetShowComposeModal(false),
-            on_set_show_compose_modal as Handler<ComposeState, SetShowComposeModal>,
+            reduce_with!(on_set_show_compose_modal),
         );
 
         let content = Column {
@@ -183,15 +183,15 @@ Inside the modal, each field reads from state and writes back through an action.
 ```rust
 let set_to = ctx.bind(
     SetDraftTo(String::new()),
-    on_set_draft_to as Handler<ComposeState, SetDraftTo>,
+    reduce_with!(on_set_draft_to),
 );
 let set_subject = ctx.bind(
     SetDraftSubject(String::new()),
-    on_set_draft_subject as Handler<ComposeState, SetDraftSubject>,
+    reduce_with!(on_set_draft_subject),
 );
 let set_body = ctx.bind(
     SetDraftBody(String::new()),
-    on_set_draft_body as Handler<ComposeState, SetDraftBody>,
+    reduce_with!(on_set_draft_body),
 );
 
 let modal_fields = Column {
@@ -239,7 +239,7 @@ Now wrap those fields in a modal.
 ```rust
 let apply = ctx.bind(
     ApplyCompose,
-    on_apply_compose as Handler<ComposeState, ApplyCompose>,
+    reduce_with!(on_apply_compose),
 );
 
 let modal = Modal {

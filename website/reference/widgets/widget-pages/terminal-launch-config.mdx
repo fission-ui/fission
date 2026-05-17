@@ -30,7 +30,7 @@ You do not need deep terminal knowledge to use it. The practical idea is simply:
 
 ```rust
 use std::path::PathBuf;
-use fission_widgets::{TerminalLaunchConfig, TerminalSession};
+use fission::prelude::*;
 
 let session = TerminalSession::spawn(TerminalLaunchConfig {
     cwd: Some(PathBuf::from("/Users/me/projects/my-app")),

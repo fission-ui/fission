@@ -16,9 +16,9 @@ If the user interface should stay lightweight and anchored to one control, use a
 ## Example
 
 ```rust
-use fission_core::{Handler, WidgetNodeId};
-use fission_core::ui::Text;
-use fission_widgets::{Modal, ModalAction};
+use fission::core::{Handler, WidgetNodeId};
+use fission::core::ui::Text;
+use fission::prelude::*;
 
 let confirm_modal = Modal {
     id: WidgetNodeId::explicit("publish_modal"),
@@ -30,9 +30,9 @@ let confirm_modal = Modal {
     is_open: view.state.show_publish_modal,
     on_dismiss: Some(ctx.bind(
         TogglePublishModal(false),
-        (|state: &mut AppState, action: TogglePublishModal, _| {
+        reduce_with!((|state: &mut AppState, action: TogglePublishModal, _| {
             state.show_publish_modal = action.0;
-        }) as Handler<AppState, TogglePublishModal>,
+        })),
     )),
     actions: vec![
         ModalAction {

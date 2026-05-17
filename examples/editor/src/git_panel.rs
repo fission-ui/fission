@@ -3,7 +3,7 @@ use fission_core::op::Color;
 use fission_core::ui::{
     Button, ButtonContentAlign, ButtonVariant, Column, Container, Node, Scroll, Text,
 };
-use fission_core::{ActionEnvelope, BuildCtx, FlexDirection, Handler, View, Widget};
+use fission_core::{reduce_with, ActionEnvelope, BuildCtx, FlexDirection, View, Widget};
 use fission_widgets::{HStack, Spacer, VStack};
 use serde_json;
 
@@ -44,15 +44,13 @@ impl Widget<EditorState> for GitPanel {
 
         let refresh = ctx.bind(
             RefreshGitStatus,
-            (|s: &mut EditorState, _, _| s.refresh_git_status())
-                as Handler<EditorState, RefreshGitStatus>,
+            reduce_with!((|s: &mut EditorState, _, _| s.refresh_git_status())),
         );
 
         let open_id = ctx
             .bind(
                 OpenFile(String::new()),
-                (|s: &mut EditorState, a: OpenFile, _| s.open_file(a.0))
-                    as Handler<EditorState, OpenFile>,
+                reduce_with!((|s: &mut EditorState, a: OpenFile, _| s.open_file(a.0))),
             )
             .id;
 

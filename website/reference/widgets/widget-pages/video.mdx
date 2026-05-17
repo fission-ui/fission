@@ -32,8 +32,8 @@ Do not use it for decorative motion or lightweight transitions. For those cases,
 This example shows a help video with an explicit play control.
 
 ```rust
-use fission_core::WidgetNodeId;
-use fission_core::ui::{Button, Text, Video};
+use fission::core::WidgetNodeId;
+use fission::core::ui::{Button, Text, Video};
 
 let video_id = WidgetNodeId::explicit("welcome_video");
 let controls = ctx.video_controls(video_id);

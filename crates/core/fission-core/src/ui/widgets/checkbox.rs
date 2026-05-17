@@ -15,7 +15,7 @@ use serde::{Deserialize, Serialize};
 /// # Example
 ///
 /// ```rust,ignore
-/// let on_toggle = ctx.bind(ToggleAgree, handle_toggle as fn(&mut S, ToggleAgree));
+/// let on_toggle = ctx.bind(ToggleAgree, reduce_with!(handle_toggle));
 ///
 /// Checkbox {
 ///     checked: view.state.agreed,

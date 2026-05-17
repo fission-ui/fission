@@ -1,11 +1,11 @@
+use fission::prelude::fission_action;
 use fission_core::op::Color as IrColor;
 use fission_core::ui::{
     Button, ButtonVariant, Checkbox, Container, Node, Scroll, Slider, Switch, Text, TextInput,
 };
 use fission_core::{
-    ActionEnvelope, AppState, BuildCtx, FlexDirection, Handler, View, Widget, WidgetNodeId,
+    reduce_with, ActionEnvelope, AppState, BuildCtx, FlexDirection, View, Widget, WidgetNodeId,
 };
-use fission_macros::Action;
 use fission_shell_desktop::DesktopApp;
 use fission_widgets::{
     Accordion, AccordionItem, Alert, AlertKind, Avatar, Badge, Breadcrumb, BreadcrumbItem, Card,
@@ -77,66 +77,66 @@ impl AppState for GalleryState {}
 
 // --- Actions ---
 
-#[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq)]
+#[fission_action(no_eq)]
 #[serde(transparent)]
 struct SetSlider(f32);
 
-#[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[fission_action]
 struct ToggleChecked;
 
-#[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[fission_action]
 struct ToggleSwitch;
 
-#[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[fission_action]
 #[serde(transparent)]
 struct UpdateText(String);
 
-#[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq)]
+#[fission_action(no_eq)]
 struct IncrementNumber;
 
-#[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq)]
+#[fission_action(no_eq)]
 struct DecrementNumber;
 
-#[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[fission_action]
 struct SetTab(usize);
 
-#[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[fission_action]
 struct ToggleAccordion(usize);
 
-#[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[fission_action]
 struct ToggleSelect;
 
-#[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[fission_action]
 struct SelectValue(String);
 
-#[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[fission_action]
 struct ToggleMenu;
 
-#[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[fission_action]
 struct ToggleModal;
 
-#[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[fission_action]
 struct ToggleDrawer;
 
-#[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[fission_action]
 struct SetSegmented(usize);
 
-#[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[fission_action]
 struct SetPage(usize);
 
-#[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[fission_action]
 struct ToggleTreeNode(String);
 
-#[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[fission_action]
 struct SelectTreeNode(String);
 
-#[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[fission_action]
 struct DismissToast;
 
-#[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[fission_action]
 struct ShowToast;
 
-#[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[fission_action]
 struct Noop;
 
 // --- Helpers ---
@@ -255,9 +255,7 @@ impl Widget<GalleryState> for GalleryApp {
                         Button {
                             variant: ButtonVariant::Filled,
                             child: Some(Box::new(Text::new("Filled").into_node())),
-                            on_press: Some(
-                                ctx.bind(Noop, (|_, _: Noop, _| {}) as Handler<GalleryState, Noop>),
-                            ),
+                            on_press: Some(ctx.bind(Noop, reduce_with!((|_, _: Noop, _| {})))),
                             ..Default::default()
                         }
                         .into_node(),
@@ -289,8 +287,7 @@ impl Widget<GalleryState> for GalleryApp {
                     placeholder: Some("Type something...".into()),
                     on_change: Some(ctx.bind(
                         UpdateText(String::new()),
-                        (|s: &mut GalleryState, a: UpdateText, _| s.text_value = a.0)
-                            as Handler<GalleryState, UpdateText>,
+                        reduce_with!((|s: &mut GalleryState, a: UpdateText, _| s.text_value = a.0)),
                     )),
                     width: Some(control_width),
                     ..Default::default()
@@ -304,8 +301,7 @@ impl Widget<GalleryState> for GalleryApp {
                             checked: s.checked,
                             on_toggle: Some(ctx.bind(
                                 ToggleChecked,
-                                (|s: &mut GalleryState, _, _| s.checked = !s.checked)
-                                    as Handler<GalleryState, ToggleChecked>,
+                                reduce_with!((|s: &mut GalleryState, _, _| s.checked = !s.checked)),
                             )),
                             label: Some("Check me".into()),
                             ..Default::default()
@@ -315,8 +311,9 @@ impl Widget<GalleryState> for GalleryApp {
                             checked: s.switch_on,
                             on_toggle: Some(ctx.bind(
                                 ToggleSwitch,
-                                (|s: &mut GalleryState, _, _| s.switch_on = !s.switch_on)
-                                    as Handler<GalleryState, ToggleSwitch>,
+                                reduce_with!(
+                                    (|s: &mut GalleryState, _, _| s.switch_on = !s.switch_on)
+                                ),
                             )),
                             ..Default::default()
                         }
@@ -336,8 +333,10 @@ impl Widget<GalleryState> for GalleryApp {
                                 max: 100.0,
                                 on_change: Some(ctx.bind(
                                     SetSlider(0.0),
-                                    (|s: &mut GalleryState, a: SetSlider, _| s.slider_val = a.0)
-                                        as Handler<GalleryState, SetSlider>,
+                                    reduce_with!(
+                                        (|s: &mut GalleryState, a: SetSlider, _| s.slider_val =
+                                            a.0)
+                                    ),
                                 )),
                                 ..Default::default()
                             }
@@ -355,13 +354,11 @@ impl Widget<GalleryState> for GalleryApp {
                     step: 1.0,
                     on_increment: Some(ctx.bind(
                         IncrementNumber,
-                        (|s: &mut GalleryState, _, _| s.number_val += 1.0)
-                            as Handler<GalleryState, IncrementNumber>,
+                        reduce_with!((|s: &mut GalleryState, _, _| s.number_val += 1.0)),
                     )),
                     on_decrement: Some(ctx.bind(
                         DecrementNumber,
-                        (|s: &mut GalleryState, _, _| s.number_val -= 1.0)
-                            as Handler<GalleryState, DecrementNumber>,
+                        reduce_with!((|s: &mut GalleryState, _, _| s.number_val -= 1.0)),
                     )),
                     ..Default::default()
                 }
@@ -458,8 +455,9 @@ impl Widget<GalleryState> for GalleryApp {
                             content: Text::new("Content of Tab A").into_node(),
                             on_press: Some(ctx.bind(
                                 SetTab(0),
-                                (|s: &mut GalleryState, a: SetTab, _| s.active_tab = a.0)
-                                    as Handler<GalleryState, SetTab>,
+                                reduce_with!(
+                                    (|s: &mut GalleryState, a: SetTab, _| s.active_tab = a.0)
+                                ),
                             )),
                         },
                         TabItem {
@@ -467,8 +465,9 @@ impl Widget<GalleryState> for GalleryApp {
                             content: Text::new("Content of Tab B").into_node(),
                             on_press: Some(ctx.bind(
                                 SetTab(1),
-                                (|s: &mut GalleryState, a: SetTab, _| s.active_tab = a.0)
-                                    as Handler<GalleryState, SetTab>,
+                                reduce_with!(
+                                    (|s: &mut GalleryState, a: SetTab, _| s.active_tab = a.0)
+                                ),
                             )),
                         },
                         TabItem {
@@ -476,8 +475,9 @@ impl Widget<GalleryState> for GalleryApp {
                             content: Text::new("Content of Tab C").into_node(),
                             on_press: Some(ctx.bind(
                                 SetTab(2),
-                                (|s: &mut GalleryState, a: SetTab, _| s.active_tab = a.0)
-                                    as Handler<GalleryState, SetTab>,
+                                reduce_with!(
+                                    (|s: &mut GalleryState, a: SetTab, _| s.active_tab = a.0)
+                                ),
                             )),
                         },
                     ],
@@ -508,8 +508,9 @@ impl Widget<GalleryState> for GalleryApp {
                     on_change: Some(Arc::new({
                         let env = ctx.bind(
                             SetSegmented(0),
-                            (|s: &mut GalleryState, a: SetSegmented, _| s.segmented_idx = a.0)
-                                as Handler<GalleryState, SetSegmented>,
+                            reduce_with!(
+                                (|s: &mut GalleryState, a: SetSegmented, _| s.segmented_idx = a.0)
+                            ),
                         );
                         move |idx| ActionEnvelope {
                             id: env.id,
@@ -525,8 +526,9 @@ impl Widget<GalleryState> for GalleryApp {
                     on_change: Some(Arc::new({
                         let env = ctx.bind(
                             SetPage(1),
-                            (|s: &mut GalleryState, a: SetPage, _| s.current_page = a.0)
-                                as Handler<GalleryState, SetPage>,
+                            reduce_with!(
+                                (|s: &mut GalleryState, a: SetPage, _| s.current_page = a.0)
+                            ),
                         );
                         move |page| ActionEnvelope {
                             id: env.id,
@@ -560,8 +562,7 @@ impl Widget<GalleryState> for GalleryApp {
                     is_open: s.menu_open,
                     on_toggle: Some(ctx.bind(
                         ToggleMenu,
-                        (|s: &mut GalleryState, _, _| s.menu_open = !s.menu_open)
-                            as Handler<GalleryState, ToggleMenu>,
+                        reduce_with!((|s: &mut GalleryState, _, _| s.menu_open = !s.menu_open)),
                     )),
                 }
                 .build(ctx, view),
@@ -597,14 +598,15 @@ impl Widget<GalleryState> for GalleryApp {
                             is_expanded: s.accordion_open == 0,
                             on_toggle: Some(ctx.bind(
                                 ToggleAccordion(0),
-                                (|s: &mut GalleryState, a: ToggleAccordion, _| {
-                                    s.accordion_open = if s.accordion_open == a.0 {
-                                        usize::MAX
-                                    } else {
-                                        a.0
-                                    }
-                                })
-                                    as Handler<GalleryState, ToggleAccordion>,
+                                reduce_with!(
+                                    (|s: &mut GalleryState, a: ToggleAccordion, _| {
+                                        s.accordion_open = if s.accordion_open == a.0 {
+                                            usize::MAX
+                                        } else {
+                                            a.0
+                                        }
+                                    })
+                                ),
                             )),
                         },
                         AccordionItem {
@@ -613,14 +615,15 @@ impl Widget<GalleryState> for GalleryApp {
                             is_expanded: s.accordion_open == 1,
                             on_toggle: Some(ctx.bind(
                                 ToggleAccordion(1),
-                                (|s: &mut GalleryState, a: ToggleAccordion, _| {
-                                    s.accordion_open = if s.accordion_open == a.0 {
-                                        usize::MAX
-                                    } else {
-                                        a.0
-                                    }
-                                })
-                                    as Handler<GalleryState, ToggleAccordion>,
+                                reduce_with!(
+                                    (|s: &mut GalleryState, a: ToggleAccordion, _| {
+                                        s.accordion_open = if s.accordion_open == a.0 {
+                                            usize::MAX
+                                        } else {
+                                            a.0
+                                        }
+                                    })
+                                ),
                             )),
                         },
                     ],
@@ -673,10 +676,11 @@ impl Widget<GalleryState> for GalleryApp {
                                 on_toggle: None,
                                 on_select: Some(ctx.bind(
                                     SelectTreeNode("main".into()),
-                                    (|s: &mut GalleryState, a: SelectTreeNode, _| {
-                                        s.tree_selected = Some(a.0)
-                                    })
-                                        as Handler<GalleryState, SelectTreeNode>,
+                                    reduce_with!(
+                                        (|s: &mut GalleryState, a: SelectTreeNode, _| {
+                                            s.tree_selected = Some(a.0)
+                                        })
+                                    ),
                                 )),
                             },
                             TreeItem {
@@ -687,20 +691,23 @@ impl Widget<GalleryState> for GalleryApp {
                                 on_toggle: None,
                                 on_select: Some(ctx.bind(
                                     SelectTreeNode("lib".into()),
-                                    (|s: &mut GalleryState, a: SelectTreeNode, _| {
-                                        s.tree_selected = Some(a.0)
-                                    })
-                                        as Handler<GalleryState, SelectTreeNode>,
+                                    reduce_with!(
+                                        (|s: &mut GalleryState, a: SelectTreeNode, _| {
+                                            s.tree_selected = Some(a.0)
+                                        })
+                                    ),
                                 )),
                             },
                         ],
                         on_toggle: Some(ctx.bind(
                             ToggleTreeNode("src".into()),
-                            (|s: &mut GalleryState, a: ToggleTreeNode, _| {
-                                if !s.tree_expanded.remove(&a.0) {
-                                    s.tree_expanded.insert(a.0);
-                                }
-                            }) as Handler<GalleryState, ToggleTreeNode>,
+                            reduce_with!(
+                                (|s: &mut GalleryState, a: ToggleTreeNode, _| {
+                                    if !s.tree_expanded.remove(&a.0) {
+                                        s.tree_expanded.insert(a.0);
+                                    }
+                                })
+                            ),
                         )),
                         on_select: None,
                     }],
@@ -723,8 +730,9 @@ impl Widget<GalleryState> for GalleryApp {
                             child: Some(Box::new(Text::new("Open Modal").into_node())),
                             on_press: Some(ctx.bind(
                                 ToggleModal,
-                                (|s: &mut GalleryState, _, _| s.modal_open = !s.modal_open)
-                                    as Handler<GalleryState, ToggleModal>,
+                                reduce_with!(
+                                    (|s: &mut GalleryState, _, _| s.modal_open = !s.modal_open)
+                                ),
                             )),
                             ..Default::default()
                         }
@@ -734,8 +742,9 @@ impl Widget<GalleryState> for GalleryApp {
                             child: Some(Box::new(Text::new("Open Drawer").into_node())),
                             on_press: Some(ctx.bind(
                                 ToggleDrawer,
-                                (|s: &mut GalleryState, _, _| s.drawer_open = !s.drawer_open)
-                                    as Handler<GalleryState, ToggleDrawer>,
+                                reduce_with!(
+                                    (|s: &mut GalleryState, _, _| s.drawer_open = !s.drawer_open)
+                                ),
                             )),
                             ..Default::default()
                         }
@@ -745,8 +754,7 @@ impl Widget<GalleryState> for GalleryApp {
                             child: Some(Box::new(Text::new("Show Toast").into_node())),
                             on_press: Some(ctx.bind(
                                 ShowToast,
-                                (|s: &mut GalleryState, _, _| s.show_toast = true)
-                                    as Handler<GalleryState, ShowToast>,
+                                reduce_with!((|s: &mut GalleryState, _, _| s.show_toast = true)),
                             )),
                             ..Default::default()
                         }
@@ -772,11 +780,12 @@ impl Widget<GalleryState> for GalleryApp {
                             icon: None,
                             on_select: ctx.bind(
                                 SelectValue("Option A".into()),
-                                (|s: &mut GalleryState, a: SelectValue, _| {
-                                    s.select_value = Some(a.0);
-                                    s.select_open = false;
-                                })
-                                    as Handler<GalleryState, SelectValue>,
+                                reduce_with!(
+                                    (|s: &mut GalleryState, a: SelectValue, _| {
+                                        s.select_value = Some(a.0);
+                                        s.select_open = false;
+                                    })
+                                ),
                             ),
                         },
                         SelectItem {
@@ -784,19 +793,19 @@ impl Widget<GalleryState> for GalleryApp {
                             icon: None,
                             on_select: ctx.bind(
                                 SelectValue("Option B".into()),
-                                (|s: &mut GalleryState, a: SelectValue, _| {
-                                    s.select_value = Some(a.0);
-                                    s.select_open = false;
-                                })
-                                    as Handler<GalleryState, SelectValue>,
+                                reduce_with!(
+                                    (|s: &mut GalleryState, a: SelectValue, _| {
+                                        s.select_value = Some(a.0);
+                                        s.select_open = false;
+                                    })
+                                ),
                             ),
                         },
                     ],
                     is_open: s.select_open,
                     on_toggle: Some(ctx.bind(
                         ToggleSelect,
-                        (|s: &mut GalleryState, _, _| s.select_open = !s.select_open)
-                            as Handler<GalleryState, ToggleSelect>,
+                        reduce_with!((|s: &mut GalleryState, _, _| s.select_open = !s.select_open)),
                     )),
                     placeholder: "Choose...".into(),
                     width: Some(control_width.min(260.0)),
@@ -816,16 +825,14 @@ impl Widget<GalleryState> for GalleryApp {
                 is_open: true,
                 on_dismiss: Some(ctx.bind(
                     ToggleModal,
-                    (|s: &mut GalleryState, _, _| s.modal_open = false)
-                        as Handler<GalleryState, ToggleModal>,
+                    reduce_with!((|s: &mut GalleryState, _, _| s.modal_open = false)),
                 )),
                 actions: vec![
                     ModalAction {
                         label: "Cancel".into(),
                         on_press: Some(ctx.bind(
                             ToggleModal,
-                            (|s: &mut GalleryState, _, _| s.modal_open = false)
-                                as Handler<GalleryState, ToggleModal>,
+                            reduce_with!((|s: &mut GalleryState, _, _| s.modal_open = false)),
                         )),
                         is_primary: false,
                     },
@@ -833,8 +840,7 @@ impl Widget<GalleryState> for GalleryApp {
                         label: "Confirm".into(),
                         on_press: Some(ctx.bind(
                             ToggleModal,
-                            (|s: &mut GalleryState, _, _| s.modal_open = false)
-                                as Handler<GalleryState, ToggleModal>,
+                            reduce_with!((|s: &mut GalleryState, _, _| s.modal_open = false)),
                         )),
                         is_primary: true,
                     },
@@ -851,8 +857,7 @@ impl Widget<GalleryState> for GalleryApp {
                 is_open: true,
                 on_dismiss: Some(ctx.bind(
                     ToggleDrawer,
-                    (|s: &mut GalleryState, _, _| s.drawer_open = false)
-                        as Handler<GalleryState, ToggleDrawer>,
+                    reduce_with!((|s: &mut GalleryState, _, _| s.drawer_open = false)),
                 )),
                 content: Box::new(
                     VStack {
@@ -876,8 +881,7 @@ impl Widget<GalleryState> for GalleryApp {
                 message: "Action completed!".into(),
                 on_close: Some(ctx.bind(
                     DismissToast,
-                    (|s: &mut GalleryState, _, _| s.show_toast = false)
-                        as Handler<GalleryState, DismissToast>,
+                    reduce_with!((|s: &mut GalleryState, _, _| s.show_toast = false)),
                 )),
             }
             .build(ctx, view);

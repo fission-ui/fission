@@ -16,21 +16,25 @@ A minimal application:
 use fission::prelude::*;
 
 // 1. Define your application state
-#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Default, Debug, Clone, PartialEq)]
 struct MyState {
     count: i32,
 }
 impl AppState for MyState {}
 
-// 2. Define an action
-#[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
-struct Increment;
+// 2. Define a reducer. This also generates the Increment action.
+#[fission_reducer(Increment)]
+fn on_increment(state: &mut MyState) {
+    state.count += 1;
+}
 
 // 3. Build your widget tree
 struct MyApp;
 
 impl Widget<MyState> for MyApp {
     fn build(&self, ctx: &mut BuildCtx<MyState>, view: &View<MyState>) -> Node {
+        let increment = with_reducer!(ctx, Increment, on_increment);
+
         Column {
             children: vec![
                 Text {
@@ -40,12 +44,8 @@ impl Widget<MyState> for MyApp {
                 }
                 .into(),
                 Button {
-                    on_press: Some(ctx.bind(Increment, |s: &mut MyState, _: Increment, _| {
-                        s.count += 1;
-                    })),
-                    child: Some(Box::new(
-                        Text::new("Increment").into(),
-                    )),
+                    on_press: Some(increment),
+                    child: Some(Box::new(Text::new("Increment").into())),
                     ..Default::default()
                 }
                 .into(),
@@ -85,19 +85,15 @@ State changes flow exclusively through **Actions** and **Reducers**. Actions are
 This makes the UI fully deterministic: given the same state and the same sequence of actions, you get the same output -- guaranteed.
 
 ```rust
-#[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
-struct Increment;
-
-// Bind an action to a reducer inline
-let action = ctx.bind(Increment, |s: &mut CounterState, _, _| {
-    s.count += 1;
-});
-
-// Or define a named handler
-fn on_increment(state: &mut CounterState, _action: Increment, _ctx: &mut ReducerContext<CounterState>) {
+#[fission_reducer(Increment)]
+fn on_increment(state: &mut CounterState) {
     state.value += 1;
 }
-let action = ctx.bind(Increment, on_increment as Handler<CounterState, Increment>);
+let action = with_reducer!(ctx, Increment, on_increment);
+
+// Manual actions remain supported when an action is shared or public.
+#[fission_action]
+struct Reset;
 ```
 
 ## Effects system
@@ -110,8 +106,8 @@ Use capability operations for host/device access and typed jobs for app-defined 
 fn pick_file(state: &mut MyState, _action: PickFile, ctx: &mut ReducerContext<MyState>) {
     ctx.effects
         .capability(PICK_OPEN_FILES, PickOpenFilesRequest::default())
-        .on_ok(ctx.effects.bind(FilePicked, handle_picked as fn(&mut MyState, FilePicked, _)))
-        .on_err(ctx.effects.bind(FilePickFailed, handle_pick_failed as fn(&mut MyState, FilePickFailed, _)));
+        .on_ok(ctx.effects.bind(FilePicked, reduce_with!(handle_picked)))
+        .on_err(ctx.effects.bind(FilePickFailed, reduce_with!(handle_pick_failed)));
 }
 ```
 
@@ -353,7 +349,7 @@ Output is structured JSON, suitable for piping into analysis tools or dashboards
 | `fission-i18n` | Internationalisation -- locale registry and string lookups |
 | `fission-semantics` | Accessibility roles and semantic tree types |
 | `fission-widgets` | Higher-level authoring widgets (Modal, Popover, Tabs, SplitView, etc.) |
-| `fission-macros` | Derive macros (`#[derive(Action)]`) |
+| `fission-macros` | Action and reducer macros (`#[fission_reducer]`, `#[fission_action]`) |
 | `fission-icons` | Material Design icon set, generated from bundled SVGs |
 | `fission-render` | Rendering primitives -- display list, paint ops, text styles |
 | `fission-render-vello` | Vello/wgpu rendering backend |

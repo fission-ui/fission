@@ -1,21 +1,14 @@
 use fission::prelude::*;
-use serde::{Deserialize, Serialize};
 
-#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Default, Debug, Clone, PartialEq)]
 pub struct CounterState {
     pub count: i32,
 }
 
 impl AppState for CounterState {}
 
-#[derive(fission_macros::Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
-pub struct Increment;
-
-fn on_increment(
-    state: &mut CounterState,
-    _action: Increment,
-    _ctx: &mut ReducerContext<CounterState>,
-) {
+#[fission_reducer(Increment)]
+fn on_increment(state: &mut CounterState) {
     state.count += 1;
 }
 
@@ -23,7 +16,7 @@ pub struct CounterApp;
 
 impl Widget<CounterState> for CounterApp {
     fn build(&self, ctx: &mut BuildCtx<CounterState>, view: &View<CounterState>) -> Node {
-        let increment = ctx.bind(Increment, on_increment as Handler<CounterState, Increment>);
+        let increment = with_reducer!(ctx, Increment, on_increment);
         let background = Color {
             r: 20,
             g: 23,

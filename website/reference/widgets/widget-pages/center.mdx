@@ -14,8 +14,8 @@ Use it for empty states, spinners, single cards, or onboarding messages. Do not 
 ## Example
 
 ```rust
-use fission_core::ui::Text;
-use fission_widgets::Center;
+use fission::core::ui::Text;
+use fission::prelude::*;
 
 let node = Center {
     child: Box::new(Text::new("Loading...").into_node()),

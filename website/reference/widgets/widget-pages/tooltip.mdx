@@ -14,9 +14,9 @@ Fission keeps the state model straightforward here. The widget can become visibl
 ## Example
 
 ```rust
-use fission_core::WidgetNodeId;
-use fission_core::ui::{Button, Text};
-use fission_widgets::Tooltip;
+use fission::core::WidgetNodeId;
+use fission::core::ui::{Button, Text};
+use fission::prelude::*;
 
 let help = Tooltip {
     id: WidgetNodeId::explicit("save_tooltip"),

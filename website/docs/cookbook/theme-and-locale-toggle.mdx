@@ -34,17 +34,16 @@ Third, the translation files should already be available at startup on desktop, 
 Because the user can change these values during the session, they belong in `AppState`.
 
 ```rust
+use fission::i18n::Locale;
 use fission::prelude::*;
-use fission_i18n::Locale;
-use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ThemeMode {
     Light,
     Dark,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
 pub struct SettingsState {
     pub theme_mode: ThemeMode,
     pub locale: Locale,
@@ -97,8 +96,8 @@ With those files in place, load them into `Env` during startup.
 ```rust
 use std::collections::HashMap;
 
+use fission::i18n::{Locale, TranslationBundle};
 use fission::prelude::*;
-use fission_i18n::{Locale, TranslationBundle};
 
 fn load_bundle(locale: &str, raw: &str) -> TranslationBundle {
     let messages: HashMap<String, String> =
@@ -137,10 +136,7 @@ That is what `.with_sync_env(...)` is for.
 It exists on the public shell builders and receives the current app state plus a mutable `Env`. Use it to synchronize app-driven environment values such as the active theme and locale.
 
 ```rust
-use anyhow::Result;
-use fission_shell_desktop::DesktopApp;
-
-fn main() -> Result<()> {
+fn main() -> anyhow::Result<()> {
     DesktopApp::new(SettingsApp)
         .with_env(create_env())
         .with_sync_env(|state: &SettingsState, env: &mut Env| {
@@ -169,16 +165,16 @@ Do not use it as a side-effect hook. It is not the place to fetch translations f
 Now give the settings screen explicit actions.
 
 ```rust
-#[derive(fission_macros::Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[fission_action]
 pub struct SetLightTheme;
 
-#[derive(fission_macros::Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[fission_action]
 pub struct SetDarkTheme;
 
-#[derive(fission_macros::Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[fission_action]
 pub struct SetEnglish;
 
-#[derive(fission_macros::Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[fission_action]
 pub struct SetSpanish;
 
 fn on_set_light_theme(
@@ -227,19 +223,19 @@ impl Widget<SettingsState> for SettingsApp {
     fn build(&self, ctx: &mut BuildCtx<SettingsState>, view: &View<SettingsState>) -> Node {
         let light = ctx.bind(
             SetLightTheme,
-            on_set_light_theme as Handler<SettingsState, SetLightTheme>,
+            reduce_with!(on_set_light_theme),
         );
         let dark = ctx.bind(
             SetDarkTheme,
-            on_set_dark_theme as Handler<SettingsState, SetDarkTheme>,
+            reduce_with!(on_set_dark_theme),
         );
         let english = ctx.bind(
             SetEnglish,
-            on_set_english as Handler<SettingsState, SetEnglish>,
+            reduce_with!(on_set_english),
         );
         let spanish = ctx.bind(
             SetSpanish,
-            on_set_spanish as Handler<SettingsState, SetSpanish>,
+            reduce_with!(on_set_spanish),
         );
 
         Column {

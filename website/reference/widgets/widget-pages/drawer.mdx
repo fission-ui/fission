@@ -16,8 +16,8 @@ Do not use a drawer for critical confirmations or short blocking decisions. That
 ## Example
 
 ```rust
-use fission_core::{Handler, WidgetNodeId};
-use fission_widgets::{Drawer, DrawerSide, VStack};
+use fission::core::{Handler, WidgetNodeId};
+use fission::prelude::*;
 
 let drawer = Drawer {
     id: WidgetNodeId::explicit("filters_drawer"),
@@ -25,9 +25,9 @@ let drawer = Drawer {
     is_open: view.state.show_filters,
     on_dismiss: Some(ctx.bind(
         ToggleFilters(false),
-        (|state: &mut AppState, action: ToggleFilters, _| {
+        reduce_with!((|state: &mut AppState, action: ToggleFilters, _| {
             state.show_filters = action.0;
-        }) as Handler<AppState, ToggleFilters>,
+        })),
     )),
     width: Some(360.0),
     content: Box::new(

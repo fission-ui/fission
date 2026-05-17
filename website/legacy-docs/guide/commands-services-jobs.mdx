@@ -42,7 +42,7 @@ impl JobSpec for SearchJob {
 Use a job when work must complete once and return a result. In the reducer, queue a typed job envelope and map both success and failure into reducer actions:
 
 ```rust
-let on_ok = ctx.effects.bind(SearchLoaded, on_search_loaded as fn(_, _, _));
+let on_ok = ctx.effects.bind(SearchLoaded, reduce_with!(on_search_loaded));
 ctx.effects.app(SEARCH_JOB, query).on_ok(on_ok);
 ```
 
@@ -66,7 +66,7 @@ impl ServiceSpec for SyncService {
 Start a service when behavior is ongoing or stream-based:
 
 ```rust
-let on_started = ctx.effects.bind(ServiceStarted, on_service_started as fn(_, _, _));
+let on_started = ctx.effects.bind(ServiceStarted, reduce_with!(on_service_started));
 
 ctx.effects.start_service(SYNC_SERVICE, SyncConfig { tick_ms: 250 })
     .on_ok(on_started);

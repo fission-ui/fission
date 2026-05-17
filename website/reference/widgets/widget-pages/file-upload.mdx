@@ -12,12 +12,12 @@ It gives you a familiar browse button and a text area that shows the currently s
 ## Example
 
 ```rust
-use fission_widgets::FileUpload;
+use fission::prelude::*;
 
 let node = FileUpload {
 label: "Browse".into(),
 selected_file: view.state.attachment_name.clone(),
-on_browse: Some(ctx.bind(PickAttachment, on_pick_attachment)),
+on_browse: Some(with_reducer!(ctx, PickAttachment, on_pick_attachment)),
 }
 .build(ctx, view);
 ```

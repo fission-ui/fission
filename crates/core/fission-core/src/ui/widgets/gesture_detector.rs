@@ -17,8 +17,8 @@ use serde::{Deserialize, Serialize};
 /// # Example
 ///
 /// ```rust,ignore
-/// let on_tap = ctx.bind(ItemTapped { id: 42 }, handle_tap as fn(&mut S, ItemTapped));
-/// let on_secondary = ctx.bind(ShowMenu { id: 42 }, handle_menu as fn(&mut S, ShowMenu));
+/// let on_tap = ctx.bind(ItemTapped { id: 42 }, reduce_with!(handle_tap));
+/// let on_secondary = ctx.bind(ShowMenu { id: 42 }, reduce_with!(handle_menu));
 ///
 /// GestureDetector {
 ///     child: Box::new(item_content),

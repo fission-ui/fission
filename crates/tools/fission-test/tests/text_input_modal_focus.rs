@@ -1,7 +1,7 @@
 use anyhow::Result;
 use fission_core::event::{PointerButton, PointerEvent};
 use fission_core::ui::{Node, TextInput};
-use fission_core::{AppState, BuildCtx, View, Widget};
+use fission_core::{with_reducer, AppState, BuildCtx, View, Widget};
 use fission_ir::NodeId;
 use fission_test::TestHarness;
 use fission_widgets::Modal;
@@ -12,18 +12,14 @@ struct State {
 }
 impl AppState for State {}
 
-#[derive(
-    fission_macros::Action, serde::Serialize, serde::Deserialize, Debug, Clone, PartialEq, Eq,
-)]
-struct Dismiss;
+#[fission_macros::fission_reducer(Dismiss)]
+fn dismiss(state: &mut State) {
+    state.modal_open = false;
+}
 
 #[test]
 fn clicking_text_input_inside_modal_sets_focus() -> Result<()> {
     let subject_id = NodeId::explicit("subject_input");
-
-    fn dismiss(state: &mut State, _: Dismiss) {
-        state.modal_open = false;
-    }
 
     struct Root {
         subject_id: NodeId,
@@ -58,7 +54,7 @@ fn clicking_text_input_inside_modal_sets_focus() -> Result<()> {
                 title: "Compose".into(),
                 content: Box::new(content),
                 is_open: view.state.modal_open,
-                on_dismiss: Some(ctx.bind(Dismiss, dismiss as fn(&mut State, Dismiss))),
+                on_dismiss: Some(with_reducer!(ctx, Dismiss, dismiss)),
                 actions: vec![],
                 width: Some(420.0),
             }

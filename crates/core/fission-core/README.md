@@ -54,7 +54,7 @@ as `ActionEnvelope` (type-erased ID + JSON bytes) so the reducer pipeline stays 
 ### BuildCtx
 
 The mutable context passed to `Widget::build()`. Use it to:
-- **Bind** actions to handlers: `ctx.bind(MyAction { .. }, my_handler as fn(&mut S, MyAction))`
+- **Bind** actions to handlers: `with_reducer!(ctx, MyAction { .. }, my_handler)` or `#[fission_reducer(MyAction)]` for compact one-reducer actions
 - **Register portals** (overlays, modals, toasts)
 - **Request animations**
 
@@ -77,29 +77,24 @@ back into the action pipeline.
 ## Quick example
 
 ```rust
-use fission_core::*;
-use fission_core::ui::*;
-use serde::{Deserialize, Serialize};
+use fission::prelude::*;
 
 // 1. Define state
 #[derive(Debug, Default)]
 struct Counter { count: i32 }
 impl AppState for Counter {}
 
-// 2. Define an action
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct Increment;
-impl Action for Increment {
-    fn static_id() -> ActionId {
-        ActionId::from_name("app::Increment")
-    }
+// 2. Define a reducer. This also generates the Increment action.
+#[fission_reducer(Increment)]
+fn handle_increment(state: &mut Counter) {
+    state.count += 1;
 }
 
 // 3. Build the widget tree
 struct CounterWidget;
 impl Widget<Counter> for CounterWidget {
     fn build(&self, ctx: &mut BuildCtx<Counter>, view: &View<Counter>) -> Node {
-        let on_press = ctx.bind(Increment, handle_increment as fn(&mut Counter, Increment));
+        let on_press = with_reducer!(ctx, Increment, handle_increment);
         Column {
             children: vec![
                 Text::new(format!("Count: {}", view.state.count)).into_node().into(),
@@ -114,10 +109,6 @@ impl Widget<Counter> for CounterWidget {
     }
 }
 
-// 4. Reducer
-fn handle_increment(state: &mut Counter, _action: Increment) {
-    state.count += 1;
-}
 ```
 
 ## Crate feature flags
