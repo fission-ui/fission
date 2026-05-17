@@ -1,0 +1,215 @@
+.searchButton {
+  align-items: center;
+  background: color-mix(in srgb, var(--ifm-background-surface-color) 86%, transparent);
+  border: 1px solid var(--ifm-color-emphasis-200);
+  border-radius: 999px;
+  color: var(--ifm-font-color-base);
+  cursor: pointer;
+  display: inline-flex;
+  font: inherit;
+  gap: 0.45rem;
+  height: 2.25rem;
+  min-width: 12rem;
+  padding: 0 0.45rem 0 0.85rem;
+  transition: border-color 160ms ease, box-shadow 160ms ease, transform 160ms ease;
+}
+
+.searchButton:hover,
+.searchButton:focus-visible {
+  border-color: var(--ifm-color-primary);
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.12);
+  outline: none;
+  transform: translateY(-1px);
+}
+
+.searchIcon,
+.dialogIcon {
+  border: 2px solid var(--ifm-color-primary);
+  border-radius: 999px;
+  display: inline-block;
+  flex: 0 0 auto;
+  height: 0.82rem;
+  position: relative;
+  width: 0.82rem;
+}
+
+.searchIcon::after,
+.dialogIcon::after {
+  background: var(--ifm-color-primary);
+  bottom: -0.28rem;
+  content: '';
+  height: 0.42rem;
+  position: absolute;
+  right: -0.18rem;
+  transform: rotate(-45deg);
+  width: 2px;
+}
+
+.searchLabel {
+  color: var(--ifm-font-color-secondary);
+  flex: 1;
+  font-size: 0.9rem;
+  text-align: left;
+}
+
+.shortcut,
+.closeButton {
+  background: var(--ifm-color-emphasis-100);
+  border: 1px solid var(--ifm-color-emphasis-200);
+  border-radius: 0.55rem;
+  color: var(--ifm-font-color-secondary);
+  font-size: 0.72rem;
+  line-height: 1;
+  padding: 0.34rem 0.45rem;
+}
+
+.overlay {
+  align-items: flex-start;
+  background: rgba(2, 6, 23, 0.52);
+  display: flex;
+  inset: 0;
+  justify-content: center;
+  padding: 5.5rem 1rem 1rem;
+  position: fixed;
+  z-index: 9999;
+}
+
+.dialog {
+  background: var(--ifm-background-color);
+  border: 1px solid var(--ifm-color-emphasis-200);
+  border-radius: 1.25rem;
+  box-shadow: 0 32px 90px rgba(2, 6, 23, 0.35);
+  max-height: min(42rem, calc(100vh - 7rem));
+  overflow: hidden;
+  width: min(46rem, 100%);
+}
+
+.inputRow {
+  align-items: center;
+  border-bottom: 1px solid var(--ifm-color-emphasis-200);
+  display: flex;
+  gap: 0.8rem;
+  padding: 0.9rem 1rem;
+}
+
+.input {
+  background: transparent;
+  border: 0;
+  color: var(--ifm-font-color-base);
+  flex: 1;
+  font: inherit;
+  font-size: 1rem;
+  min-width: 0;
+  outline: none;
+}
+
+.closeButton {
+  cursor: pointer;
+  font-family: var(--ifm-font-family-base);
+}
+
+.results {
+  max-height: calc(min(42rem, 100vh - 7rem) - 4rem);
+  overflow: auto;
+  padding: 0.75rem;
+}
+
+.empty {
+  color: var(--ifm-font-color-secondary);
+  margin: 0;
+  padding: 1.25rem;
+}
+
+.resultList {
+  display: grid;
+  gap: 0.4rem;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.resultItem {
+  border: 1px solid transparent;
+  border-radius: 0.9rem;
+  color: var(--ifm-font-color-base);
+  padding: 0.2rem;
+}
+
+.resultItem:focus-within,
+.resultItem:hover {
+  background: var(--ifm-background-surface-color);
+  border-color: var(--ifm-color-emphasis-200);
+}
+
+.resultLink {
+  color: inherit;
+  display: grid;
+  gap: 0.35rem;
+  padding: 0.7rem 0.8rem 0.45rem;
+  text-decoration: none;
+}
+
+.resultLink:hover {
+  color: inherit;
+  text-decoration: none;
+}
+
+.resultTitle {
+  color: var(--ifm-heading-color);
+  font-weight: 700;
+}
+
+.resultExcerpt {
+  color: var(--ifm-font-color-secondary);
+  display: -webkit-box;
+  font-size: 0.9rem;
+  line-height: 1.45;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.resultExcerpt mark {
+  background: color-mix(in srgb, var(--ifm-color-primary) 20%, transparent);
+  border-radius: 0.2rem;
+  color: inherit;
+  padding: 0 0.12rem;
+}
+
+.subResults {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  padding: 0 0.8rem 0.7rem;
+}
+
+.subResultLink {
+  background: var(--ifm-color-emphasis-100);
+  border: 1px solid var(--ifm-color-emphasis-200);
+  border-radius: 999px;
+  color: var(--ifm-font-color-secondary);
+  font-size: 0.78rem;
+  padding: 0.26rem 0.55rem;
+  text-decoration: none;
+}
+
+.subResultLink:hover {
+  color: var(--ifm-color-primary);
+  text-decoration: none;
+}
+
+@media (max-width: 996px) {
+  .searchButton {
+    min-width: auto;
+    width: 2.4rem;
+  }
+
+  .searchLabel,
+  .shortcut {
+    display: none;
+  }
+
+  .overlay {
+    padding-top: 4.5rem;
+  }
+}

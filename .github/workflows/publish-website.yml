@@ -49,6 +49,11 @@ jobs:
           DOCS_SITE_URL: https://worka-ai.github.io
           DOCS_BASE_URL: /fission/
 
+      - name: Verify Pagefind search index
+        run: |
+          test -f build/pagefind/pagefind.js
+          test -f build/pagefind/pagefind-entry.json
+
       - name: Upload static site artifact
         uses: actions/upload-pages-artifact@v3
         with:
