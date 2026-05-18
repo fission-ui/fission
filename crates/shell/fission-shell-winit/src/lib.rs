@@ -1315,6 +1315,25 @@ fn sync_window_cursor(window: &Window, runtime: &Runtime) {
     window.set_cursor_icon(cursor_icon_for(runtime.runtime_state.interaction.cursor()));
 }
 
+const LINE_SCROLL_POINTS: f32 = 50.0;
+
+fn normalize_winit_scroll_delta(delta: &MouseScrollDelta, scale_factor: f64) -> (f32, f32) {
+    let scale_factor = if scale_factor.is_finite() && scale_factor > 0.0 {
+        scale_factor
+    } else {
+        1.0
+    };
+    match delta {
+        // Fission scroll offsets increase down/right. Winit reports positive
+        // wheel lines upward/leftward; the OS has already applied any natural
+        // scrolling preference before the event reaches us.
+        MouseScrollDelta::LineDelta(x, y) => (-x * LINE_SCROLL_POINTS, -y * LINE_SCROLL_POINTS),
+        MouseScrollDelta::PixelDelta(p) => {
+            (-(p.x / scale_factor) as f32, -(p.y / scale_factor) as f32)
+        }
+    }
+}
+
 /// Handle cursor/mouse move — shared by WindowEvent::CursorMoved and TestEvent::MouseMove.
 fn handle_cursor_moved(
     x: f32,
@@ -3973,13 +3992,8 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                     let point_x = (position.x / scale_factor) as f32;
                                     let point_y = (position.y / scale_factor) as f32;
 
-                                    let (dx, dy) = match delta {
-                                        MouseScrollDelta::LineDelta(x, y) => (-x * 50.0, -y * 50.0),
-                                        MouseScrollDelta::PixelDelta(p) => (
-                                            -(p.x / scale_factor) as f32,
-                                            -(p.y / scale_factor) as f32,
-                                        ),
-                                    };
+                                    let (dx, dy) =
+                                        normalize_winit_scroll_delta(&delta, scale_factor);
 
                                     if std::env::var("FISSION_SCROLL_TRACE").ok().as_deref() == Some("1") {
                                         eprintln!(
@@ -4533,9 +4547,10 @@ mod tests {
         animation_redraw_interval, clamp_copy_extent_to_texture, cursor_icon_for,
         downscale_rgba_box, layout_size_to_image_dimensions, logical_viewport_to_physical_size,
         logical_viewport_to_render_target_size, native_window_size_for_logical_viewport,
-        normalize_scale_factor, physical_size_to_layout_size, repeating_animation_redraw_interval,
-        resize_is_unsettled, resolve_build_viewport, sync_tracked_target_texture_size_to_surface,
-        texture_plans_fit_device_limits, LiveResizeController, WindowViewportState,
+        normalize_scale_factor, normalize_winit_scroll_delta, physical_size_to_layout_size,
+        repeating_animation_redraw_interval, resize_is_unsettled, resolve_build_viewport,
+        sync_tracked_target_texture_size_to_surface, texture_plans_fit_device_limits,
+        LiveResizeController, WindowViewportState,
     };
     use crate::pipeline::CompositorTexturePlan;
     use crate::InvalidationSet;
@@ -4545,7 +4560,8 @@ mod tests {
     use fission_layout::{LayoutRect, LayoutSize};
     use std::collections::HashMap;
     use std::time::Duration;
-    use winit::dpi::PhysicalSize;
+    use winit::dpi::{PhysicalPosition, PhysicalSize};
+    use winit::event::MouseScrollDelta;
     use winit::window::CursorIcon;
 
     #[test]
@@ -4560,6 +4576,21 @@ mod tests {
         assert_eq!(
             cursor_icon_for(MouseCursor::VerticalText),
             CursorIcon::VerticalText
+        );
+    }
+
+    #[test]
+    fn winit_scroll_delta_normalizes_to_positive_down_and_right() {
+        assert_eq!(
+            normalize_winit_scroll_delta(&MouseScrollDelta::LineDelta(-1.0, -2.0), 1.0),
+            (50.0, 100.0)
+        );
+        assert_eq!(
+            normalize_winit_scroll_delta(
+                &MouseScrollDelta::PixelDelta(PhysicalPosition::new(-20.0, -40.0)),
+                2.0,
+            ),
+            (10.0, 20.0)
         );
     }
 

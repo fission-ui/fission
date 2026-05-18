@@ -108,6 +108,7 @@ pub struct GestureState {
     pub target_node: Option<NodeId>,
     pub dragging_payload: Option<Vec<u8>>,
     pub pressed_button: Option<crate::event::PointerButton>,
+    pub scrollbar_drag: Option<crate::scrollbar::ScrollbarDragState>,
 }
 
 #[derive(Clone, Debug, Default)]

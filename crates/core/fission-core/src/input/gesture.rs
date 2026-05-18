@@ -1,5 +1,9 @@
 use super::{ControllerContext, InputController};
 use crate::event::{InputEvent, PointerEvent};
+use crate::scrollbar::{
+    scrollbar_drag_offset, scrollbar_drag_offset_with_grab, scrollbar_geometry_for_node,
+    scrollbar_hit_test, scrollbar_point_for_node, ScrollbarDragState, ScrollbarHitKind,
+};
 use crate::{ActionEnvelope, ActionId, ActionInput};
 use fission_ir::op::RichTextAnnotation;
 use fission_ir::{semantics::ActionTrigger, NodeId, Op};
@@ -17,6 +21,32 @@ impl InputController for GestureController {
                         ctx.gesture.last_point = Some(*point);
                         ctx.gesture.is_panning = false;
                         ctx.gesture.pressed_button = Some(button.clone());
+                        ctx.gesture.scrollbar_drag = None;
+
+                        if matches!(button, crate::event::PointerButton::Primary) {
+                            if let Some(hit) =
+                                scrollbar_hit_test(ctx.ir, ctx.layout, ctx.scroll, *point)
+                            {
+                                let pointer_to_thumb_start = match hit.kind {
+                                    ScrollbarHitKind::Thumb => hit.pointer_to_thumb_start,
+                                    ScrollbarHitKind::Rail => hit.geometry.thumb_extent() * 0.5,
+                                };
+                                let new_offset = match hit.kind {
+                                    ScrollbarHitKind::Thumb => hit.geometry.offset,
+                                    ScrollbarHitKind::Rail => {
+                                        scrollbar_drag_offset(hit.geometry, hit.layout_point)
+                                    }
+                                };
+                                ctx.scroll.set_offset(hit.geometry.node_id, new_offset);
+                                ctx.gesture.target_node = Some(hit.geometry.node_id);
+                                ctx.gesture.dragging_payload = None;
+                                ctx.gesture.scrollbar_drag = Some(ScrollbarDragState {
+                                    node_id: hit.geometry.node_id,
+                                    pointer_to_thumb_start,
+                                });
+                                return true;
+                            }
+                        }
 
                         if let Some(hit) = crate::hit_test::hit_test_with_scroll(
                             ctx.ir, ctx.layout, ctx.scroll, *point,
@@ -29,6 +59,29 @@ impl InputController for GestureController {
                         }
                     }
                     PointerEvent::Move { point, .. } => {
+                        if let Some(drag) = ctx.gesture.scrollbar_drag {
+                            if let Some(geometry) = scrollbar_geometry_for_node(
+                                ctx.ir,
+                                ctx.layout,
+                                ctx.scroll,
+                                drag.node_id,
+                            ) {
+                                let new_offset = scrollbar_drag_offset_with_grab(
+                                    geometry,
+                                    scrollbar_point_for_node(
+                                        ctx.ir,
+                                        ctx.scroll,
+                                        drag.node_id,
+                                        *point,
+                                    ),
+                                    drag.pointer_to_thumb_start,
+                                );
+                                ctx.scroll.set_offset(drag.node_id, new_offset);
+                            }
+                            ctx.gesture.last_point = Some(*point);
+                            return true;
+                        }
+
                         if let Some(start) = ctx.gesture.start_point {
                             let dx = point.x - start.x;
                             let dy = point.y - start.y;
@@ -82,6 +135,7 @@ impl InputController for GestureController {
                         }
                     }
                     PointerEvent::Up { point, .. } => {
+                        let scrollbar_drag = ctx.gesture.scrollbar_drag.take();
                         let mut handled = false;
                         let was_secondary = matches!(
                             ctx.gesture.pressed_button,
@@ -196,6 +250,10 @@ impl InputController for GestureController {
                         ctx.gesture.is_panning = false;
                         ctx.gesture.dragging_payload = None;
                         ctx.gesture.pressed_button = None;
+                        if scrollbar_drag.is_some() {
+                            ctx.gesture.target_node = None;
+                            return true;
+                        }
                         return handled;
                     }
                     _ => {}

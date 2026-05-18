@@ -53,6 +53,7 @@ pub mod lowering;
 pub mod media;
 pub mod registry;
 pub mod runtime;
+pub mod scrollbar;
 pub mod time;
 pub mod ui;
 
