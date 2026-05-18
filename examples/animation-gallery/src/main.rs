@@ -1,11 +1,10 @@
-use fission::prelude::fission_reducer;
-use fission_core::ui::{
-    Button, ButtonVariant, Column, Composite, Container, Node, Row, Scroll, Text,
-};
-use fission_core::{
+use fission::prelude::*;
+use fission::{
     op::Color as IrColor, with_reducer, AnimationPropertyId, AnimationRequest, AnimationStartValue,
-    AppState, BuildCtx, EasingFunction, FlexDirection, View, Widget, WidgetNodeId,
+    AppState, BuildCtx, Button, ButtonVariant, Column, Composite, Container, FlexDirection, Node,
+    Row, Scroll, Text, View, Widget, WidgetNodeId,
 };
+use fission_core::EasingFunction;
 use fission_shell_desktop::DesktopApp;
 use fission_widgets::{Transition, Wrap};
 use lazy_static::lazy_static;

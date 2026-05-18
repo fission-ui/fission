@@ -104,8 +104,8 @@ pub use fission_core::ui::*;
 // Core action/state types
 pub use fission_core::{
     Action, ActionEnvelope, ActionId, AnimationPropertyId, AnimationRequest, AnimationStartValue,
-    AppState, BuildCtx, FlexDirection, Handler, NodeBuilder, Op, PortalLayer, ReducerContext,
-    Selector, View, Widget, WidgetNodeId,
+    AppState, BuildCtx, EasingFunction, FlexDirection, Handler, NodeBuilder, Op, PortalLayer,
+    ReducerContext, Selector, View, Widget, WidgetNodeId,
 };
 
 // Core event types
