@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="640" height="420" viewBox="0 0 640 420" role="img" aria-labelledby="title-bar_stacked">
+  <title id="title-bar_stacked">Stacked bar chart preview</title>
+  <defs>
+    <linearGradient id="bg-bar_stacked" x1="0" x2="1" y1="0" y2="1">
+      <stop offset="0" stop-color="#f8fafc"/>
+      <stop offset="1" stop-color="#eef6f8"/>
+    </linearGradient>
+    <linearGradient id="accent-bar_stacked" x1="0" x2="1" y1="0" y2="0">
+      <stop offset="0" stop-color="#2563eb"/>
+      <stop offset="0.52" stop-color="#14b8a6"/>
+      <stop offset="1" stop-color="#f59e0b"/>
+    </linearGradient>
+    <filter id="shadow-bar_stacked" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="10" stdDeviation="14" flood-color="#0f172a" flood-opacity="0.12"/>
+    </filter>
+  </defs>
+  <rect width="640" height="420" rx="30" fill="url(#bg-bar_stacked)"/>
+  <rect x="34" y="28" width="572" height="348" rx="26" fill="#ffffff" filter="url(#shadow-bar_stacked)"/>
+  <text x="58" y="68" font-family="Inter, ui-sans-serif, system-ui, sans-serif" font-size="22" font-weight="720" fill="#0f172a">Stacked bar</text>
+  <text x="58" y="94" font-family="Inter, ui-sans-serif, system-ui, sans-serif" font-size="13" fill="#64748b">Cartesian</text>
+  <g transform="translate(58 112)">
+    <g><line x1="48" y1="24" x2="462" y2="24" stroke="#dbe4ef" stroke-width="1"/><line x1="48" y1="72" x2="462" y2="72" stroke="#dbe4ef" stroke-width="1"/><line x1="48" y1="120" x2="462" y2="120" stroke="#dbe4ef" stroke-width="1"/><line x1="48" y1="168" x2="462" y2="168" stroke="#dbe4ef" stroke-width="1"/><line x1="48" y1="216" x2="462" y2="216" stroke="#dbe4ef" stroke-width="1"/><line x1="48" y1="216" x2="462" y2="216" stroke="#94a3b8"/><line x1="48" y1="24" x2="48" y2="216" stroke="#94a3b8"/></g><rect x="72" y="139.64039066480473" width="30" height="76.35960933519527" rx="7" fill="#2563eb"/><rect x="72" y="62.70164368348196" width="30" height="76.93874698132277" rx="7" fill="#14b8a6"/><rect x="72" y="28.179211081471294" width="30" height="34.52243260201067" rx="7" fill="#f59e0b"/><rect x="126" y="124.2285661669448" width="30" height="91.7714338330552" rx="7" fill="#2563eb"/><rect x="126" y="67.50863892724738" width="30" height="56.71992723969743" rx="7" fill="#14b8a6"/><rect x="126" y="41.655487631913275" width="30" height="25.8531512953341" rx="7" fill="#f59e0b"/><rect x="180" y="115.41439135698602" width="30" height="100.58560864301398" rx="7" fill="#2563eb"/><rect x="180" y="81.4346942291595" width="30" height="33.97969712782651" rx="7" fill="#14b8a6"/><rect x="180" y="55.306875669863075" width="30" height="26.12781855929643" rx="7" fill="#f59e0b"/><rect x="234" y="133.83305017277598" width="30" height="82.16694982722402" rx="7" fill="#2563eb"/><rect x="234" y="98.13980837864801" width="30" height="35.69324179412797" rx="7" fill="#14b8a6"/><rect x="234" y="77.8557911789976" width="30" height="20.284017199650407" rx="7" fill="#f59e0b"/><rect x="288" y="113.33503727475181" width="30" height="102.66496272524819" rx="7" fill="#2563eb"/><rect x="288" y="28.999178503174335" width="30" height="84.33585877157748" rx="7" fill="#14b8a6"/><rect x="288" y="9.862290190067142" width="30" height="19.136888313107193" rx="7" fill="#f59e0b"/><rect x="342" y="153.6042354432866" width="30" height="62.3957645567134" rx="7" fill="#2563eb"/><rect x="342" y="93.25483070826158" width="30" height="60.34940473502502" rx="7" fill="#14b8a6"/><rect x="342" y="59.25644125556573" width="30" height="33.99838945269585" rx="7" fill="#f59e0b"/><rect x="396" y="129.91239749034867" width="30" height="86.08760250965133" rx="7" fill="#2563eb"/><rect x="396" y="99.17364891851321" width="30" height="30.73874857183546" rx="7" fill="#14b8a6"/><rect x="396" y="48.597859331872314" width="30" height="50.575789586640894" rx="7" fill="#f59e0b"/>
+  </g>
+</svg>

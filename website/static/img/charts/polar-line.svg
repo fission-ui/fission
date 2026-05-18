@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="640" height="420" viewBox="0 0 640 420" role="img" aria-labelledby="title-polar_line">
+  <title id="title-polar_line">Polar line chart preview</title>
+  <defs>
+    <linearGradient id="bg-polar_line" x1="0" x2="1" y1="0" y2="1">
+      <stop offset="0" stop-color="#f8fafc"/>
+      <stop offset="1" stop-color="#eef6f8"/>
+    </linearGradient>
+    <linearGradient id="accent-polar_line" x1="0" x2="1" y1="0" y2="0">
+      <stop offset="0" stop-color="#2563eb"/>
+      <stop offset="0.52" stop-color="#14b8a6"/>
+      <stop offset="1" stop-color="#f59e0b"/>
+    </linearGradient>
+    <filter id="shadow-polar_line" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="10" stdDeviation="14" flood-color="#0f172a" flood-opacity="0.12"/>
+    </filter>
+  </defs>
+  <rect width="640" height="420" rx="30" fill="url(#bg-polar_line)"/>
+  <rect x="34" y="28" width="572" height="348" rx="26" fill="#ffffff" filter="url(#shadow-polar_line)"/>
+  <text x="58" y="68" font-family="Inter, ui-sans-serif, system-ui, sans-serif" font-size="22" font-weight="720" fill="#0f172a">Polar line</text>
+  <text x="58" y="94" font-family="Inter, ui-sans-serif, system-ui, sans-serif" font-size="13" fill="#64748b">Radial and polar</text>
+  <g transform="translate(58 112)">
+    <circle cx="250" cy="120" r="98" fill="none" stroke="#dbe4ef"/><circle cx="250" cy="120" r="62" fill="none" stroke="#dbe4ef"/><circle cx="250" cy="120" r="28" fill="none" stroke="#dbe4ef"/><path d="M 250 74.3160870554857 L 285.4564262937229 46.37397215509438 L 327.0415198958392 58.561438044013975 L 290.29828522533376 110.80217936820456 L 311.1458149572128 133.95613325025144 L 331.34674822916014 184.87186698487204 L 295.23254582788724 213.9263492330466 L 250 194.7024450916797 L 226.59588319898353 168.59914930518877 L 166.6223326807912 186.49147091415915 L 205.16166733027444 130.23405683439952 L 203.10173675801542 109.29577745478561 L 177.9358029238621 62.53072054060291 L 209.0873852743199 35.04408013240483 Z" fill="none" stroke="#2563eb" stroke-width="4"/>
+  </g>
+</svg>

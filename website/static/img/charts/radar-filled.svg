@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="640" height="420" viewBox="0 0 640 420" role="img" aria-labelledby="title-radar_filled">
+  <title id="title-radar_filled">Filled radar chart preview</title>
+  <defs>
+    <linearGradient id="bg-radar_filled" x1="0" x2="1" y1="0" y2="1">
+      <stop offset="0" stop-color="#f8fafc"/>
+      <stop offset="1" stop-color="#eef6f8"/>
+    </linearGradient>
+    <linearGradient id="accent-radar_filled" x1="0" x2="1" y1="0" y2="0">
+      <stop offset="0" stop-color="#2563eb"/>
+      <stop offset="0.52" stop-color="#14b8a6"/>
+      <stop offset="1" stop-color="#f59e0b"/>
+    </linearGradient>
+    <filter id="shadow-radar_filled" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="10" stdDeviation="14" flood-color="#0f172a" flood-opacity="0.12"/>
+    </filter>
+  </defs>
+  <rect width="640" height="420" rx="30" fill="url(#bg-radar_filled)"/>
+  <rect x="34" y="28" width="572" height="348" rx="26" fill="#ffffff" filter="url(#shadow-radar_filled)"/>
+  <text x="58" y="68" font-family="Inter, ui-sans-serif, system-ui, sans-serif" font-size="22" font-weight="720" fill="#0f172a">Filled radar</text>
+  <text x="58" y="94" font-family="Inter, ui-sans-serif, system-ui, sans-serif" font-size="13" fill="#64748b">Radial and polar</text>
+  <g transform="translate(58 112)">
+    <polygon points="250,96.5 270.3515969889343,108.25 270.3515969889343,131.75 250,143.5 229.64840301106568,131.75 229.64840301106568,108.25" fill="none" stroke="#dbe4ef"/><polygon points="250,73 290.70319397786864,96.5 290.70319397786864,143.5 250,167 209.29680602213136,143.5 209.2968060221314,96.5" fill="none" stroke="#dbe4ef"/><polygon points="250,49.5 311.0547909668029,84.75 311.0547909668029,155.25 250,190.5 188.94520903319707,155.25 188.94520903319707,84.75" fill="none" stroke="#dbe4ef"/><polygon points="250,26 331.4063879557373,73 331.4063879557373,167 250,214 168.59361204426276,167 168.59361204426278,73" fill="none" stroke="#dbe4ef"/><line x1="250" y1="120" x2="250" y2="26" stroke="#dbe4ef"/><line x1="250" y1="120" x2="331.4063879557373" y2="73" stroke="#dbe4ef"/><line x1="250" y1="120" x2="331.4063879557373" y2="167" stroke="#dbe4ef"/><line x1="250" y1="120" x2="250" y2="214" stroke="#dbe4ef"/><line x1="250" y1="120" x2="168.59361204426276" y2="167" stroke="#dbe4ef"/><line x1="250" y1="120" x2="168.59361204426278" y2="73" stroke="#dbe4ef"/><polygon points="250,60.09993875932881 300.23971240069255,90.99408852145076 309.91411346784434,154.5914295389177 250,189.08172878531738 213.46968434481528,141.0907875771029 188.54792065288504,84.52062544668092" fill="#2563eb" fill-opacity=".16" stroke="#2563eb" stroke-width="3"/><polygon points="250,55.56807843710297 290.5426986180351,96.59266203920357 321.02584726984713,161.00679204066748 250,169.61817885331808 209.52975470877774,143.36550701305737 175.78420943364327,77.15149333839304" fill="#14b8a6" fill-opacity=".16" stroke="#14b8a6" stroke-width="3"/>
+  </g>
+</svg>

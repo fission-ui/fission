@@ -213,8 +213,8 @@ export default function SearchBar(): React.JSX.Element {
                 className={styles.input}
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
-                placeholder="Search docs, guides, and reference"
-                aria-label="Search docs, guides, and reference"
+                placeholder="Search docs, charts, and reference"
+                aria-label="Search docs, charts, and reference"
               />
               <button type="button" className={styles.closeButton} onClick={closeSearch}>
                 Esc

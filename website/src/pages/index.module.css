@@ -124,6 +124,11 @@
   );
 }
 
+.chartSection {
+  padding-top: 3rem;
+  padding-bottom: 3.4rem;
+}
+
 .sectionLast {
   padding-bottom: 4rem;
 }
@@ -214,6 +219,90 @@
   letter-spacing: 0.1em;
   color: var(--ifm-font-color-secondary);
   font-weight: 700;
+}
+
+.chartShowcase {
+  display: grid;
+  grid-template-columns: minmax(0, 0.82fr) minmax(0, 1.18fr);
+  gap: 2.2rem;
+  align-items: center;
+  padding: 1.4rem;
+  border-radius: 1.8rem;
+  background:
+    radial-gradient(circle at 12% 0%, color-mix(in srgb, var(--ifm-color-primary) 18%, transparent), transparent 38%),
+    linear-gradient(135deg, color-mix(in srgb, var(--ifm-card-background-color) 92%, transparent), color-mix(in srgb, var(--ifm-color-primary) 8%, transparent));
+  border: 1px solid var(--ifm-color-emphasis-300);
+  overflow: hidden;
+}
+
+.chartCopy {
+  padding: 0.8rem 0.5rem 0.8rem 0.3rem;
+}
+
+.chartActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.7rem;
+  margin-top: 1.25rem;
+}
+
+.chartActions a {
+  border-radius: 0.85rem;
+  padding: 0.78rem 1rem;
+  font-weight: 650;
+  display: inline-block;
+  text-align: center;
+}
+
+.chartMosaic {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  grid-auto-rows: minmax(116px, auto);
+  gap: 0.75rem;
+  transform: rotate(-1.4deg);
+}
+
+.chartShot {
+  position: relative;
+  display: block;
+  grid-column: span 3;
+  min-height: 124px;
+  border-radius: 1rem;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--ifm-color-emphasis-300) 82%, transparent);
+  background: #eef6f8;
+  box-shadow: 0 18px 45px rgba(15, 23, 42, 0.14);
+  color: inherit;
+}
+
+.chartShotLarge {
+  grid-column: span 4;
+  grid-row: span 2;
+}
+
+.chartShot:nth-child(2),
+.chartShot:nth-child(5) {
+  grid-column: span 2;
+}
+
+.chartShot img {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: cover;
+}
+
+.chartShot span {
+  position: absolute;
+  left: 0.65rem;
+  bottom: 0.65rem;
+  border-radius: 999px;
+  padding: 0.28rem 0.55rem;
+  background: rgba(15, 23, 42, 0.78);
+  color: #fff;
+  font-size: 0.76rem;
+  font-weight: 750;
+  backdrop-filter: blur(10px);
 }
 
 .architectureShell {
@@ -349,12 +438,17 @@
   }
 
   .architectureShell,
-  .targetLine {
+  .targetLine,
+  .chartShowcase {
     grid-template-columns: 1fr;
   }
 
   .architectureLead {
     position: static;
+  }
+
+  .chartMosaic {
+    transform: none;
   }
 }
 
@@ -382,5 +476,21 @@
 
   .finalStrip {
     padding: 1.2rem;
+  }
+
+  .chartShowcase {
+    padding: 1rem;
+  }
+
+  .chartMosaic {
+    grid-template-columns: 1fr;
+  }
+
+  .chartShot,
+  .chartShotLarge,
+  .chartShot:nth-child(2),
+  .chartShot:nth-child(5) {
+    grid-column: auto;
+    grid-row: auto;
   }
 }

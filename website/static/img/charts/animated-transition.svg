@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="640" height="420" viewBox="0 0 640 420" role="img" aria-labelledby="title-animated_transition">
+  <title id="title-animated_transition">Animated transition chart preview</title>
+  <defs>
+    <linearGradient id="bg-animated_transition" x1="0" x2="1" y1="0" y2="1">
+      <stop offset="0" stop-color="#f8fafc"/>
+      <stop offset="1" stop-color="#eef6f8"/>
+    </linearGradient>
+    <linearGradient id="accent-animated_transition" x1="0" x2="1" y1="0" y2="0">
+      <stop offset="0" stop-color="#2563eb"/>
+      <stop offset="0.52" stop-color="#14b8a6"/>
+      <stop offset="1" stop-color="#f59e0b"/>
+    </linearGradient>
+    <filter id="shadow-animated_transition" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="10" stdDeviation="14" flood-color="#0f172a" flood-opacity="0.12"/>
+    </filter>
+  </defs>
+  <rect width="640" height="420" rx="30" fill="url(#bg-animated_transition)"/>
+  <rect x="34" y="28" width="572" height="348" rx="26" fill="#ffffff" filter="url(#shadow-animated_transition)"/>
+  <text x="58" y="68" font-family="Inter, ui-sans-serif, system-ui, sans-serif" font-size="22" font-weight="720" fill="#0f172a">Animated transition</text>
+  <text x="58" y="94" font-family="Inter, ui-sans-serif, system-ui, sans-serif" font-size="13" fill="#64748b">Data pipeline and interaction</text>
+  <g transform="translate(58 112)">
+    <g><line x1="48" y1="24" x2="462" y2="24" stroke="#dbe4ef" stroke-width="1"/><line x1="48" y1="72" x2="462" y2="72" stroke="#dbe4ef" stroke-width="1"/><line x1="48" y1="120" x2="462" y2="120" stroke="#dbe4ef" stroke-width="1"/><line x1="48" y1="168" x2="462" y2="168" stroke="#dbe4ef" stroke-width="1"/><line x1="48" y1="216" x2="462" y2="216" stroke="#dbe4ef" stroke-width="1"/><line x1="48" y1="216" x2="462" y2="216" stroke="#94a3b8"/><line x1="48" y1="24" x2="48" y2="216" stroke="#94a3b8"/></g><path d="M 48 107.86367068625987 L 99.75 124.77720344439149 L 151.5 98.89143248461187 L 203.25 153.9846053123474 L 255 173.48569181747735 L 306.75 155.5006432197988 L 358.5 120.48359234444797 L 410.25 179.87529899924994 L 462 96.39488323964179" fill="none" stroke="#2563eb" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/><circle cx="48" cy="107.86367068625987" r="4" fill="#fff" stroke="#2563eb" stroke-width="3"/><circle cx="99.75" cy="124.77720344439149" r="4" fill="#fff" stroke="#2563eb" stroke-width="3"/><circle cx="151.5" cy="98.89143248461187" r="4" fill="#fff" stroke="#2563eb" stroke-width="3"/><circle cx="203.25" cy="153.9846053123474" r="4" fill="#fff" stroke="#2563eb" stroke-width="3"/><circle cx="255" cy="173.48569181747735" r="4" fill="#fff" stroke="#2563eb" stroke-width="3"/><circle cx="306.75" cy="155.5006432197988" r="4" fill="#fff" stroke="#2563eb" stroke-width="3"/><circle cx="358.5" cy="120.48359234444797" r="4" fill="#fff" stroke="#2563eb" stroke-width="3"/><circle cx="410.25" cy="179.87529899924994" r="4" fill="#fff" stroke="#2563eb" stroke-width="3"/><circle cx="462" cy="96.39488323964179" r="4" fill="#fff" stroke="#2563eb" stroke-width="3"/><path d="M 320 42 l 32 20 l -32 20 z" fill="#14b8a6" opacity=".8"/>
+  </g>
+</svg>

@@ -1,0 +1,72 @@
+---
+title: Charts overview
+sidebar_label: Overview
+description: Build polished native charts inside Fission apps.
+---
+
+import {ChartCatalogGrid, ChartFamilySummary} from '@site/src/components/charts/ChartCatalogGrid';
+
+# Beautiful charts in the same Rust app model
+
+Fission Charts is the native charting layer for Fission applications. It is designed for the same product work as the rest of the framework: dashboards, finance views, operational consoles, analytics surfaces, live status panels, and dense internal tools that need to run on desktop, web, Android, and iOS without becoming a separate JavaScript island.
+
+A chart is just another Fission widget. It participates in layout, themes, state updates, tests, and platform hosts. You do not switch to a second runtime to draw a line chart or a network diagram. You describe the chart with typed Rust structures, Fission lowers it into its render model, and the host draws it through the normal rendering pipeline.
+
+<ChartCatalogGrid compact slugs={['line-stacked-area', 'pie-donut', 'heatmap-cartesian', 'sankey-basic', 'scatter3d-basic', 'globe-bars']} />
+
+## What you can build today
+
+The current production slice covers the chart families most apps need first: line, bar, area, step line, pie, donut, scatter, boxplot, candlestick, heatmap, radar, funnel, gauge, treemap, graph, sankey, parallel coordinates, pictorial bars, effect scatter, liquid fill, word cloud, dataset encoding, legends, visual maps, and the first data-zoom presentation work.
+
+Those features are intentionally implemented through the Fission chart model rather than copied from another charting API. The public surface is Rust-native, the rendering output is Fission-native, and unsupported series report diagnostics instead of pretending to work.
+
+<ChartFamilySummary />
+
+## A chart is ordinary Fission UI
+
+The shortest useful chart creates axes, adds one or more series, and returns the chart from your widget build function. The surrounding screen can still use normal Fission layout widgets, reducers, commands, resources, and services.
+
+```rust
+use fission::prelude::*;
+use fission_charts::{Axis, BarSeries, Chart, Legend, LineSeries, Tooltip};
+
+#[derive(Default, Clone)]
+struct DashboardState;
+
+impl AppState for DashboardState {}
+
+struct Dashboard;
+
+impl Widget<DashboardState> for Dashboard {
+    fn build(&self, ctx: &mut BuildCtx<DashboardState>, view: &View<DashboardState>) -> Node {
+        Chart::new()
+            .title("Weekly revenue")
+            .x_axis(Axis::category(vec!["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]))
+            .y_axis(Axis::value())
+            .legend(Legend::top_right())
+            .tooltip(Tooltip::axis_trigger())
+            .series(vec![
+                BarSeries::new("Orders")
+                    .data(vec![320.0, 332.0, 301.0, 334.0, 390.0, 330.0, 320.0])
+                    .into(),
+                LineSeries::new("Revenue")
+                    .smooth(true)
+                    .data(vec![120.0, 132.0, 101.0, 134.0, 90.0, 230.0, 210.0])
+                    .into(),
+            ])
+            .build(ctx, view)
+    }
+}
+```
+
+The important part is the chart itself: typed axes, typed series, and a predictable model that the renderer can inspect and test.
+
+## How to choose the right chart
+
+Start with the question the user needs to answer. If the question is "how did this change over time?", start with line or area. If the question is "which category is larger?", start with bar. If the question is "how are parts contributing to a whole?", use stacked bars, stacked areas, pie, donut, treemap, or sankey depending on whether the structure is linear, radial, hierarchical, or flow-based.
+
+Do not use a dramatic chart just because it looks impressive. A gauge is useful when the reader expects an instrument-like current state. It is a poor replacement for a line when the user needs history. A rose chart can be effective in a presentation, but a bar chart is often easier to compare. Fission Charts gives you expressive options, but production interfaces still need charts that answer the right question quickly.
+
+## Where the docs go next
+
+The catalog documents both the available chart surface and the target catalog Fission Charts is growing toward. Every entry uses a chart-only screenshot so readers see the chart rather than the gallery application shell. The interactive WebAssembly gallery is the next website step: the docs will keep the static screenshots for fast scanning, then offer a live editable demo for deeper exploration.

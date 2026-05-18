@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="640" height="420" viewBox="0 0 640 420" role="img" aria-labelledby="title-tree_basic">
+  <title id="title-tree_basic">Tree chart preview</title>
+  <defs>
+    <linearGradient id="bg-tree_basic" x1="0" x2="1" y1="0" y2="1">
+      <stop offset="0" stop-color="#f8fafc"/>
+      <stop offset="1" stop-color="#eef6f8"/>
+    </linearGradient>
+    <linearGradient id="accent-tree_basic" x1="0" x2="1" y1="0" y2="0">
+      <stop offset="0" stop-color="#2563eb"/>
+      <stop offset="0.52" stop-color="#14b8a6"/>
+      <stop offset="1" stop-color="#f59e0b"/>
+    </linearGradient>
+    <filter id="shadow-tree_basic" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="10" stdDeviation="14" flood-color="#0f172a" flood-opacity="0.12"/>
+    </filter>
+  </defs>
+  <rect width="640" height="420" rx="30" fill="url(#bg-tree_basic)"/>
+  <rect x="34" y="28" width="572" height="348" rx="26" fill="#ffffff" filter="url(#shadow-tree_basic)"/>
+  <text x="58" y="68" font-family="Inter, ui-sans-serif, system-ui, sans-serif" font-size="22" font-weight="720" fill="#0f172a">Tree</text>
+  <text x="58" y="94" font-family="Inter, ui-sans-serif, system-ui, sans-serif" font-size="13" fill="#64748b">Relationships and hierarchy</text>
+  <g transform="translate(58 112)">
+    <line x1="250" y1="34" x2="160" y2="100" stroke="#94a3b8"/><line x1="250" y1="34" x2="340" y2="100" stroke="#94a3b8"/><line x1="160" y1="100" x2="110" y2="176" stroke="#94a3b8"/><line x1="160" y1="100" x2="210" y2="176" stroke="#94a3b8"/><line x1="340" y1="100" x2="300" y2="176" stroke="#94a3b8"/><line x1="340" y1="100" x2="390" y2="176" stroke="#94a3b8"/><rect x="222" y="20" width="56" height="28" rx="12" fill="#2563eb"/><rect x="132" y="86" width="56" height="28" rx="12" fill="#14b8a6"/><rect x="312" y="86" width="56" height="28" rx="12" fill="#f59e0b"/><rect x="82" y="162" width="56" height="28" rx="12" fill="#ef4444"/><rect x="182" y="162" width="56" height="28" rx="12" fill="#8b5cf6"/><rect x="272" y="162" width="56" height="28" rx="12" fill="#22c55e"/><rect x="362" y="162" width="56" height="28" rx="12" fill="#0ea5e9"/>
+  </g>
+</svg>

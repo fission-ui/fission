@@ -1,0 +1,224 @@
+.catalogGroups {
+  display: flex;
+  flex-direction: column;
+  gap: 3rem;
+}
+
+.familyGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.familyHeader p,
+.compactCard p,
+.summaryCard p {
+  margin: 0 0 0.35rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  font-size: 0.76rem;
+  font-weight: 750;
+  color: var(--ifm-font-color-secondary);
+}
+
+.familyHeader h2,
+.compactCard h3,
+.summaryCard h3 {
+  margin: 0;
+}
+
+.catalogGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1.15rem;
+}
+
+.chartCard,
+.compactCard,
+.summaryCard {
+  background: var(--ifm-card-background-color);
+  border: 1px solid var(--ifm-color-emphasis-300);
+  box-shadow: 0 16px 42px rgba(15, 23, 42, 0.08);
+}
+
+.chartCard {
+  border-radius: 1.1rem;
+  overflow: hidden;
+}
+
+.chartCard img {
+  width: 100%;
+  display: block;
+  aspect-ratio: 640 / 420;
+  object-fit: cover;
+  background: #eef6f8;
+}
+
+.cardBody {
+  padding: 1rem;
+}
+
+.cardTitleRow {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.8rem;
+  margin-bottom: 0.55rem;
+}
+
+.cardTitleRow h3 {
+  margin: 0;
+  font-size: 1.12rem;
+}
+
+.cardBody p {
+  margin: 0;
+  line-height: 1.62;
+  color: var(--ifm-font-color-base);
+}
+
+.cardBody dl {
+  margin: 0.85rem 0 0;
+  display: grid;
+  gap: 0.65rem;
+}
+
+.cardBody dt {
+  font-size: 0.75rem;
+  font-weight: 750;
+  color: var(--ifm-font-color-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.cardBody dd {
+  margin: 0.14rem 0 0;
+  color: var(--ifm-font-color-base);
+  line-height: 1.52;
+}
+
+.status {
+  flex: 0 0 auto;
+  border-radius: 999px;
+  padding: 0.24rem 0.52rem;
+  font-size: 0.72rem;
+  font-weight: 750;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+.available {
+  background: color-mix(in srgb, #14b8a6 18%, transparent);
+  color: #0f766e;
+}
+
+.next {
+  background: color-mix(in srgb, #2563eb 16%, transparent);
+  color: #1d4ed8;
+}
+
+.planned {
+  background: color-mix(in srgb, #f59e0b 18%, transparent);
+  color: #b45309;
+}
+
+.tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.42rem;
+  margin-top: 0.9rem;
+}
+
+.tags span {
+  border-radius: 999px;
+  padding: 0.2rem 0.5rem;
+  background: var(--ifm-color-emphasis-200);
+  color: var(--ifm-heading-color);
+  font-size: 0.78rem;
+}
+
+.compactGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1rem;
+  margin: 1.4rem 0;
+}
+
+.compactCard {
+  display: grid;
+  grid-template-columns: 44% 1fr;
+  gap: 0.85rem;
+  align-items: center;
+  border-radius: 1rem;
+  padding: 0.65rem;
+}
+
+.compactCard img {
+  width: 100%;
+  display: block;
+  border-radius: 0.72rem;
+  aspect-ratio: 640 / 420;
+  object-fit: cover;
+  background: #eef6f8;
+}
+
+.compactCard h3 {
+  font-size: 1rem;
+}
+
+.summaryGrid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.9rem;
+  margin: 1.35rem 0;
+}
+
+.summaryCard {
+  border-radius: 1rem;
+  padding: 1rem;
+}
+
+.summaryCard span {
+  display: inline-block;
+  margin-top: 0.5rem;
+  color: var(--ifm-color-primary-darker);
+  font-weight: 700;
+}
+
+:global([data-theme='dark']) .chartCard,
+:global([data-theme='dark']) .compactCard,
+:global([data-theme='dark']) .summaryCard {
+  box-shadow: none;
+}
+
+:global([data-theme='dark']) .available {
+  color: #5eead4;
+}
+
+:global([data-theme='dark']) .next {
+  color: #93c5fd;
+}
+
+:global([data-theme='dark']) .planned {
+  color: #fcd34d;
+}
+
+@media screen and (max-width: 996px) {
+  .catalogGrid,
+  .compactGrid,
+  .summaryGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media screen and (max-width: 640px) {
+  .catalogGrid,
+  .compactGrid,
+  .summaryGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .compactCard {
+    grid-template-columns: 1fr;
+  }
+}

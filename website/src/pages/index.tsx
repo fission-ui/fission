@@ -1,6 +1,9 @@
 import Link from '@docusaurus/Link';
+import useBaseUrl from '@docusaurus/useBaseUrl';
 import Layout from '@theme/Layout';
 import {repoExamples} from '../data/siteContent';
+import type {ChartCatalogEntry} from '../data/chartCatalog';
+import {featuredChartPreviews} from '../data/chartCatalog';
 import styles from './index.module.css';
 
 const overviewSignals = [
@@ -198,6 +201,51 @@ function Architecture() {
   );
 }
 
+function ChartShot({chart, index}: {chart: ChartCatalogEntry; index: number}) {
+  const imageSrc = useBaseUrl(chart.image);
+  return (
+    <Link
+      className={`${styles.chartShot} ${index === 0 ? styles.chartShotLarge : ''}`}
+      to='/docs/charts/catalog'>
+      <img src={imageSrc} alt={`${chart.title} chart screenshot`} />
+      <span>{chart.title}</span>
+    </Link>
+  );
+}
+
+function Charts() {
+  return (
+    <section className={`${styles.section} ${styles.chartSection}`}>
+      <div className='container'>
+        <div className={styles.chartShowcase}>
+          <div className={styles.chartCopy}>
+            <p className={styles.sectionLead}>Beautiful charts</p>
+            <h2 className={styles.sectionTitle}>Dashboards, analytics, finance, maps, networks, and 3D-ready visuals.</h2>
+            <p className={styles.sectionIntro}>
+              Fission Charts is the native charting layer for Fission apps. Start with polished line,
+              bar, area, pie, scatter, heatmap, financial, relationship, and status charts today,
+              then grow into the broader catalog without leaving the Rust UI model.
+            </p>
+            <div className={styles.chartActions}>
+              <Link className={styles.primaryCta} to='/docs/charts/overview'>
+                Explore Charts
+              </Link>
+              <Link className={styles.secondaryCta} to='/docs/charts/catalog'>
+                Open catalog
+              </Link>
+            </div>
+          </div>
+          <div className={styles.chartMosaic} aria-label='Fission chart screenshots'>
+            {featuredChartPreviews.map((chart, index) => (
+              <ChartShot key={chart.slug} chart={chart} index={index} />
+            ))}
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
 function Targets() {
   return (
     <section className={styles.section}>
@@ -306,6 +354,7 @@ export default function Home() {
       <div className={styles.page}>
         <Hero />
         <Overview />
+        <Charts />
         <Architecture />
         <Targets />
         <Examples />

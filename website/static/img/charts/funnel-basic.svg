@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="640" height="420" viewBox="0 0 640 420" role="img" aria-labelledby="title-funnel_basic">
+  <title id="title-funnel_basic">Funnel chart preview</title>
+  <defs>
+    <linearGradient id="bg-funnel_basic" x1="0" x2="1" y1="0" y2="1">
+      <stop offset="0" stop-color="#f8fafc"/>
+      <stop offset="1" stop-color="#eef6f8"/>
+    </linearGradient>
+    <linearGradient id="accent-funnel_basic" x1="0" x2="1" y1="0" y2="0">
+      <stop offset="0" stop-color="#2563eb"/>
+      <stop offset="0.52" stop-color="#14b8a6"/>
+      <stop offset="1" stop-color="#f59e0b"/>
+    </linearGradient>
+    <filter id="shadow-funnel_basic" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="10" stdDeviation="14" flood-color="#0f172a" flood-opacity="0.12"/>
+    </filter>
+  </defs>
+  <rect width="640" height="420" rx="30" fill="url(#bg-funnel_basic)"/>
+  <rect x="34" y="28" width="572" height="348" rx="26" fill="#ffffff" filter="url(#shadow-funnel_basic)"/>
+  <text x="58" y="68" font-family="Inter, ui-sans-serif, system-ui, sans-serif" font-size="22" font-weight="720" fill="#0f172a">Funnel</text>
+  <text x="58" y="94" font-family="Inter, ui-sans-serif, system-ui, sans-serif" font-size="13" fill="#64748b">Relationships and hierarchy</text>
+  <g transform="translate(58 112)">
+    <path d="M 70 28 L 430 28 L 400 60 L 100 60 Z" fill="#2563eb" opacity=".86"/><path d="M 100 66 L 400 66 L 368 98 L 132 98 Z" fill="#14b8a6" opacity=".86"/><path d="M 132 104 L 368 104 L 337 136 L 163 136 Z" fill="#f59e0b" opacity=".86"/><path d="M 163 142 L 337 142 L 303 174 L 197 174 Z" fill="#ef4444" opacity=".86"/><path d="M 197 180 L 303 180 L 303 212 L 197 212 Z" fill="#8b5cf6" opacity=".86"/>
+  </g>
+</svg>

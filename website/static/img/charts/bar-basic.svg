@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="640" height="420" viewBox="0 0 640 420" role="img" aria-labelledby="title-bar_basic">
+  <title id="title-bar_basic">Basic bar chart preview</title>
+  <defs>
+    <linearGradient id="bg-bar_basic" x1="0" x2="1" y1="0" y2="1">
+      <stop offset="0" stop-color="#f8fafc"/>
+      <stop offset="1" stop-color="#eef6f8"/>
+    </linearGradient>
+    <linearGradient id="accent-bar_basic" x1="0" x2="1" y1="0" y2="0">
+      <stop offset="0" stop-color="#2563eb"/>
+      <stop offset="0.52" stop-color="#14b8a6"/>
+      <stop offset="1" stop-color="#f59e0b"/>
+    </linearGradient>
+    <filter id="shadow-bar_basic" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="10" stdDeviation="14" flood-color="#0f172a" flood-opacity="0.12"/>
+    </filter>
+  </defs>
+  <rect width="640" height="420" rx="30" fill="url(#bg-bar_basic)"/>
+  <rect x="34" y="28" width="572" height="348" rx="26" fill="#ffffff" filter="url(#shadow-bar_basic)"/>
+  <text x="58" y="68" font-family="Inter, ui-sans-serif, system-ui, sans-serif" font-size="22" font-weight="720" fill="#0f172a">Basic bar</text>
+  <text x="58" y="94" font-family="Inter, ui-sans-serif, system-ui, sans-serif" font-size="13" fill="#64748b">Cartesian</text>
+  <g transform="translate(58 112)">
+    <g><line x1="48" y1="24" x2="462" y2="24" stroke="#dbe4ef" stroke-width="1"/><line x1="48" y1="72" x2="462" y2="72" stroke="#dbe4ef" stroke-width="1"/><line x1="48" y1="120" x2="462" y2="120" stroke="#dbe4ef" stroke-width="1"/><line x1="48" y1="168" x2="462" y2="168" stroke="#dbe4ef" stroke-width="1"/><line x1="48" y1="216" x2="462" y2="216" stroke="#dbe4ef" stroke-width="1"/><line x1="48" y1="216" x2="462" y2="216" stroke="#94a3b8"/><line x1="48" y1="24" x2="48" y2="216" stroke="#94a3b8"/></g><rect x="72" y="129.43696366250515" width="30" height="86.56303633749485" rx="8" fill="#2563eb"/><rect x="126" y="61.83508707769215" width="30" height="154.16491292230785" rx="8" fill="#14b8a6"/><rect x="180" y="88.21275122091174" width="30" height="127.78724877908826" rx="8" fill="#f59e0b"/><rect x="234" y="129.62074380926788" width="30" height="86.37925619073212" rx="8" fill="#ef4444"/><rect x="288" y="104.4838773086667" width="30" height="111.5161226913333" rx="8" fill="#8b5cf6"/><rect x="342" y="105.77196414209902" width="30" height="110.22803585790098" rx="8" fill="#22c55e"/><rect x="396" y="118.5083830691874" width="30" height="97.4916169308126" rx="8" fill="#0ea5e9"/>
+  </g>
+</svg>

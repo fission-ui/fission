@@ -17,7 +17,8 @@
     "pagefind:index": "pagefind --site build --force-language en --exclude-selectors \"nav, footer, .theme-doc-toc-desktop, .breadcrumbs, .pagination-nav, .navbar-sidebar\" --include-characters \"_:#<>!()\"",
     "start:fast": "docusaurus start",
     "pagefind:index:static": "pagefind --site build --force-language en --exclude-selectors \"nav, footer, .theme-doc-toc-desktop, .breadcrumbs, .pagination-nav, .navbar-sidebar\" --include-characters \"_:#<>!()\" --output-path static/pagefind",
-    "pagefind:dev": "npm run build:docusaurus && npm run pagefind:index:static"
+    "pagefind:dev": "npm run build:docusaurus && npm run pagefind:index:static",
+    "charts:generate": "node scripts/generate-chart-assets.mjs"
   },
   "dependencies": {
     "@docusaurus/core": "3.10.1",

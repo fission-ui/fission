@@ -83,6 +83,12 @@ const config: Config = {
           activeBasePath: '/docs/guides',
         },
         {
+          to: '/docs/charts/overview',
+          label: 'Charts',
+          position: 'left',
+          activeBasePath: '/docs/charts',
+        },
+        {
           to: '/docs/cookbook/build-a-counter',
           label: 'Cookbook',
           position: 'left',
@@ -119,6 +125,15 @@ const config: Config = {
             {label: 'App structure', to: '/docs/guides/app-structure'},
             {label: 'Resources and async', to: '/docs/guides/resources-and-async'},
             {label: 'Testing and diagnostics', to: '/docs/guides/testing-and-diagnostics'},
+          ],
+        },
+        {
+          title: 'Charts',
+          items: [
+            {label: 'Overview', to: '/docs/charts/overview'},
+            {label: 'Catalog', to: '/docs/charts/catalog'},
+            {label: 'Data and interaction', to: '/docs/charts/data-and-interaction'},
+            {label: '3D and GL', to: '/docs/charts/three-dimensional-and-gl'},
           ],
         },
         {

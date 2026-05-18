@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="640" height="420" viewBox="0 0 640 420" role="img" aria-labelledby="title-mark_line_point">
+  <title id="title-mark_line_point">Mark line and point chart preview</title>
+  <defs>
+    <linearGradient id="bg-mark_line_point" x1="0" x2="1" y1="0" y2="1">
+      <stop offset="0" stop-color="#f8fafc"/>
+      <stop offset="1" stop-color="#eef6f8"/>
+    </linearGradient>
+    <linearGradient id="accent-mark_line_point" x1="0" x2="1" y1="0" y2="0">
+      <stop offset="0" stop-color="#2563eb"/>
+      <stop offset="0.52" stop-color="#14b8a6"/>
+      <stop offset="1" stop-color="#f59e0b"/>
+    </linearGradient>
+    <filter id="shadow-mark_line_point" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="10" stdDeviation="14" flood-color="#0f172a" flood-opacity="0.12"/>
+    </filter>
+  </defs>
+  <rect width="640" height="420" rx="30" fill="url(#bg-mark_line_point)"/>
+  <rect x="34" y="28" width="572" height="348" rx="26" fill="#ffffff" filter="url(#shadow-mark_line_point)"/>
+  <text x="58" y="68" font-family="Inter, ui-sans-serif, system-ui, sans-serif" font-size="22" font-weight="720" fill="#0f172a">Mark line and point</text>
+  <text x="58" y="94" font-family="Inter, ui-sans-serif, system-ui, sans-serif" font-size="13" fill="#64748b">Data pipeline and interaction</text>
+  <g transform="translate(58 112)">
+    <g><line x1="48" y1="24" x2="462" y2="24" stroke="#dbe4ef" stroke-width="1"/><line x1="48" y1="72" x2="462" y2="72" stroke="#dbe4ef" stroke-width="1"/><line x1="48" y1="120" x2="462" y2="120" stroke="#dbe4ef" stroke-width="1"/><line x1="48" y1="168" x2="462" y2="168" stroke="#dbe4ef" stroke-width="1"/><line x1="48" y1="216" x2="462" y2="216" stroke="#dbe4ef" stroke-width="1"/><line x1="48" y1="216" x2="462" y2="216" stroke="#94a3b8"/><line x1="48" y1="24" x2="48" y2="216" stroke="#94a3b8"/></g><path d="M 48 101.66487448476255 L 99.75 153.52990612387657 L 151.5 91.31900239177048 L 203.25 94.78431850299239 L 255 96.08435015194118 L 306.75 127.26481663435698 L 358.5 81.23645978607237 L 410.25 106.5535688586533 L 462 123.53260663710535" fill="none" stroke="#2563eb" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/><circle cx="48" cy="101.66487448476255" r="4" fill="#fff" stroke="#2563eb" stroke-width="3"/><circle cx="99.75" cy="153.52990612387657" r="4" fill="#fff" stroke="#2563eb" stroke-width="3"/><circle cx="151.5" cy="91.31900239177048" r="4" fill="#fff" stroke="#2563eb" stroke-width="3"/><circle cx="203.25" cy="94.78431850299239" r="4" fill="#fff" stroke="#2563eb" stroke-width="3"/><circle cx="255" cy="96.08435015194118" r="4" fill="#fff" stroke="#2563eb" stroke-width="3"/><circle cx="306.75" cy="127.26481663435698" r="4" fill="#fff" stroke="#2563eb" stroke-width="3"/><circle cx="358.5" cy="81.23645978607237" r="4" fill="#fff" stroke="#2563eb" stroke-width="3"/><circle cx="410.25" cy="106.5535688586533" r="4" fill="#fff" stroke="#2563eb" stroke-width="3"/><circle cx="462" cy="123.53260663710535" r="4" fill="#fff" stroke="#2563eb" stroke-width="3"/><line x1="52" y1="112" x2="446" y2="112" stroke="#ef4444" stroke-width="2" stroke-dasharray="6 5"/><circle cx="304" cy="92" r="7" fill="#ef4444"/>
+  </g>
+</svg>

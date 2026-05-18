@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="640" height="420" viewBox="0 0 640 420" role="img" aria-labelledby="title-data_zoom">
+  <title id="title-data_zoom">Data zoom chart preview</title>
+  <defs>
+    <linearGradient id="bg-data_zoom" x1="0" x2="1" y1="0" y2="1">
+      <stop offset="0" stop-color="#f8fafc"/>
+      <stop offset="1" stop-color="#eef6f8"/>
+    </linearGradient>
+    <linearGradient id="accent-data_zoom" x1="0" x2="1" y1="0" y2="0">
+      <stop offset="0" stop-color="#2563eb"/>
+      <stop offset="0.52" stop-color="#14b8a6"/>
+      <stop offset="1" stop-color="#f59e0b"/>
+    </linearGradient>
+    <filter id="shadow-data_zoom" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="10" stdDeviation="14" flood-color="#0f172a" flood-opacity="0.12"/>
+    </filter>
+  </defs>
+  <rect width="640" height="420" rx="30" fill="url(#bg-data_zoom)"/>
+  <rect x="34" y="28" width="572" height="348" rx="26" fill="#ffffff" filter="url(#shadow-data_zoom)"/>
+  <text x="58" y="68" font-family="Inter, ui-sans-serif, system-ui, sans-serif" font-size="22" font-weight="720" fill="#0f172a">Data zoom</text>
+  <text x="58" y="94" font-family="Inter, ui-sans-serif, system-ui, sans-serif" font-size="13" fill="#64748b">Data pipeline and interaction</text>
+  <g transform="translate(58 112)">
+    <g><line x1="48" y1="24" x2="462" y2="24" stroke="#dbe4ef" stroke-width="1"/><line x1="48" y1="72" x2="462" y2="72" stroke="#dbe4ef" stroke-width="1"/><line x1="48" y1="120" x2="462" y2="120" stroke="#dbe4ef" stroke-width="1"/><line x1="48" y1="168" x2="462" y2="168" stroke="#dbe4ef" stroke-width="1"/><line x1="48" y1="216" x2="462" y2="216" stroke="#dbe4ef" stroke-width="1"/><line x1="48" y1="216" x2="462" y2="216" stroke="#94a3b8"/><line x1="48" y1="24" x2="48" y2="216" stroke="#94a3b8"/></g><path d="M 48 148.17241098359227 L 99.75 150.7206206675619 L 151.5 125.44483019411564 L 203.25 68.30701707489789 L 255 125.92475114390254 L 306.75 180.7259611170739 L 358.5 172.7565541639924 L 410.25 111.64797619916499 L 462 91.91107184067369" fill="none" stroke="#2563eb" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/><circle cx="48" cy="148.17241098359227" r="4" fill="#fff" stroke="#2563eb" stroke-width="3"/><circle cx="99.75" cy="150.7206206675619" r="4" fill="#fff" stroke="#2563eb" stroke-width="3"/><circle cx="151.5" cy="125.44483019411564" r="4" fill="#fff" stroke="#2563eb" stroke-width="3"/><circle cx="203.25" cy="68.30701707489789" r="4" fill="#fff" stroke="#2563eb" stroke-width="3"/><circle cx="255" cy="125.92475114390254" r="4" fill="#fff" stroke="#2563eb" stroke-width="3"/><circle cx="306.75" cy="180.7259611170739" r="4" fill="#fff" stroke="#2563eb" stroke-width="3"/><circle cx="358.5" cy="172.7565541639924" r="4" fill="#fff" stroke="#2563eb" stroke-width="3"/><circle cx="410.25" cy="111.64797619916499" r="4" fill="#fff" stroke="#2563eb" stroke-width="3"/><circle cx="462" cy="91.91107184067369" r="4" fill="#fff" stroke="#2563eb" stroke-width="3"/><rect x="126" y="238" width="280" height="8" rx="4" fill="#dbeafe"/><rect x="186" y="236" width="150" height="12" rx="6" fill="#2563eb" opacity=".72"/>
+  </g>
+</svg>

@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="640" height="420" viewBox="0 0 640 420" role="img" aria-labelledby="title-pie_donut">
+  <title id="title-pie_donut">Donut chart preview</title>
+  <defs>
+    <linearGradient id="bg-pie_donut" x1="0" x2="1" y1="0" y2="1">
+      <stop offset="0" stop-color="#f8fafc"/>
+      <stop offset="1" stop-color="#eef6f8"/>
+    </linearGradient>
+    <linearGradient id="accent-pie_donut" x1="0" x2="1" y1="0" y2="0">
+      <stop offset="0" stop-color="#2563eb"/>
+      <stop offset="0.52" stop-color="#14b8a6"/>
+      <stop offset="1" stop-color="#f59e0b"/>
+    </linearGradient>
+    <filter id="shadow-pie_donut" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="10" stdDeviation="14" flood-color="#0f172a" flood-opacity="0.12"/>
+    </filter>
+  </defs>
+  <rect width="640" height="420" rx="30" fill="url(#bg-pie_donut)"/>
+  <rect x="34" y="28" width="572" height="348" rx="26" fill="#ffffff" filter="url(#shadow-pie_donut)"/>
+  <text x="58" y="68" font-family="Inter, ui-sans-serif, system-ui, sans-serif" font-size="22" font-weight="720" fill="#0f172a">Donut</text>
+  <text x="58" y="94" font-family="Inter, ui-sans-serif, system-ui, sans-serif" font-size="13" fill="#64748b">Radial and polar</text>
+  <g transform="translate(58 112)">
+    <path d="M 159.93335800641836 66 A 104 104 0 0 1 333.0321352867604 55.376805337629804 L 291.5160676433802 86.6884026688149 A 52 52 0 0 0 204.96667900320918 92 Z" fill="#2563eb" opacity=".9"/><path d="M 335.16707232901643 58.31273342743794 A 104 104 0 0 1 346.0778919557813 157.81254422080076 L 298.03894597789065 137.90627211040038 A 52 52 0 0 0 292.5835361645082 88.15636671371897 Z" fill="#14b8a6" opacity=".9"/><path d="M 344.6299261441876 161.14136156805444 A 104 104 0 0 1 273.40255876001834 219.33272049779325 L 261.70127938000917 168.66636024889664 A 52 52 0 0 0 297.3149630720938 139.57068078402722 Z" fill="#f59e0b" opacity=".9"/><path d="M 269.85184160866953 220.08772886465982 A 104 104 0 0 1 154.56167875288702 159.32223175885912 L 202.2808393764435 138.66111587942956 A 52 52 0 0 0 259.92592080433474 169.0438644323299 Z" fill="#ef4444" opacity=".9"/><path d="M 153.17769210852535 155.96630999410513 A 104 104 0 0 1 158.1734503426716 69.17495747026734 L 204.0867251713358 93.58747873513367 A 52 52 0 0 0 201.58884605426266 136.98315499705257 Z" fill="#8b5cf6" opacity=".9"/>
+  </g>
+</svg>
