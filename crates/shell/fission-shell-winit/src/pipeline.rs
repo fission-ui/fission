@@ -4,6 +4,7 @@ use fission_core::diff::diff_ir;
 use fission_core::env::{AnimationStateMap, Env, VideoStateMap, WebStateMap};
 use fission_core::lowering::build_layout_tree;
 use fission_core::registry::AnimationPropertyId;
+use fission_core::scrollbar::scrollbar_geometry_for_node;
 use fission_core::ui::custom_render::downcast_render_object;
 use fission_core::{LayoutPoint, ScrollStateMap};
 use fission_diagnostics::prelude as diag;
@@ -129,6 +130,12 @@ struct TransformBinding {
 }
 
 #[derive(Debug, Clone)]
+struct ScrollbarBinding {
+    node_path: Vec<usize>,
+    node_id: NodeId,
+}
+
+#[derive(Debug, Clone)]
 struct ScrollTransform {
     node_id: NodeId,
     direction: FlexDirection,
@@ -138,6 +145,7 @@ struct ScrollTransform {
 struct RetainedDynamicOps {
     opacity: Vec<OpacityBinding>,
     transform: Vec<TransformBinding>,
+    scrollbar: Vec<ScrollbarBinding>,
 }
 
 #[derive(Debug, Clone)]
@@ -762,6 +770,24 @@ impl Pipeline {
                     compose_dynamic_layer_transform(binding, scroll_map, animation_map);
             }
         }
+
+        let Some(ir) = self.prev_ir.as_ref() else {
+            return;
+        };
+        let Some(snapshot) = self.last_snapshot.as_ref() else {
+            return;
+        };
+        for binding in &self.retained_dynamic_ops.scrollbar {
+            let Some(scrollbar) = build_scrollbar_paint(ir, binding.node_id, snapshot, scroll_map)
+            else {
+                continue;
+            };
+            if let Some(RenderNode::Paint(list)) =
+                render_node_mut_at_path(scene, &binding.node_path)
+            {
+                *list = scrollbar;
+            }
+        }
     }
 
     pub fn retained_scene(&self) -> Option<&RenderScene> {
@@ -836,6 +862,32 @@ fn layer_mut_at_path<'a>(
     let (root_index, tail) = path.split_first()?;
     let node = scene.roots.get_mut(*root_index)?;
     layer_mut_in_node(node, tail)
+}
+
+fn render_node_mut_at_path<'a>(
+    scene: &'a mut RenderScene,
+    path: &[usize],
+) -> Option<&'a mut RenderNode> {
+    let (root_index, tail) = path.split_first()?;
+    let node = scene.roots.get_mut(*root_index)?;
+    render_node_mut_in_node(node, tail)
+}
+
+fn render_node_mut_in_node<'a>(
+    node: &'a mut RenderNode,
+    path: &[usize],
+) -> Option<&'a mut RenderNode> {
+    if path.is_empty() {
+        return Some(node);
+    }
+    match node {
+        RenderNode::Layer(layer) => {
+            let (child_index, tail) = path.split_first()?;
+            let child = layer.children.get_mut(*child_index)?;
+            render_node_mut_in_node(child, tail)
+        }
+        RenderNode::Paint(_) => None,
+    }
 }
 
 fn layer_mut_in_node<'a>(node: &'a mut RenderNode, path: &[usize]) -> Option<&'a mut RenderLayer> {
@@ -1539,7 +1591,8 @@ fn generate_render_layer_recursive(
         Op::Layout(LayoutOp::Transform { transform }) => Some(*transform),
         _ => None,
     };
-    let has_dynamic_transform = needs_dynamic_transform || scroll.is_some();
+    let has_own_transform = needs_dynamic_transform || layout_transform.is_some();
+    let has_dynamic_transform = has_own_transform || scroll.is_some();
     let has_dynamic_style = emit_opacity_layer || has_dynamic_transform || has_runtime_clip;
     let has_dynamic_children = node.children.iter().any(|child| {
         runtime_dynamic_subtrees
@@ -1571,7 +1624,7 @@ fn generate_render_layer_recursive(
             layer_path: layer_path.clone(),
             rect,
             layout_transform,
-            scroll: scroll.clone(),
+            scroll: None,
             translate_x: node.composite.translate_x.clone(),
             translate_y: node.composite.translate_y.clone(),
             scale: node.composite.scale.clone(),
@@ -1581,9 +1634,6 @@ fn generate_render_layer_recursive(
         animation_map,
     ) {
         layer.style.transform = Some(transform);
-    }
-    if scroll.is_some() {
-        layer.style.transform_clip = false;
     }
 
     let local_hash = local_paint_hash(node);
@@ -1622,12 +1672,12 @@ fn generate_render_layer_recursive(
             });
         }
     }
-    if has_dynamic_transform {
+    if has_own_transform {
         bindings.transform.push(TransformBinding {
             layer_path: layer_path.clone(),
             rect,
             layout_transform,
-            scroll,
+            scroll: None,
             translate_x: node.composite.translate_x.clone(),
             translate_y: node.composite.translate_y.clone(),
             scale: node.composite.scale.clone(),
@@ -1635,32 +1685,98 @@ fn generate_render_layer_recursive(
         });
     }
 
-    for child in &node.children {
-        let child_index = layer.children.len();
-        let mut child_path = layer_path.clone();
-        child_path.push(child_index);
-        if let Some(child_layer) = generate_render_layer_recursive(
-            *child,
-            ir,
-            snapshot,
+    if let Some(scroll) = scroll {
+        let content_index = layer.children.len();
+        let mut content_path = layer_path.clone();
+        content_path.push(content_index);
+        let mut content_layer = RenderLayer::new(rect);
+        content_layer.style.transform = compose_dynamic_layer_transform(
+            &TransformBinding {
+                layer_path: content_path.clone(),
+                rect,
+                layout_transform: None,
+                scroll: Some(scroll.clone()),
+                translate_x: None,
+                translate_y: None,
+                scale: None,
+                rotation: None,
+            },
             scroll_map,
             animation_map,
-            paint_cache,
-            boundary_cache,
-            runtime_dynamic_subtrees,
-            miss_count,
-            hit_count,
-            scene_cache_allowed,
-            visited,
-            bindings,
-            child_path,
-        ) {
-            layer.children.push(RenderNode::Layer(child_layer));
+        );
+        content_layer.style.transform_clip = false;
+        bindings.transform.push(TransformBinding {
+            layer_path: content_path.clone(),
+            rect,
+            layout_transform: None,
+            scroll: Some(scroll),
+            translate_x: None,
+            translate_y: None,
+            scale: None,
+            rotation: None,
+        });
+
+        for child in &node.children {
+            let child_index = content_layer.children.len();
+            let mut child_path = content_path.clone();
+            child_path.push(child_index);
+            if let Some(child_layer) = generate_render_layer_recursive(
+                *child,
+                ir,
+                snapshot,
+                scroll_map,
+                animation_map,
+                paint_cache,
+                boundary_cache,
+                runtime_dynamic_subtrees,
+                miss_count,
+                hit_count,
+                scene_cache_allowed,
+                visited,
+                bindings,
+                child_path,
+            ) {
+                content_layer.children.push(RenderNode::Layer(child_layer));
+            }
+        }
+
+        if !content_layer.children.is_empty() {
+            layer.children.push(RenderNode::Layer(content_layer));
+        }
+    } else {
+        for child in &node.children {
+            let child_index = layer.children.len();
+            let mut child_path = layer_path.clone();
+            child_path.push(child_index);
+            if let Some(child_layer) = generate_render_layer_recursive(
+                *child,
+                ir,
+                snapshot,
+                scroll_map,
+                animation_map,
+                paint_cache,
+                boundary_cache,
+                runtime_dynamic_subtrees,
+                miss_count,
+                hit_count,
+                scene_cache_allowed,
+                visited,
+                bindings,
+                child_path,
+            ) {
+                layer.children.push(RenderNode::Layer(child_layer));
+            }
         }
     }
 
-    if let Some(scrollbar_rail) = build_scrollbar_rail_paint(node_id, node, rect, snapshot) {
-        layer.children.push(RenderNode::Paint(scrollbar_rail));
+    if let Some(scrollbar) = build_scrollbar_paint(ir, node_id, snapshot, scroll_map) {
+        let mut scrollbar_path = layer_path.clone();
+        scrollbar_path.push(layer.children.len());
+        layer.children.push(RenderNode::Paint(scrollbar));
+        bindings.scrollbar.push(ScrollbarBinding {
+            node_path: scrollbar_path,
+            node_id,
+        });
     }
 
     if can_use_boundary_cache {
@@ -2010,78 +2126,46 @@ fn build_local_paint_list(
     }
 }
 
-fn build_scrollbar_rail_paint(
+fn build_scrollbar_paint(
+    ir: &CoreIR,
     node_id: NodeId,
-    node: &fission_ir::CoreNode,
-    rect: LayoutRect,
     snapshot: &LayoutSnapshot,
+    scroll_map: &ScrollStateMap,
 ) -> Option<DisplayList> {
-    let Op::Layout(LayoutOp::Scroll {
-        direction,
-        show_scrollbar,
-        ..
-    }) = &node.op
-    else {
-        return None;
-    };
-    if !show_scrollbar {
-        return None;
-    }
-
-    let content_id = *node.children.first()?;
-    let content_rect = snapshot.nodes.get(&content_id)?.rect;
+    let geometry = scrollbar_geometry_for_node(ir, snapshot, scroll_map, node_id)?;
     let rail_fill = Some(Fill::Solid(RenderColor {
         r: 160,
         g: 168,
         b: 180,
-        a: 110,
+        a: 80,
     }));
-    let inset = 2.0;
-    let thickness = 6.0;
-    let mut list = DisplayList::new(rect);
+    let thumb_fill = Some(Fill::Solid(RenderColor {
+        r: 82,
+        g: 91,
+        b: 108,
+        a: 190,
+    }));
+    let mut list = DisplayList::new(geometry.rail_rect);
+    let corner_radius = fission_core::scrollbar::SCROLLBAR_THICKNESS / 2.0;
 
-    match direction {
-        FlexDirection::Column => {
-            if content_rect.size.height <= rect.size.height + 0.5 {
-                return None;
-            }
-            let rail_rect = LayoutRect::new(
-                rect.origin.x + rect.size.width - thickness - inset,
-                rect.origin.y + inset,
-                thickness,
-                (rect.size.height - inset * 2.0).max(0.0),
-            );
-            list.push(DisplayOp::DrawRect {
-                rect: rail_rect,
-                fill: rail_fill,
-                stroke: None,
-                corner_radius: thickness / 2.0,
-                shadow: None,
-                bounds: rail_rect,
-                node_id: Some(node_id),
-            });
-        }
-        FlexDirection::Row => {
-            if content_rect.size.width <= rect.size.width + 0.5 {
-                return None;
-            }
-            let rail_rect = LayoutRect::new(
-                rect.origin.x + inset,
-                rect.origin.y + rect.size.height - thickness - inset,
-                (rect.size.width - inset * 2.0).max(0.0),
-                thickness,
-            );
-            list.push(DisplayOp::DrawRect {
-                rect: rail_rect,
-                fill: rail_fill,
-                stroke: None,
-                corner_radius: thickness / 2.0,
-                shadow: None,
-                bounds: rail_rect,
-                node_id: Some(node_id),
-            });
-        }
-    }
+    list.push(DisplayOp::DrawRect {
+        rect: geometry.rail_rect,
+        fill: rail_fill,
+        stroke: None,
+        corner_radius,
+        shadow: None,
+        bounds: geometry.rail_rect,
+        node_id: Some(node_id),
+    });
+    list.push(DisplayOp::DrawRect {
+        rect: geometry.thumb_rect,
+        fill: thumb_fill,
+        stroke: None,
+        corner_radius,
+        shadow: None,
+        bounds: geometry.thumb_rect,
+        node_id: Some(node_id),
+    });
 
     Some(list)
 }
@@ -3046,17 +3130,18 @@ mod tests {
             )
             .unwrap();
 
-        fn find_scroll_layer(
+        fn find_layer_by_node(
             node: &fission_render::RenderNode,
+            node_id: NodeId,
         ) -> Option<&fission_render::RenderLayer> {
             match node {
                 fission_render::RenderNode::Paint(_) => None,
                 fission_render::RenderNode::Layer(layer) => {
-                    if !layer.style.transform_clip && layer.style.clip.is_some() {
+                    if layer.node_id == Some(node_id) {
                         return Some(layer);
                     }
                     for child in &layer.children {
-                        if let Some(found) = find_scroll_layer(child) {
+                        if let Some(found) = find_layer_by_node(child, node_id) {
                             return Some(found);
                         }
                     }
@@ -3067,17 +3152,173 @@ mod tests {
 
         let scroll_layer = pipeline
             .retained_scene()
-            .and_then(|scene| scene.roots.iter().find_map(find_scroll_layer))
+            .and_then(|scene| {
+                scene
+                    .roots
+                    .iter()
+                    .find_map(|node| find_layer_by_node(node, scroll))
+            })
             .expect("expected a retained scroll layer");
+        assert!(
+            scroll_layer.style.transform.is_none(),
+            "scrollbar chrome must not inherit the content scroll transform"
+        );
         let transform = scroll_layer
-            .style
-            .transform
-            .expect("scroll layer should carry a compositor transform");
+            .children
+            .iter()
+            .find_map(|child| match child {
+                fission_render::RenderNode::Layer(layer) => layer.style.transform,
+                fission_render::RenderNode::Paint(_) => None,
+            })
+            .expect("scroll content layer should carry a compositor transform");
         assert!(
             (transform[13] + 180.0).abs() <= 0.01,
-            "expected retained scroll transform to patch to -180, got {}",
+            "expected retained content transform to patch to -180, got {}",
             transform[13]
         );
+    }
+
+    #[test]
+    fn scrollbar_thumb_patches_after_scroll_offset_changes() {
+        let mut ir = CoreIR::new();
+        let fill = NodeId::derived(18, &[0]);
+        let content = NodeId::derived(18, &[1]);
+        let scroll = NodeId::derived(18, &[2]);
+        let root = NodeId::derived(18, &[3]);
+
+        ir.add_node(
+            fill,
+            Op::Paint(PaintOp::DrawRect {
+                fill: Some(Fill::Solid(Color {
+                    r: 120,
+                    g: 120,
+                    b: 220,
+                    a: 255,
+                })),
+                stroke: None,
+                corner_radius: 0.0,
+                shadow: None,
+            }),
+            vec![],
+        );
+        ir.add_node(
+            content,
+            Op::Layout(LayoutOp::Box {
+                width: Some(320.0),
+                height: Some(640.0),
+                min_width: None,
+                max_width: None,
+                min_height: None,
+                max_height: None,
+                padding: [0.0, 0.0, 0.0, 0.0],
+                flex_grow: 0.0,
+                flex_shrink: 0.0,
+                aspect_ratio: None,
+            }),
+            vec![fill],
+        );
+        ir.add_node(
+            scroll,
+            Op::Layout(LayoutOp::Scroll {
+                direction: fission_ir::FlexDirection::Column,
+                show_scrollbar: true,
+                width: Some(320.0),
+                height: Some(240.0),
+                min_width: None,
+                max_width: None,
+                min_height: None,
+                max_height: None,
+                padding: [0.0, 0.0, 0.0, 0.0],
+                flex_grow: 0.0,
+                flex_shrink: 0.0,
+            }),
+            vec![content],
+        );
+        ir.add_node(
+            root,
+            Op::Layout(LayoutOp::Box {
+                width: Some(320.0),
+                height: Some(240.0),
+                min_width: None,
+                max_width: None,
+                min_height: None,
+                max_height: None,
+                padding: [0.0, 0.0, 0.0, 0.0],
+                flex_grow: 0.0,
+                flex_shrink: 0.0,
+                aspect_ratio: None,
+            }),
+            vec![scroll],
+        );
+        ir.set_root(root);
+
+        let mut pipeline = Pipeline::new();
+        let mut layout_engine = LayoutEngine::new();
+        let scroll0 = ScrollStateMap::default();
+        pipeline.replace_ir(ir, &Env::default());
+        pipeline
+            .ensure_layout(
+                LayoutRect::new(0.0, 0.0, 320.0, 240.0),
+                &mut layout_engine,
+                &scroll0,
+            )
+            .unwrap();
+        pipeline
+            .prepare_current(
+                LayoutSize::new(320.0, 240.0),
+                LayoutSize::new(320.0, 240.0),
+                false,
+                &scroll0,
+                &Default::default(),
+                &Default::default(),
+                &Default::default(),
+            )
+            .unwrap();
+        let initial_thumb_y = scrollbar_thumb_y(pipeline.retained_scene().unwrap(), scroll)
+            .expect("initial scrollbar thumb");
+
+        let mut scroll1 = ScrollStateMap::default();
+        scroll1.set_offset(scroll, 200.0);
+        pipeline
+            .prepare_current(
+                LayoutSize::new(320.0, 240.0),
+                LayoutSize::new(320.0, 240.0),
+                false,
+                &scroll1,
+                &Default::default(),
+                &Default::default(),
+                &Default::default(),
+            )
+            .unwrap();
+        let moved_thumb_y = scrollbar_thumb_y(pipeline.retained_scene().unwrap(), scroll)
+            .expect("moved scrollbar thumb");
+
+        assert!(
+            moved_thumb_y > initial_thumb_y,
+            "body scroll must patch the retained scrollbar thumb, before={initial_thumb_y}, after={moved_thumb_y}"
+        );
+
+        fn scrollbar_thumb_y(scene: &fission_render::RenderScene, scroll: NodeId) -> Option<f32> {
+            fn find(node: &fission_render::RenderNode, scroll: NodeId) -> Option<f32> {
+                match node {
+                    fission_render::RenderNode::Paint(list) => list.ops.iter().find_map(|op| {
+                        if let fission_render::DisplayOp::DrawRect { rect, node_id, .. } = op {
+                            if *node_id == Some(scroll)
+                                && (rect.width() - 6.0).abs() <= 0.01
+                                && rect.height() < 200.0
+                            {
+                                return Some(rect.origin.y);
+                            }
+                        }
+                        None
+                    }),
+                    fission_render::RenderNode::Layer(layer) => {
+                        layer.children.iter().find_map(|child| find(child, scroll))
+                    }
+                }
+            }
+            scene.roots.iter().find_map(|root| find(root, scroll))
+        }
     }
 
     #[test]
