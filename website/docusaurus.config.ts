@@ -8,7 +8,7 @@ const siteBaseUrl = process.env.DOCS_BASE_URL ?? '/';
 const config: Config = {
   title: 'Fission',
   tagline: 'Deterministic Rust user interface with a shared runtime for desktop, web, iOS, and Android.',
-  favicon: 'img/fission_logo.png',
+  favicon: 'img/fission-mark.svg',
   future: {
     v4: true,
   },
@@ -59,7 +59,7 @@ const config: Config = {
     ],
   ],
   themeConfig: {
-    image: 'img/fission_logo.png',
+    image: 'img/fission-logo.png',
     colorMode: {
       respectPrefersColorScheme: true,
     },
@@ -67,7 +67,7 @@ const config: Config = {
       title: 'Fission',
       logo: {
         alt: 'Fission logo',
-        src: 'img/fission_logo.png',
+        src: 'img/fission-mark.svg',
       },
       items: [
         {
@@ -158,7 +158,7 @@ const config: Config = {
       copyright: `Copyright © ${new Date().getFullYear()} Fission. The Fission framework is ready to use today but some areas are actively under development. Widget APIs are expected to remain stable but some runtime or shell APIs may get breaking changes before we get to a 1.0.0 release`,
       logo: {
         alt: 'Fission',
-        src: 'img/fission_logo.png',
+        src: 'img/fission-mark.svg',
       },
     },
     prism: {
