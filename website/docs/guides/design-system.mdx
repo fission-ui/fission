@@ -1,0 +1,141 @@
+---
+title: Design system
+sidebar_label: Design system
+description: Use a Design System Package JSON file to generate typed Fission themes at build time.
+---
+
+# Design system
+
+A design system is the set of decisions that makes an application feel coherent: color, typography, spacing, radius, elevation, motion, chart palettes, and the component styles that turn those tokens into real buttons, inputs, badges, cards, tabs, modals, tooltips, and progress indicators.
+
+Fission supports Design System Package JSON files as a build-time input. The app does not parse JSON while it is running. Instead, a build script reads `dsp.json` and `tokens.json`, resolves the token references, and generates ordinary Rust code. Your app then chooses one of the generated themes and writes it into `Env`.
+
+That keeps the hot path simple. Widgets read typed Rust values from `view.env.theme`; they do not search JSON, hash token names, or do string lookups while drawing a frame.
+
+## What gets generated
+
+A DSP package contains two important files:
+
+- `dsp.json`, which describes the package, components, patterns, assets, and where the token file lives.
+- `tokens.json`, which contains primitive and semantic values such as colors, font sizes, spacing, radius, shadows, motion, and chart palettes.
+
+Fission's generator turns those files into a Rust type that implements `DesignSystem`.
+
+```rust
+include!(concat!(env!("OUT_DIR"), "/app_design_system.rs"));
+
+DesktopApp::new(MyApp)
+    .with_design_system::<AppDesignSystem>(DesignMode::Light)
+    .run()?;
+```
+
+`AppDesignSystem` is not hand-written. It is generated during `cargo build`, compiled into your app, and used like any other Rust type.
+
+## Add a DSP package to an app
+
+Create a `design/` folder in your app and place the package files inside it:
+
+```text
+my-app/
+  Cargo.toml
+  build.rs
+  design/
+    dsp.json
+    tokens.json
+  src/
+    main.rs
+```
+
+If you only want to try the workflow first, point your app at Fission's bundled package instead of copying it:
+
+```rust title="build.rs"
+use std::path::PathBuf;
+
+fn main() {
+    let manifest_dir = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap());
+    let dsp_path = manifest_dir.join("../../crates/core/fission-theme/design/default/dsp.json");
+
+    fission_design_system_codegen::generate(fission_design_system_codegen::Config {
+        dsp_path,
+        out_file: "app_design_system.rs".into(),
+        type_name: "AppDesignSystem".into(),
+        crate_path: "fission::theme".into(),
+    })
+    .expect("failed to generate design system");
+}
+```
+
+Add the generator as a build dependency:
+
+```toml title="Cargo.toml"
+[dependencies]
+fission = { path = "../../crates/authoring/fission" }
+
+[build-dependencies]
+fission-design-system-codegen = { path = "../../crates/tools/fission-design-system-codegen" }
+```
+
+The generated code uses the public Fission theme API. Your application still imports Fission normally:
+
+```rust title="src/main.rs"
+use fission::prelude::*;
+
+include!(concat!(env!("OUT_DIR"), "/app_design_system.rs"));
+```
+
+## Let the user choose light or dark
+
+Theme choice is product state. If the user can choose light mode or dark mode, keep that choice in `AppState`, then mirror it into `Env` with `.with_sync_env(...)`.
+
+```rust
+DesktopApp::new(MyApp)
+    .with_design_system::<AppDesignSystem>(DesignMode::Light)
+    .with_sync_env(|state: &MyState, env: &mut Env| {
+        env.theme = AppDesignSystem::theme(state.theme_mode);
+        env.window.title = WindowTitle::plain("My Fission App");
+    })
+    .run()?;
+```
+
+`Env` is the environment shared with widgets while they build. Putting the generated `Theme` there means every widget sees the same colors, typography, component sizes, shadows, and motion settings for the current frame.
+
+## What Fission consumes today
+
+The generated theme is not just a bag of metadata. Fission resolves DSP component styles into typed runtime structs.
+
+Buttons consume hierarchy styles such as `primary`, `secondary_color`, `secondary_gray`, `tertiary_color`, `link_color`, and `destructive`. Button sizes such as `sm`, `md`, `lg`, and `xl` map to first-class component size slots. State tables such as `default`, `hover`, `active`, `focus`, and `disabled` resolve into typed style values before the widget renders.
+
+Inputs, badges, tabs, cards, modals, tooltips, and progress bars follow the same model. They read generated component styles for background fills, text colors, borders, radius, padding, font sizes, font weights, line heights, shadows, and state-specific overrides. Charts read the generated data-visualization palette from the theme instead of inventing a separate chart palette.
+
+The important rule is that JSON stops at build time. Runtime code sees Rust values.
+
+## Where to get DSP and token files
+
+You can start from Fission's default package, export from a design tool, or use public token systems as reference material.
+
+- Adobe introduced Design System Package as an open package format for sharing design-system information across tools, including tokens, documentation, snippets, and examples.
+- Google's Material token repository documents Material Design DSP usage and can be used as a reference for a real DSP-style token package.
+- Adobe Spectrum publishes structured design-token data for colors, layout, typography, and component tokens.
+- Tokens Studio and Style Dictionary are useful when your team already manages design tokens in Figma or JSON and needs to transform them for engineering.
+- Token generators such as Tokenry can produce a first pass of primitive and semantic tokens when you are starting from a brand color instead of an existing system.
+
+Useful links:
+
+- [Adobe XD and Design System Package announcement](https://blog.adobe.com/en/publish/2020/10/20/xd-october-2020-update-3d-transforms-libraries-panel-more)
+- [Material Design DSP token repository](https://github.com/material-foundation/material-tokens)
+- [Adobe Spectrum design data tokens](https://opensource.adobe.com/spectrum-design-data/tokens/)
+- [Tokens Studio](https://tokens.studio/)
+- [Style Dictionary design token docs](https://styledictionary.com/info/tokens/)
+- [Tokenry design token generator](https://tokenry.app/)
+
+## Example app
+
+The repository includes `examples/todo-design-system`. It is intentionally small: a todo list, a text input, buttons, badges, a card surface, and a light/dark toggle.
+
+The example's `build.rs` points at Fission's bundled DSP package so the example does not carry a large local copy of the JSON files. In your own app, copy the default package, replace it with your design team's package, or point the generator at a package produced by your design tooling.
+
+Run it with:
+
+```bash
+cargo run -p todo-design-system
+```

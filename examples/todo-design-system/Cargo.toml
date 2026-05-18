@@ -1,0 +1,11 @@
+[package]
+name = "todo-design-system"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+fission = { path = "../../crates/authoring/fission" }
+anyhow = "1.0"
+
+[build-dependencies]
+fission-design-system-codegen = { path = "../../crates/tools/fission-design-system-codegen" }

@@ -31,6 +31,7 @@ const sidebars: SidebarsConfig = {
         'guides/input-events-text-and-env',
         'guides/layout-and-widgets',
         'guides/theming-and-i18n',
+        'guides/design-system',
         'guides/media-animation-portals-and-3d',
         'guides/platform-shells-cli-and-testing',
         'guides/testing-and-diagnostics',
