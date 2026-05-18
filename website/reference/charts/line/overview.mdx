@@ -1,0 +1,58 @@
+---
+title: Line
+sidebar_label: Overview
+description: Fission Charts reference for the Line family.
+---
+
+# Line
+
+The Line family contains 36 renderer-backed chart variants. Use this page as the entry point for choosing the right variant, then open the variant page for the screenshot, data shape, Rust API notes, and example code.
+
+The chart family is still ordinary Fission UI. Each variant is constructed from typed Rust data, participates in layout and theme decisions, and can be driven by app state, reducers, resources, jobs, or services just like any other widget.
+
+![Alert annotations screenshot](/img/charts/line-alert-annotations.png)
+
+## Variants
+
+| Chart | Data shape | Use when |
+| --- | --- | --- |
+| [Alert annotations](./line-alert-annotations) | Ordered values with event markers. | Use it when incidents or milestones need to stay attached to the trend. |
+| [Annotated line](./line-annotation) | LineSeries plus ChartGraphic. | Use it to explain a visible change directly on the chart. |
+| [API throughput line](./line-api-throughput) | Dense ordered samples from a service counter. | Use it for telemetry panels with many points. |
+| [Capacity forecast band](./line-capacity-forecast) | Observed values with a highlighted expected range. | Use it when a forecast needs both the line and the safe range. |
+| [Conversion stack area](./line-conversion-stack) | Several ordered series sharing a stack key. | Use it to explain how categories make up a total over time. |
+| [Demand sparkline](./line-demand-spark) | Compact dense ordered values. | Use it inside dense dashboard cards. |
+| [Dense spark line](./line-spark-dense) | Long Vec&lt;f32&gt; on ordered categories. | Use it for monitoring and telemetry surfaces. |
+| [Deployment event line](./line-deployment-events) | Trend values with deployment markers. | Use it to connect product changes to metric movement. |
+| [Dual line comparison](./line-dual-series) | Two Vec&lt;f32&gt; series on shared axes. | Use it to compare two trends without changing units. |
+| [Error budget burn](./line-error-budget) | Budget percentage samples plus threshold marks. | Use it when teams need to see whether a service is inside its operating band. |
+| [Forecast band](./line-forecast-band) | Vec&lt;f32&gt; plus MarkArea. | Use it when forecasts need uncertainty context. |
+| [Gradient area line](./line-gradient-area) | Vec&lt;f32&gt; with area style. | Use it when magnitude and trend should be read together. |
+| [Inventory end-step](./line-inventory-end-step) | Discrete samples that update at the end of each interval. | Use it when the value changes after the period closes. |
+| [Line with alert events](./line-alert-events) | LineSeries plus MarkPoint. | Use it to label incidents or releases on a metric. |
+| [Line with threshold](./line-threshold) | Vec&lt;f32&gt; plus MarkLine and MarkArea. | Use it for service levels, quotas, and alert thresholds. |
+| [Log-shaped line](./line-log-shaped) | Vec&lt;f32&gt; with nonlinear values. | Use it for adoption curves and saturation effects. |
+| [Market index line](./line-market-index) | Indexed ordered values on a value axis. | Use it when direction and volatility matter more than individual samples. |
+| [Min/max band](./line-minmax-band) | Vec&lt;f32&gt; plus mark lines. | Use it to show expected bounds around a metric. |
+| [Operational step series](./line-operational-steps) | Discrete states represented as stepped values. | Use it for state changes, quotas, or inventory counts. |
+| [Product mix area](./line-product-mix-area) | Stacked product series over ordered buckets. | Use it when the total and category mix both matter. |
+| [Quality operating band](./line-quality-band) | Samples with a target and acceptable range. | Use it for production quality metrics with explicit guardrails. |
+| [Regional trend comparison](./line-region-comparison) | Two regional series on shared axes. | Use it when teams compare regions over the same period. |
+| [Release window annotation](./line-release-window) | Ordered samples with a graphic callout over the plot. | Use it when a chart needs to explain why a trend changed. |
+| [Retention zoom window](./line-retention-window) | Long ordered samples with a visible zoom window. | Use it when the primary view should focus on one time range. |
+| [Revenue seasonality](./line-revenue-seasonality) | Ordered samples over a repeated seasonal interval. | Use it when weekly or monthly rhythm is the main signal. |
+| [Rolling average line](./line-rolling-average) | Two Vec&lt;f32&gt; series. | Use it when readers need both movement and trend. |
+| [Seasonal line](./line-seasonal) | Vec&lt;f32&gt; over ordered periods. | Use it for seasonal demand and capacity planning. |
+| [Service latency trend](./line-service-latency) | Latency samples over ordered time buckets. | Use it for operations screens that need drift and spikes in one glance. |
+| [Signup cohort comparison](./line-signup-cohorts) | Two ordered series sharing the same axis. | Use it when users need to compare cohorts over the same time range. |
+| [Stacked stream area](./line-stacked-stream) | Multiple LineSeries with one stack key. | Use it for composition over time. |
+| [Step end line](./line-step-end) | Vec&lt;f32&gt; with end step behavior. | Use it when values settle at the end of each interval. |
+| [Step start line](./line-step-start) | Vec&lt;f32&gt; with start step behavior. | Use it when values jump at the start of each interval. |
+| [Support volume area](./line-support-volume) | Support counts with an area fill. | Use it when volume should be visible at a glance. |
+| [Traffic rolling average](./line-traffic-rolling-average) | Raw and smoothed ordered series. | Use it when the user needs the current signal and the trend baseline. |
+| [Weekly cycle line](./line-weekly-cycle) | Vec&lt;f32&gt; aligned to weekdays. | Use it for operational rhythms and weekly dashboards. |
+| [Zoomed line window](./line-zoomed-window) | LineSeries plus DataZoom. | Use it for long series with local inspection. |
+
+## Choosing within this family
+
+Start with the user's question, not the visual effect. Pick the simplest variant that makes the answer clear, add interaction only when it reduces work for the user, and keep animation purposeful enough that it explains a change rather than decorating the page.

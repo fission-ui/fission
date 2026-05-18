@@ -1,0 +1,66 @@
+---
+title: 3D and GL
+sidebar_label: Overview
+description: Fission Charts reference for the 3D and GL family.
+---
+
+# 3D and GL
+
+The 3D and GL family contains 44 renderer-backed chart variants. Use this page as the entry point for choosing the right variant, then open the variant page for the screenshot, data shape, Rust API notes, and example code.
+
+The chart family is still ordinary Fission UI. Each variant is constructed from typed Rust data, participates in layout and theme decisions, and can be driven by app state, reducers, resources, jobs, or services just like any other widget.
+
+![3D bar screenshot](/img/charts/bar3d-basic.png)
+
+## Variants
+
+| Chart | Data shape | Use when |
+| --- | --- | --- |
+| [3D bar](./bar3d-basic) | A grid of values lowered into Scene3D mesh cuboids. | Use it when depth and spatial grouping are part of the story, not as a default bar replacement. |
+| [3D capacity bars](./bar3d-capacity) | Scene3D mesh cuboids. | Use it for spatial capacity displays. |
+| [3D capacity bars](./scene3d-bar-capacity) | Scene3D cuboids representing numeric height. | Use it when depth is part of the visual story. |
+| [3D cluster scatter](./scene3d-scatter-clusters) | Spheres positioned in 3D space. | Use it for spatial point clusters. |
+| [3D globe coverage](./scene3d-globe-coverage) | Globe primitive with highlighted locations. | Use it for coverage and status over a globe. |
+| [3D globe status](./scene3d-globe-status) | Globe sphere with visible markers. | Use it when global context matters. |
+| [3D graph](./graph3d-basic) | Node positions and values lowered into Scene3D primitives. | Use it when topology benefits from depth or when the graph is part of a 3D product surface. |
+| [3D grid bars](./bar3d-grid) | Scene3D mesh cuboids. | Use it when depth and grouping are part of the data. |
+| [3D grid bars](./scene3d-bar-grid) | Grid of cuboids in a native 3D scene. | Use it for spatial bar comparisons. |
+| [3D line](./line3d-basic) | Ordered 3D positions lowered into Scene3D primitives. | Use it for paths, movement, and ordered spatial traces. |
+| [3D line path](./scene3d-line-path) | Spheres and segment meshes forming a path. | Use it for trajectories and movement. |
+| [3D mesh field](./scene3d-mesh-field) | Mesh surface primitive. | Use it for custom mesh data. |
+| [3D network](./graph3d-network) | Scene3D nodes and segment meshes. | Use it for topology in depth. |
+| [3D network scene](./scene3d-network) | Node spheres connected by segment meshes. | Use it for spatial network views. |
+| [3D operations bars](./scene3d-operations-bars) | 3D bars over an operational grid. | Use it when spatial placement helps compare operational metrics. |
+| [3D outlier scatter](./scene3d-scatter-outliers) | 3D points with varied position and radius. | Use it to show outliers in a point cloud. |
+| [3D response surface](./scene3d-surface-response) | Mesh vertices and indices forming a surface. | Use it for continuous spatial fields. |
+| [3D risk terrain](./scene3d-terrain-risk) | Terrain surface using native mesh rendering. | Use it for risk and elevation-like surfaces. |
+| [3D scatter](./scatter3d-basic) | Vec&lt;(x, y, z, radius)&gt; lowered into Scene3D spheres. | Use it when all three dimensions are meaningful and the app benefits from spatial inspection. |
+| [3D scatter cluster](./scatter3d-cluster) | Scene3D spheres. | Use it for spatial sample clusters. |
+| [3D scatter outliers](./scatter3d-outliers) | Scene3D spheres. | Use it for spatial outlier inspection. |
+| [3D service cloud](./scene3d-service-cloud) | Service points in 3D space. | Use it to visualize clusters of service observations. |
+| [3D spiral line](./line3d-spiral) | Scene3D mesh segments plus points. | Use it for ordered spatial signals. |
+| [3D spiral path](./scene3d-line-spiral) | Line path through depth. | Use it for trajectory demos and spatial flows. |
+| [3D surface](./surface3d-basic) | Mesh vertices and triangle indices generated from sampled z values. | Use it for terrain, response surfaces, and continuous two-variable functions. |
+| [3D terrain mesh](./surface3d-terrain) | Scene3D mesh vertices and indices. | Use it for elevation and terrain fields. |
+| [3D terrain response](./scene3d-surface-terrain) | Raised terrain-like mesh. | Use it for elevation and field surfaces. |
+| [3D topology](./graph3d-topology) | Scene3D nodes and segment meshes. | Use it for spatial relationship maps. |
+| [3D topology scene](./scene3d-topology) | 3D graph nodes and links. | Use it when topology benefits from depth. |
+| [3D trajectory](./line3d-trajectory) | Scene3D mesh segments plus spheres. | Use it for movement paths. |
+| [3D volume points](./scene3d-volume-points) | Point field suggesting volume data. | Use it as the native point-based volume path. |
+| [3D wave surface](./surface3d-wave) | Scene3D mesh vertices and indices. | Use it for sampled surfaces. |
+| [3D wave surface](./scene3d-surface-wave) | Surface mesh with wave-like height variation. | Use it for continuous response fields. |
+| [Dense 3D point cloud](./scene3d-point-cloud-dense) | Many small spheres in 3D space. | Use it for point fields and early volume-style views. |
+| [Dense point cloud](./point-cloud-dense) | Scene3D spheres. | Use it for scan-like data. |
+| [Globe](./globe-basic) | Scene3D sphere primitives plus marker primitives. | Use it when global shape and spatial orientation matter to the reader. |
+| [Globe coverage](./globe-coverage) | Scene3D spheres. | Use it for global product surfaces. |
+| [Globe markers](./globe-markers) | Scene3D spheres. | Use it for global context. |
+| [Mesh surface](./mesh-surface) | Scene3D mesh primitive. | Use it for custom mesh data. |
+| [Point cloud](./point-cloud) | A collection of x, y, z positions with point radii. | Use it for spatial samples, scan data, and dense 3D observations. |
+| [Sparse 3D point cloud](./scene3d-point-cloud-sparse) | Sparse spatial points. | Use it when individual 3D observations need separation. |
+| [Sparse point cloud](./point-cloud-sparse) | Scene3D spheres. | Use it for sampled spatial observations. |
+| [Terrain surface](./terrain-surface) | Grid-generated mesh vertices and triangle indices. | Use it for terrain, elevation, and other continuous spatial fields. |
+| [Volume-style point field](./volume-style) | Scene3D spheres. | Use it as the current native path toward volume-style visualization. |
+
+## Choosing within this family
+
+Start with the user's question, not the visual effect. Pick the simplest variant that makes the answer clear, add interaction only when it reduces work for the user, and keep animation purposeful enough that it explains a change rather than decorating the page.

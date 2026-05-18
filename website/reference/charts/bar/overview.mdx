@@ -1,0 +1,60 @@
+---
+title: Bar
+sidebar_label: Overview
+description: Fission Charts reference for the Bar family.
+---
+
+# Bar
+
+The Bar family contains 38 renderer-backed chart variants. Use this page as the entry point for choosing the right variant, then open the variant page for the screenshot, data shape, Rust API notes, and example code.
+
+The chart family is still ordinary Fission UI. Each variant is constructed from typed Rust data, participates in layout and theme decisions, and can be driven by app state, reducers, resources, jobs, or services just like any other widget.
+
+![Benchmark comparison screenshot](/img/charts/bar-benchmark-comparison.png)
+
+## Variants
+
+| Chart | Data shape | Use when |
+| --- | --- | --- |
+| [Benchmark comparison](./bar-benchmark-comparison) | Actual and benchmark values side by side. | Use it when each category needs a direct benchmark. |
+| [Budget stack](./bar-budget-stack) | Stacked BarSeries values. | Use it for departmental totals and breakdowns. |
+| [Budget variance](./bar-budget-variance) | Signed budget variances on a horizontal axis. | Use it when over and under budget must be symmetric. |
+| [Capacity bars](./bar-capacity) | BarSeries plus maximum axis and background. | Use it for quota and inventory screens. |
+| [Channel stack](./bar-channel-stack) | Multiple series stacked per category. | Use it when total and contribution both matter. |
+| [Compact category bars](./bar-compact) | Vec&lt;f32&gt; aligned to categories. | Use it for short lists and cards. |
+| [Customer segment bars](./bar-customer-segments) | Segment values grouped by period. | Use it to compare segments without splitting the page. |
+| [Diverging bar](./bar-diverging) | Positive and negative BarSeries values. | Use it for sentiment, deltas, and balance views. |
+| [Funnel unit pictorial bars](./bar-funnel-units) | Values represented by repeated symbols. | Use it when unit counts should feel more tactile than rectangles. |
+| [Grouped quarterly bars](./bar-grouped-quarter) | Multiple BarSeries on the same categories. | Use it for side-by-side period comparisons. |
+| [KPI background bars](./bar-kpi-background) | BarSeries with background styling. | Use it for KPI completion panels. |
+| [Negative delta bars](./bar-negative-delta) | BarSeries values crossing zero. | Use it for variance and profit/loss dashboards. |
+| [Performance bands](./bar-performance-bands) | Values shown against a visual capacity track. | Use it for scorecards where progress is the dominant signal. |
+| [Pictorial units](./bar-pictorial-units) | PictorialBarSeries values. | Use it for branded but still quantitative category displays. |
+| [Priority queue bars](./bar-priority-queue) | Rounded bars for a compact queue view. | Use it when bars sit inside a polished app surface. |
+| [Product stack bars](./bar-product-stack) | Product values stacked into category totals. | Use it for portfolio composition. |
+| [Profit and loss bars](./bar-profit-loss) | Positive and negative values on one value axis. | Use it when gains and losses must share one baseline. |
+| [Quarter waterfall](./bar-quarter-waterfall) | Sequential deltas that explain a final value. | Use it for financial bridge and variance analysis. |
+| [Ranked bar](./bar-ranked) | BarSeries with horizontal orientation. | Use it for rankings with long labels. |
+| [Region comparison bars](./bar-region-comparison) | Multiple BarSeries. | Use it for region-by-period comparisons. |
+| [Region ranking](./bar-region-rank) | Category/value pairs sorted for comparison. | Use it when exact rank is the product question. |
+| [Retail waterfall](./bar-retail-waterfall) | Sequential sales and cost changes. | Use it for retail contribution analysis. |
+| [Return deltas](./bar-return-deltas) | Category deltas with negative values. | Use it for change analysis around zero. |
+| [Rounded bar](./bar-rounded) | BarSeries with border radius. | Use it when the chart sits in a polished product dashboard. |
+| [Sales target track](./bar-sales-target-track) | Values against a fixed target background. | Use it when completion against capacity is more important than raw count. |
+| [SLA breach delta](./bar-sla-breach-delta) | Deltas above and below a service baseline. | Use it for operational exception reporting. |
+| [Small multiple bars A](./bar-small-multiples-a) | BarSeries values on a category axis. | Use it in repeated dashboard cards. |
+| [Small multiple bars B](./bar-small-multiples-b) | BarSeries values on a category axis. | Use it when multiple products use the same visual scale. |
+| [Sorted horizontal bars](./bar-sorted-horizontal) | BarSeries with category y-axis. | Use it for top-N views. |
+| [Stacked revenue bars](./bar-stacked-revenue) | Multiple BarSeries sharing a stack key. | Use it when totals and composition matter together. |
+| [Store comparison](./bar-store-comparison) | Grouped category values across periods. | Use it to compare periods inside each category. |
+| [Team load bars](./bar-team-load) | Team categories ranked by workload. | Use it when managers need quick capacity comparison. |
+| [Ticket age distribution](./bar-ticket-age) | Buckets with counts per age range. | Use it when the reader needs the shape of a queue. |
+| [Track progress bars](./bar-track-progress) | BarSeries with background color. | Use it for completion and capacity comparisons. |
+| [Utilization capacity](./bar-utilization-capacity) | Usage bars with capacity tracks. | Use it for infrastructure and quota dashboards. |
+| [Waterfall bar](./bar-waterfall) | Delta values over ordered categories. | Use it for profit bridges and cumulative change explanations. |
+| [Weekday shape bars](./bar-weekday-shape) | Seven ordered weekday values. | Use it when the weekly rhythm is easier as bars than a line. |
+| [Wide-label horizontal bars](./bar-wide-labels) | BarSeries with category y-axis. | Use it when labels would collide on the x-axis. |
+
+## Choosing within this family
+
+Start with the user's question, not the visual effect. Pick the simplest variant that makes the answer clear, add interaction only when it reduces work for the user, and keep animation purposeful enough that it explains a change rather than decorating the page.

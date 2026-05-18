@@ -1,0 +1,53 @@
+---
+title: 3D trajectory
+sidebar_label: 3D trajectory
+description: Fission Charts reference for 3D trajectory.
+---
+
+# 3D trajectory
+
+![3D trajectory screenshot](/img/charts/line3d-trajectory.png)
+
+3D trajectory through sampled points. Use it for movement paths. The screenshot is captured from the native Fission chart gallery.
+
+## What the chart is for
+
+3D trajectory belongs to the **3D and GL** family. Its job is to make this data shape readable: `Scene3D mesh segments plus spheres.` In a production interface, choose this chart when the visual form makes the user's question faster to answer than a table or a simpler chart would.
+
+Avoid it when the visual form makes the user estimate more than necessary; choose the simplest chart that answers the product question.
+
+## Data model
+
+`Scene3D mesh segments plus spheres.` Keep the data close to the Rust type that describes it. Fission Charts is typed Rust, so each chart uses explicit series and component structs instead of string configuration hidden in a loosely typed object.
+
+## Rust API
+
+| Field | Type | Notes |
+| --- | --- | --- |
+| `title` | `&str` | Names the chart for the screen, accessibility tree, and test output. |
+| `Scene3D` | `Scene3D` | Defines native 3D primitives, camera, light, and material data. |
+| `width / height` | `f32` | Optional fixed size; omit them when the scene should flex inside Fission layout. |
+
+## Example
+
+```rust
+use fission_3d::{Scene3D, Vec3};
+
+let scene = Scene3D::new()
+    .size(720.0, 420.0)
+    .camera(Vec3::new(3.5, 2.6, 5.0), Vec3::ZERO)
+    .ambient_light(0.45);
+```
+
+## Interaction and animation
+
+Charts can emit typed `ChartInteractionEvent` values when interaction is enabled. Handle those events in a reducer when the app needs hover, press, release, scroll, selection, or brush behavior. `ChartAnimation` stores duration, delay, stagger, easing, and reduced-motion behavior as deterministic chart data, so animation timing can be tested instead of being hidden in ad-hoc timers.
+
+## Testing guidance
+
+For this chart, test the data mapping first, then test lowering, then capture a live screenshot when visual output changes. The screenshot for this page is refreshed with `npm run charts:generate` from the website package.
+
+Tags: `3d`, `line`.
+
+
+[3D and GL family overview](./overview)

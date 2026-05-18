@@ -44,6 +44,8 @@
 .chartCard {
   border-radius: 1.1rem;
   overflow: hidden;
+  color: inherit;
+  text-decoration: none;
 }
 
 .chartCard img {
@@ -97,31 +99,6 @@
   line-height: 1.52;
 }
 
-.status {
-  flex: 0 0 auto;
-  border-radius: 999px;
-  padding: 0.24rem 0.52rem;
-  font-size: 0.72rem;
-  font-weight: 750;
-  line-height: 1.2;
-  white-space: nowrap;
-}
-
-.available {
-  background: color-mix(in srgb, #14b8a6 18%, transparent);
-  color: #0f766e;
-}
-
-.next {
-  background: color-mix(in srgb, #2563eb 16%, transparent);
-  color: #1d4ed8;
-}
-
-.planned {
-  background: color-mix(in srgb, #f59e0b 18%, transparent);
-  color: #b45309;
-}
-
 .tags {
   display: flex;
   flex-wrap: wrap;
@@ -151,6 +128,8 @@
   align-items: center;
   border-radius: 1rem;
   padding: 0.65rem;
+  color: inherit;
+  text-decoration: none;
 }
 
 .compactCard img {
@@ -176,6 +155,8 @@
 .summaryCard {
   border-radius: 1rem;
   padding: 1rem;
+  color: inherit;
+  text-decoration: none;
 }
 
 .summaryCard span {
@@ -189,18 +170,6 @@
 :global([data-theme='dark']) .compactCard,
 :global([data-theme='dark']) .summaryCard {
   box-shadow: none;
-}
-
-:global([data-theme='dark']) .available {
-  color: #5eead4;
-}
-
-:global([data-theme='dark']) .next {
-  color: #93c5fd;
-}
-
-:global([data-theme='dark']) .planned {
-  color: #fcd34d;
 }
 
 @media screen and (max-width: 996px) {

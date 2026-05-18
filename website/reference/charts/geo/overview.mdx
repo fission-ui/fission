@@ -1,0 +1,42 @@
+---
+title: Geo
+sidebar_label: Overview
+description: Fission Charts reference for the Geo family.
+---
+
+# Geo
+
+The Geo family contains 20 renderer-backed chart variants. Use this page as the entry point for choosing the right variant, then open the variant page for the screenshot, data shape, Rust API notes, and example code.
+
+The chart family is still ordinary Fission UI. Each variant is constructed from typed Rust data, participates in layout and theme decisions, and can be driven by app state, reducers, resources, jobs, or services just like any other widget.
+
+![Capacity regions map screenshot](/img/charts/map-capacity-regions.png)
+
+## Variants
+
+| Chart | Data shape | Use when |
+| --- | --- | --- |
+| [Capacity regions map](./map-capacity-regions) | Region values with visual scale. | Use it for capacity by geography. |
+| [Courier routes](./lines-courier-routes) | Point-to-point route lines. | Use it for logistics routing. |
+| [Coverage score map](./map-coverage-score) | Coverage scores by region. | Use it for service coverage surfaces. |
+| [Data center links](./geo-data-center-links) | Route-like links between points. | Use it for infrastructure network views. |
+| [Dispatch routes](./geo-dispatch-routes) | Map regions plus route lines. | Use it when routes need region context. |
+| [Expansion plan map](./map-expansion-plan) | Planning values by region. | Use it for geographic planning dashboards. |
+| [Flight density lines](./lines-flight-density) | Dense route lines between points. | Use it for movement patterns. |
+| [Incident routing lines](./lines-incident-routing) | Routes representing response movement. | Use it for dispatch and response analytics. |
+| [Incident severity map](./map-incident-severity) | Severity values mapped to region color. | Use it for incident command views. |
+| [Market regions map](./map-market-regions) | Named regions with values. | Use it for regional comparisons where shape matters. |
+| [Migration flow](./geo-migration-flow) | Region map plus movement routes. | Use it for source-to-destination stories. |
+| [Network overlay](./geo-network-overlay) | Region values with connection lines. | Use it for linked geographic systems. |
+| [Network traffic lines](./lines-network-traffic) | Route lines with effect markers. | Use it for flow over a spatial surface. |
+| [Risk regions map](./map-risk-regions) | Region values mapped to color. | Use it to scan geographic risk. |
+| [Route overlay map](./geo-route-overlay) | Map and line series together. | Use it when geography and movement are inseparable. |
+| [Sales route map](./geo-sales-routes) | Sales territories with route overlays. | Use it for field team planning. |
+| [Sales territory map](./map-sales-territory) | Territory values over named regions. | Use it when territory is the mental model. |
+| [Service health map](./map-service-health) | Region health values. | Use it for operational geography. |
+| [Supply routes](./lines-supply-routes) | Coordinate pairs representing routes. | Use it for route and movement diagrams. |
+| [Support demand map](./map-support-demand) | Demand values over regions. | Use it to allocate support capacity geographically. |
+
+## Choosing within this family
+
+Start with the user's question, not the visual effect. Pick the simplest variant that makes the answer clear, add interaction only when it reduces work for the user, and keep animation purposeful enough that it explains a change rather than decorating the page.

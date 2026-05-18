@@ -1,7 +1,7 @@
 ---
 title: Data and interaction
 sidebar_label: Data and interaction
-description: Understand datasets, axes, visual maps, zoom, tooltips, and future interaction paths in Fission Charts.
+description: Understand datasets, axes, visual maps, zoom, tooltips, and typed interaction paths in Fission Charts.
 ---
 
 # Data and interaction
@@ -53,11 +53,19 @@ let visual_map = VisualMap::new()
     ]);
 ```
 
-## Tooltips, axis pointers, and zoom
+## Tooltips, axis pointers, brush, and zoom
 
-Tooltips and axis pointers are interactive readout tools. They should answer "what exact value is under the pointer?" without forcing the user to estimate from grid lines. Data zoom lets the user inspect part of an ordered series without losing the overall context.
+Tooltips and axis pointers are interactive readout tools. They should answer "what exact value is under the pointer?" without forcing the user to estimate from grid lines. Data zoom lets the user inspect part of an ordered series without losing the overall context. Brush selection lets the user draw attention to a region of points or values, and toolbox actions keep common chart commands next to the chart they affect.
 
-The current chart renderer stores tooltip, axis pointer, and data zoom configuration in the typed chart model. The next implementation work wires those configuration records into pointer handling, viewport filtering, and reducers so chart interaction follows the same explicit event path as the rest of Fission.
+The chart renderer stores tooltip, axis pointer, brush, toolbox, and data zoom configuration in the typed chart model. Data zoom filters ordered series before domain resolution, so the visible chart and its axes agree. When event emission is enabled, chart hit testing dispatches `ChartInteractionEvent` values with the resolved series index, data index, and values. Your reducer can then update app state in the same explicit path used by buttons, forms, and other Fission widgets.
+
+```rust
+use fission_charts::{ChartBrush, ChartInteraction, ChartTooltipTrigger};
+
+let interaction = ChartInteraction::tooltips(ChartTooltipTrigger::Axis)
+    .brush(ChartBrush::rect())
+    .emit_events(true);
+```
 
 ## Testing chart behavior
 

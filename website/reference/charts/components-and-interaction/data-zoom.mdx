@@ -1,0 +1,55 @@
+---
+title: Data zoom
+sidebar_label: Data zoom
+description: Fission Charts reference for Data zoom.
+---
+
+# Data zoom
+
+![Data zoom screenshot](/img/charts/data-zoom.png)
+
+A slider selection that limits the visible portion of ordered data. Use it when the user needs to inspect a slice of a longer series without leaving context. The screenshot is captured from the native Fission chart gallery.
+
+## What the chart is for
+
+Data zoom belongs to the **Components and interaction** family. Its job is to make this data shape readable: `DataZoom start and end percentages plus ordered series data.` In a production interface, choose this chart when the visual form makes the user's question faster to answer than a table or a simpler chart would.
+
+Avoid it when the visual form makes the user estimate more than necessary; choose the simplest chart that answers the product question.
+
+## Data model
+
+`DataZoom start and end percentages plus ordered series data.` Keep the data close to the type that describes it. Fission Charts is typed Rust, so a line uses `LineSeries`, a calendar heatmap uses `CalendarHeatmapSeries`, and chart components such as zoom, marks, and graphics are explicit fields on `Chart` rather than hidden string configuration.
+
+## Rust API
+
+| Field | Type | Notes |
+| --- | --- | --- |
+| `title` | `&str` | Names the chart for the screen, accessibility tree, and test output. |
+| `data_zoom` | `DataZoom` | Sets the visible percentage range for ordered data. |
+| `width / height` | `f32` | Optional fixed size; omit them when the chart should flex inside Fission layout. |
+
+## Example
+
+```rust
+use fission_charts::{Axis, Chart, DataZoom, LineSeries};
+
+let chart = Chart::new()
+    .title("Data zoom")
+    .x_axis(Axis::category(vec!["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug"]))
+    .y_axis(Axis::value())
+    .data_zoom(DataZoom::new().start_percent(18.0).end_percent(82.0))
+    .series(vec![LineSeries::new("Requests").data(vec![120.0, 142.0, 118.0, 190.0, 240.0, 220.0, 260.0, 310.0]).into()]);
+```
+
+## Interaction and animation
+
+Charts can emit typed `ChartInteractionEvent` values when interaction is enabled. Handle those events in a reducer when the app needs hover, press, release, scroll, selection, or brush behavior. `ChartAnimation` stores duration, delay, stagger, easing, and reduced-motion behavior as deterministic chart data, so animation timing can be tested instead of being hidden in ad-hoc timers.
+
+## Testing guidance
+
+For this chart, test the data mapping first, then test lowering, then capture a live screenshot when visual output changes. The screenshot for this page is refreshed with `npm run charts:generate` from the website package.
+
+Tags: `dataZoom`, `interaction`.
+
+
+[Components and interaction family overview](./overview)

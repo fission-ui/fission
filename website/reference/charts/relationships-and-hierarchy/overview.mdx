@@ -1,0 +1,31 @@
+---
+title: Relationships and hierarchy
+sidebar_label: Overview
+description: Fission Charts reference for the Relationships and hierarchy family.
+---
+
+# Relationships and hierarchy
+
+The Relationships and hierarchy family contains 9 renderer-backed chart variants. Use this page as the entry point for choosing the right variant, then open the variant page for the screenshot, data shape, Rust API notes, and example code.
+
+The chart family is still ordinary Fission UI. Each variant is constructed from typed Rust data, participates in layout and theme decisions, and can be driven by app state, reducers, resources, jobs, or services just like any other widget.
+
+![Force graph screenshot](/img/charts/graph-force.png)
+
+## Variants
+
+| Chart | Data shape | Use when |
+| --- | --- | --- |
+| [Force graph](./graph-force) | Node list plus edge list. | Use it for dependency, social, and topology diagrams. |
+| [Funnel](./funnel-basic) | Ordered label/value pairs. | Use it for conversion stages and pipeline health. |
+| [Parallel coordinates](./parallel-basic) | Vec&lt;Vec&lt;f32&gt;&gt; with one row per observation. | Use it for high-dimensional filtering and comparison. |
+| [Radial tree](./tree-radial) | Nested nodes with optional values. | Use it when the hierarchy is shallow and symmetry matters more than linear reading. |
+| [Sankey](./sankey-basic) | Node list plus weighted edges. | Use it for energy, revenue, and conversion flows. |
+| [Sunburst](./sunburst-basic) | Nested nodes with values. | Use it when hierarchy depth should remain visible. |
+| [Theme river](./theme-river) | Time, value, and category tuples. | Use it when composition changes continuously over time. |
+| [Tree](./tree-basic) | Nested nodes with optional values. | Use it for navigation structures, ownership trees, and dependency drilldown. |
+| [Treemap](./treemap-basic) | Nested nodes with values. | Use it for storage, budgets, or part-to-whole hierarchy. |
+
+## Choosing within this family
+
+Start with the user's question, not the visual effect. Pick the simplest variant that makes the answer clear, add interaction only when it reduces work for the user, and keep animation purposeful enough that it explains a change rather than decorating the page.

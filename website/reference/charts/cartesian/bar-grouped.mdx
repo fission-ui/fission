@@ -1,0 +1,55 @@
+---
+title: Grouped bar
+sidebar_label: Grouped bar
+description: Fission Charts reference for Grouped bar.
+---
+
+# Grouped bar
+
+![Grouped bar screenshot](/img/charts/bar-grouped.png)
+
+Several bar series shown side by side for each category. Use it to compare related measures within each group. The screenshot is captured from the native Fission chart gallery.
+
+## What the chart is for
+
+Grouped bar belongs to the **Cartesian** family. Its job is to make this data shape readable: `Multiple bar series sharing the same category axis.` In a production interface, choose this chart when the visual form makes the user's question faster to answer than a table or a simpler chart would.
+
+Avoid it when the visual form makes the user estimate more than necessary; choose the simplest chart that answers the product question.
+
+## Data model
+
+`Multiple bar series sharing the same category axis.` Keep the data close to the type that describes it. Fission Charts is typed Rust, so a line uses `LineSeries`, a calendar heatmap uses `CalendarHeatmapSeries`, and chart components such as zoom, marks, and graphics are explicit fields on `Chart` rather than hidden string configuration.
+
+## Rust API
+
+| Field | Type | Notes |
+| --- | --- | --- |
+| `title` | `&str` | Names the chart for the screen, accessibility tree, and test output. |
+| `x_axis / y_axis` | `Axis` | Vertical bars use category x/value y; horizontal bars use value x/category y. |
+| `series` | `BarSeries` | Holds values plus stack, orientation, radius, background, and color styling. |
+| `width / height` | `f32` | Optional fixed size; omit them when the chart should flex inside Fission layout. |
+
+## Example
+
+```rust
+use fission_charts::{Axis, BarSeries, Chart};
+
+let chart = Chart::new()
+    .title("Category comparison")
+    .x_axis(Axis::category(vec!["A", "B", "C", "D"]))
+    .y_axis(Axis::value())
+    .series(vec![BarSeries::new("Orders").data(vec![120.0, 200.0, 150.0, 80.0]).into()]);
+```
+
+## Interaction and animation
+
+Charts can emit typed `ChartInteractionEvent` values when interaction is enabled. Handle those events in a reducer when the app needs hover, press, release, scroll, selection, or brush behavior. `ChartAnimation` stores duration, delay, stagger, easing, and reduced-motion behavior as deterministic chart data, so animation timing can be tested instead of being hidden in ad-hoc timers.
+
+## Testing guidance
+
+For this chart, test the data mapping first, then test lowering, then capture a live screenshot when visual output changes. The screenshot for this page is refreshed with `npm run charts:generate` from the website package.
+
+Tags: `bar`, `grouped`.
+
+
+[Cartesian family overview](./overview)

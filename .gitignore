@@ -30,3 +30,5 @@ test_output.txt
 /manual_audit/*/*
 !/manual_audit/*/findings.md
 **/platforms/*/build/
+website/node_modules
+website/build

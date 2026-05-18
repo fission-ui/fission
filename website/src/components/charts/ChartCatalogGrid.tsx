@@ -1,20 +1,19 @@
-import clsx from 'clsx';
+import Link from '@docusaurus/Link';
 import useBaseUrl from '@docusaurus/useBaseUrl';
-import {chartCatalog, chartFamilies, type ChartCatalogEntry, type ChartStatus} from '../../data/chartCatalog';
+import {
+  chartCatalog,
+  chartFamilies,
+  chartFamilyReferencePath,
+  chartReferencePath,
+  type ChartCatalogEntry,
+} from '../../data/chartCatalog';
 import styles from './ChartCatalogGrid.module.css';
 
 type ChartCatalogGridProps = {
   families?: string[];
   limit?: number;
   slugs?: string[];
-  statuses?: ChartStatus[];
   compact?: boolean;
-};
-
-const statusLabels: Record<ChartStatus, string> = {
-  available: 'Available now',
-  next: 'Next implementation slice',
-  planned: 'Planned catalog target',
 };
 
 function ChartImage({chart}: {chart: ChartCatalogEntry}) {
@@ -22,15 +21,13 @@ function ChartImage({chart}: {chart: ChartCatalogEntry}) {
   return <img src={src} alt={`${chart.title} chart screenshot`} loading='lazy' />;
 }
 
-export function ChartCatalogGrid({families, limit, slugs, statuses, compact = false}: ChartCatalogGridProps) {
+export function ChartCatalogGrid({families, limit, slugs, compact = false}: ChartCatalogGridProps) {
   const selectedFamilies = families ?? chartFamilies;
   const slugSet = slugs ? new Set(slugs) : undefined;
-  const statusSet = statuses ? new Set(statuses) : undefined;
 
   let charts = chartCatalog.filter((chart) => {
     if (!selectedFamilies.includes(chart.family)) return false;
     if (slugSet && !slugSet.has(chart.slug)) return false;
-    if (statusSet && !statusSet.has(chart.status)) return false;
     return true;
   });
 
@@ -46,13 +43,13 @@ export function ChartCatalogGrid({families, limit, slugs, statuses, compact = fa
     return (
       <div className={styles.compactGrid}>
         {charts.map((chart) => (
-          <article key={chart.slug} className={styles.compactCard}>
+          <Link key={chart.slug} className={styles.compactCard} to={chartReferencePath(chart)}>
             <ChartImage chart={chart} />
             <div>
               <p>{chart.family}</p>
               <h3>{chart.title}</h3>
             </div>
-          </article>
+          </Link>
         ))}
       </div>
     );
@@ -71,12 +68,11 @@ export function ChartCatalogGrid({families, limit, slugs, statuses, compact = fa
             </div>
             <div className={styles.catalogGrid}>
               {familyCharts.map((chart) => (
-                <article key={chart.slug} className={styles.chartCard}>
+                <Link key={chart.slug} className={styles.chartCard} to={chartReferencePath(chart)}>
                   <ChartImage chart={chart} />
                   <div className={styles.cardBody}>
                     <div className={styles.cardTitleRow}>
                       <h3>{chart.title}</h3>
-                      <span className={clsx(styles.status, styles[chart.status])}>{statusLabels[chart.status]}</span>
                     </div>
                     <p>{chart.description}</p>
                     <dl>
@@ -95,7 +91,7 @@ export function ChartCatalogGrid({families, limit, slugs, statuses, compact = fa
                       ))}
                     </div>
                   </div>
-                </article>
+                </Link>
               ))}
             </div>
           </section>
@@ -110,13 +106,12 @@ export function ChartFamilySummary() {
     <div className={styles.summaryGrid}>
       {chartFamilies.map((family) => {
         const charts = chartCatalog.filter((chart) => chart.family === family);
-        const available = charts.filter((chart) => chart.status === 'available').length;
         return (
-          <article key={family} className={styles.summaryCard}>
+          <Link key={family} className={styles.summaryCard} to={chartFamilyReferencePath(family)}>
             <p>{charts.length} variants</p>
             <h3>{family}</h3>
-            <span>{available} available now</span>
-          </article>
+            <span>Open the family reference</span>
+          </Link>
         );
       })}
     </div>

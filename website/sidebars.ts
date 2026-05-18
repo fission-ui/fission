@@ -46,6 +46,7 @@ const sidebars: SidebarsConfig = {
       collapsed: false,
       items: [
         'charts/catalog',
+        'charts/series-and-datasets',
         'charts/data-and-interaction',
         'charts/three-dimensional-and-gl',
       ],

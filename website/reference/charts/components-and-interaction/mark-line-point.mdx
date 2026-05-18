@@ -1,0 +1,59 @@
+---
+title: Mark line and point
+sidebar_label: Mark line and point
+description: Fission Charts reference for Mark line and point.
+---
+
+# Mark line and point
+
+![Mark line and point screenshot](/img/charts/mark-line-point.png)
+
+Target bands, threshold lines, and named points layered over cartesian data. Use it to explain thresholds, goals, anomalies, or operational bands directly on the chart. The screenshot is captured from the native Fission chart gallery.
+
+## What the chart is for
+
+Mark line and point belongs to the **Components and interaction** family. Its job is to make this data shape readable: `MarkArea, MarkLine, and MarkPoint records attached to a chart.` In a production interface, choose this chart when the visual form makes the user's question faster to answer than a table or a simpler chart would.
+
+Avoid it when the visual form makes the user estimate more than necessary; choose the simplest chart that answers the product question.
+
+## Data model
+
+`MarkArea, MarkLine, and MarkPoint records attached to a chart.` Keep the data close to the type that describes it. Fission Charts is typed Rust, so a line uses `LineSeries`, a calendar heatmap uses `CalendarHeatmapSeries`, and chart components such as zoom, marks, and graphics are explicit fields on `Chart` rather than hidden string configuration.
+
+## Rust API
+
+| Field | Type | Notes |
+| --- | --- | --- |
+| `title` | `&str` | Names the chart for the screen, accessibility tree, and test output. |
+| `mark_point` | `MarkPoint` | Annotates a named data point. |
+| `mark_line` | `MarkLine` | Draws a threshold or target line. |
+| `mark_area` | `MarkArea` | Highlights a value band. |
+| `width / height` | `f32` | Optional fixed size; omit them when the chart should flex inside Fission layout. |
+
+## Example
+
+```rust
+use fission_charts::{Axis, Chart, LineSeries, MarkArea, MarkLine, MarkPoint};
+
+let chart = Chart::new()
+    .title("Markers and target band")
+    .x_axis(Axis::category(vec!["Jan", "Feb", "Mar", "Apr", "May", "Jun"]))
+    .y_axis(Axis::value())
+    .mark_area(MarkArea::y_range("Target band", 120.0, 190.0))
+    .mark_line(MarkLine::y("Target", 160.0))
+    .mark_point(MarkPoint::xy("Peak", 4.0, 230.0))
+    .series(vec![LineSeries::new("Revenue").data(vec![80.0, 132.0, 101.0, 184.0, 230.0, 210.0]).into()]);
+```
+
+## Interaction and animation
+
+Charts can emit typed `ChartInteractionEvent` values when interaction is enabled. Handle those events in a reducer when the app needs hover, press, release, scroll, selection, or brush behavior. `ChartAnimation` stores duration, delay, stagger, easing, and reduced-motion behavior as deterministic chart data, so animation timing can be tested instead of being hidden in ad-hoc timers.
+
+## Testing guidance
+
+For this chart, test the data mapping first, then test lowering, then capture a live screenshot when visual output changes. The screenshot for this page is refreshed with `npm run charts:generate` from the website package.
+
+Tags: `markPoint`, `markLine`, `markArea`.
+
+
+[Components and interaction family overview](./overview)

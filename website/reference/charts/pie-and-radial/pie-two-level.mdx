@@ -1,0 +1,56 @@
+---
+title: Two-level donut
+sidebar_label: Two-level donut
+description: Fission Charts reference for Two-level donut.
+---
+
+# Two-level donut
+
+![Two-level donut screenshot](/img/charts/pie-two-level.png)
+
+Donut chart for a small part-to-whole breakdown. Use it for compact composition summaries. The screenshot is captured from the native Fission chart gallery.
+
+## What the chart is for
+
+Two-level donut belongs to the **Pie and radial** family. Its job is to make this data shape readable: `Label/value pairs plus inner radius.` In a production interface, choose this chart when the visual form makes the user's question faster to answer than a table or a simpler chart would.
+
+Avoid it when the visual form makes the user estimate more than necessary; choose the simplest chart that answers the product question.
+
+## Data model
+
+`Label/value pairs plus inner radius.` Keep the data close to the Rust type that describes it. Fission Charts is typed Rust, so each chart uses explicit series and component structs instead of string configuration hidden in a loosely typed object.
+
+## Rust API
+
+| Field | Type | Notes |
+| --- | --- | --- |
+| `title` | `&str` | Names the chart for the screen, accessibility tree, and test output. |
+| `series` | `Series` | Provides the typed data model for this chart family. |
+| `width / height` | `f32` | Optional fixed size; omit them when the chart should flex inside Fission layout. |
+
+## Example
+
+```rust
+use fission_charts::{Chart, Legend, PieSeries};
+
+let chart = Chart::new()
+    .title("Share")
+    .legend(Legend::top_right())
+    .series(vec![PieSeries::new("Share")
+        .inner_radius(48.0)
+        .data(vec![("Search", 38.0), ("Direct", 32.0), ("Ads", 18.0)])
+        .into()]);
+```
+
+## Interaction and animation
+
+Charts can emit typed `ChartInteractionEvent` values when interaction is enabled. Handle those events in a reducer when the app needs hover, press, release, scroll, selection, or brush behavior. `ChartAnimation` stores duration, delay, stagger, easing, and reduced-motion behavior as deterministic chart data, so animation timing can be tested instead of being hidden in ad-hoc timers.
+
+## Testing guidance
+
+For this chart, test the data mapping first, then test lowering, then capture a live screenshot when visual output changes. The screenshot for this page is refreshed with `npm run charts:generate` from the website package.
+
+Tags: `pie`, `donut`.
+
+
+[Pie and radial family overview](./overview)
