@@ -1347,6 +1347,7 @@ dependencies = [
  "fission-render-vello",
  "fission-shell",
  "fission-shell-winit",
+ "fission-theme",
  "fission-widgets",
  "lazy_static",
  "serde",
@@ -1361,6 +1362,7 @@ dependencies = [
  "fission-core",
  "fission-shell",
  "fission-shell-winit",
+ "fission-theme",
  "winit",
 ]
 
@@ -1372,6 +1374,7 @@ dependencies = [
  "fission-core",
  "fission-shell",
  "fission-shell-winit",
+ "fission-theme",
 ]
 
 [[package]]

@@ -32,6 +32,14 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WebApp<S, W> {
         self
     }
 
+    pub fn with_design_system<D: fission_theme::DesignSystem>(
+        mut self,
+        mode: fission_theme::DesignMode,
+    ) -> Self {
+        self.inner = self.inner.with_design_system::<D>(mode);
+        self
+    }
+
     pub fn with_sync_env<F>(mut self, sync: F) -> Self
     where
         F: Fn(&S, &mut Env) + Send + Sync + 'static,
