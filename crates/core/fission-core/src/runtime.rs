@@ -8,8 +8,8 @@ use crate::registry::{
 };
 use crate::BoxedReducer;
 use crate::{
-    Clipboard, Clock, CurrentTime, ImeHandler, InputEvent, KeyCode, KeyEvent, PointerEvent,
-    ResourceExecutionContext,
+    Clipboard, Clock, CurrentTime, ImeHandler, InputEvent, KeyCode, KeyEvent, PointerButton,
+    PointerEvent, ResourceExecutionContext,
 };
 use anyhow::{anyhow, Result};
 use fission_diagnostics::prelude as diag;
@@ -636,6 +636,7 @@ impl Runtime {
         use crate::input::slider::SliderController;
         use crate::input::text::TextInputController;
         use crate::input::{ControllerContext, InputController};
+        use crate::scrollbar::scrollbar_hit_test;
         use crate::ui::custom_render::downcast_render_object;
 
         if self.runtime_state.interaction.focused.is_none() {
@@ -684,93 +685,112 @@ impl Runtime {
         // check whether any ancestor carries a custom render object.  The
         // first one that returns `handled = true` short-circuits the entire
         // standard controller chain.
-        if let Some(point) = Self::event_point(&event) {
-            if let Some(hit_node_id) =
-                hit_test_with_scroll(ir, layout, &self.runtime_state.scroll, point)
+        let pointer_targets_scrollbar = match &event {
+            InputEvent::Pointer(PointerEvent::Down { point, button, .. })
+                if matches!(button, PointerButton::Primary) =>
             {
-                // Find the custom render object for this click.  Walk up from the
-                // hit node first; if not found, check all registered render objects
-                // by rect containment (the hit may be on a wrapper node above the
-                // CustomNode's lowered subtree).
-                let mut target_ro: Option<(NodeId, &fission_ir::AnyRenderObject)> = None;
+                scrollbar_hit_test(ir, layout, &self.runtime_state.scroll, *point).is_some()
+            }
+            InputEvent::Pointer(PointerEvent::Move { .. })
+            | InputEvent::Pointer(PointerEvent::Up { .. }) => {
+                self.runtime_state.gesture.scrollbar_drag.is_some()
+            }
+            InputEvent::Pointer(PointerEvent::Scroll { point, .. }) => {
+                scrollbar_hit_test(ir, layout, &self.runtime_state.scroll, *point).is_some()
+            }
+            _ => false,
+        };
+
+        if !pointer_targets_scrollbar {
+            if let Some(point) = Self::event_point(&event) {
+                if let Some(hit_node_id) =
+                    hit_test_with_scroll(ir, layout, &self.runtime_state.scroll, point)
                 {
-                    let mut walk = Some(hit_node_id);
-                    while let Some(nid) = walk {
-                        if let Some(ro) = ir.custom_render_objects.get(&nid) {
-                            target_ro = Some((nid, ro));
-                            break;
-                        }
-                        walk = ir.nodes.get(&nid).and_then(|n| n.parent);
-                    }
-                }
-                if target_ro.is_none() {
-                    for (ro_nid, ro) in &ir.custom_render_objects {
-                        if let Some(rect) = layout.get_node_rect(*ro_nid) {
-                            if rect.contains(point) {
-                                target_ro = Some((*ro_nid, ro));
+                    // Find the custom render object for this click.  Walk up from the
+                    // hit node first; if not found, check all registered render objects
+                    // by rect containment (the hit may be on a wrapper node above the
+                    // CustomNode's lowered subtree).
+                    let mut target_ro: Option<(NodeId, &fission_ir::AnyRenderObject)> = None;
+                    {
+                        let mut walk = Some(hit_node_id);
+                        while let Some(nid) = walk {
+                            if let Some(ro) = ir.custom_render_objects.get(&nid) {
+                                target_ro = Some((nid, ro));
                                 break;
                             }
+                            walk = ir.nodes.get(&nid).and_then(|n| n.parent);
                         }
                     }
-                }
-
-                if let Some((nid, any_ro)) = target_ro {
-                    if let Some(render_obj) = downcast_render_object(any_ro) {
-                        let mut node_rect = layout
-                            .get_node_rect(nid)
-                            .unwrap_or(LayoutRect::new(0.0, 0.0, 0.0, 0.0));
-                        // Adjust node_rect by ancestor scroll offsets so it reflects
-                        // the VISUAL position, matching the screen-coordinate click.
-                        {
-                            let mut walk = ir.nodes.get(&nid).and_then(|n| n.parent);
-                            while let Some(pid) = walk {
-                                if let Some(pnode) = ir.nodes.get(&pid) {
-                                    if let fission_ir::Op::Layout(fission_ir::LayoutOp::Scroll {
-                                        direction,
-                                        ..
-                                    }) = &pnode.op
-                                    {
-                                        let off = self.runtime_state.scroll.get_offset(pid);
-                                        match direction {
-                                            fission_ir::FlexDirection::Row => {
-                                                node_rect.origin.x -= off
-                                            }
-                                            fission_ir::FlexDirection::Column => {
-                                                node_rect.origin.y -= off
-                                            }
-                                        }
-                                    }
-                                    walk = pnode.parent;
-                                } else {
+                    if target_ro.is_none() {
+                        for (ro_nid, ro) in &ir.custom_render_objects {
+                            if let Some(rect) = layout.get_node_rect(*ro_nid) {
+                                if rect.contains(point) {
+                                    target_ro = Some((*ro_nid, ro));
                                     break;
                                 }
                             }
                         }
-                        let result = render_obj.handle_event(nid, &event, node_rect);
-                        if result.handled {
-                            // Set focus to this node so keyboard events route here
-                            if matches!(event, InputEvent::Pointer(PointerEvent::Down { .. })) {
-                                let old_focused_id = self.runtime_state.interaction.focused;
-                                if Some(nid) != old_focused_id {
-                                    self.clear_text_pending_on_blur(old_focused_id, Some(nid));
-                                    self.dispatch_custom_blur_actions(ir, old_focused_id)?;
-                                }
-                                self.runtime_state.interaction.set_focused(Some(nid));
-                                if let Some(ime_handler) = &self.ime_handler {
-                                    let accepts_text = render_obj.accepts_text_input();
-                                    ime_handler.set_ime_allowed(accepts_text);
-                                    if accepts_text {
-                                        if let Some(rect) = render_obj.ime_cursor_area(node_rect) {
-                                            ime_handler.set_ime_cursor_area(rect);
+                    }
+
+                    if let Some((nid, any_ro)) = target_ro {
+                        if let Some(render_obj) = downcast_render_object(any_ro) {
+                            let mut node_rect = layout
+                                .get_node_rect(nid)
+                                .unwrap_or(LayoutRect::new(0.0, 0.0, 0.0, 0.0));
+                            // Adjust node_rect by ancestor scroll offsets so it reflects
+                            // the VISUAL position, matching the screen-coordinate click.
+                            {
+                                let mut walk = ir.nodes.get(&nid).and_then(|n| n.parent);
+                                while let Some(pid) = walk {
+                                    if let Some(pnode) = ir.nodes.get(&pid) {
+                                        if let fission_ir::Op::Layout(
+                                            fission_ir::LayoutOp::Scroll { direction, .. },
+                                        ) = &pnode.op
+                                        {
+                                            let off = self.runtime_state.scroll.get_offset(pid);
+                                            match direction {
+                                                fission_ir::FlexDirection::Row => {
+                                                    node_rect.origin.x -= off
+                                                }
+                                                fission_ir::FlexDirection::Column => {
+                                                    node_rect.origin.y -= off
+                                                }
+                                            }
                                         }
+                                        walk = pnode.parent;
+                                    } else {
+                                        break;
                                     }
                                 }
                             }
-                            // Dispatch any actions the render object produced.
-                            for (target, envelope) in result.actions {
-                                self.dispatch(envelope, target)?;
+                            let result = render_obj.handle_event(nid, &event, node_rect);
+                            if result.handled {
+                                // Set focus to this node so keyboard events route here
+                                if matches!(event, InputEvent::Pointer(PointerEvent::Down { .. })) {
+                                    let old_focused_id = self.runtime_state.interaction.focused;
+                                    if Some(nid) != old_focused_id {
+                                        self.clear_text_pending_on_blur(old_focused_id, Some(nid));
+                                        self.dispatch_custom_blur_actions(ir, old_focused_id)?;
+                                    }
+                                    self.runtime_state.interaction.set_focused(Some(nid));
+                                    if let Some(ime_handler) = &self.ime_handler {
+                                        let accepts_text = render_obj.accepts_text_input();
+                                        ime_handler.set_ime_allowed(accepts_text);
+                                        if accepts_text {
+                                            if let Some(rect) =
+                                                render_obj.ime_cursor_area(node_rect)
+                                            {
+                                                ime_handler.set_ime_cursor_area(rect);
+                                            }
+                                        }
+                                    }
+                                }
+                                // Dispatch any actions the render object produced.
+                                for (target, envelope) in result.actions {
+                                    self.dispatch(envelope, target)?;
+                                }
+                                return Ok(());
                             }
-                            return Ok(());
                         }
                     }
                 }
@@ -856,9 +876,12 @@ impl Runtime {
                         point.x, point.y, delta.x, delta.y
                     );
                 }
-                if let Some(hit_node_id) =
-                    hit_test_with_scroll(ir, layout, &self.runtime_state.scroll, point)
-                {
+                let hit_node_id = scrollbar_hit_test(ir, layout, &self.runtime_state.scroll, point)
+                    .map(|hit| hit.geometry.node_id)
+                    .or_else(|| {
+                        hit_test_with_scroll(ir, layout, &self.runtime_state.scroll, point)
+                    });
+                if let Some(hit_node_id) = hit_node_id {
                     if trace_scroll {
                         eprintln!("[scroll-trace] hit_node={}", hit_node_id.as_u128());
                     }
