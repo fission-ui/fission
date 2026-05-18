@@ -222,9 +222,9 @@ function Charts() {
             <p className={styles.sectionLead}>Beautiful charts</p>
             <h2 className={styles.sectionTitle}>Dashboards, analytics, finance, maps, networks, and 3D-ready visuals.</h2>
             <p className={styles.sectionIntro}>
-              Fission Charts is the native charting layer for Fission apps. Start with polished line,
-              bar, area, pie, scatter, heatmap, financial, relationship, and status charts today,
-              then grow into the broader catalog without leaving the Rust UI model.
+              Fission Charts is the native charting layer for Fission apps, with more than 400
+              renderer-backed variants covering line, bar, area, pie, scatter, heatmap, financial,
+              relationship, map, component, dynamic, and 3D chart work without leaving the Rust UI model.
             </p>
             <div className={styles.chartActions}>
               <Link className={styles.primaryCta} to='/docs/charts/overview'>
