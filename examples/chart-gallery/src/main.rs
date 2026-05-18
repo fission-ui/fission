@@ -3,15 +3,47 @@ use fission_3d::{Point3D, Primitive3D, Scene3D};
 use fission_charts::{
     Axis, BarSeries, BoxplotSeries, CandlestickSeries, Chart, DataValue, DataZoom, Dataset,
     EffectScatterSeries, Encode, FunnelSeries, GaugeSeries, GraphNode, GraphSeries, HeatmapSeries,
-    Legend, LineSeries, LiquidfillSeries, ParallelSeries, PictorialBarSeries, PieSeries,
-    RadarSeries, SankeySeries, ScatterSeries, Tooltip, TreemapNode, TreemapSeries, VisualMap,
-    WordcloudSeries,
+    Legend, LineSeries, LiquidfillSeries, MapSeries, ParallelSeries, PictorialBarSeries, PieSeries,
+    RadarSeries, SankeySeries, ScatterSeries, SunburstSeries, ThemeRiverSeries, Tooltip,
+    TreemapNode, TreemapSeries, VisualMap, WordcloudSeries,
 };
 use fission_core::op::Color;
 use fission_core::ui::{Button, ButtonVariant, Column, Container, Node, Row, Scroll, Text};
 use fission_core::{with_reducer, ActionEnvelope, AppState, BuildCtx, View, Widget};
 use fission_shell_desktop::DesktopApp;
 use serde::{Deserialize, Serialize};
+
+const SIMPLE_GEOJSON: &str = r#"
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": { "name": "North" },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[[0, 0], [10, 0], [10, 10], [0, 10], [0, 0]]]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": { "name": "West" },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[[-10, -8], [0, -8], [0, 0], [-10, 0], [-10, -8]]]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": { "name": "East" },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[[0, -8], [10, -8], [10, 0], [0, 0], [0, -8]]]
+      }
+    }
+  ]
+}
+"#;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct GalleryState {
@@ -81,8 +113,16 @@ impl Widget<GalleryState> for GalleryApp {
                 vec!["Boxplot", "Candlestick", "Heatmap", "Radar", "Funnel"],
             ),
             (
-                "Relationships",
-                vec!["Graph", "Treemap", "Sankey", "Parallel"],
+                "Relationships + Geo",
+                vec![
+                    "Graph",
+                    "Treemap",
+                    "Sunburst",
+                    "Sankey",
+                    "Theme River",
+                    "Parallel",
+                    "Choropleth Map",
+                ],
             ),
             (
                 "Dynamic",
@@ -550,6 +590,45 @@ impl Widget<GalleryState> for GalleryApp {
                     .into()])
                 .build(ctx, view),
             (2, 2) => Chart::new()
+                .title("Relationships: Sunburst")
+                .series(vec![SunburstSeries::new("Spend")
+                    .data(vec![
+                        TreemapNode {
+                            name: "Product".into(),
+                            value: 0.0,
+                            children: vec![
+                                TreemapNode {
+                                    name: "Design".into(),
+                                    value: 32.0 * s,
+                                    children: vec![],
+                                },
+                                TreemapNode {
+                                    name: "Build".into(),
+                                    value: 54.0 * s,
+                                    children: vec![],
+                                },
+                            ],
+                        },
+                        TreemapNode {
+                            name: "Growth".into(),
+                            value: 0.0,
+                            children: vec![
+                                TreemapNode {
+                                    name: "Sales".into(),
+                                    value: 42.0 * s,
+                                    children: vec![],
+                                },
+                                TreemapNode {
+                                    name: "Success".into(),
+                                    value: 28.0 * s,
+                                    children: vec![],
+                                },
+                            ],
+                        },
+                    ])
+                    .into()])
+                .build(ctx, view),
+            (2, 3) => Chart::new()
                 .title("Relationships: Sankey")
                 .series(vec![SankeySeries::new("Energy Flow")
                     .nodes(vec![
@@ -570,12 +649,44 @@ impl Widget<GalleryState> for GalleryApp {
                     }])
                     .into()])
                 .build(ctx, view),
-            (2, 3) => Chart::new()
+            (2, 4) => Chart::new()
+                .title("Relationships: Theme River")
+                .legend(Legend::top_right())
+                .series(vec![ThemeRiverSeries::new("Demand")
+                    .data(vec![
+                        ("2026-01", 18.0 * s, "Search"),
+                        ("2026-01", 12.0 * s, "Direct"),
+                        ("2026-01", 8.0 * s, "Partner"),
+                        ("2026-02", 26.0 * s, "Search"),
+                        ("2026-02", 14.0 * s, "Direct"),
+                        ("2026-02", 14.0 * s, "Partner"),
+                        ("2026-03", 20.0 * s, "Search"),
+                        ("2026-03", 28.0 * s, "Direct"),
+                        ("2026-03", 12.0 * s, "Partner"),
+                        ("2026-04", 34.0 * s, "Search"),
+                        ("2026-04", 20.0 * s, "Direct"),
+                        ("2026-04", 18.0 * s, "Partner"),
+                    ])
+                    .into()])
+                .build(ctx, view),
+            (2, 5) => Chart::new()
                 .title("Relationships: Parallel")
                 .series(vec![ParallelSeries::new("Data")
                     .data(vec![
                         vec![12.99 * s, 100.0 * s, 82.0 * s, 90.0 * s],
                         vec![9.99 * s, 150.0 * s, 56.0 * s, 80.0 * s],
+                    ])
+                    .into()])
+                .build(ctx, view),
+            (2, 6) => Chart::new()
+                .title("Geographic: Choropleth Map")
+                .visual_map(VisualMap::new().min(10.0 * s).max(44.0 * s))
+                .series(vec![MapSeries::new("Regions", "demo")
+                    .geojson(SIMPLE_GEOJSON)
+                    .data(vec![
+                        ("North", 44.0 * s),
+                        ("West", 18.0 * s),
+                        ("East", 30.0 * s),
                     ])
                     .into()])
                 .build(ctx, view),

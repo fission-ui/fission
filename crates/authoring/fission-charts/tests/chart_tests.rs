@@ -2,11 +2,36 @@ use fission_charts::chart::ChartLowerer;
 use fission_charts::{
     Axis, BarSeries, BoxplotSeries, CandlestickSeries, Chart, ChartModel, EffectScatterSeries,
     FunnelSeries, GaugeSeries, GraphNode, GraphSeries, Grid, HeatmapSeries, LineSeries,
-    LiquidfillSeries, ParallelSeries, PictorialBarSeries, PieSeries, RadarSeries, SankeySeries,
-    ScatterSeries, TreemapNode, TreemapSeries, WordcloudSeries,
+    LiquidfillSeries, MapSeries, ParallelSeries, PictorialBarSeries, PieSeries, RadarSeries,
+    SankeySeries, ScatterSeries, SunburstSeries, ThemeRiverSeries, TreemapNode, TreemapSeries,
+    WordcloudSeries,
 };
 use fission_core::{env::Env, lowering::LoweringContext, ui::traits::LowerDyn};
 use fission_ir::op::{LayoutOp, PaintOp};
+
+const SIMPLE_GEOJSON: &str = r#"
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": { "name": "North" },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[[0, 0], [10, 0], [10, 10], [0, 10], [0, 0]]]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": { "name": "South" },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[[0, -10], [10, -10], [10, 0], [0, 0], [0, -10]]]
+      }
+    }
+  ]
+}
+"#;
 
 #[test]
 fn test_all_chart_builders() {
@@ -58,6 +83,10 @@ fn test_all_chart_builders() {
             .data(vec![("Stage 1", 100.0), ("Stage 2", 80.0)])
             .into(),
         GaugeSeries::new("Gauge").data(vec![("Speed", 65.0)]).into(),
+        MapSeries::new("Map", "demo")
+            .geojson(SIMPLE_GEOJSON)
+            .data(vec![("North", 10.0), ("South", 20.0)])
+            .into(),
         SankeySeries::new("Sankey")
             .nodes(vec![GraphNode {
                 id: "1".into(),
@@ -67,6 +96,25 @@ fn test_all_chart_builders() {
             .into(),
         ParallelSeries::new("Parallel")
             .data(vec![vec![1.0, 2.0, 3.0]])
+            .into(),
+        SunburstSeries::new("Sunburst")
+            .data(vec![TreemapNode {
+                name: "Root".into(),
+                value: 100.0,
+                children: vec![TreemapNode {
+                    name: "Child".into(),
+                    value: 40.0,
+                    children: vec![],
+                }],
+            }])
+            .into(),
+        ThemeRiverSeries::new("River")
+            .data(vec![
+                ("2026-01-01", 10.0, "A"),
+                ("2026-01-01", 20.0, "B"),
+                ("2026-01-02", 30.0, "A"),
+                ("2026-01-02", 12.0, "B"),
+            ])
             .into(),
         PictorialBarSeries::new("Pictorial")
             .data(vec![10.0, 20.0])
@@ -84,7 +132,7 @@ fn test_all_chart_builders() {
     chart = chart.series(series_list);
 
     assert_eq!(chart.title.unwrap(), "Full Supported Chart Test");
-    assert_eq!(chart.series.len(), 18);
+    assert_eq!(chart.series.len(), 21);
     assert!(chart.animate);
     assert_eq!(chart.width, Some(800.0));
     assert_eq!(chart.height, Some(600.0));
@@ -107,6 +155,57 @@ fn unsupported_series_emit_diagnostics_instead_of_drawing() {
     assert_eq!(model.diagnostics.len(), 2);
     assert!(model.diagnostics[0].message.contains("GeoJSON"));
     assert!(model.diagnostics[1].message.contains("String-named"));
+}
+
+#[test]
+fn map_sunburst_and_theme_river_lower_to_paths() {
+    let chart = Chart::new().width(800.0).height(600.0).series(vec![
+        MapSeries::new("Map", "demo")
+            .geojson(SIMPLE_GEOJSON)
+            .data(vec![("North", 10.0), ("South", 20.0)])
+            .into(),
+        SunburstSeries::new("Sunburst")
+            .data(vec![TreemapNode {
+                name: "Root".into(),
+                value: 100.0,
+                children: vec![TreemapNode {
+                    name: "Child".into(),
+                    value: 40.0,
+                    children: vec![],
+                }],
+            }])
+            .into(),
+        ThemeRiverSeries::new("River")
+            .data(vec![
+                ("2026-01-01", 10.0, "A"),
+                ("2026-01-01", 20.0, "B"),
+                ("2026-01-02", 30.0, "A"),
+                ("2026-01-02", 12.0, "B"),
+                ("2026-01-03", 20.0, "A"),
+                ("2026-01-03", 24.0, "B"),
+            ])
+            .into(),
+    ]);
+
+    let model = ChartModel::from_chart(&chart);
+    assert!(model.diagnostics.is_empty());
+    assert_eq!(model.series.len(), 3);
+
+    let lowerer = ChartLowerer { chart };
+    let env = Env::default();
+    let runtime_state = fission_core::RuntimeState::default();
+    let mut cx = LoweringContext::new(&env, &runtime_state, None, None);
+    let root_id = cx.next_node_id();
+    cx.push_scope(root_id);
+    lowerer.lower_dyn(&mut cx);
+
+    let path_count = cx
+        .ir
+        .nodes
+        .values()
+        .filter(|node| matches!(node.op, fission_ir::Op::Paint(PaintOp::DrawPath { .. })))
+        .count();
+    assert!(path_count >= 6);
 }
 
 #[test]

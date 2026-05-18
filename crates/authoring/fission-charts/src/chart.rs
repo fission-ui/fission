@@ -14,7 +14,7 @@ use fission_core::{BuildCtx, View, Widget};
 use fission_ir::op::{Fill, LayoutOp, LineCap, LineJoin, PaintOp, Stroke};
 use fission_layout::LayoutRect;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Chart {
@@ -357,8 +357,13 @@ fn render_series(
             ResolvedSeries::Radar(radar) => render_radar(cx, root, radar, area, theme),
             ResolvedSeries::Funnel(funnel) => render_funnel(cx, root, funnel, area, theme),
             ResolvedSeries::Gauge(gauge) => render_gauge(cx, root, gauge, area, theme),
+            ResolvedSeries::Map(map) => {
+                render_map(cx, root, map, chart.visual_map.as_ref(), area, theme)
+            }
             ResolvedSeries::Sankey(sankey) => render_sankey(cx, root, sankey, area, theme),
             ResolvedSeries::Parallel(parallel) => render_parallel(cx, root, parallel, area, theme),
+            ResolvedSeries::Sunburst(sunburst) => render_sunburst(cx, root, sunburst, area, theme),
+            ResolvedSeries::ThemeRiver(river) => render_theme_river(cx, root, river, area, theme),
             ResolvedSeries::PictorialBar(pic) => {
                 render_pictorial_bar(cx, root, pic, model, area, &y_scale, theme)
             }
@@ -1145,6 +1150,64 @@ fn render_gauge(
     }
 }
 
+fn render_map(
+    cx: &mut fission_core::lowering::LoweringContext,
+    root: &mut fission_core::lowering::NodeBuilder,
+    map: &crate::series::map::MapSeries,
+    visual_map: Option<&VisualMap>,
+    area: &ChartArea,
+    theme: &ChartTheme,
+) {
+    let regions =
+        crate::layout::map::MapLayout::compute_geojson(map, area.plot.width(), area.plot.height());
+    if regions.is_empty() {
+        return;
+    }
+    let values: Vec<f32> = regions.iter().filter_map(|region| region.value).collect();
+    let min = values.iter().copied().fold(f32::MAX, f32::min);
+    let max = values.iter().copied().fold(f32::MIN, f32::max);
+    let denom = (max - min).max(f32::EPSILON);
+
+    for (idx, region) in regions.iter().enumerate() {
+        let fill = if let Some(value) = region.value {
+            visual_map
+                .map(|map| visual_color(map, value))
+                .unwrap_or_else(|| {
+                    mix_color(
+                        theme.palette[idx % theme.palette.len()].with_alpha(90),
+                        theme.palette[idx % theme.palette.len()],
+                        ((value - min) / denom).clamp(0.0, 1.0),
+                    )
+                })
+        } else {
+            color(226, 232, 240, 255)
+        };
+        let shifted = translate_path(&region.path, area.plot.x(), area.plot.y());
+        add_path(
+            cx,
+            root,
+            &shifted,
+            Some(Fill::Solid(fill)),
+            Some(stroke(Color::WHITE, 1.4)),
+        );
+        if let Some((x, y, width, height)) = path_bounds(&shifted) {
+            if width > 42.0 && height > 18.0 {
+                add_text(
+                    cx,
+                    root,
+                    &region.name,
+                    10.0,
+                    theme.title,
+                    x + 4.0,
+                    y + height / 2.0 - 7.0,
+                    width - 8.0,
+                    14.0,
+                );
+            }
+        }
+    }
+}
+
 fn render_sankey(
     cx: &mut fission_core::lowering::LoweringContext,
     root: &mut fission_core::lowering::NodeBuilder,
@@ -1200,6 +1263,118 @@ fn render_sankey(
     }
 }
 
+fn render_sunburst(
+    cx: &mut fission_core::lowering::LoweringContext,
+    root: &mut fission_core::lowering::NodeBuilder,
+    sunburst: &crate::series::sunburst::SunburstSeries,
+    area: &ChartArea,
+    theme: &ChartTheme,
+) {
+    if sunburst.data.is_empty() {
+        return;
+    }
+    let center = (
+        area.plot.x() + area.plot.width() / 2.0,
+        area.plot.y() + area.plot.height() / 2.0,
+    );
+    let depth = sunburst
+        .data
+        .iter()
+        .map(treemap_depth)
+        .max()
+        .unwrap_or(1)
+        .max(1);
+    let radius = area.plot.width().min(area.plot.height()) * 0.44;
+    let ring = radius / depth as f32;
+    let total: f32 = sunburst.data.iter().map(treemap_weight).sum();
+    if total <= 0.0 {
+        return;
+    }
+    let mut angle = -std::f32::consts::PI / 2.0;
+    let mut index = 0usize;
+    for node in &sunburst.data {
+        let sweep = treemap_weight(node) / total * std::f32::consts::TAU;
+        render_sunburst_node(
+            cx,
+            root,
+            node,
+            center,
+            ring,
+            0,
+            angle,
+            angle + sweep,
+            theme,
+            &mut index,
+        );
+        angle += sweep;
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn render_sunburst_node(
+    cx: &mut fission_core::lowering::LoweringContext,
+    root: &mut fission_core::lowering::NodeBuilder,
+    node: &crate::series::treemap::TreemapNode,
+    center: (f32, f32),
+    ring: f32,
+    depth: usize,
+    start: f32,
+    end: f32,
+    theme: &ChartTheme,
+    index: &mut usize,
+) {
+    if end <= start {
+        return;
+    }
+    let inner = depth as f32 * ring;
+    let outer = inner + ring * 0.94;
+    let color = theme.palette[*index % theme.palette.len()];
+    *index += 1;
+    add_path(
+        cx,
+        root,
+        &pie_slice(center.0, center.1, inner, outer, start, end),
+        Some(Fill::Solid(color.with_alpha(215))),
+        Some(stroke(Color::WHITE, 1.0)),
+    );
+    if end - start > 0.22 && outer > 28.0 {
+        let mid = (start + end) / 2.0;
+        let label_r = inner + (outer - inner) * 0.52;
+        add_text(
+            cx,
+            root,
+            &node.name,
+            10.0,
+            Color::WHITE,
+            center.0 + label_r * mid.cos() - 30.0,
+            center.1 + label_r * mid.sin() - 7.0,
+            60.0,
+            14.0,
+        );
+    }
+    let child_total: f32 = node.children.iter().map(treemap_weight).sum();
+    if child_total <= 0.0 {
+        return;
+    }
+    let mut child_start = start;
+    for child in &node.children {
+        let child_sweep = treemap_weight(child) / child_total * (end - start);
+        render_sunburst_node(
+            cx,
+            root,
+            child,
+            center,
+            ring,
+            depth + 1,
+            child_start,
+            child_start + child_sweep,
+            theme,
+            index,
+        );
+        child_start += child_sweep;
+    }
+}
+
 fn render_parallel(
     cx: &mut fission_core::lowering::LoweringContext,
     root: &mut fission_core::lowering::NodeBuilder,
@@ -1243,6 +1418,101 @@ fn render_parallel(
                 2.0,
             )),
         );
+    }
+}
+
+fn render_theme_river(
+    cx: &mut fission_core::lowering::LoweringContext,
+    root: &mut fission_core::lowering::NodeBuilder,
+    river: &crate::series::theme_river::ThemeRiverSeries,
+    area: &ChartArea,
+    theme: &ChartTheme,
+) {
+    if river.data.is_empty() {
+        return;
+    }
+    let mut by_time: BTreeMap<String, HashMap<String, f32>> = BTreeMap::new();
+    let mut categories = Vec::<String>::new();
+    for (time, value, category) in &river.data {
+        by_time
+            .entry(time.clone())
+            .or_default()
+            .insert(category.clone(), *value);
+        if !categories.iter().any(|existing| existing == category) {
+            categories.push(category.clone());
+        }
+    }
+    let times: Vec<String> = by_time.keys().cloned().collect();
+    if times.len() < 2 || categories.is_empty() {
+        return;
+    }
+
+    let totals: Vec<f32> = times
+        .iter()
+        .map(|time| by_time[time].values().sum::<f32>())
+        .collect();
+    let max_total = totals.iter().copied().fold(1.0_f32, f32::max);
+    let scale = area.plot.height() * 0.72 / max_total.max(f32::EPSILON);
+    let step = area.plot.width() / (times.len() - 1) as f32;
+    let mut bases = vec![0.0_f32; times.len()];
+
+    add_path(
+        cx,
+        root,
+        &format!(
+            "M {} {} L {} {}",
+            area.plot.x(),
+            area.plot.y() + area.plot.height() / 2.0,
+            area.plot.right(),
+            area.plot.y() + area.plot.height() / 2.0
+        ),
+        None,
+        Some(stroke(theme.grid_line, 1.0)),
+    );
+
+    for (cat_idx, category) in categories.iter().enumerate() {
+        let mut top = Vec::new();
+        let mut bottom = Vec::new();
+        for (idx, time) in times.iter().enumerate() {
+            let value = by_time[time].get(category).copied().unwrap_or(0.0).max(0.0);
+            let total = totals[idx];
+            let baseline = area.plot.y() + area.plot.height() / 2.0 + total * scale / 2.0;
+            let x = area.plot.x() + idx as f32 * step;
+            let y_top = baseline - (bases[idx] + value) * scale;
+            let y_bottom = baseline - bases[idx] * scale;
+            top.push((x, y_top));
+            bottom.push((x, y_bottom));
+            bases[idx] += value;
+        }
+        let mut path = path_for_points(&top);
+        for (x, y) in bottom.iter().rev() {
+            path.push_str(&format!(" L {} {}", x, y));
+        }
+        path.push_str(" Z");
+        let color = theme.palette[cat_idx % theme.palette.len()];
+        add_path(
+            cx,
+            root,
+            &path,
+            Some(Fill::Solid(color.with_alpha(150))),
+            Some(stroke(color, 1.0)),
+        );
+    }
+
+    for (idx, time) in times.iter().enumerate() {
+        if idx % ((times.len() / 4).max(1)) == 0 {
+            add_text(
+                cx,
+                root,
+                time,
+                10.0,
+                theme.label,
+                area.plot.x() + idx as f32 * step - 30.0,
+                area.plot.bottom() + 8.0,
+                60.0,
+                14.0,
+            );
+        }
     }
 }
 
@@ -1582,6 +1852,69 @@ fn path_for_line(points: &[(f32, f32)], smooth: bool, step: Option<&str>) -> Str
     path
 }
 
+fn path_for_points(points: &[(f32, f32)]) -> String {
+    if points.is_empty() {
+        return String::new();
+    }
+    let mut path = format!("M {} {}", points[0].0, points[0].1);
+    for (x, y) in points.iter().skip(1) {
+        path.push_str(&format!(" L {} {}", x, y));
+    }
+    path
+}
+
+fn treemap_weight(node: &crate::series::treemap::TreemapNode) -> f32 {
+    let child_total: f32 = node.children.iter().map(treemap_weight).sum();
+    if child_total > 0.0 {
+        child_total
+    } else {
+        node.value.max(0.0)
+    }
+}
+
+fn treemap_depth(node: &crate::series::treemap::TreemapNode) -> usize {
+    1 + node.children.iter().map(treemap_depth).max().unwrap_or(0)
+}
+
+fn path_bounds(path: &str) -> Option<(f32, f32, f32, f32)> {
+    let tokens: Vec<&str> = path.split_whitespace().collect();
+    let mut min_x = f32::MAX;
+    let mut max_x = f32::MIN;
+    let mut min_y = f32::MAX;
+    let mut max_y = f32::MIN;
+    let mut idx = 0usize;
+    while idx < tokens.len() {
+        let token = tokens[idx];
+        idx += 1;
+        let coord_count = match token {
+            "M" | "L" => 2,
+            "C" => 6,
+            "Z" => 0,
+            _ => continue,
+        };
+        let mut coords = Vec::with_capacity(coord_count);
+        for _ in 0..coord_count {
+            if let Some(raw) = tokens.get(idx) {
+                coords.push(raw.parse::<f32>().ok()?);
+                idx += 1;
+            }
+        }
+        for pair in coords.chunks(2) {
+            if let [x, y] = pair {
+                min_x = min_x.min(*x);
+                max_x = max_x.max(*x);
+                min_y = min_y.min(*y);
+                max_y = max_y.max(*y);
+            }
+        }
+    }
+    if min_x == f32::MAX {
+        None
+    } else {
+        Some((min_x, min_y, max_x - min_x, max_y - min_y))
+    }
+}
+
 fn band_width(model: &ChartModel, area: &ChartArea) -> f32 {
     let count = model.x_categories.len().max(1) as f32;
     area.plot.width() / count
@@ -1616,8 +1949,11 @@ fn series_names(model: &ChartModel) -> Vec<String> {
             ResolvedSeries::Radar(s) => s.name.clone(),
             ResolvedSeries::Funnel(s) => s.name.clone(),
             ResolvedSeries::Gauge(s) => s.name.clone(),
+            ResolvedSeries::Map(s) => s.name.clone(),
             ResolvedSeries::Sankey(s) => s.name.clone(),
             ResolvedSeries::Parallel(s) => s.name.clone(),
+            ResolvedSeries::Sunburst(s) => s.name.clone(),
+            ResolvedSeries::ThemeRiver(s) => s.name.clone(),
             ResolvedSeries::PictorialBar(s) => s.name.clone(),
             ResolvedSeries::EffectScatter(s) => s.name.clone(),
             ResolvedSeries::Liquidfill(s) => s.name.clone(),

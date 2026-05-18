@@ -37,8 +37,11 @@ pub enum ResolvedSeries {
     Radar(radar::RadarSeries),
     Funnel(funnel::FunnelSeries),
     Gauge(gauge::GaugeSeries),
+    Map(map::MapSeries),
     Sankey(sankey::SankeySeries),
     Parallel(parallel::ParallelSeries),
+    Sunburst(sunburst::SunburstSeries),
+    ThemeRiver(theme_river::ThemeRiverSeries),
     PictorialBar(pictorial_bar::PictorialBarSeries),
     EffectScatter(effect_scatter::EffectScatterSeries),
     Liquidfill(liquidfill::LiquidfillSeries),
@@ -91,8 +94,21 @@ impl ChartModel {
                 Series::Radar(series) => resolved.push(ResolvedSeries::Radar(series.clone())),
                 Series::Funnel(series) => resolved.push(ResolvedSeries::Funnel(series.clone())),
                 Series::Gauge(series) => resolved.push(ResolvedSeries::Gauge(series.clone())),
+                Series::Map(series) if series.geojson.is_some() => {
+                    resolved.push(ResolvedSeries::Map(series.clone()))
+                }
+                Series::Map(series) => diagnostics.push(unsupported(
+                    &series.name,
+                    "Map charts need GeoJSON on the MapSeries before they can be rendered.",
+                )),
                 Series::Sankey(series) => resolved.push(ResolvedSeries::Sankey(series.clone())),
                 Series::Parallel(series) => resolved.push(ResolvedSeries::Parallel(series.clone())),
+                Series::Sunburst(series) => {
+                    resolved.push(ResolvedSeries::Sunburst(series.clone()))
+                }
+                Series::ThemeRiver(series) => {
+                    resolved.push(ResolvedSeries::ThemeRiver(series.clone()))
+                }
                 Series::PictorialBar(series) => {
                     resolved.push(ResolvedSeries::PictorialBar(series.clone()))
                 }
@@ -103,9 +119,6 @@ impl ChartModel {
                     resolved.push(ResolvedSeries::Liquidfill(series.clone()))
                 }
                 Series::Wordcloud(series) => resolved.push(ResolvedSeries::Wordcloud(series.clone())),
-                Series::Map(series) => diagnostics.push(unsupported(&series.name, "Map charts need real GeoJSON/projection support before they can be exposed as production rendering.")),
-                Series::Sunburst(series) => diagnostics.push(unsupported(&series.name, "Sunburst charts need a real hierarchical radial layout before they can be exposed as production rendering.")),
-                Series::ThemeRiver(series) => diagnostics.push(unsupported(&series.name, "Theme river charts need a real time-series stream layout before they can be exposed as production rendering.")),
                 Series::Custom(series) => diagnostics.push(unsupported(&series.name, "String-named custom render callbacks are not part of the Fission chart architecture.")),
             }
         }
