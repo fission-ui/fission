@@ -74,7 +74,10 @@ pub use capability::{
 };
 pub use context::{Effects, ReducerContext}; // New
 pub use effect::{ActionInput, Effect, EffectEnvelope, RuntimeEffect};
-pub use env::{Clipboard, Env, ImeHandler, InteractionStateMap, RuntimeState, ScrollStateMap};
+pub use env::{
+    Clipboard, Env, ImeHandler, InteractionStateMap, RuntimeState, ScrollStateMap, WindowEnv,
+    WindowTitle,
+};
 pub use runtime::Runtime;
 
 pub use event::{InputEvent, KeyCode, KeyEvent, LifecycleEvent, PointerButton, PointerEvent};

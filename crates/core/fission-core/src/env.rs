@@ -21,12 +21,42 @@ pub struct WindowInsets {
     pub right: f32,
 }
 
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub enum WindowTitle {
+    Plain(String),
+    // Rich(WindowTitleContent),
+}
+
+impl Default for WindowTitle {
+    fn default() -> Self {
+        Self::Plain("Fission".into())
+    }
+}
+
+impl WindowTitle {
+    pub fn plain(title: impl Into<String>) -> Self {
+        Self::Plain(title.into())
+    }
+
+    pub fn plain_text(&self) -> &str {
+        match self {
+            Self::Plain(title) => title,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct WindowEnv {
+    pub title: WindowTitle,
+}
+
 // Static environment data (Theme, I18n)
 #[derive(Clone)]
 pub struct Env {
     pub theme: Theme,
     pub i18n: I18nRegistry,
     pub locale: Locale,
+    pub window: WindowEnv,
     pub window_insets: WindowInsets,
     pub viewport_size: LayoutSize,
     pub measurer: Option<Arc<dyn fission_layout::TextMeasurer>>,
@@ -38,6 +68,7 @@ impl Default for Env {
             theme: Theme::default(),
             i18n: I18nRegistry::new(),
             locale: Locale::default(),
+            window: WindowEnv::default(),
             window_insets: WindowInsets::default(),
             viewport_size: LayoutSize::default(),
             measurer: None,
@@ -50,6 +81,7 @@ impl std::fmt::Debug for Env {
         f.debug_struct("Env")
             .field("theme", &self.theme)
             .field("locale", &self.locale)
+            .field("window", &self.window)
             .field("window_insets", &self.window_insets)
             .field("viewport_size", &self.viewport_size)
             .finish()
@@ -62,6 +94,7 @@ impl Env {
             theme: Theme::default(),
             i18n: I18nRegistry::new(),
             locale: Locale::default(),
+            window: WindowEnv::default(),
             window_insets: WindowInsets::default(),
             viewport_size: LayoutSize::default(),
             measurer: Some(measurer),

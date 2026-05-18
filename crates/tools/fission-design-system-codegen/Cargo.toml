@@ -1,0 +1,11 @@
+[package]
+name = "fission-design-system-codegen"
+version = "0.1.1"
+edition = "2021"
+license = "MIT"
+repository = "https://github.com/worka-ai/fission"
+description = "Build-time Design System Package code generation for Fission"
+
+[dependencies]
+anyhow = "1.0"
+serde_json = "1.0"

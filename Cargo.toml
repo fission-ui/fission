@@ -6,6 +6,7 @@ members = [
     "crates/core/fission-core",
     "crates/core/fission-3d",
     "crates/core/fission-text-engine",
+    "crates/core/fission-theme",
     "crates/authoring/fission-macros",
     "crates/authoring/fission-widgets",
     "crates/authoring/fission-icons",
@@ -22,6 +23,7 @@ members = [
     "crates/shell/fission-shell-web",
     "crates/tools/fission-diagnostics",
     "crates/tools/fission-cli",
+    "crates/tools/fission-design-system-codegen",
     "crates/tools/fission-test",
     "crates/tools/fission-test-driver",
     "examples/*"

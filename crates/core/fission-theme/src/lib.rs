@@ -13,8 +13,124 @@
 //! let dark = Theme::dark();
 //! ```
 
-use fission_ir::op::{BoxShadow, Color, Stroke};
+pub use fission_ir::op::{BoxShadow, Color, Fill, LineCap, LineJoin, Stroke};
 use serde::{Deserialize, Serialize};
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum DesignMode {
+    #[default]
+    Light,
+    Dark,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct DesignSystemInfo {
+    pub name: String,
+    pub version: String,
+    pub description: String,
+    pub source: String,
+}
+
+pub trait DesignSystem {
+    fn info() -> &'static DesignSystemInfo;
+    fn tokens() -> &'static DesignTokenSet;
+    fn components() -> &'static [DesignComponentSpec];
+    fn patterns() -> &'static [DesignPatternSpec];
+    fn assets() -> &'static DesignAssetManifest;
+    fn theme_ref(mode: DesignMode) -> &'static Theme;
+
+    fn theme(mode: DesignMode) -> Theme {
+        Self::theme_ref(mode).clone()
+    }
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct ResolvedDesignSystem {
+    pub mode: DesignMode,
+    pub info: DesignSystemInfo,
+    pub tokens: DesignTokenSet,
+    pub components: Vec<DesignComponentSpec>,
+    pub patterns: Vec<DesignPatternSpec>,
+    pub assets: DesignAssetManifest,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct DesignTokenSet {
+    pub tokens: Vec<DesignToken>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct DesignToken {
+    pub path: String,
+    pub kind: String,
+    pub value: DesignValue,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub enum DesignValue {
+    None,
+    Bool(bool),
+    Number(f32),
+    Dimension(f32),
+    DurationMs(u64),
+    Text(String),
+    Color(Color),
+    Shadow(Vec<ShadowLayer>),
+    Easing(EasingCurve),
+    Object(Vec<DesignProperty>),
+    List(Vec<DesignValue>),
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct DesignProperty {
+    pub name: String,
+    pub value: DesignValue,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ShadowLayer {
+    pub color: Color,
+    pub offset: (f32, f32),
+    pub blur_radius: f32,
+    pub spread_radius: f32,
+    pub inset: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub enum EasingCurve {
+    Linear,
+    Ease,
+    CubicBezier(f32, f32, f32, f32),
+    Named(String),
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct DesignComponentSpec {
+    pub name: String,
+    pub description: String,
+    pub anatomy: Vec<String>,
+    pub properties: Vec<DesignProperty>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct DesignPatternSpec {
+    pub name: String,
+    pub description: String,
+    pub properties: Vec<DesignProperty>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct DesignAssetManifest {
+    pub logos: Vec<DesignAsset>,
+    pub fonts: Vec<DesignAsset>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct DesignAsset {
+    pub id: String,
+    pub path: String,
+    pub format: String,
+}
 
 /// Semantic color palette for the application.
 ///
@@ -28,17 +144,30 @@ use serde::{Deserialize, Serialize};
 pub struct ColorTokens {
     pub primary: Color,
     pub on_primary: Color,
+    pub primary_hover: Color,
+    pub primary_subtle: Color,
     pub secondary: Color,
     pub on_secondary: Color,
     pub surface: Color,
     pub on_surface: Color,
+    pub surface_raised: Color,
+    pub surface_sunken: Color,
     pub background: Color,
     pub on_background: Color,
     pub error: Color,
     pub on_error: Color,
+    pub success: Color,
+    pub warning: Color,
+    pub info: Color,
     pub border: Color,
+    pub border_strong: Color,
+    pub divider: Color,
     pub text_primary: Color,
     pub text_secondary: Color,
+    pub text_muted: Color,
+    pub text_link: Color,
+    pub heading: Color,
+    pub focus_ring: Color,
 }
 
 impl Default for ColorTokens {
@@ -51,6 +180,18 @@ impl Default for ColorTokens {
                 a: 255,
             }, // Purple 40
             on_primary: Color::WHITE,
+            primary_hover: Color {
+                r: 80,
+                g: 63,
+                b: 118,
+                a: 255,
+            },
+            primary_subtle: Color {
+                r: 244,
+                g: 239,
+                b: 255,
+                a: 255,
+            },
             secondary: Color {
                 r: 98,
                 g: 91,
@@ -68,6 +209,18 @@ impl Default for ColorTokens {
                 r: 28,
                 g: 27,
                 b: 31,
+                a: 255,
+            },
+            surface_raised: Color {
+                r: 255,
+                g: 255,
+                b: 255,
+                a: 255,
+            },
+            surface_sunken: Color {
+                r: 248,
+                g: 248,
+                b: 248,
                 a: 255,
             },
             background: Color {
@@ -89,7 +242,37 @@ impl Default for ColorTokens {
                 a: 255,
             },
             on_error: Color::WHITE,
+            success: Color {
+                r: 16,
+                g: 185,
+                b: 129,
+                a: 255,
+            },
+            warning: Color {
+                r: 245,
+                g: 158,
+                b: 11,
+                a: 255,
+            },
+            info: Color {
+                r: 14,
+                g: 165,
+                b: 233,
+                a: 255,
+            },
             border: Color {
+                r: 188,
+                g: 188,
+                b: 188,
+                a: 255,
+            },
+            border_strong: Color {
+                r: 148,
+                g: 148,
+                b: 148,
+                a: 255,
+            },
+            divider: Color {
                 r: 188,
                 g: 188,
                 b: 188,
@@ -105,6 +288,30 @@ impl Default for ColorTokens {
                 r: 86,
                 g: 86,
                 b: 86,
+                a: 255,
+            },
+            text_muted: Color {
+                r: 120,
+                g: 120,
+                b: 120,
+                a: 255,
+            },
+            text_link: Color {
+                r: 103,
+                g: 85,
+                b: 143,
+                a: 255,
+            },
+            heading: Color {
+                r: 28,
+                g: 27,
+                b: 31,
+                a: 255,
+            },
+            focus_ring: Color {
+                r: 103,
+                g: 85,
+                b: 143,
                 a: 255,
             },
         }
@@ -124,6 +331,18 @@ impl ColorTokens {
                 r: 0,
                 g: 0,
                 b: 0,
+                a: 255,
+            },
+            primary_hover: Color {
+                r: 210,
+                g: 178,
+                b: 255,
+                a: 255,
+            },
+            primary_subtle: Color {
+                r: 55,
+                g: 36,
+                b: 86,
                 a: 255,
             },
             secondary: Color {
@@ -150,6 +369,18 @@ impl ColorTokens {
                 b: 230,
                 a: 255,
             },
+            surface_raised: Color {
+                r: 37,
+                g: 37,
+                b: 37,
+                a: 255,
+            },
+            surface_sunken: Color {
+                r: 12,
+                g: 12,
+                b: 12,
+                a: 255,
+            },
             background: Color {
                 r: 18,
                 g: 18,
@@ -174,7 +405,37 @@ impl ColorTokens {
                 b: 0,
                 a: 255,
             },
+            success: Color {
+                r: 16,
+                g: 185,
+                b: 129,
+                a: 255,
+            },
+            warning: Color {
+                r: 245,
+                g: 158,
+                b: 11,
+                a: 255,
+            },
+            info: Color {
+                r: 14,
+                g: 165,
+                b: 233,
+                a: 255,
+            },
             border: Color {
+                r: 60,
+                g: 60,
+                b: 60,
+                a: 255,
+            },
+            border_strong: Color {
+                r: 96,
+                g: 96,
+                b: 96,
+                a: 255,
+            },
+            divider: Color {
                 r: 60,
                 g: 60,
                 b: 60,
@@ -192,6 +453,30 @@ impl ColorTokens {
                 b: 160,
                 a: 255,
             },
+            text_muted: Color {
+                r: 120,
+                g: 120,
+                b: 120,
+                a: 255,
+            },
+            text_link: Color {
+                r: 187,
+                g: 134,
+                b: 252,
+                a: 255,
+            },
+            heading: Color {
+                r: 230,
+                g: 230,
+                b: 230,
+                a: 255,
+            },
+            focus_ring: Color {
+                r: 187,
+                g: 134,
+                b: 252,
+                a: 255,
+            },
         }
     }
 }
@@ -201,12 +486,15 @@ impl ColorTokens {
 /// Values: `none` (0), `xs` (4), `s` (8), `m` (16), `l` (24), `xl` (32).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct SpacingTokens {
-    pub none: f32, // 0
-    pub xs: f32,   // 4
-    pub s: f32,    // 8
-    pub m: f32,    // 16
-    pub l: f32,    // 24
-    pub xl: f32,   // 32
+    pub none: f32,  // 0
+    pub xs: f32,    // 4
+    pub s: f32,     // 8
+    pub m: f32,     // 16
+    pub l: f32,     // 24
+    pub xl: f32,    // 32
+    pub xxl: f32,   // 48
+    pub xxxl: f32,  // 64
+    pub xxxxl: f32, // 96
 }
 
 impl Default for SpacingTokens {
@@ -218,6 +506,9 @@ impl Default for SpacingTokens {
             m: 16.0,
             l: 24.0,
             xl: 32.0,
+            xxl: 48.0,
+            xxxl: 64.0,
+            xxxxl: 96.0,
         }
     }
 }
@@ -228,19 +519,69 @@ impl Default for SpacingTokens {
 /// `heading_size` (28).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct TypographyTokens {
+    pub font_family_sans: String,
+    pub font_family_serif: String,
+    pub font_family_mono: String,
+    pub font_weight_regular: u16,
+    pub font_weight_medium: u16,
+    pub font_weight_semibold: u16,
+    pub font_weight_bold: u16,
+    pub font_size_xs: f32,
+    pub font_size_sm: f32,
+    pub font_size_base: f32,
     pub label_large_size: f32,
     pub body_medium_size: f32,
     pub body_large_size: f32,
+    pub font_size_lg: f32,
+    pub font_size_xl: f32,
     pub heading_size: f32,
+    pub heading2_size: f32,
+    pub heading1_size: f32,
+    pub display_sm_size: f32,
+    pub display_md_size: f32,
+    pub line_height_display: f32,
+    pub line_height_heading: f32,
+    pub line_height_snug: f32,
+    pub line_height_normal: f32,
+    pub line_height_relaxed: f32,
+    pub letter_spacing_tight: f32,
+    pub letter_spacing_normal: f32,
+    pub letter_spacing_label: f32,
+    pub letter_spacing_kicker: f32,
 }
 
 impl Default for TypographyTokens {
     fn default() -> Self {
         Self {
+            font_family_sans: "\"Inter\", \"Avenir Next\", \"Segoe UI\", Arial, sans-serif".into(),
+            font_family_serif: "\"Iowan Old Style\", \"Palatino Linotype\", \"Book Antiqua\", Georgia, serif".into(),
+            font_family_mono: "\"SFMono-Regular\", Menlo, Monaco, Consolas, \"Liberation Mono\", \"Courier New\", monospace".into(),
+            font_weight_regular: 400,
+            font_weight_medium: 500,
+            font_weight_semibold: 600,
+            font_weight_bold: 700,
+            font_size_xs: 12.0,
+            font_size_sm: 13.0,
+            font_size_base: 14.0,
             label_large_size: 15.0,
             body_medium_size: 15.0,
             body_large_size: 17.0,
+            font_size_lg: 20.0,
+            font_size_xl: 24.0,
             heading_size: 28.0,
+            heading2_size: 36.0,
+            heading1_size: 48.0,
+            display_sm_size: 60.0,
+            display_md_size: 72.0,
+            line_height_display: 0.98,
+            line_height_heading: 1.05,
+            line_height_snug: 1.4,
+            line_height_normal: 1.6,
+            line_height_relaxed: 1.68,
+            letter_spacing_tight: -0.01,
+            letter_spacing_normal: 0.0,
+            letter_spacing_label: 0.1,
+            letter_spacing_kicker: 0.14,
         }
     }
 }
@@ -250,18 +591,24 @@ impl Default for TypographyTokens {
 /// Values: `small` (4), `medium` (8), `large` (12), `full` (9999 -- fully rounded pill).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct RadiusTokens {
+    pub none: f32,
     pub small: f32,
     pub medium: f32,
     pub large: f32,
+    pub xl: f32,
+    pub xxl: f32,
     pub full: f32,
 }
 
 impl Default for RadiusTokens {
     fn default() -> Self {
         Self {
+            none: 0.0,
             small: 4.0,
             medium: 8.0,
             large: 12.0,
+            xl: 16.0,
+            xxl: 24.0,
             full: 9999.0,
         }
     }
@@ -279,6 +626,7 @@ pub struct ElevationTokens {
     pub level3: Option<BoxShadow>,
     pub level4: Option<BoxShadow>,
     pub level5: Option<BoxShadow>,
+    pub focus: Option<BoxShadow>,
 }
 
 impl Default for ElevationTokens {
@@ -308,6 +656,49 @@ impl Default for ElevationTokens {
             }),
             level4: None,
             level5: None,
+            focus: Some(BoxShadow {
+                color: Color {
+                    r: 20,
+                    g: 184,
+                    b: 166,
+                    a: 82,
+                },
+                offset: (0.0, 0.0),
+                blur_radius: 0.0,
+            }),
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct MotionTokens {
+    pub duration_instant_ms: u64,
+    pub duration_micro_ms: u64,
+    pub duration_fast_ms: u64,
+    pub duration_normal_ms: u64,
+    pub duration_slow_ms: u64,
+    pub duration_deliberate_ms: u64,
+    pub easing_linear: EasingCurve,
+    pub easing_standard: EasingCurve,
+    pub easing_in: EasingCurve,
+    pub easing_out: EasingCurve,
+    pub easing_ease: EasingCurve,
+}
+
+impl Default for MotionTokens {
+    fn default() -> Self {
+        Self {
+            duration_instant_ms: 0,
+            duration_micro_ms: 120,
+            duration_fast_ms: 160,
+            duration_normal_ms: 200,
+            duration_slow_ms: 300,
+            duration_deliberate_ms: 480,
+            easing_linear: EasingCurve::Linear,
+            easing_standard: EasingCurve::CubicBezier(0.16, 0.84, 0.32, 1.0),
+            easing_in: EasingCurve::CubicBezier(0.4, 0.0, 1.0, 1.0),
+            easing_out: EasingCurve::CubicBezier(0.0, 0.0, 0.2, 1.0),
+            easing_ease: EasingCurve::Ease,
         }
     }
 }
@@ -324,6 +715,7 @@ pub struct Tokens {
     pub typography: TypographyTokens,
     pub radii: RadiusTokens,
     pub elevations: ElevationTokens,
+    pub motion: MotionTokens,
 }
 
 impl Tokens {
@@ -334,6 +726,7 @@ impl Tokens {
             typography: TypographyTokens::default(),
             radii: RadiusTokens::default(),
             elevations: ElevationTokens::default(),
+            motion: MotionTokens::default(),
         }
     }
 }
@@ -704,23 +1097,38 @@ impl ComponentTheme {
 pub struct Theme {
     pub tokens: Tokens,
     pub components: ComponentTheme,
+    #[serde(default)]
+    pub design_system: ResolvedDesignSystem,
 }
 
 impl Default for Theme {
     fn default() -> Self {
-        let tokens = Tokens::default();
-        let components = ComponentTheme::from_tokens(&tokens);
-        Self { tokens, components }
+        FissionDefaultDesignSystem::theme(DesignMode::Light)
     }
 }
 
 impl Theme {
     pub fn dark() -> Self {
-        let tokens = Tokens::dark();
+        FissionDefaultDesignSystem::theme(DesignMode::Dark)
+    }
+
+    pub fn from_tokens(tokens: Tokens, mode: DesignMode) -> Self {
         let components = ComponentTheme::from_tokens(&tokens);
-        Self { tokens, components }
+        Self {
+            tokens,
+            components,
+            design_system: ResolvedDesignSystem {
+                mode,
+                ..ResolvedDesignSystem::default()
+            },
+        }
     }
 }
+
+include!(concat!(
+    env!("OUT_DIR"),
+    "/generated_default_design_system.rs"
+));
 
 /// Bundled font files embedded at compile time.
 ///

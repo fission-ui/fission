@@ -1,0 +1,411 @@
+{
+  "$schema": "https://design-tokens.github.io/community-group/format/",
+  "$comment": "Fission Design System Package (DSP). A self-contained, machine-readable manifest of the Fission visual language — brand metadata, design tokens (Material 3 architecture), component specifications with all variants and states, layout patterns, and an asset manifest. Consumable by design tools, codegen, theming engines, and AI agents. Token references use the W3C Design Tokens format ({namespace.token.path}).",
+
+  "$package": {
+    "name": "fission-design-system",
+    "version": "0.1.0",
+    "description": "Visual language for Fission — a cross-platform, GPU-accelerated UI framework for Rust. Mirrors the Material 3 token architecture used by the `fission-theme` crate; brand identity from the docs site (teal) + logo (orange/blue).",
+    "license": "MIT",
+    "framework": {
+      "name": "fission",
+      "repository": "https://github.com/worka-ai/fission",
+      "theme_crate": "crates/core/fission-theme"
+    },
+    "structure": {
+      "tokens_format": "W3C Design Tokens (with $ref-style references)",
+      "component_format": "anatomy + sizes + hierarchies + states (per-property)",
+      "files": {
+        "tokens": "tokens.json — primitive design tokens (color, type, spacing, radius, elevation, motion)",
+        "css_mirror": "colors_and_type.css — CSS-variable mirror of tokens",
+        "assets": "assets/ — logos, marks, brand glyphs",
+        "fonts": "fonts/ — Inter font family"
+      }
+    }
+  },
+
+  "brand": {
+    "$comment": "Fission brand identity at the meta level.",
+    "name": "Fission",
+    "tagline": "Production-ready Rust user interface.",
+    "long_description": "Build desktop, web, Android, and iOS apps in Rust. One shared runtime; explicit state; explicit side effects; GPU-backed rendering.",
+    "voice": {
+      "register": "technical, precise, deterministic",
+      "person": "second person (you) for developer-facing; third person for runtime behavior; avoid first person plural (we)",
+      "casing": "sentence case for headings; Title Case only for brand and product names; code identifiers preserve source casing",
+      "tone_examples": [
+        "Plain Rust data stays in charge. Product truth is not hidden inside widgets or host callbacks.",
+        "Every durable change has a named cause.",
+        "Fission is strict about where state changes happen, where host work starts, and how rendering is produced.",
+        "Start where your evaluation needs the most signal."
+      ],
+      "forbidden_words": ["blazingly fast", "revolutionary", "supercharged", "unleash", "game-changing", "synergy"],
+      "emoji_policy": "not used",
+      "punctuation_notes": "em-dash (—) used liberally as separator/aside; arrows (→) for CTA hints"
+    },
+    "logo": {
+      "wordmark_dark": { "path": "assets/fission-logo.png", "background": "dark", "format": "png" },
+      "wordmark_light": { "path": null, "$status": "MISSING — request from brand owner" },
+      "mark": { "path": "assets/fission-mark.svg", "background": "any", "format": "svg", "description": "Two crossed elliptical orbits — blue and orange — around an orange nucleus." }
+    }
+  },
+
+  "tokens": {
+    "$comment": "Primitive design tokens. The complete machine-readable spec lives in tokens.json. This block summarises the structure; reference tokens.json for exhaustive values.",
+    "$ref": "./tokens.json",
+    "namespaces": [
+      { "name": "color.brand", "purpose": "Logo-derived signal accents (orange + blue). Decorative only." },
+      { "name": "color.teal", "purpose": "Interactive primary palette. Light: 700; Dark: 400; Focus: 500." },
+      { "name": "color.slate", "purpose": "Neutral ramp (matches Tailwind slate-*)." },
+      { "name": "color.semantic", "purpose": "Status: success, warning, error, info." },
+      { "name": "color.light", "purpose": "Semantic surface tokens for the light theme." },
+      { "name": "color.dark", "purpose": "Semantic surface tokens for the dark theme." },
+      { "name": "typography", "purpose": "Inter (sans), serif fallback (Iowan/Palatino/Georgia), SF Mono (mono). UUI Display/Text scale." },
+      { "name": "spacing", "purpose": "9-step scale: 0/4/8/16/24/32/48/64/96." },
+      { "name": "radius", "purpose": "7-step scale: 0/4/8/12/16/24/9999." },
+      { "name": "elevation", "purpose": "Box shadows. 5 levels + focus." },
+      { "name": "motion", "purpose": "Duration scale + easing curves." }
+    ]
+  },
+
+  "components": {
+    "$comment": "Each component declares anatomy (named slots), sizes, hierarchies (visual variants), and states. Property values reference tokens via {namespace.path} or contain literal CSS values. Sourced from the Untitled UI Figma component matrix and bound to Fission's teal palette.",
+
+    "button": {
+      "$source": "Figma /Buttons/Buttons-Button (node 3287:427074)",
+      "$description": "Primary action element. 8px radius at every size — NOT pill.",
+      "anatomy": ["leading_icon?", "label", "trailing_icon?"],
+      "radius": "{radius.medium}",
+      "font_family": "{typography.font_family.sans}",
+      "font_weight": "{typography.font_weight.semibold}",
+      "transition": "background {motion.duration.fast} {motion.easing.standard}, box-shadow {motion.duration.fast} {motion.easing.standard}, border-color {motion.duration.fast} {motion.easing.standard}, color {motion.duration.fast} {motion.easing.standard}",
+      "icon_size": "20px",
+      "sizes": {
+        "sm": { "height": "36px", "padding_x": "12px", "gap": "4px",  "font_size": "14px", "line_height": "20px" },
+        "md": { "height": "40px", "padding_x": "14px", "gap": "4px",  "font_size": "14px", "line_height": "20px" },
+        "lg": { "height": "44px", "padding_x": "16px", "gap": "6px",  "font_size": "16px", "line_height": "24px" },
+        "xl": { "height": "48px", "padding_x": "18px", "gap": "6px",  "font_size": "16px", "line_height": "24px" }
+      },
+      "hierarchies": {
+        "primary": {
+          "default":  { "background": "{color.light.primary}",       "color": "{color.light.on_primary}", "border": "none", "box_shadow": "0 1px 2px 0 rgba(10,13,18,0.05), inset 0 0 0 1px rgba(0,0,0,0.18)" },
+          "hover":    { "background": "{color.light.primary_hover}" },
+          "active":   { "background": "{color.teal.900}" },
+          "focus":    { "box_shadow": "{elevation.focus}" },
+          "disabled": { "background": "{color.slate.100}", "color": "{color.slate.400}", "box_shadow": "none", "cursor": "not-allowed" }
+        },
+        "secondary_color": {
+          "default":  { "background": "{color.light.surface}", "color": "{color.teal.700}",  "border": "1px solid {color.teal.200}",  "box_shadow": "0 1px 2px 0 rgba(10,13,18,0.05)" },
+          "hover":    { "background": "{color.teal.50}", "color": "{color.teal.800}" },
+          "active":   { "background": "{color.teal.100}" }
+        },
+        "secondary_gray": {
+          "default":  { "background": "{color.light.surface}", "color": "{color.slate.700}", "border": "1px solid {color.slate.300}", "box_shadow": "0 1px 2px 0 rgba(10,13,18,0.05)" },
+          "hover":    { "background": "{color.slate.50}", "color": "{color.slate.800}" },
+          "active":   { "background": "{color.slate.100}" }
+        },
+        "tertiary_color": {
+          "default":  { "background": "transparent", "color": "{color.teal.700}",  "border": "none" },
+          "hover":    { "background": "{color.teal.50}" }
+        },
+        "tertiary_gray": {
+          "default":  { "background": "transparent", "color": "{color.slate.600}", "border": "none" },
+          "hover":    { "background": "{color.slate.100}", "color": "{color.slate.800}" }
+        },
+        "link_color": {
+          "default":  { "background": "transparent", "color": "{color.teal.700}",  "border": "none", "padding_x": "0", "height": "auto" },
+          "hover":    { "color": "{color.teal.800}", "text_decoration": "underline" }
+        },
+        "link_gray": {
+          "default":  { "background": "transparent", "color": "{color.slate.600}", "border": "none", "padding_x": "0", "height": "auto" },
+          "hover":    { "color": "{color.slate.800}", "text_decoration": "underline" }
+        },
+        "destructive": {
+          "$source": "Figma /Buttons/Buttons-Button-destructive",
+          "default":  { "background": "{color.semantic.error}", "color": "#FFFFFF", "box_shadow": "0 1px 2px 0 rgba(10,13,18,0.05), inset 0 0 0 1px rgba(0,0,0,0.18)" },
+          "hover":    { "background": "#BE123C" },
+          "active":   { "background": "#9F1239" }
+        }
+      },
+      "css_classes": ["fs-btn", "fs-btn--{size}", "fs-btn--{hierarchy}"]
+    },
+
+    "input": {
+      "$source": "Figma /Inputs/Input + /Inputs/Input-field",
+      "$description": "Single-line text input with optional leading icon, label above, and helper text below.",
+      "anatomy": ["label?", "leading_icon?", "input", "trailing_icon?", "helper_text?", "error_text?"],
+      "radius": "{radius.medium}",
+      "font_family": "{typography.font_family.sans}",
+      "font_size": "16px",
+      "line_height": "24px",
+      "sizes": {
+        "sm": { "height": "36px", "padding_x": "12px" },
+        "md": { "height": "40px", "padding_x": "12px" }
+      },
+      "states": {
+        "default":     { "background": "{color.light.surface}", "border": "1px solid {color.slate.300}", "color": "{color.slate.900}",       "box_shadow": "0 1px 2px 0 rgba(10,13,18,0.05)" },
+        "placeholder": { "color": "{color.slate.500}" },
+        "focus":       { "border": "2px solid {color.teal.700}", "box_shadow": "{elevation.focus}", "padding_x": "11px",   "$comment": "padding shrinks by 1px to compensate for the doubled border so the field doesn't jump" },
+        "error":       { "border": "1px solid {color.semantic.error}", "$helper_color": "{color.semantic.error}" },
+        "disabled":    { "background": "{color.slate.50}",  "color": "{color.slate.500}", "cursor": "not-allowed" }
+      },
+      "label": { "font_size": "14px", "font_weight": 500, "color": "{color.slate.700}", "margin_bottom": "6px" },
+      "helper_text": { "font_size": "14px", "color": "{color.slate.500}", "margin_top": "6px" },
+      "css_classes": ["fs-input"]
+    },
+
+    "card": {
+      "$description": "Surface container. Three patterns: plain, raised (with shadow), tinted (brand-50 fill).",
+      "anatomy": ["leading_media?", "header", "body", "footer?"],
+      "radius": "{radius.xl}",
+      "border": "1px solid {color.light.border}",
+      "background": "{color.light.surface}",
+      "padding": "{spacing.l}",
+      "patterns": {
+        "plain":   { "background": "{color.light.surface}",     "border": "1px solid {color.light.border}", "box_shadow": "none" },
+        "raised":  { "background": "{color.light.surface}",     "border": "1px solid {color.light.border}", "box_shadow": "{elevation.level2}" },
+        "tinted":  { "background": "{color.teal.50}",           "border": "1px solid {color.teal.200}",     "box_shadow": "none" },
+        "elevated": { "background": "{color.light.surface}",    "border": "1px solid {color.light.border}", "box_shadow": "{elevation.level1}" }
+      },
+      "interaction": {
+        "hover":  { "box_shadow": "{elevation.level2}", "$comment": "Only when card is interactive (a link or button surface)." }
+      }
+    },
+
+    "badge": {
+      "$source": "Figma /Badges/Badge (1046:3819) — Size=md, Type=Pill color",
+      "$description": "Inline status pill. Lightest brand tint background + tinted border + brand-700 text.",
+      "anatomy": ["leading_dot?", "label", "leading_avatar?", "trailing_x?"],
+      "sizes": {
+        "sm": { "height": "20px", "padding_x": "8px",  "font_size": "12px", "line_height": "18px" },
+        "md": { "height": "24px", "padding_x": "10px", "font_size": "14px", "line_height": "20px" }
+      },
+      "radius": "{radius.full}",
+      "font_family": "{typography.font_family.sans}",
+      "font_weight": "{typography.font_weight.medium}",
+      "colors": {
+        "brand":   { "background": "{color.teal.50}",            "border": "1px solid {color.teal.200}",     "color": "{color.teal.700}" },
+        "gray":    { "background": "{color.slate.50}",           "border": "1px solid {color.slate.200}",    "color": "{color.slate.700}" },
+        "success": { "background": "#ECFDF5",                    "border": "1px solid #A7F3D0",              "color": "#027A48" },
+        "warning": { "background": "#FFFAEB",                    "border": "1px solid #FEDF89",              "color": "#B54708" },
+        "error":   { "background": "#FEF3F2",                    "border": "1px solid #FECDCA",              "color": "#B42318" },
+        "blue":    { "background": "{color.brand.blue.50}",      "border": "1px solid #A8D0F2",              "color": "{color.brand.blue.600}" },
+        "orange":  { "background": "{color.brand.orange.50}",    "border": "1px solid #FACBA0",              "color": "{color.brand.orange.700}" }
+      },
+      "css_classes": ["fs-badge", "fs-badge--{color}"]
+    },
+
+    "tabs": {
+      "$source": "Figma /Tabs/Horizontal-tabs",
+      "$description": "Underline tabs — bottom border with 2px active indicator in brand color. (Type=Underline)",
+      "anatomy": ["tab[]"],
+      "tab_anatomy": ["label", "leading_icon?", "trailing_count?"],
+      "sizes": {
+        "sm": { "padding_y": "10px", "font_size": "14px", "indicator_height": "2px" },
+        "md": { "padding_y": "12px", "font_size": "14px", "indicator_height": "2px" }
+      },
+      "track": { "border_bottom": "1px solid {color.light.border}" },
+      "states": {
+        "default": { "color": "{color.slate.500}", "border_bottom": "2px solid transparent" },
+        "hover":   { "color": "{color.slate.700}" },
+        "active":  { "color": "{color.teal.700}",  "border_bottom": "2px solid {color.teal.700}", "font_weight": 600 }
+      },
+      "variants_available": ["underline", "button_brand", "button_gray", "button_border"]
+    },
+
+    "progress_bar": {
+      "$source": "Figma /Progress-indicators/Progress-bar (1085:57382)",
+      "$description": "Horizontal progress indicator. Track + fill, both rounded-full.",
+      "anatomy": ["track", "fill", "label?"],
+      "height": "8px",
+      "radius": "{radius.full}",
+      "track": { "background": "{color.slate.200}" },
+      "fill":  { "background": "{color.teal.700}" },
+      "label_patterns": {
+        "right": { "layout": "row", "label_position": "right",  "label_min_width": "32px" },
+        "bottom":{ "layout": "column", "label_position": "bottom_end" }
+      }
+    },
+
+    "feature_icon": {
+      "$source": "Figma /Misc-icons/Featured-icon",
+      "$description": "Pill icon container used as visual anchor for feature blocks, list items, target rows.",
+      "anatomy": ["icon"],
+      "sizes": {
+        "md": { "size": "40px", "radius": "{radius.medium}",  "icon_size": "20px" },
+        "lg": { "size": "48px", "radius": "10px",             "icon_size": "24px" },
+        "xl": { "size": "56px", "radius": "12px",             "icon_size": "28px" }
+      },
+      "tones": {
+        "brand":  { "background": "{color.teal.50}",          "color": "{color.teal.700}",  "border": "1px solid {color.teal.100}" },
+        "gray":   { "background": "{color.slate.50}",         "color": "{color.slate.700}", "border": "1px solid {color.slate.200}" },
+        "blue":   { "background": "{color.brand.blue.50}",    "color": "{color.brand.blue.600}",   "border": "1px solid #D5E8F8" },
+        "orange": { "background": "{color.brand.orange.50}",  "color": "{color.brand.orange.700}", "border": "1px solid #FDE8D2" }
+      },
+      "box_shadow": "0 1px 2px rgba(10,13,18,0.05)",
+      "css_classes": ["fs-feature-icon", "fs-feature-icon--{tone}"]
+    },
+
+    "modal": {
+      "$source": "Fission ModalTheme (fission-theme/src/lib.rs)",
+      "anatomy": ["scrim", "container", "header", "body", "footer?"],
+      "radius": "{radius.large}",
+      "background": "{color.light.surface}",
+      "max_width": "600px",
+      "box_shadow": "{elevation.level3}",
+      "scrim": { "background": "rgba(15,23,42,0.6)", "backdrop_filter": "blur(4px)" }
+    },
+
+    "tooltip": {
+      "$source": "Fission TooltipTheme",
+      "anatomy": ["bubble", "arrow?"],
+      "radius": "{radius.small}",
+      "background": "{color.slate.900}",
+      "color": "#FFFFFF",
+      "font_size": "12px",
+      "padding": "8px 10px",
+      "max_width": "240px",
+      "box_shadow": "{elevation.level2}"
+    },
+
+    "kicker_eyebrow": {
+      "$description": "Small uppercase label above section titles.",
+      "font_size": "14px",
+      "font_weight": 600,
+      "color": "{color.teal.700}",
+      "letter_spacing": "0",
+      "text_transform": "none",
+      "$variant_uppercase": { "text_transform": "uppercase", "letter_spacing": "{typography.letter_spacing.kicker}", "font_size": "12px" }
+    }
+  },
+
+  "patterns": {
+    "$comment": "Composition patterns — proven layouts the design system endorses.",
+
+    "marketing_hero": {
+      "$description": "Centered hero: pill announcement → display-lg headline → text-xl lead → CTA row → command panel grid.",
+      "max_width": "1280px",
+      "padding": "96px 32px 80px",
+      "alignment": "center",
+      "components": ["pill_announcement", "display_lg_headline", "text_xl_lead", "cta_row", "command_panel_grid_2col"]
+    },
+
+    "marketing_features_4up": {
+      "$description": "4-column feature grid: feature_icon → 18px heading → text-md body.",
+      "grid": "repeat(4, minmax(0, 1fr))",
+      "gap": "{spacing.xl}",
+      "section_padding": "80px 0"
+    },
+
+    "marketing_target_rail": {
+      "$description": "Vertical list of target rows in a single bordered card: feature_icon + name+badge+summary + command + link button.",
+      "container": "card.elevated, radius xl, 1px border, overflow hidden",
+      "row_height_min": "80px",
+      "row_columns": "auto minmax(0, 1fr) minmax(280px, 0.9fr) auto"
+    },
+
+    "marketing_examples_3up": {
+      "$description": "3-column product cards with screenshot, badge, title, command, body, feature tags, and dual CTAs.",
+      "grid": "repeat(3, minmax(0, 1fr))",
+      "gap": "{spacing.l}",
+      "card_screenshot_aspect": "16 / 10"
+    },
+
+    "marketing_cta_strip_dark": {
+      "$description": "Final-call section on slate-950 with teal/blue radial-gradient overlays. Centered headline + 2 CTAs.",
+      "background": "radial-gradient(circle at 20% 0%, rgba(45,212,191,0.12), transparent 50%), radial-gradient(circle at 80% 100%, rgba(77,166,224,0.10), transparent 55%), {color.slate.950}"
+    },
+
+    "form_field_stack": {
+      "$description": "Vertical stack for a form field: label → input → helper or error text.",
+      "gap": "6px",
+      "elements": ["label", "input", "helper_text"]
+    }
+  },
+
+  "assets": {
+    "$comment": "Brand assets shipped with this package.",
+    "logos": [
+      { "id": "wordmark.dark",    "path": "assets/fission-logo.png", "format": "png", "background": "dark", "dimensions": "1242x1242" },
+      { "id": "mark.full_color",  "path": "assets/fission-mark.svg", "format": "svg", "background": "any",  "dimensions": "200x200" }
+    ],
+    "fonts": [
+      { "family": "Inter", "weight": 400, "style": "normal", "path": "fonts/Inter-Regular.ttf",  "format": "truetype" },
+      { "family": "Inter", "weight": 500, "style": "normal", "path": "fonts/Inter-Medium.ttf",   "format": "truetype" },
+      { "family": "Inter", "weight": 600, "style": "normal", "path": "fonts/Inter-SemiBold.ttf", "format": "truetype" },
+      { "family": "Inter", "weight": 700, "style": "normal", "path": "fonts/Inter-Bold.ttf",     "format": "truetype" }
+    ],
+    "iconography": {
+      "$comment": "Material Symbols Rounded — the same set bundled by fission-icons.",
+      "set": "material-symbols-rounded",
+      "weight": 400,
+      "optical_size": 24,
+      "fill": 0,
+      "grad": 0,
+      "cdn": "https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@24,400,0,0",
+      "rust_source": "https://github.com/worka-ai/material-design-icons"
+    }
+  },
+
+  "preview": {
+    "$comment": "Static HTML cards used by the design system review UI. Each card is ~700px wide, height varies.",
+    "cards": [
+      { "asset": "Brand · Logo",                   "group": "Brand",      "path": "preview/brand-logo.html" },
+      { "asset": "Brand · Atom mark",              "group": "Brand",      "path": "preview/brand-mark.html" },
+      { "asset": "Colors · Teal interactive",      "group": "Colors",     "path": "preview/colors-teal.html" },
+      { "asset": "Colors · Brand signal (logo)",   "group": "Colors",     "path": "preview/colors-brand-signal.html" },
+      { "asset": "Colors · Slate neutrals",        "group": "Colors",     "path": "preview/colors-slate.html" },
+      { "asset": "Colors · Semantic status",       "group": "Colors",     "path": "preview/colors-semantic.html" },
+      { "asset": "Colors · Light surface tokens",  "group": "Colors",     "path": "preview/colors-light-surface.html" },
+      { "asset": "Colors · Dark surface tokens",   "group": "Colors",     "path": "preview/colors-dark-surface.html" },
+      { "asset": "Type · Display serif",           "group": "Type",       "path": "preview/type-display.html" },
+      { "asset": "Type · Sans scale",              "group": "Type",       "path": "preview/type-sans-scale.html" },
+      { "asset": "Type · Mono / code",             "group": "Type",       "path": "preview/type-mono.html" },
+      { "asset": "Type · Semantic classes",        "group": "Type",       "path": "preview/type-semantic.html" },
+      { "asset": "Spacing · Scale",                "group": "Spacing",    "path": "preview/spacing-scale.html" },
+      { "asset": "Spacing · Radius scale",         "group": "Spacing",    "path": "preview/spacing-radius.html" },
+      { "asset": "Spacing · Elevation",            "group": "Spacing",    "path": "preview/spacing-elevation.html" },
+      { "asset": "Spacing · Motion",               "group": "Spacing",    "path": "preview/spacing-motion.html" },
+      { "asset": "Components · Buttons",           "group": "Components", "path": "preview/comp-buttons.html" },
+      { "asset": "Components · Inputs",            "group": "Components", "path": "preview/comp-inputs.html" },
+      { "asset": "Components · Card",              "group": "Components", "path": "preview/comp-card.html" },
+      { "asset": "Components · Badges & tags",     "group": "Components", "path": "preview/comp-badges-tags.html" },
+      { "asset": "Components · Tabs & progress",   "group": "Components", "path": "preview/comp-tabs-progress.html" },
+      { "asset": "Components · Iconography",       "group": "Components", "path": "preview/comp-icons.html" },
+      { "asset": "Components · CTA strip",         "group": "Components", "path": "preview/comp-cta-pattern.html" },
+      { "asset": "Fission Website",                "group": "Components", "path": "ui_kits/website/index.html" }
+    ]
+  },
+
+  "sources": {
+    "$comment": "Upstream references this DSP was distilled from.",
+    "github_repos": [
+      {
+        "url": "https://github.com/worka-ai/fission",
+        "purpose": "The framework itself. fission-theme crate defines the Material 3 token structure; website/ is the canonical brand surface.",
+        "key_files": [
+          "crates/core/fission-theme/src/lib.rs",
+          "website/src/css/custom.css",
+          "website/src/pages/index.module.css",
+          "website/static/img/fission_logo.png"
+        ]
+      }
+    ],
+    "figma_files": [
+      {
+        "name": "❖ Untitled UI – PRO VARIABLES(D)",
+        "purpose": "Component vocabulary reference (Buttons, Inputs, Badges, Tabs, Progress, Featured Icon). Tokens are NOT inherited from Untitled UI — only component shapes are.",
+        "components_used": [
+          "/Buttons/Buttons-Button (3287:427074)",
+          "/Buttons/Buttons-Button-destructive",
+          "/Inputs/Input (8460:196140)",
+          "/Inputs/Input-field (1091:61577)",
+          "/Badges/Badge (1046:3819)",
+          "/Tabs/Horizontal-tabs",
+          "/Progress-indicators/Progress-bar (1085:57382)",
+          "/Misc-icons/Featured-icon"
+        ]
+      }
+    ]
+  }
+}

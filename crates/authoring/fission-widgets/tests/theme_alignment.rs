@@ -5,7 +5,7 @@ use fission_core::{BuildCtx, View, Widget};
 use fission_ir::op::Color;
 use fission_ir::{CoreIR, LayoutOp, NodeId, Op, PaintOp};
 use fission_layout::{LayoutEngine, LayoutSize, TextMeasurer};
-use fission_theme::{ComponentTheme, Theme, Tokens};
+use fission_theme::{Theme, Tokens};
 use fission_widgets::{Badge, Stepper};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -105,10 +105,7 @@ fn badge_background_uses_theme_secondary() {
         b: 13,
         a: 255,
     };
-    let theme = Theme {
-        components: ComponentTheme::from_tokens(&tokens),
-        tokens,
-    };
+    let theme = Theme::from_tokens(tokens, fission_theme::DesignMode::Light);
     let mut env = Env::default();
     env.theme = theme;
 
@@ -246,10 +243,7 @@ fn stepper_active_text_uses_on_primary() {
         b: 56,
         a: 255,
     };
-    let theme = Theme {
-        components: ComponentTheme::from_tokens(&tokens),
-        tokens,
-    };
+    let theme = Theme::from_tokens(tokens, fission_theme::DesignMode::Light);
     let mut env = Env::default();
     env.theme = theme;
 

@@ -1194,6 +1194,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "fission-design-system-codegen"
+version = "0.1.1"
+dependencies = [
+ "anyhow",
+ "serde_json",
+]
+
+[[package]]
 name = "fission-diagnostics"
 version = "0.1.1"
 dependencies = [
@@ -1339,6 +1347,7 @@ dependencies = [
  "fission-render-vello",
  "fission-shell",
  "fission-shell-winit",
+ "fission-theme",
  "fission-widgets",
  "lazy_static",
  "serde",
@@ -1353,6 +1362,7 @@ dependencies = [
  "fission-core",
  "fission-shell",
  "fission-shell-winit",
+ "fission-theme",
  "winit",
 ]
 
@@ -1364,6 +1374,7 @@ dependencies = [
  "fission-core",
  "fission-shell",
  "fission-shell-winit",
+ "fission-theme",
 ]
 
 [[package]]
@@ -1450,6 +1461,7 @@ dependencies = [
 name = "fission-theme"
 version = "0.1.1"
 dependencies = [
+ "fission-design-system-codegen",
  "fission-ir",
  "serde",
 ]
