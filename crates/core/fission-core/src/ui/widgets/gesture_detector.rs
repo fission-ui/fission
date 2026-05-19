@@ -117,6 +117,7 @@ impl Lower for GestureDetector {
             identifier: None,
             value: None,
             actions: Default::default(),
+            action_scope_id: None,
             focusable: self.on_tap.is_some(),
             multiline: false,
             masked: false,

@@ -9,7 +9,7 @@ use crate::{
     context::{Effects, ReducerContext},
     effect::{ActionInput, Effect, EffectEnvelope},
     ui::Node,
-    Action, ActionEnvelope, ActionId, AppState, BoxedReducer,
+    Action, ActionEnvelope, ActionId, ActionScopeId, AppState, BoxedReducer,
 };
 use anyhow::{anyhow, Result};
 use fission_ir::{NodeId, WidgetNodeId};
@@ -56,6 +56,23 @@ type TypedReducer<S> = Box<
     dyn for<'a, 'b, 'c> Fn(
             &mut S,
             &ActionEnvelope,
+            NodeId,
+            &mut Effects<'a, S>,
+            &'b ActionInput,
+        ) -> Result<()>
+        + Send
+        + Sync,
+>;
+
+/// Raw action handler used for mounted or external subtrees.
+///
+/// Unlike typed reducers, this receives the original action envelope and
+/// dispatch target without deserializing the payload.
+pub type RawActionHandler<S> = Box<
+    dyn for<'a, 'b> Fn(
+            &mut S,
+            &ActionEnvelope,
+            NodeId,
             &mut Effects<'a, S>,
             &'b ActionInput,
         ) -> Result<()>
@@ -69,7 +86,7 @@ type TypedReducer<S> = Box<
 /// tree is built, the registry is absorbed into the [`Runtime`](crate::Runtime)
 /// via [`Runtime::absorb_registry`](crate::Runtime::absorb_registry).
 pub struct ActionRegistry<S: AppState> {
-    handlers: BTreeMap<ActionId, TypedReducer<S>>,
+    handlers: BTreeMap<ActionId, Vec<TypedReducer<S>>>,
 }
 
 impl<S: AppState> Default for ActionRegistry<S> {
@@ -92,7 +109,12 @@ impl<S: AppState> ActionRegistry<S> {
         let action_id = A::static_id();
 
         let typed_reducer: TypedReducer<S> = Box::new(
-            move |state: &mut S, envelope: &ActionEnvelope, effects, input| -> Result<()> {
+            move |state: &mut S,
+                  envelope: &ActionEnvelope,
+                  _target,
+                  effects,
+                  input|
+                  -> Result<()> {
                 let action: A = serde_json::from_slice(&envelope.payload)
                     .map_err(|e| anyhow!("Failed to deserialize action: {}", e))?;
 
@@ -103,43 +125,101 @@ impl<S: AppState> ActionRegistry<S> {
             },
         );
 
-        self.handlers.insert(action_id, typed_reducer);
+        self.handlers
+            .entry(action_id)
+            .or_default()
+            .push(typed_reducer);
+    }
+
+    pub fn register_raw_action<F>(&mut self, action_id: ActionId, handler: F)
+    where
+        F: for<'a, 'b> Fn(
+                &mut S,
+                &ActionEnvelope,
+                NodeId,
+                &mut Effects<'a, S>,
+                &'b ActionInput,
+            ) -> Result<()>
+            + Send
+            + Sync
+            + 'static,
+    {
+        self.handlers
+            .entry(action_id)
+            .or_default()
+            .push(Box::new(handler));
+    }
+
+    pub fn register_scoped_raw_action<F>(
+        &mut self,
+        scope_id: ActionScopeId,
+        action_id: ActionId,
+        handler: F,
+    ) where
+        F: for<'a, 'b> Fn(
+                &mut S,
+                &ActionEnvelope,
+                NodeId,
+                &mut Effects<'a, S>,
+                &'b ActionInput,
+            ) -> Result<()>
+            + Send
+            + Sync
+            + 'static,
+    {
+        let expected_scope = scope_id.as_u128();
+        self.register_raw_action(action_id, move |state, envelope, target, effects, input| {
+            if input.action_scope_id() == Some(expected_scope) {
+                handler(state, envelope, target, effects, input)
+            } else {
+                Ok(())
+            }
+        });
     }
 
     pub fn into_runtime_reducers(self) -> HashMap<ActionId, Vec<BoxedReducer>> {
         let mut runtime_reducers: HashMap<ActionId, Vec<BoxedReducer>> = HashMap::new();
         let state_type_id = TypeId::of::<S>();
 
-        for (action_id, typed_reducer) in self.handlers {
-            let boxed_reducer: BoxedReducer = Box::new(
-                move |app_states: &mut HashMap<TypeId, Box<dyn AppState>>,
-                      action: &ActionEnvelope,
-                      _target: NodeId,
-                      out_effects: &mut Vec<EffectEnvelope>,
-                      input: &ActionInput|
-                      -> Result<()> {
-                    if let Some(state_box) = app_states.get_mut(&state_type_id) {
-                        let concrete_state = state_box.downcast_mut::<S>().ok_or_else(|| {
-                            anyhow!("Failed to downcast AppState to concrete type")
-                        })?;
+        for (action_id, typed_reducers) in self.handlers {
+            for typed_reducer in typed_reducers {
+                let boxed_reducer: BoxedReducer = Box::new(
+                    move |app_states: &mut HashMap<TypeId, Box<dyn AppState>>,
+                          action: &ActionEnvelope,
+                          target: NodeId,
+                          out_effects: &mut Vec<EffectEnvelope>,
+                          input: &ActionInput|
+                          -> Result<()> {
+                        if let Some(state_box) = app_states.get_mut(&state_type_id) {
+                            let concrete_state =
+                                state_box.downcast_mut::<S>().ok_or_else(|| {
+                                    anyhow!("Failed to downcast AppState to concrete type")
+                                })?;
 
-                        let mut effects_builder = Effects::new_headless(0);
+                            let mut effects_builder = Effects::new_headless(0);
 
-                        typed_reducer(concrete_state, action, &mut effects_builder, input)?;
+                            typed_reducer(
+                                concrete_state,
+                                action,
+                                target,
+                                &mut effects_builder,
+                                input,
+                            )?;
 
-                        out_effects.extend(effects_builder.out);
+                            out_effects.extend(effects_builder.out);
 
-                        Ok(())
-                    } else {
-                        anyhow::bail!("Target AppState for reducer not found in runtime.");
-                    }
-                },
-            );
+                            Ok(())
+                        } else {
+                            anyhow::bail!("Target AppState for reducer not found in runtime.");
+                        }
+                    },
+                );
 
-            runtime_reducers
-                .entry(action_id)
-                .or_default()
-                .push(boxed_reducer);
+                runtime_reducers
+                    .entry(action_id)
+                    .or_default()
+                    .push(boxed_reducer);
+            }
         }
         runtime_reducers
     }
@@ -399,6 +479,27 @@ impl<S: AppState> BuildCtx<S> {
         H: IntoHandler<S, A> + Send + Sync + 'static,
     {
         self.registry.register::<A, H>(handler);
+    }
+
+    pub fn register_scoped_raw_action<F>(
+        &mut self,
+        scope_id: ActionScopeId,
+        action_id: ActionId,
+        handler: F,
+    ) where
+        F: for<'a, 'b> Fn(
+                &mut S,
+                &ActionEnvelope,
+                NodeId,
+                &mut Effects<'a, S>,
+                &'b ActionInput,
+            ) -> Result<()>
+            + Send
+            + Sync
+            + 'static,
+    {
+        self.registry
+            .register_scoped_raw_action(scope_id, action_id, handler);
     }
 
     pub fn request_animation_for(&mut self, target: WidgetNodeId, request: AnimationRequest) {

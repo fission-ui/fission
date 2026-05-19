@@ -310,18 +310,23 @@ impl GestureController {
             return false;
         };
 
-        ctx.dispatched_actions.push((
+        let input = crate::input::scoped_action_input(
+            ctx.ir,
             node_id,
-            ActionEnvelope {
-                id: ActionId::from_u128(action_entry.action_id),
-                payload: payload.clone(),
-            },
             ActionInput::Pointer {
                 x: point.x,
                 y: point.y,
                 delta_x: 0.0,
                 delta_y: 0.0,
             },
+        );
+        ctx.dispatched_actions.push((
+            node_id,
+            ActionEnvelope {
+                id: ActionId::from_u128(action_entry.action_id),
+                payload: payload.clone(),
+            },
+            input,
         ));
         true
     }
@@ -361,11 +366,15 @@ impl GestureController {
                                 payload: entry.payload_data.clone().unwrap_or_default(),
                             };
 
-                            let input = ActionInput::InternalDrop {
-                                payload: payload.clone(),
-                                x: point.x,
-                                y: point.y,
-                            };
+                            let input = crate::input::scoped_action_input(
+                                ctx.ir,
+                                node_id,
+                                ActionInput::InternalDrop {
+                                    payload: payload.clone(),
+                                    x: point.x,
+                                    y: point.y,
+                                },
+                            );
 
                             ctx.dispatched_actions.push((node_id, envelope, input));
                             return true;
@@ -399,12 +408,16 @@ impl GestureController {
                                 payload: entry.payload_data.clone().unwrap_or_default(),
                             };
 
-                            let input = ActionInput::Pointer {
-                                x: point.x,
-                                y: point.y,
-                                delta_x: delta.map(|d| d.x).unwrap_or(0.0),
-                                delta_y: delta.map(|d| d.y).unwrap_or(0.0),
-                            };
+                            let input = crate::input::scoped_action_input(
+                                ctx.ir,
+                                node_id,
+                                ActionInput::Pointer {
+                                    x: point.x,
+                                    y: point.y,
+                                    delta_x: delta.map(|d| d.x).unwrap_or(0.0),
+                                    delta_y: delta.map(|d| d.y).unwrap_or(0.0),
+                                },
+                            );
 
                             ctx.dispatched_actions.push((node_id, envelope, input));
                             return true;

@@ -1,9 +1,9 @@
 use super::custom_render::CustomRenderObject;
 use super::traits::{Lower, LowerDyn};
 use super::widgets::{
-    Align, Button, Checkbox, Clip, Column, Composite, Container, FocusScope, GestureDetector, Grid,
-    GridItem, Icon, Image, LazyColumn, Overlay, Positioned, Radio, RichText, Row, SafeArea, Scroll,
-    Slider, Spacer, Switch, Text, TextInput, Transform, Video, ZStack,
+    ActionScope, Align, Button, Checkbox, Clip, Column, Composite, Container, FocusScope,
+    GestureDetector, Grid, GridItem, Icon, Image, LazyColumn, Overlay, Positioned, Radio, RichText,
+    Row, SafeArea, Scroll, Slider, Spacer, Switch, Text, TextInput, Transform, Video, ZStack,
 };
 use crate::lowering::LoweringContext;
 use fission_ir::{NodeId, Op, StructuralOp};
@@ -12,6 +12,7 @@ use std::sync::Arc;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum Node {
+    ActionScope(ActionScope),
     Row(Row),
     Column(Column),
     Align(Align),
@@ -47,6 +48,7 @@ pub enum Node {
 impl Node {
     pub fn lower(&self, cx: &mut LoweringContext) -> NodeId {
         match self {
+            Node::ActionScope(w) => w.lower(cx),
             Node::Row(w) => w.lower(cx),
             Node::Column(w) => w.lower(cx),
             Node::Align(w) => w.lower(cx),
@@ -125,6 +127,11 @@ impl Node {
 impl From<Row> for Node {
     fn from(w: Row) -> Self {
         Node::Row(w)
+    }
+}
+impl From<ActionScope> for Node {
+    fn from(w: ActionScope) -> Self {
+        Node::ActionScope(w)
     }
 }
 impl From<Column> for Node {

@@ -13,6 +13,7 @@ use crate::async_runtime::{
 };
 use crate::capability::CapabilityInvocationPayload;
 use crate::capability::{CapabilityType, OperationCapability};
+use fission_ir::NodeId;
 use serde::{Deserialize, Serialize};
 
 /// An opaque request identifier assigned to each emitted effect.
@@ -193,11 +194,46 @@ pub enum ActionInput {
     Drop { paths: Vec<String>, x: f32, y: f32 },
     /// Internal drag-and-drop with an opaque byte payload.
     InternalDrop { payload: Vec<u8>, x: f32, y: f32 },
+    /// The action was dispatched from a subtree with a raw action scope.
+    ScopedRaw {
+        scope_id: u128,
+        target: NodeId,
+        input: Box<ActionInput>,
+    },
 }
 
 impl ActionInput {
-    pub fn as_bytes(&self) -> Option<&[u8]> {
+    pub fn scoped_raw(scope_id: u128, target: NodeId, input: ActionInput) -> Self {
+        Self::ScopedRaw {
+            scope_id,
+            target,
+            input: Box::new(input),
+        }
+    }
+
+    pub fn action_scope_id(&self) -> Option<u128> {
         match self {
+            ActionInput::ScopedRaw { scope_id, .. } => Some(*scope_id),
+            _ => None,
+        }
+    }
+
+    pub fn scoped_target(&self) -> Option<NodeId> {
+        match self {
+            ActionInput::ScopedRaw { target, .. } => Some(*target),
+            _ => None,
+        }
+    }
+
+    pub fn unscoped(&self) -> &ActionInput {
+        match self {
+            ActionInput::ScopedRaw { input, .. } => input.unscoped(),
+            _ => self,
+        }
+    }
+
+    pub fn as_bytes(&self) -> Option<&[u8]> {
+        match self.unscoped() {
             ActionInput::JobOk { payload, .. } => Some(payload),
             ActionInput::CapabilityOk { payload, .. } => Some(payload),
             ActionInput::TimerTick { payload } => Some(payload),
@@ -207,7 +243,7 @@ impl ActionInput {
     }
 
     pub fn as_pointer(&self) -> Option<(f32, f32, f32, f32)> {
-        match self {
+        match self.unscoped() {
             ActionInput::Pointer {
                 x,
                 y,
@@ -221,21 +257,21 @@ impl ActionInput {
     }
 
     pub fn as_drop_paths(&self) -> Option<&[String]> {
-        match self {
+        match self.unscoped() {
             ActionInput::Drop { paths, .. } => Some(paths),
             _ => None,
         }
     }
 
     pub fn as_internal_drop(&self) -> Option<&[u8]> {
-        match self {
+        match self.unscoped() {
             ActionInput::InternalDrop { payload, .. } => Some(payload),
             _ => None,
         }
     }
 
     pub fn job_ok<J: JobSpec>(&self, job: JobRef<J>) -> Option<J::Ok> {
-        match self {
+        match self.unscoped() {
             ActionInput::JobOk {
                 job_name, payload, ..
             } if job_name == job.name => serde_json::from_slice(payload).ok(),
@@ -244,7 +280,7 @@ impl ActionInput {
     }
 
     pub fn job_err<J: JobSpec>(&self, job: JobRef<J>) -> Option<J::Err> {
-        match self {
+        match self.unscoped() {
             ActionInput::JobErr {
                 job_name,
                 payload: Some(payload),
@@ -255,7 +291,7 @@ impl ActionInput {
     }
 
     pub fn job_error_message<J: JobSpec>(&self, job: JobRef<J>) -> Option<&str> {
-        match self {
+        match self.unscoped() {
             ActionInput::JobErr {
                 job_name,
                 message: Some(message),
@@ -269,7 +305,7 @@ impl ActionInput {
         &self,
         capability: CapabilityType<C>,
     ) -> Option<C::Ok> {
-        match self {
+        match self.unscoped() {
             ActionInput::CapabilityOk {
                 capability: actual,
                 payload,
@@ -283,7 +319,7 @@ impl ActionInput {
         &self,
         capability: CapabilityType<C>,
     ) -> Option<C::Err> {
-        match self {
+        match self.unscoped() {
             ActionInput::CapabilityErr {
                 capability: actual,
                 payload: Some(payload),
@@ -297,7 +333,7 @@ impl ActionInput {
         &self,
         capability: CapabilityType<C>,
     ) -> Option<&str> {
-        match self {
+        match self.unscoped() {
             ActionInput::CapabilityErr {
                 capability: actual,
                 message: Some(message),
@@ -308,7 +344,7 @@ impl ActionInput {
     }
 
     pub fn service_event<S: ServiceSpec>(&self, service: ServiceType<S>) -> Option<S::Event> {
-        match self {
+        match self.unscoped() {
             ActionInput::ServiceEvent {
                 service_name,
                 payload,
@@ -322,7 +358,7 @@ impl ActionInput {
         &self,
         service: ServiceType<S>,
     ) -> Option<S::StartErr> {
-        match self {
+        match self.unscoped() {
             ActionInput::ServiceStartFailed {
                 service_name,
                 payload: Some(payload),
@@ -336,7 +372,7 @@ impl ActionInput {
         &self,
         service: ServiceType<S>,
     ) -> Option<&str> {
-        match self {
+        match self.unscoped() {
             ActionInput::ServiceStartFailed {
                 service_name,
                 message: Some(message),
@@ -350,7 +386,7 @@ impl ActionInput {
         &self,
         service: ServiceType<S>,
     ) -> Option<S::CommandOk> {
-        match self {
+        match self.unscoped() {
             ActionInput::ServiceCommandOk {
                 service_name,
                 payload: Some(payload),
@@ -364,7 +400,7 @@ impl ActionInput {
         &self,
         service: ServiceType<S>,
     ) -> Option<S::CommandErr> {
-        match self {
+        match self.unscoped() {
             ActionInput::ServiceCommandErr {
                 service_name,
                 payload: Some(payload),
@@ -375,14 +411,14 @@ impl ActionInput {
     }
 
     pub fn timer_tick<T: serde::de::DeserializeOwned>(&self) -> Option<T> {
-        match self {
+        match self.unscoped() {
             ActionInput::TimerTick { payload } => serde_json::from_slice(payload).ok(),
             _ => None,
         }
     }
 
     pub fn service_slot_key(&self) -> Option<&str> {
-        match self {
+        match self.unscoped() {
             ActionInput::ServiceStarted { slot_key, .. }
             | ActionInput::ServiceStartFailed { slot_key, .. }
             | ActionInput::ServiceEvent { slot_key, .. }
@@ -394,7 +430,7 @@ impl ActionInput {
     }
 
     pub fn service_instance_id(&self) -> Option<u64> {
-        match self {
+        match self.unscoped() {
             ActionInput::ServiceStarted { instance_id, .. }
             | ActionInput::ServiceEvent { instance_id, .. }
             | ActionInput::ServiceStopped { instance_id, .. }

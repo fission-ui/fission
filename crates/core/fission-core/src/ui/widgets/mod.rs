@@ -1,3 +1,4 @@
+pub mod action_scope;
 pub mod align;
 pub mod builder;
 pub mod button;
@@ -24,6 +25,7 @@ pub mod text_input;
 pub mod transform;
 pub mod video;
 
+pub use action_scope::ActionScope;
 pub use align::Align;
 pub use builder::{Builder, LayoutBuilder};
 pub use button::{Button, ButtonContentAlign, ButtonVariant};

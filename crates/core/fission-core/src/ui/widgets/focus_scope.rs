@@ -60,6 +60,7 @@ impl Lower for FocusScope {
             identifier: None,
             value: None,
             actions: Default::default(),
+            action_scope_id: None,
             focusable: false,
             multiline: false,
             masked: false,

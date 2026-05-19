@@ -92,6 +92,37 @@ impl ActionId {
     }
 }
 
+/// A stable scope identifier for raw action dispatch.
+///
+/// Scopes let a host register raw handlers for action IDs that are meaningful
+/// only inside a mounted subtree. The envelope remains unchanged; dispatch
+/// carries the nearest enclosing scope in [`ActionInput`](crate::ActionInput).
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug, Serialize, Deserialize, PartialOrd, Ord)]
+pub struct ActionScopeId(u128);
+
+impl ActionScopeId {
+    /// Creates an `ActionScopeId` from a raw `u128` value.
+    pub const fn from_u128(val: u128) -> Self {
+        Self(val)
+    }
+
+    /// Returns the underlying `u128` value.
+    pub fn as_u128(&self) -> u128 {
+        self.0
+    }
+
+    /// Derives a deterministic `ActionScopeId` from a stable name.
+    pub fn from_name(name: &str) -> Self {
+        let mut hasher = blake3::Hasher::new();
+        hasher.update(b"fission.action_scope.v1:");
+        hasher.update(name.as_bytes());
+        let hash = hasher.finalize();
+        ActionScopeId(u128::from_le_bytes(
+            hash.as_bytes()[0..16].try_into().unwrap(),
+        ))
+    }
+}
+
 /// Action dispatched by the text-editing controller when the user modifies a
 /// [`TextInput`](crate::ui::TextInput) field.
 ///

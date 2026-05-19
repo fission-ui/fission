@@ -1015,7 +1015,13 @@ impl Runtime {
                                                 id: ActionId::from_u128(action_entry.action_id),
                                                 payload: payload.clone(),
                                             };
-                                            return self.dispatch(envelope, node_id);
+                                            let input = crate::input::scoped_action_input(
+                                                ir,
+                                                node_id,
+                                                ActionInput::None,
+                                            );
+                                            return self
+                                                .dispatch_with_input(envelope, node_id, &input);
                                         }
                                     }
                                 }
@@ -1159,7 +1165,12 @@ impl Runtime {
                                                 position: Some((point.x, point.y)),
                                             },
                                         );
-                                        return self.dispatch(envelope, node_id);
+                                        let input = crate::input::scoped_action_input(
+                                            ir,
+                                            node_id,
+                                            ActionInput::None,
+                                        );
+                                        return self.dispatch_with_input(envelope, node_id, &input);
                                     }
                                 }
                             }
