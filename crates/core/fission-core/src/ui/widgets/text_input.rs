@@ -1788,6 +1788,7 @@ impl Lower for TextInput {
             identifier: None,
             value: Some(self.value.clone()),
             actions: Default::default(),
+            action_scope_id: None,
             focusable: self.enabled,
             multiline: self.multiline,
             masked: self.obscure_text,

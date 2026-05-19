@@ -62,7 +62,7 @@ pub mod view;
 #[cfg(test)]
 mod tests;
 
-pub use action::{Action, ActionEnvelope, ActionId, AppState};
+pub use action::{Action, ActionEnvelope, ActionId, ActionScopeId, AppState};
 pub use async_runtime::{
     BoxFuture, JobCtx, JobRef, JobSpec, ResourceExecutionContext, ServiceBindings, ServiceCtx,
     ServiceRunner, ServiceSlot, ServiceSpec, ServiceType,
@@ -90,13 +90,13 @@ pub use fission_layout::{
 pub use lowering::{LoweringContext, NodeBuilder};
 pub use registry::{
     ActionRegistry, AnimationPropertyId, AnimationRequest, AnimationStartValue, BuildCtx,
-    EasingFunction, Handler, JobResource, PortalLayer, ResourceKey, ResourcePolicy,
-    ResourceRegistry, RuntimeResourceDeclaration, RuntimeResourceKind, ServiceResource,
-    TimerResource, VideoRegistration,
+    EasingFunction, Handler, JobResource, PortalLayer, RawActionHandler, ResourceKey,
+    ResourcePolicy, ResourceRegistry, RuntimeResourceDeclaration, RuntimeResourceKind,
+    ServiceResource, TimerResource, VideoRegistration,
 };
 pub use time::{Clock, CurrentTime};
 pub use ui::{
-    BadgeTone, Builder, Button, ButtonHierarchy, CardPattern, Column, ComponentSize,
+    ActionScope, BadgeTone, Builder, Button, ButtonHierarchy, CardPattern, Column, ComponentSize,
     ComponentState, CustomEventResult, CustomHitResult, CustomNode, CustomRenderObject,
     LayoutBuilder, Lower, LowerDyn, Node, Row, Text,
 };

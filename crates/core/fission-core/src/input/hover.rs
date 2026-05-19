@@ -263,7 +263,11 @@ fn dispatch_hover_actions(
         let Some(payload) = &entry.payload_data else {
             continue;
         };
-        let input = point.map(pointer_input).unwrap_or(ActionInput::None);
+        let input = crate::input::scoped_action_input(
+            ctx.ir,
+            node_id,
+            point.map(pointer_input).unwrap_or(ActionInput::None),
+        );
         ctx.dispatched_actions.push((
             node_id,
             ActionEnvelope {
@@ -290,7 +294,11 @@ fn dispatch_annotation_actions(
         let Some(payload) = &entry.payload_data else {
             continue;
         };
-        let input = point.map(pointer_input).unwrap_or(ActionInput::None);
+        let input = crate::input::scoped_action_input(
+            ctx.ir,
+            node_id,
+            point.map(pointer_input).unwrap_or(ActionInput::None),
+        );
         ctx.dispatched_actions.push((
             node_id,
             ActionEnvelope {

@@ -273,6 +273,9 @@ pub struct Semantics {
     pub value: Option<String>,
     /// The set of actions this node responds to.
     pub actions: ActionSet,
+    /// Optional raw action dispatch scope inherited by descendant actions.
+    #[serde(default)]
+    pub action_scope_id: Option<u128>,
     /// Whether this node can receive keyboard focus.
     pub focusable: bool,
     /// Whether this text input supports multiple lines.
@@ -354,6 +357,7 @@ impl std::hash::Hash for Semantics {
         self.identifier.hash(state);
         self.value.hash(state);
         self.actions.hash(state);
+        self.action_scope_id.hash(state);
         self.focusable.hash(state);
         self.multiline.hash(state);
         self.masked.hash(state);
@@ -402,6 +406,7 @@ impl Default for Semantics {
             identifier: None,
             value: None,
             actions: ActionSet::default(),
+            action_scope_id: None,
             focusable: false,
             multiline: false,
             masked: false,

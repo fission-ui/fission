@@ -305,6 +305,7 @@ impl Lower for Slider {
             identifier: None,
             value: Some(format!("{:.2}", self.value)),
             actions: Default::default(),
+            action_scope_id: None,
             focusable: true,
             multiline: false,
             masked: false,

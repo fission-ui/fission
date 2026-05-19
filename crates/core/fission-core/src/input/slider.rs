@@ -76,11 +76,12 @@ impl SliderController {
                                 id: ActionId::from_u128(entry.action_id),
                                 payload,
                             };
-                            ctx.dispatched_actions.push((
+                            let input = crate::input::scoped_action_input(
+                                ctx.ir,
                                 node_id,
-                                envelope,
                                 crate::ActionInput::None,
-                            ));
+                            );
+                            ctx.dispatched_actions.push((node_id, envelope, input));
                         }
                     }
                 }

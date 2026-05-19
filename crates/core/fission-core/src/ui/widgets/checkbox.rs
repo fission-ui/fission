@@ -209,6 +209,7 @@ impl Lower for Checkbox {
                 "false".into()
             }),
             actions: Default::default(),
+            action_scope_id: None,
             focusable: true,
             multiline: false,
             masked: false,

@@ -158,6 +158,7 @@ impl Lower for Switch {
                 "false".into()
             }),
             actions: Default::default(),
+            action_scope_id: None,
             focusable: true,
             multiline: false,
             masked: false,

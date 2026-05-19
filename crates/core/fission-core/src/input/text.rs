@@ -1755,8 +1755,9 @@ impl TextInputController {
                 id: ActionId::from_u128(action_entry.action_id),
                 payload,
             };
-            ctx.dispatched_actions
-                .push((node_id, envelope, crate::ActionInput::None));
+            let input =
+                crate::input::scoped_action_input(ctx.ir, node_id, crate::ActionInput::None);
+            ctx.dispatched_actions.push((node_id, envelope, input));
 
             // State update moved to handle_key to avoid double borrow
 
@@ -1802,8 +1803,9 @@ impl TextInputController {
                 id: ActionId::from_u128(action_entry.action_id),
                 payload,
             };
-            ctx.dispatched_actions
-                .push((node_id, envelope, crate::ActionInput::None));
+            let input =
+                crate::input::scoped_action_input(ctx.ir, node_id, crate::ActionInput::None);
+            ctx.dispatched_actions.push((node_id, envelope, input));
         }
     }
 
@@ -1853,8 +1855,8 @@ impl TextInputController {
             id: ActionId::from_u128(action_entry.action_id),
             payload,
         };
-        ctx.dispatched_actions
-            .push((node_id, envelope, crate::ActionInput::None));
+        let input = crate::input::scoped_action_input(ctx.ir, node_id, crate::ActionInput::None);
+        ctx.dispatched_actions.push((node_id, envelope, input));
         true
     }
 

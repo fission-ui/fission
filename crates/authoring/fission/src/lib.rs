@@ -103,9 +103,9 @@ pub use fission_core::ui::*;
 
 // Core action/state types
 pub use fission_core::{
-    Action, ActionEnvelope, ActionId, AnimationPropertyId, AnimationRequest, AnimationStartValue,
-    AppState, BuildCtx, EasingFunction, FlexDirection, Handler, NodeBuilder, Op, PortalLayer,
-    ReducerContext, Selector, View, Widget, WidgetNodeId,
+    Action, ActionEnvelope, ActionId, ActionScopeId, AnimationPropertyId, AnimationRequest,
+    AnimationStartValue, AppState, BuildCtx, EasingFunction, FlexDirection, Handler, NodeBuilder,
+    Op, PortalLayer, ReducerContext, Selector, View, Widget, WidgetNodeId,
 };
 
 // Core event types
@@ -149,7 +149,7 @@ pub mod prelude {
     pub use fission_core::op::{Color, Fill, PaintOp};
     pub use fission_core::{reduce, reduce_with, with_reducer};
     pub use fission_core::{
-        Action, ActionEnvelope, ActionId, AnimationPropertyId, AnimationRequest,
+        Action, ActionEnvelope, ActionId, ActionScopeId, AnimationPropertyId, AnimationRequest,
         AnimationStartValue, AppState, BuildCtx, Effects, FlexDirection, Handler, NodeBuilder, Op,
         PortalLayer, ReducerContext, Selector, View, Widget, WidgetNodeId, WindowEnv, WindowTitle,
     };

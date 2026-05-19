@@ -196,6 +196,9 @@ pub use stepper::Stepper;
 pub mod link;
 pub use link::Link;
 
+pub mod markdown;
+pub use markdown::MarkdownViewer;
+
 pub mod pagination;
 pub use pagination::Pagination;
 
