@@ -1,4 +1,6 @@
 targets = [
+    "android",
+    "ios",
     "linux",
     "macos",
     "web",
