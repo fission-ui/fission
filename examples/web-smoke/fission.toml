@@ -1,0 +1,11 @@
+targets = [
+    "linux",
+    "macos",
+    "web",
+    "windows",
+]
+
+[app]
+name = "web-smoke"
+app_id = "com.example.web_smoke"
+
