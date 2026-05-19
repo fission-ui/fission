@@ -71,6 +71,7 @@ pub mod icons {
 pub mod shell {
     #[cfg(not(any(target_os = "android", target_os = "ios", target_arch = "wasm32")))]
     pub use fission_shell_desktop::*;
+    #[cfg(any(target_os = "android", target_os = "ios"))]
     pub use fission_shell_mobile::*;
     #[cfg(target_arch = "wasm32")]
     pub use fission_shell_web::*;
@@ -128,6 +129,7 @@ pub use fission_widgets::{HStack, Icon, Spacer, VStack};
 // Platform shells
 #[cfg(not(any(target_os = "android", target_os = "ios", target_arch = "wasm32")))]
 pub use fission_shell_desktop::DesktopApp;
+#[cfg(any(target_os = "android", target_os = "ios"))]
 pub use fission_shell_mobile::MobileApp;
 #[cfg(target_arch = "wasm32")]
 pub use fission_shell_web::WebApp;
@@ -175,6 +177,7 @@ pub mod prelude {
     pub use fission_shell_desktop::DesktopApp;
     #[cfg(target_os = "android")]
     pub use fission_shell_mobile::AndroidApp;
+    #[cfg(any(target_os = "android", target_os = "ios"))]
     pub use fission_shell_mobile::MobileApp;
     #[cfg(target_arch = "wasm32")]
     pub use fission_shell_web::WebApp;
