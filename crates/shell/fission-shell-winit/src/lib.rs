@@ -9,6 +9,8 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 #[cfg(target_os = "android")]
 use winit::platform::android::{activity::AndroidApp, EventLoopBuilderExtAndroid};
+#[cfg(target_os = "ios")]
+use winit::platform::ios::WindowBuilderExtIOS;
 #[cfg(target_os = "macos")]
 use winit::platform::macos::{ActivationPolicy, EventLoopBuilderExtMacOS};
 #[cfg(target_arch = "wasm32")]
@@ -357,6 +359,19 @@ fn build_window(
     _web_mount_selector: Option<&str>,
 ) -> anyhow::Result<Arc<Window>> {
     let mut window_builder = WindowBuilder::new().with_title(title);
+    #[cfg(target_os = "ios")]
+    {
+        // Winit leaves UIView.contentScaleFactor at UIKit's default unless the
+        // app explicitly opts into the device scale. Without this, iOS presents
+        // a 1x render target scaled up by the simulator/device, which makes the
+        // shell look visibly soft compared with web and Android.
+        let scale_factor = target
+            .primary_monitor()
+            .map(|monitor| monitor.scale_factor())
+            .filter(|scale| scale.is_finite() && *scale > 0.0)
+            .unwrap_or(1.0);
+        window_builder = window_builder.with_scale_factor(scale_factor);
+    }
     #[cfg(target_arch = "wasm32")]
     {
         window_builder = window_builder.with_prevent_default(true);
