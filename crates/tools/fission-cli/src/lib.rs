@@ -6,6 +6,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 mod doctor;
+mod workflow;
 
 const CURRENT_VERSION: &str = env!("CARGO_PKG_VERSION");
 const DEFAULT_APP_ICON_PNG: &[u8] = include_bytes!("../../../../docs/fission_logo.png");
@@ -56,6 +57,96 @@ enum Command {
         /// Exit with a non-zero status when required checks fail.
         #[arg(long)]
         strict: bool,
+    },
+    /// List runnable desktop, browser, simulator, emulator, and device targets.
+    Devices {
+        /// Project directory; defaults to the current working directory.
+        #[arg(long, default_value = ".")]
+        project_dir: PathBuf,
+        /// Emit machine-readable JSON.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Build and run the app on a selected device, attaching logs by default.
+    Run {
+        /// Restrict device selection to one target.
+        #[arg(long, value_enum)]
+        target: Option<Target>,
+        /// Device id or exact/prefix device name from `fission devices`.
+        #[arg(long)]
+        device: Option<String>,
+        /// Project directory; defaults to the current working directory.
+        #[arg(long, default_value = ".")]
+        project_dir: PathBuf,
+        /// Start the app and return instead of attaching logs/process output.
+        #[arg(long)]
+        detach: bool,
+        /// Build in release mode.
+        #[arg(long)]
+        release: bool,
+        /// Host for the local web server.
+        #[arg(long, default_value = "127.0.0.1")]
+        host: String,
+        /// Port for the local web server.
+        #[arg(long, default_value_t = 8123)]
+        port: u16,
+        /// Do not open a browser, Simulator, or emulator UI where supported.
+        #[arg(long)]
+        no_open: bool,
+        /// Prefer headless simulator/emulator execution where supported.
+        #[arg(long)]
+        headless: bool,
+    },
+    /// Build a configured target without launching it.
+    Build {
+        /// Target to build; defaults to the host desktop target.
+        #[arg(long, value_enum)]
+        target: Option<Target>,
+        /// Project directory; defaults to the current working directory.
+        #[arg(long, default_value = ".")]
+        project_dir: PathBuf,
+        /// Build in release mode.
+        #[arg(long)]
+        release: bool,
+    },
+    /// Run the generated smoke test for a configured target.
+    Test {
+        /// Target to test; defaults to the host desktop target.
+        #[arg(long, value_enum)]
+        target: Option<Target>,
+        /// Project directory; defaults to the current working directory.
+        #[arg(long, default_value = ".")]
+        project_dir: PathBuf,
+        /// Prefer headless simulator/emulator execution where supported.
+        #[arg(long)]
+        headless: bool,
+    },
+    /// Attach to logs for an already-running Fission app.
+    Logs {
+        /// Restrict device selection to one target.
+        #[arg(long, value_enum)]
+        target: Option<Target>,
+        /// Device id or exact/prefix device name from `fission devices`.
+        #[arg(long)]
+        device: Option<String>,
+        /// Project directory; defaults to the current working directory.
+        #[arg(long, default_value = ".")]
+        project_dir: PathBuf,
+        /// Continue following logs instead of printing the current buffer.
+        #[arg(long)]
+        follow: bool,
+    },
+    /// Hidden helper used by `fission run --target web --detach`.
+    #[command(hide = true)]
+    ServeWeb {
+        #[arg(long, default_value = ".")]
+        project_dir: PathBuf,
+        #[arg(long, default_value = "127.0.0.1")]
+        host: String,
+        #[arg(long, default_value_t = 8123)]
+        port: u16,
+        #[arg(long)]
+        open: bool,
     },
 }
 
@@ -139,6 +230,68 @@ where
             project_dir,
             strict,
         } => doctor::run_doctor(&project_dir, &targets, strict),
+        Command::Devices { project_dir, json } => workflow::list_devices(&project_dir, json),
+        Command::Run {
+            target,
+            device,
+            project_dir,
+            detach,
+            release,
+            host,
+            port,
+            no_open,
+            headless,
+        } => workflow::run_app(workflow::RunOptions {
+            project_dir,
+            target,
+            device,
+            detach,
+            release,
+            host,
+            port,
+            no_open,
+            headless,
+        }),
+        Command::Build {
+            target,
+            project_dir,
+            release,
+        } => workflow::build_app(workflow::BuildOptions {
+            project_dir,
+            target,
+            release,
+        }),
+        Command::Test {
+            target,
+            project_dir,
+            headless,
+        } => workflow::test_app(workflow::TestOptions {
+            project_dir,
+            target,
+            headless,
+        }),
+        Command::Logs {
+            target,
+            device,
+            project_dir,
+            follow,
+        } => workflow::attach_logs(workflow::LogOptions {
+            project_dir,
+            target,
+            device,
+            follow,
+        }),
+        Command::ServeWeb {
+            project_dir,
+            host,
+            port,
+            open,
+        } => workflow::serve_web(workflow::ServeWebOptions {
+            project_dir,
+            host,
+            port,
+            open,
+        }),
     }
 }
 
@@ -236,8 +389,11 @@ fn scaffold_target(root: &Path, project: &FissionProject, target: Target) -> Res
                 &[
                     "Install the Rust target: `rustup target add aarch64-linux-android`.",
                     "Run `cargo fission doctor android --project-dir .` to check SDK, NDK, emulator, and Rust target setup.",
+                    "Run `cargo fission devices --project-dir .` to list connected Android devices and configured emulators.",
+                    "Run `cargo fission run --target android --project-dir .` to build, install, launch, and attach to logs.",
+                    "Run `cargo fission run --target android --device <adb-serial> --project-dir .` to launch on a specific device.",
+                    "Run `cargo fission test --target android --project-dir .` for an emulator launch plus test-control health check.",
                     "Run `./platforms/android/run-emulator.sh` from the project root to build, package, install, and launch the app on the configured emulator.",
-                    "Run `./platforms/android/test-emulator.sh` for an emulator launch plus test-control health check.",
                     "Override `ANDROID_HOME`, `ANDROID_NDK`, `ANDROID_MIN_API_LEVEL`, `ANDROID_TARGET_API_LEVEL`, `ANDROID_AVD_NAME`, or `ANDROID_SYSTEM_IMAGE` if your local SDK setup differs.",
                     "Set `ANDROID_EMULATOR_HEADLESS=1` for background/CI runs, or `ANDROID_EMULATOR_RESTART=1` to relaunch a hidden emulator visibly.",
                     "The generated package uses `assets/app-icon.png` as its default launcher icon.",
@@ -254,8 +410,11 @@ fn scaffold_target(root: &Path, project: &FissionProject, target: Target) -> Res
                     "Install the Rust targets: `rustup target add aarch64-apple-ios aarch64-apple-ios-sim`.",
                     "Run `cargo fission doctor ios --project-dir .` to check Xcode, simulator, and Rust target setup.",
                     "Confirm the simulator SDK path with `xcrun --sdk iphonesimulator --show-sdk-path`.",
+                    "Run `cargo fission devices --project-dir .` to list available iOS simulators.",
+                    "Run `cargo fission run --target ios --project-dir .` to build, install, launch, and attach to simulator logs.",
+                    "Run `cargo fission run --target ios --device <simulator-udid> --project-dir .` to launch on a specific simulator.",
+                    "Run `cargo fission test --target ios --project-dir .` for a simulator launch plus test-control health check.",
                     "Run `./platforms/ios/run-sim.sh` from the project root to build, install, and launch the app on the first available iPhone simulator.",
-                    "Run `./platforms/ios/test-sim.sh` for a simulator launch plus test-control health check.",
                     "The generated bundle uses `assets/app-icon.png` as its default app icon.",
                     "Set `FISSION_TEST_CONTROL_PORT=<port>` before `run-sim.sh` to expose the in-app test control server on the host.",
                     "Set `IOS_SIM_DEVICE_ID=<udid>` if you want a specific simulator device.",
@@ -273,8 +432,11 @@ fn scaffold_target(root: &Path, project: &FissionProject, target: Target) -> Res
                     "Install `wasm-pack` once: `cargo install wasm-pack`.",
                     "Install Node.js 22+ so the smoke test can inspect Chrome/Chromium CDP runtime and console output.",
                     "Run `cargo fission doctor web --project-dir .` to check wasm-pack, Node.js, Chrome/Chromium, and Rust target setup.",
+                    "Run `cargo fission devices --project-dir .` to confirm Chrome/Chromium detection.",
+                    "Run `cargo fission run --target web --project-dir .` to build, serve, open, and attach to the local server.",
+                    "Run `cargo fission run --target web --detach --project-dir .` to keep the local server running in the background.",
+                    "Run `cargo fission test --target web --project-dir .` for a headless Chrome/Chromium CDP smoke test.",
                     "Run `./platforms/web/run-browser.sh` from the project root to build the wasm package and serve the app locally.",
-                    "Run `./platforms/web/test-browser.sh` for a headless Chrome/Chromium CDP smoke test.",
                     "Set `FISSION_WEB_PORT=<port>` or `FISSION_WEB_HOST=<host>` if the default `127.0.0.1:8123` does not suit your machine.",
                     "Set `FISSION_WEB_OPEN=1` if you want the helper script to open a browser tab automatically.",
                     "The generated page uses `assets/app-icon.png` as its default favicon/app icon seed.",
@@ -290,7 +452,9 @@ fn scaffold_target(root: &Path, project: &FissionProject, target: Target) -> Res
             },
             "Runnable target. Desktop platforms share the default `src/main.rs` entrypoint through `DesktopApp`.",
             &[
-                "Run `cargo run` from the project root to launch the desktop app.",
+                "Run `cargo fission run --project-dir .` from the project root to launch the desktop app and attach output.",
+                "Run `cargo fission build --project-dir . --release` for a release desktop build.",
+                "Run `cargo fission test --project-dir .` for the app crate's Rust tests.",
                 "This target uses the default Vello desktop shell path.",
             ],
         ),
@@ -426,7 +590,7 @@ fn render_project_readme(project: &FissionProject) -> String {
         targets.push_str(&format!("- `{}`\n", target.as_str()));
     }
     format!(
-        "# {}\n\nGenerated by `fission init`.\n\n## Targets\n\n{}\n## Commands\n\n- `cargo run` -- launch the desktop app\n- `cargo fission add-target web ios android` -- scaffold more targets\n- `cargo fission doctor web ios android --project-dir .` -- check local web, iOS, and Android toolchains\n- `cat platforms/<target>/README.md` -- inspect the current prerequisites and status for each target\n\n## Assets\n\n- `assets/app-icon.png` is the default app icon seed copied from Fission's `docs/fission_logo.png`\n\n## Status\n\nDesktop is runnable today. iOS is runnable on the simulator after `cargo fission add-target ios` via `./platforms/ios/run-sim.sh` and smoke-tested with `./platforms/ios/test-sim.sh`. Android is runnable on the emulator after `cargo fission add-target android` via `./platforms/android/run-emulator.sh` and smoke-tested with `./platforms/android/test-emulator.sh`. Web is runnable in the browser after `cargo fission add-target web` via `./platforms/web/run-browser.sh` and smoke-tested with `./platforms/web/test-browser.sh`.\n",
+        "# {}\n\nGenerated by `fission init`.\n\n## Targets\n\n{}\n## Commands\n\n- `cargo fission doctor --project-dir .` -- check local SDKs, browsers, emulators, and Rust targets\n- `cargo fission devices --project-dir .` -- list runnable desktop, browser, simulator, emulator, and device targets\n- `cargo fission run --project-dir .` -- launch the desktop app and attach to output\n- `cargo fission run --target web --project-dir .` -- launch the web app and attach to the local server\n- `cargo fission run --target ios --project-dir .` -- build, install, launch, and attach to simulator logs\n- `cargo fission run --target android --project-dir .` -- build, install, launch, and attach to Android logs\n- `cargo fission run --target <target> --device <id> --detach --project-dir .` -- launch without attaching\n- `cargo fission logs --target <target> --device <id> --project-dir . --follow` -- attach later where supported\n- `cargo fission build --target <target> --project-dir . --release` -- build a target without launching it\n- `cargo fission test --target <target> --project-dir .` -- run the generated platform smoke test\n- `cargo fission add-target web ios android --project-dir .` -- scaffold more targets\n- `cat platforms/<target>/README.md` -- inspect target-specific prerequisites and environment variables\n\n## Assets\n\n- `assets/app-icon.png` is the default app icon seed copied from Fission's `docs/fission_logo.png`\n\n## Status\n\nDesktop, web, iOS simulator, and Android emulator workflows are runnable through `cargo fission run`. The platform scripts remain checked in so CI and advanced users can call the lower-level build, run, and smoke-test steps directly when needed.\n",
         project.app.name, targets
     )
 }
@@ -1568,6 +1732,12 @@ mod tests {
         assert!(dir.join("platforms/windows/README.md").exists());
         assert!(dir.join("platforms/macos/README.md").exists());
         assert!(dir.join("platforms/linux/README.md").exists());
+        let readme = std::fs::read_to_string(dir.join("README.md")).unwrap();
+        assert!(readme.contains("cargo fission devices --project-dir ."));
+        assert!(readme.contains("cargo fission run --project-dir ."));
+        assert!(readme.contains("cargo fission logs --target <target>"));
+        assert!(readme.contains("cargo fission build --target <target>"));
+        assert!(readme.contains("cargo fission test --target <target>"));
     }
 
     #[test]
@@ -1627,6 +1797,11 @@ mod tests {
             std::fs::read_to_string(dir.join("platforms/android/run-emulator.sh")).unwrap();
         assert!(android_run_script.contains("ANDROID_EMULATOR_API_LEVEL"));
         assert!(android_run_script.contains("cargo fission doctor android"));
+        assert!(
+            std::fs::read_to_string(dir.join("platforms/android/README.md"))
+                .unwrap()
+                .contains("cargo fission run --target android")
+        );
         let android_test_script =
             std::fs::read_to_string(dir.join("platforms/android/test-emulator.sh")).unwrap();
         assert!(android_test_script.contains("/health"));
@@ -1645,6 +1820,9 @@ mod tests {
         assert!(ios_run_script.contains(
             "xcrun simctl launch --terminate-running-process \"$DEVICE_ID\" \"$BUNDLE_ID\""
         ));
+        assert!(std::fs::read_to_string(dir.join("platforms/ios/README.md"))
+            .unwrap()
+            .contains("cargo fission run --target ios"));
         assert!(
             std::fs::read_to_string(dir.join("platforms/ios/test-sim.sh"))
                 .unwrap()
@@ -1659,6 +1837,9 @@ mod tests {
             std::fs::read_to_string(dir.join("platforms/web/test-browser.sh")).unwrap();
         assert!(web_test_script.contains("--remote-debugging-port=\"$CDP_PORT\""));
         assert!(web_test_script.contains("/json/list"));
+        assert!(std::fs::read_to_string(dir.join("platforms/web/README.md"))
+            .unwrap()
+            .contains("cargo fission run --target web"));
     }
 
     #[test]

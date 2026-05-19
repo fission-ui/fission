@@ -1168,6 +1168,7 @@ dependencies = [
  "anyhow",
  "clap",
  "serde",
+ "serde_json",
  "toml",
 ]
 
