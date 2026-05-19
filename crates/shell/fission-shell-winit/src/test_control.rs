@@ -1,8 +1,18 @@
-use fission_test_driver::{TestCommand, TestEvent, TestResponse};
+#[cfg(not(target_arch = "wasm32"))]
+use fission_test_driver::TestCommand;
+#[cfg(not(target_arch = "wasm32"))]
+use fission_test_driver::TestEvent;
+use fission_test_driver::TestResponse;
+#[cfg(not(target_arch = "wasm32"))]
 use std::collections::VecDeque;
+#[cfg(not(target_arch = "wasm32"))]
 use std::io::{Read, Write};
+#[cfg(not(target_arch = "wasm32"))]
 use std::net::{TcpListener, TcpStream};
-use std::sync::{mpsc, Arc, Mutex};
+use std::sync::mpsc;
+#[cfg(not(target_arch = "wasm32"))]
+use std::sync::{Arc, Mutex};
+#[cfg(not(target_arch = "wasm32"))]
 use winit::event_loop::EventLoopProxy;
 
 /// Sender for query responses from the main event loop back to the TCP server.
@@ -10,8 +20,10 @@ pub type ResponseSender = mpsc::Sender<TestResponse>;
 /// Receiver for query responses.
 pub type ResponseReceiver = mpsc::Receiver<TestResponse>;
 /// Shared queue used on platforms where winit user events are unreliable.
+#[cfg(not(target_arch = "wasm32"))]
 pub type PendingEventQueue = Arc<Mutex<VecDeque<TestEvent>>>;
 
+#[cfg(not(target_arch = "wasm32"))]
 #[derive(Clone)]
 pub enum EventInjector {
     Proxy(EventLoopProxy<TestEvent>),
@@ -30,11 +42,13 @@ pub fn create_response_channel() -> (ResponseSender, ResponseReceiver) {
     mpsc::channel()
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 pub fn create_pending_event_queue() -> PendingEventQueue {
     Arc::new(Mutex::new(VecDeque::new()))
 }
 
 /// Spawn the TCP test-control server.
+#[cfg(not(target_arch = "wasm32"))]
 pub fn spawn_server(
     port: u16,
     injector: EventInjector,
@@ -54,6 +68,7 @@ pub fn spawn_server(
     })
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 fn handle_connection(
     mut stream: TcpStream,
     injector: &EventInjector,
@@ -133,6 +148,7 @@ fn handle_connection(
     send_http_response(&mut stream, 200, &serde_json::to_string(&response).unwrap());
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 fn dispatch_command(
     cmd: TestCommand,
     injector: &EventInjector,
@@ -258,6 +274,7 @@ fn dispatch_command(
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 fn inject_event(injector: &EventInjector, event: TestEvent) {
     match injector {
         EventInjector::Proxy(proxy) => {
@@ -289,6 +306,7 @@ fn inject_event(injector: &EventInjector, event: TestEvent) {
 }
 
 /// Block until the main event loop sends a response, with a 30-second timeout.
+#[cfg(not(target_arch = "wasm32"))]
 fn wait_for_response(rx: &ResponseReceiver) -> TestResponse {
     match rx.recv_timeout(std::time::Duration::from_secs(30)) {
         Ok(resp) => resp,
@@ -298,6 +316,7 @@ fn wait_for_response(rx: &ResponseReceiver) -> TestResponse {
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 fn send_http_response(stream: &mut TcpStream, status: u16, body: &str) {
     let status_text = match status {
         200 => "OK",

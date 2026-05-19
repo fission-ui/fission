@@ -100,6 +100,7 @@ impl Widget<SmokeState> for MobileSmokeApp {
     }
 }
 
+#[cfg(any(target_os = "android", target_os = "ios"))]
 fn mobile_app() -> MobileApp<SmokeState, MobileSmokeApp> {
     let app = MobileApp::new(MobileSmokeApp).with_title("Fission Mobile Smoke");
     #[cfg(target_os = "android")]
@@ -107,10 +108,12 @@ fn mobile_app() -> MobileApp<SmokeState, MobileSmokeApp> {
     app
 }
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub fn run_desktop() -> anyhow::Result<()> {
-    mobile_app().run()
+    DesktopApp::new(MobileSmokeApp).run()
 }
 
+#[cfg(any(target_os = "android", target_os = "ios"))]
 pub fn run_mobile() -> anyhow::Result<()> {
     mobile_app().run()
 }

@@ -4,6 +4,12 @@
 
 - `fission init`
 - `fission add-target`
+- `fission doctor`
+- `fission devices`
+- `fission run`
+- `fission build`
+- `fission test`
+- `fission logs`
 - `cargo fission ...`
 
 ## Usage
@@ -13,6 +19,14 @@ Create a new app:
 ```sh
 fission init my-app
 ```
+
+Register an existing app or example without overwriting existing files:
+
+```sh
+fission init existing-app
+```
+
+When the directory already has source, docs, assets, or platform files, `init` preserves them. It derives the package name from `Cargo.toml` when possible, detects existing `platforms/<target>/` folders, writes `fission.toml`, and creates only missing generated support files.
 
 Create a new app against a local Fission checkout:
 
@@ -26,12 +40,49 @@ Add more platform targets:
 cargo fission add-target web ios android --project-dir my-app
 ```
 
+Check local SDKs, emulators, browsers, and Rust targets:
+
+```sh
+cargo fission doctor web ios android --project-dir my-app
+```
+
+List runnable devices and targets:
+
+```sh
+cargo fission devices --project-dir my-app
+cargo fission devices --project-dir my-app --json
+```
+
+Run and attach to app output/logs:
+
+```sh
+cargo fission run --project-dir my-app
+cargo fission run --project-dir my-app --target web
+cargo fission run --project-dir my-app --target android --device emulator-5554
+cargo fission run --project-dir my-app --target ios --device <simulator-udid>
+```
+
+`fission run` attaches by default. Use `--detach` to start the app and return, then use `fission logs` to attach later where the platform supports it:
+
+```sh
+cargo fission run --project-dir my-app --target web --detach
+cargo fission logs --project-dir my-app --target web --follow
+```
+
+Build or run smoke tests without launching the full attached workflow:
+
+```sh
+cargo fission build --project-dir my-app --target web --release
+cargo fission test --project-dir my-app --target web
+cargo fission test --project-dir my-app --target ios --headless
+```
+
 ## Current platform status
 
-- `windows`, `macos`, `linux`: scaffolded and runnable through the generated desktop entrypoint
-- `ios`: scaffolded by the CLI and runnable on the simulator through `platforms/ios/run-sim.sh`
-- `android`: scaffolded by the CLI and runnable on the emulator through `platforms/android/run-emulator.sh`
-- `web`: scaffolded by the CLI and runnable in a browser through `platforms/web/run-browser.sh`
+- `windows`, `macos`, `linux`: scaffolded and runnable through `fission run`
+- `ios`: scaffolded by the CLI and runnable on the simulator through `fission run --target ios`
+- `android`: scaffolded by the CLI and runnable on a device or emulator through `fission run --target android`
+- `web`: scaffolded by the CLI and runnable in a browser through `fission run --target web`
 
 The CLI writes platform state to `fission.toml` and creates `platforms/<target>/README.md` notes with the current prerequisites and next steps for each target. For iOS it also generates:
 
@@ -39,12 +90,14 @@ The CLI writes platform state to `fission.toml` and creates `platforms/<target>/
 - `platforms/ios/Info.plist`
 - `platforms/ios/package-sim.sh`
 - `platforms/ios/run-sim.sh`
+- `platforms/ios/test-sim.sh`
 
 For Android it also generates:
 
 - `platforms/android/AndroidManifest.xml`
 - `platforms/android/package-apk.sh`
 - `platforms/android/run-emulator.sh`
+- `platforms/android/test-emulator.sh`
 
 For Web it also generates:
 
@@ -52,6 +105,7 @@ For Web it also generates:
 - `platforms/web/bootstrap.mjs`
 - `platforms/web/build-wasm.sh`
 - `platforms/web/run-browser.sh`
+- `platforms/web/test-browser.sh`
 
 The generated iOS bundle, Android package, and browser host page all use `assets/app-icon.png` as the default app icon seed.
 

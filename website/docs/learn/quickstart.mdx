@@ -108,6 +108,14 @@ cargo fission add-target web --project-dir my-app
 
 This updates `fission.toml`, creates `platforms/web/`, and adds files such as a browser host page plus the `platforms/web/run-browser.sh` host script. That script builds the WebAssembly package and serves it locally. Before running it, read `platforms/web/README.md` for the exact prerequisites, including `wasm-pack`.
 
+After the target is added, the normal command is:
+
+```bash
+cargo fission run --target web --project-dir my-app
+```
+
+That builds the browser package, serves it locally, and keeps the terminal attached to the local server so you can see what is happening.
+
 ### Add the Android target when you are ready for emulator setup
 
 Android needs the Android Software Development Kit and Native Development Kit installed first, so it is usually a second-day step rather than a first-day step.
@@ -118,6 +126,15 @@ cargo fission add-target android --project-dir my-app
 
 This creates `platforms/android/`, including files such as the Android manifest and `platforms/android/run-emulator.sh`. That host script builds the app, packages it, installs it into an emulator, and launches it. Read `platforms/android/README.md` first so you know which environment variables and Android tools are required on your machine.
 
+Once your Android setup is healthy, ask Fission what devices it can see and then run the app:
+
+```bash
+cargo fission devices --project-dir my-app
+cargo fission run --target android --project-dir my-app
+```
+
+If more than one Android device or emulator is available, pass `--device <id>` using the id printed by the devices command.
+
 ### Add the iOS target when you have Xcode and simulator tools available
 
 iOS also has extra prerequisites, including Xcode and simulator tooling.
@@ -127,6 +144,15 @@ cargo fission add-target ios --project-dir my-app
 ```
 
 This creates `platforms/ios/`, including bundle files and `platforms/ios/run-sim.sh`. That host script builds the app and launches it in an iPhone simulator. Read `platforms/ios/README.md` before you rely on it, because the generated notes are the right place to check the current prerequisites and status for the simulator path.
+
+When the simulator tools are installed, use the same device-and-run flow:
+
+```bash
+cargo fission devices --project-dir my-app
+cargo fission run --target ios --project-dir my-app
+```
+
+The run command attaches to simulator logs by default. That makes it the main development entrypoint instead of something you only use after a separate launch step.
 
 ## What to do next
 

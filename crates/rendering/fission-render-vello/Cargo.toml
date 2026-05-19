@@ -17,3 +17,6 @@ fission-diagnostics = { path = "../../tools/fission-diagnostics", version = "0.1
 image = "0.24"
 lazy_static = "1.5.0"
 peniko = "0.5"
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+web-time = "0.2"

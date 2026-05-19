@@ -1,4 +1,5 @@
 #![allow(unexpected_cfgs)]
+#![cfg_attr(target_arch = "wasm32", allow(dead_code, unused_imports, unused_variables))]
 
 use anyhow::Result;
 use base64::Engine;
@@ -8,10 +9,12 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 #[cfg(target_os = "android")]
 use winit::platform::android::{activity::AndroidApp, EventLoopBuilderExtAndroid};
+#[cfg(target_os = "ios")]
+use winit::platform::ios::WindowBuilderExtIOS;
 #[cfg(target_os = "macos")]
 use winit::platform::macos::{ActivationPolicy, EventLoopBuilderExtMacOS};
 #[cfg(target_arch = "wasm32")]
-use winit::platform::web::WindowBuilderExtWebSys;
+use winit::platform::web::{EventLoopExtWebSys, WindowBuilderExtWebSys, WindowExtWebSys};
 use winit::{
     dpi::{LogicalSize, PhysicalPosition, PhysicalSize},
     event::{Event, Ime, MouseButton, MouseScrollDelta, TouchPhase, WindowEvent},
@@ -45,12 +48,17 @@ use fontique::{Blob, Collection, CollectionOptions, FontInfoOverride, SourceCach
 use fission_test_driver::TestEvent;
 
 // Vello / WGPU
+#[cfg(not(target_arch = "wasm32"))]
 use pollster::block_on;
 #[cfg(not(target_arch = "wasm32"))]
 use std::time::Instant;
 use vello::util::{RenderContext, RenderSurface};
 use vello::wgpu;
 use vello::{AaSupport, Renderer as VelloSceneRenderer, RendererOptions, Scene};
+#[cfg(target_arch = "wasm32")]
+use wasm_bindgen::{Clamped, JsCast};
+#[cfg(target_arch = "wasm32")]
+use web_sys::{CanvasRenderingContext2d, HtmlCanvasElement, ImageData};
 #[cfg(target_arch = "wasm32")]
 use web_time::Instant;
 
@@ -88,22 +96,40 @@ struct ActiveServiceHandle {
     runtime: RunningServiceHandle,
 }
 
-fn open_host_url(url: &str) -> std::io::Result<()> {
+#[cfg(not(target_arch = "wasm32"))]
+fn open_host_url(url: &str, _in_app: bool) -> Result<(), String> {
     if cfg!(target_os = "macos") {
         std::process::Command::new("open")
             .arg(url)
             .spawn()
             .map(|_| ())
+            .map_err(|error| error.to_string())
     } else if cfg!(target_os = "windows") {
         std::process::Command::new("cmd")
             .args(["/C", "start", url])
             .spawn()
             .map(|_| ())
+            .map_err(|error| error.to_string())
     } else {
         std::process::Command::new("xdg-open")
             .arg(url)
             .spawn()
             .map(|_| ())
+            .map_err(|error| error.to_string())
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+fn open_host_url(url: &str, in_app: bool) -> Result<(), String> {
+    let window = web_sys::window().ok_or_else(|| "browser window is not available".to_string())?;
+    if in_app {
+        window.location().set_href(url).map_err(js_error_to_string)
+    } else {
+        window
+            .open_with_url_and_target(url, "_blank")
+            .map_err(js_error_to_string)?
+            .ok_or_else(|| format!("browser blocked opening url `{url}`"))?;
+        Ok(())
     }
 }
 
@@ -111,11 +137,17 @@ fn register_builtin_operation_capabilities(async_registry: &mut AsyncRegistry) {
     async_registry.register_operation_capability(
         OPEN_URL,
         |request: OpenUrlRequest, _| async move {
-            let _ = request.in_app;
-            open_host_url(&request.url).map_err(|error| error.to_string())?;
+            open_host_url(&request.url, request.in_app)?;
             Ok(())
         },
     );
+}
+
+#[cfg(target_arch = "wasm32")]
+fn js_error_to_string(error: wasm_bindgen::JsValue) -> String {
+    error
+        .as_string()
+        .unwrap_or_else(|| format!("JavaScript error: {error:?}"))
 }
 
 struct ActivePlayer {
@@ -139,6 +171,40 @@ enum MainRenderer {
         texture_compositor: TextureLayerCompositor,
     },
     Software,
+}
+
+#[cfg(target_arch = "wasm32")]
+struct WebCanvasPresenter {
+    canvas: HtmlCanvasElement,
+    context: CanvasRenderingContext2d,
+}
+
+#[cfg(target_arch = "wasm32")]
+impl WebCanvasPresenter {
+    fn new(window: &Window) -> anyhow::Result<Self> {
+        let canvas = window
+            .canvas()
+            .ok_or_else(|| anyhow::anyhow!("winit web window did not expose a canvas"))?;
+        let context = canvas
+            .get_context("2d")
+            .map_err(|error| anyhow::anyhow!(js_error_to_string(error)))?
+            .ok_or_else(|| anyhow::anyhow!("2D canvas context is unavailable"))?
+            .dyn_into::<CanvasRenderingContext2d>()
+            .map_err(|error| anyhow::anyhow!(js_error_to_string(error.into())))?;
+        Ok(Self { canvas, context })
+    }
+
+    fn present(&mut self, rgba: &[u8], width: u32, height: u32) -> anyhow::Result<()> {
+        self.canvas.set_width(width.max(1));
+        self.canvas.set_height(height.max(1));
+        let image =
+            ImageData::new_with_u8_clamped_array_and_sh(Clamped(rgba), width.max(1), height.max(1))
+                .map_err(|error| anyhow::anyhow!(js_error_to_string(error)))?;
+        self.context
+            .put_image_data(&image, 0.0, 0.0)
+            .map_err(|error| anyhow::anyhow!(js_error_to_string(error)))?;
+        Ok(())
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -183,6 +249,7 @@ impl WindowViewportState {
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 fn create_render_state<'w>(
     render_cx: &mut RenderContext,
     window: Arc<Window>,
@@ -289,11 +356,30 @@ fn build_window(
     title: &str,
     background_test_mode: bool,
     target: &EventLoopWindowTarget<TestEvent>,
+    _web_mount_selector: Option<&str>,
 ) -> anyhow::Result<Arc<Window>> {
     let mut window_builder = WindowBuilder::new().with_title(title);
+    #[cfg(target_os = "ios")]
+    {
+        // Winit leaves UIView.contentScaleFactor at UIKit's default unless the
+        // app explicitly opts into the device scale. Without this, iOS presents
+        // a 1x render target scaled up by the simulator/device, which makes the
+        // shell look visibly soft compared with web and Android.
+        let scale_factor = target
+            .primary_monitor()
+            .map(|monitor| monitor.scale_factor())
+            .filter(|scale| scale.is_finite() && *scale > 0.0)
+            .unwrap_or(1.0);
+        window_builder = window_builder.with_scale_factor(scale_factor);
+    }
     #[cfg(target_arch = "wasm32")]
     {
-        window_builder = window_builder.with_append(true).with_prevent_default(true);
+        window_builder = window_builder.with_prevent_default(true);
+        window_builder = if let Some(selector) = _web_mount_selector {
+            window_builder.with_canvas(Some(canvas_for_mount_selector(selector)?))
+        } else {
+            window_builder.with_append(true)
+        };
     }
     if background_test_mode {
         window_builder = window_builder.with_active(false).with_visible(false);
@@ -303,24 +389,98 @@ fn build_window(
     })?))
 }
 
+#[cfg(target_arch = "wasm32")]
+fn canvas_for_mount_selector(selector: &str) -> anyhow::Result<web_sys::HtmlCanvasElement> {
+    use wasm_bindgen::JsCast;
+
+    let window =
+        web_sys::window().ok_or_else(|| anyhow::anyhow!("browser window is not available"))?;
+    let document = window
+        .document()
+        .ok_or_else(|| anyhow::anyhow!("browser document is not available"))?;
+    let element = document
+        .query_selector(selector)
+        .map_err(|error| {
+            anyhow::anyhow!(
+                "invalid web mount selector `{}`: {}",
+                selector,
+                js_error_to_string(error)
+            )
+        })?
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "web mount selector `{}` did not match any element",
+                selector
+            )
+        })?;
+
+    if let Ok(canvas) = element.clone().dyn_into::<web_sys::HtmlCanvasElement>() {
+        apply_web_canvas_style(&canvas)?;
+        return Ok(canvas);
+    }
+
+    let canvas = document
+        .create_element("canvas")
+        .map_err(|error| {
+            anyhow::anyhow!("failed to create web canvas: {}", js_error_to_string(error))
+        })?
+        .dyn_into::<web_sys::HtmlCanvasElement>()
+        .map_err(|_| anyhow::anyhow!("browser created a non-canvas element for `<canvas>`"))?;
+    element.append_child(&canvas).map_err(|error| {
+        anyhow::anyhow!(
+            "failed to append web canvas to `{}`: {}",
+            selector,
+            js_error_to_string(error)
+        )
+    })?;
+    apply_web_canvas_style(&canvas)?;
+    Ok(canvas)
+}
+
+#[cfg(target_arch = "wasm32")]
+fn apply_web_canvas_style(canvas: &web_sys::HtmlCanvasElement) -> anyhow::Result<()> {
+    let existing = canvas.get_attribute("style").unwrap_or_default();
+    let suffix = "display:block;border:0;outline:none;user-select:none;-webkit-user-drag:none;touch-action:none;-webkit-tap-highlight-color:transparent;";
+    let style = if existing.trim().is_empty() {
+        suffix.to_string()
+    } else {
+        format!("{existing};{suffix}")
+    };
+    canvas.set_attribute("style", &style).map_err(|error| {
+        anyhow::anyhow!("failed to style web canvas: {}", js_error_to_string(error))
+    })?;
+    Ok(())
+}
+
+trait PlatformWindow {
+    fn active_window(&self) -> Option<&Window>;
+    fn active_window_arc(&self) -> Option<Arc<Window>>;
+
+    fn active_window_id(&self) -> Option<WindowId> {
+        self.active_window().map(Window::id)
+    }
+}
+
 #[cfg(target_os = "android")]
-fn current_window(window: &Option<Arc<Window>>) -> Option<&Arc<Window>> {
-    window.as_ref()
+impl PlatformWindow for Option<Arc<Window>> {
+    fn active_window(&self) -> Option<&Window> {
+        self.as_deref()
+    }
+
+    fn active_window_arc(&self) -> Option<Arc<Window>> {
+        self.clone()
+    }
 }
 
 #[cfg(not(target_os = "android"))]
-fn current_window(window: &Arc<Window>) -> Option<&Arc<Window>> {
-    Some(window)
-}
+impl PlatformWindow for Arc<Window> {
+    fn active_window(&self) -> Option<&Window> {
+        Some(self)
+    }
 
-#[cfg(target_os = "android")]
-fn current_window_id(window: &Option<Arc<Window>>) -> Option<WindowId> {
-    window.as_ref().map(|window| window.id())
-}
-
-#[cfg(not(target_os = "android"))]
-fn current_window_id(window: &Arc<Window>) -> Option<WindowId> {
-    Some(window.id())
+    fn active_window_arc(&self) -> Option<Arc<Window>> {
+        Some(self.clone())
+    }
 }
 
 fn request_redraw_throttled(
@@ -2001,6 +2161,7 @@ pub struct WinitApp<S: AppState, W: Widget<S>> {
     key_handler: Option<KeyHandler<S>>,
     frame_hook: Option<FrameHook<S>>,
     title: String,
+    web_mount_selector: Option<String>,
     test_control_port: Option<u16>,
     /// Channel pair for receiving completed background effect results.
     effect_result_tx: mpsc::Sender<AsyncMessage>,
@@ -2055,6 +2216,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
             key_handler: None,
             frame_hook: None,
             title: "Fission".into(),
+            web_mount_selector: None,
             test_control_port: None,
             effect_result_tx,
             effect_result_rx,
@@ -2080,6 +2242,11 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
 
     pub fn with_test_control_port(mut self, port: u16) -> Self {
         self.test_control_port = Some(port);
+        self
+    }
+
+    pub fn with_mount_selector(mut self, selector: impl Into<String>) -> Self {
+        self.web_mount_selector = Some(selector.into());
         self
     }
 
@@ -2193,15 +2360,21 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
             .map_err(|e| anyhow::anyhow!("Event loop error: {}", e))?;
         let event_proxy = event_loop.create_proxy();
         let window_title = self.title.clone();
+        let web_mount_selector = self.web_mount_selector;
         let ime_handler = Arc::new(DesktopImeHandler::default());
         self.runtime = self.runtime.with_ime_handler(ime_handler.clone());
 
         #[cfg(not(target_os = "android"))]
-        let window = build_window(&window_title, background_test_mode, &event_loop)?;
+        let platform_window = build_window(
+            &window_title,
+            background_test_mode,
+            &event_loop,
+            web_mount_selector.as_deref(),
+        )?;
         #[cfg(not(target_os = "android"))]
-        ime_handler.set_window(Some(window.clone()));
+        ime_handler.set_window(Some(platform_window.clone()));
         #[cfg(target_os = "android")]
-        let mut window: Option<Arc<Window>> = None;
+        let mut platform_window: Option<Arc<Window>> = None;
 
         // Rendering state is created lazily so Android can wait for a valid
         // native surface after the first resume event.
@@ -2210,20 +2383,26 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
             eprintln!("fission-shell-winit: forcing WGPU_BACKEND=gl on Android");
             std::env::set_var("WGPU_BACKEND", "gl");
         }
+        #[cfg(not(target_arch = "wasm32"))]
         let mut render_cx = RenderContext::new();
+        #[cfg(not(target_arch = "wasm32"))]
         let mut render_state: Option<RenderState<'_>> = None;
+        #[cfg(target_arch = "wasm32")]
+        let mut web_canvas_presenter: Option<WebCanvasPresenter> = None;
+        #[cfg(not(target_arch = "wasm32"))]
         let mut scene = Scene::new();
+        #[cfg(not(target_arch = "wasm32"))]
         let mut retained_scene_cache = RetainedSceneCache::default();
 
         #[cfg(not(target_os = "android"))]
-        window.request_redraw();
+        platform_window.request_redraw();
 
         let mut runtime = self.runtime;
         let mut layout_engine = self.layout_engine;
         let root_widget = self.root_widget;
         let mut env = self.env;
         env.window.title = fission_core::WindowTitle::plain(window_title.clone());
-        let mut applied_window_title = window_title;
+        let mut applied_window_title = window_title.clone();
         let mut pipeline = self.pipeline;
         let measurer = self.measurer;
         let effect_result_tx = self.effect_result_tx;
@@ -2236,11 +2415,11 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
         let mut service_bindings: HashMap<ServiceBindingKey, ServiceBindings> = HashMap::new();
 
         #[cfg(target_os = "macos")]
-        let video_backend: Arc<dyn VideoBackend> = Arc::new(MacVideoBackend::new(&window));
+        let video_backend: Arc<dyn VideoBackend> = Arc::new(MacVideoBackend::new(&platform_window));
         #[cfg(not(target_os = "macos"))]
         let video_backend: Arc<dyn VideoBackend> = Arc::new(MockVideoBackend::new());
         #[cfg(target_os = "macos")]
-        let web_backend = MacWebBackend::new(&window);
+        let web_backend = MacWebBackend::new(&platform_window);
         #[cfg(not(target_os = "macos"))]
         let web_backend = MockWebBackend::new();
         let mut players: HashMap<WidgetNodeId, ActivePlayer> = HashMap::new();
@@ -2304,13 +2483,15 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
         // Test control (enabled via FISSION_TEST_CONTROL_PORT env var).
         // The TCP server injects TestEvents via the EventLoopProxy and receives
         // query responses through a dedicated mpsc channel.
+        #[cfg(not(target_arch = "wasm32"))]
         let test_control_port = self.test_control_port.or_else(|| {
             std::env::var("FISSION_TEST_CONTROL_PORT")
                 .ok()
                 .and_then(|v| v.parse::<u16>().ok())
         });
-        #[cfg(target_os = "android")]
+        #[cfg(all(target_os = "android", not(target_arch = "wasm32")))]
         let pending_test_events = test_control::create_pending_event_queue();
+        #[cfg(not(target_arch = "wasm32"))]
         let test_response_tx: Option<test_control::ResponseSender> =
             test_control_port.map(|port| {
                 let (resp_tx, resp_rx) = test_control::create_response_channel();
@@ -2324,10 +2505,12 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                 test_control::spawn_server(port, injector, resp_rx);
                 resp_tx
             });
+        #[cfg(target_arch = "wasm32")]
+        let test_response_tx: Option<test_control::ResponseSender> = None;
         // Pending screenshot/pump: path + whether it needs a screenshot (vs pump).
         let mut pending_screenshot_path: Option<String> = None;
         #[cfg(not(target_os = "android"))]
-        let mut window_viewport = WindowViewportState::from_window(&window);
+        let mut window_viewport = WindowViewportState::from_window(&platform_window);
         #[cfg(target_os = "android")]
         let mut window_viewport: Option<WindowViewportState> = None;
         #[cfg(not(target_os = "android"))]
@@ -2345,8 +2528,8 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
             composite: true,
         };
 
-        event_loop
-            .run(move |event, elwt| {
+        let event_handler =
+            move |event: Event<TestEvent>, elwt: &EventLoopWindowTarget<TestEvent>| {
                 elwt.set_control_flow(ControlFlow::Wait);
                 let debug_android_events = cfg!(target_os = "android")
                     && std::env::var_os("FISSION_DEBUG_ANDROID_EVENTS").is_some();
@@ -2357,7 +2540,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                     }
                     match test_event {
                         TestEvent::MouseMove { x, y } => {
-                            let Some(window) = current_window(&window) else {
+                            let Some(window) = platform_window.active_window() else {
                                 return;
                             };
                             let scale_factor = window.scale_factor();
@@ -2366,68 +2549,120 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                 (y as f64) * scale_factor,
                             ));
                             handle_cursor_moved(
-                                x, y, 0,
-                                &mut runtime, &pipeline,
-                                &effect_result_tx, &event_proxy,
-                                &async_registry, &mut active_services, &mut service_bindings, &mut next_service_instance_id,
-                                window, elwt,
-                                &mut last_redraw_at, min_frame, &mut redraw_pending,
+                                x,
+                                y,
+                                0,
+                                &mut runtime,
+                                &pipeline,
+                                &effect_result_tx,
+                                &event_proxy,
+                                &async_registry,
+                                &mut active_services,
+                                &mut service_bindings,
+                                &mut next_service_instance_id,
+                                window,
+                                elwt,
+                                &mut last_redraw_at,
+                                min_frame,
+                                &mut redraw_pending,
                                 &mut frame_trace,
                                 &mut invalidations,
                             );
                         }
                         TestEvent::MouseDown { x, y, button } => {
-                            let Some(window) = current_window(&window) else {
+                            let Some(window) = platform_window.active_window() else {
                                 return;
                             };
                             let btn = map_test_button(button);
                             handle_mouse_button(
-                                x, y, btn, true, 0,
-                                &mut runtime, &pipeline,
-                                &effect_result_tx, &event_proxy,
-                                &async_registry, &mut active_services, &mut service_bindings, &mut next_service_instance_id,
-                                window, elwt,
-                                &mut last_redraw_at, min_frame, &mut redraw_pending,
-                                text_trace_enabled, &mut pending_text_traces,
-                                &mut next_text_trace_seq, presented_frames,
+                                x,
+                                y,
+                                btn,
+                                true,
+                                0,
+                                &mut runtime,
+                                &pipeline,
+                                &effect_result_tx,
+                                &event_proxy,
+                                &async_registry,
+                                &mut active_services,
+                                &mut service_bindings,
+                                &mut next_service_instance_id,
+                                window,
+                                elwt,
+                                &mut last_redraw_at,
+                                min_frame,
+                                &mut redraw_pending,
+                                text_trace_enabled,
+                                &mut pending_text_traces,
+                                &mut next_text_trace_seq,
+                                presented_frames,
                                 &mut last_blink_toggle,
                                 &mut frame_trace,
                                 &mut invalidations,
                             );
                         }
                         TestEvent::MouseUp { x, y, button } => {
-                            let Some(window) = current_window(&window) else {
+                            let Some(window) = platform_window.active_window() else {
                                 return;
                             };
                             let btn = map_test_button(button);
                             handle_mouse_button(
-                                x, y, btn, false, 0,
-                                &mut runtime, &pipeline,
-                                &effect_result_tx, &event_proxy,
-                                &async_registry, &mut active_services, &mut service_bindings, &mut next_service_instance_id,
-                                window, elwt,
-                                &mut last_redraw_at, min_frame, &mut redraw_pending,
-                                text_trace_enabled, &mut pending_text_traces,
-                                &mut next_text_trace_seq, presented_frames,
+                                x,
+                                y,
+                                btn,
+                                false,
+                                0,
+                                &mut runtime,
+                                &pipeline,
+                                &effect_result_tx,
+                                &event_proxy,
+                                &async_registry,
+                                &mut active_services,
+                                &mut service_bindings,
+                                &mut next_service_instance_id,
+                                window,
+                                elwt,
+                                &mut last_redraw_at,
+                                min_frame,
+                                &mut redraw_pending,
+                                text_trace_enabled,
+                                &mut pending_text_traces,
+                                &mut next_text_trace_seq,
+                                presented_frames,
                                 &mut last_blink_toggle,
                                 &mut frame_trace,
                                 &mut invalidations,
                             );
                         }
-                        TestEvent::KeyDown { key_code, modifiers } => {
-                            let Some(window) = current_window(&window) else {
+                        TestEvent::KeyDown {
+                            key_code,
+                            modifiers,
+                        } => {
+                            let Some(window) = platform_window.active_window() else {
                                 return;
                             };
                             let code = parse_key_code(&key_code);
                             handle_key_down::<S>(
-                                code, modifiers,
-                                &mut runtime, &pipeline,
-                                &effect_result_tx, &event_proxy,
-                                &async_registry, &mut active_services, &mut service_bindings, &mut next_service_instance_id,
-                                window, elwt,
-                                &mut last_redraw_at, min_frame, &mut redraw_pending,
-                                text_trace_enabled, &mut pending_text_traces,
-                                &mut next_text_trace_seq, presented_frames,
+                                code,
+                                modifiers,
+                                &mut runtime,
+                                &pipeline,
+                                &effect_result_tx,
+                                &event_proxy,
+                                &async_registry,
+                                &mut active_services,
+                                &mut service_bindings,
+                                &mut next_service_instance_id,
+                                window,
+                                elwt,
+                                &mut last_redraw_at,
+                                min_frame,
+                                &mut redraw_pending,
+                                text_trace_enabled,
+                                &mut pending_text_traces,
+                                &mut next_text_trace_seq,
+                                presented_frames,
                                 &mut last_blink_toggle,
                                 self.key_handler.as_ref(),
                                 &mut frame_trace,
@@ -2435,7 +2670,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                             );
                         }
                         TestEvent::KeyUp { .. } => {
-                            let Some(window) = current_window(&window) else {
+                            let Some(window) = platform_window.active_window() else {
                                 return;
                             };
                             request_redraw_logged(
@@ -2449,7 +2684,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                             );
                         }
                         TestEvent::TextInput { text } => {
-                            let Some(window) = current_window(&window) else {
+                            let Some(window) = platform_window.active_window() else {
                                 return;
                             };
                             if let (Some(ir), Some(layout)) =
@@ -2483,15 +2718,11 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                         )
                                         .ok();
                                     invalidations.mark_build();
-                                    mark_text_trace_handled(
-                                        &mut pending_text_traces,
-                                        trace_seq,
-                                    );
+                                    mark_text_trace_handled(&mut pending_text_traces, trace_seq);
                                     if process_pending_effects(
                                         &mut runtime,
                                         &effect_result_tx,
                                         &event_proxy,
-
                                         &async_registry,
                                         &mut active_services,
                                         &mut service_bindings,
@@ -2528,7 +2759,6 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                             &pipeline,
                                             &effect_result_tx,
                                             &event_proxy,
-
                                             &async_registry,
                                             &mut active_services,
                                             &mut service_bindings,
@@ -2552,22 +2782,34 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                             }
                         }
                         TestEvent::Scroll { x, y, dx, dy } => {
-                            let Some(window) = current_window(&window) else {
+                            let Some(window) = platform_window.active_window() else {
                                 return;
                             };
                             handle_scroll(
-                                x, y, dx, dy, 0,
-                                &mut runtime, &pipeline,
-                                &effect_result_tx, &event_proxy,
-                                &async_registry, &mut active_services, &mut service_bindings, &mut next_service_instance_id,
-                                window, elwt,
-                                &mut last_redraw_at, min_frame, &mut redraw_pending,
+                                x,
+                                y,
+                                dx,
+                                dy,
+                                0,
+                                &mut runtime,
+                                &pipeline,
+                                &effect_result_tx,
+                                &event_proxy,
+                                &async_registry,
+                                &mut active_services,
+                                &mut service_bindings,
+                                &mut next_service_instance_id,
+                                window,
+                                elwt,
+                                &mut last_redraw_at,
+                                min_frame,
+                                &mut redraw_pending,
                                 &mut frame_trace,
                                 &mut invalidations,
                             );
                         }
                         TestEvent::Resize { width, height } => {
-                            let Some(window) = current_window(&window) else {
+                            let Some(window) = platform_window.active_window() else {
                                 return;
                             };
                             if width > 0 && height > 0 {
@@ -2611,7 +2853,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                             }
                         }
                         TestEvent::TapText { text } => {
-                            let Some(window) = current_window(&window) else {
+                            let Some(window) = platform_window.active_window() else {
                                 if let Some(ref tx) = test_response_tx {
                                     let _ = tx.send(fission_test_driver::TestResponse::Error {
                                         message: "window not ready".into(),
@@ -2626,7 +2868,6 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                     &mut runtime,
                                     &effect_result_tx,
                                     &event_proxy,
-
                                     &async_registry,
                                     &mut active_services,
                                     &mut service_bindings,
@@ -2649,7 +2890,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                             );
                         }
                         TestEvent::Screenshot { path } => {
-                            let Some(window) = current_window(&window) else {
+                            let Some(window) = platform_window.active_window() else {
                                 if let Some(ref tx) = test_response_tx {
                                     let _ = tx.send(fission_test_driver::TestResponse::Error {
                                         message: "window not ready".into(),
@@ -2666,7 +2907,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                             window.request_redraw();
                         }
                         TestEvent::CaptureScreenshot => {
-                            let Some(window) = current_window(&window) else {
+                            let Some(window) = platform_window.active_window() else {
                                 if let Some(ref tx) = test_response_tx {
                                     let _ = tx.send(fission_test_driver::TestResponse::Error {
                                         message: "window not ready".into(),
@@ -2695,7 +2936,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                             }
                         }
                         TestEvent::Pump => {
-                            let Some(window) = current_window(&window) else {
+                            let Some(window) = platform_window.active_window() else {
                                 if let Some(ref tx) = test_response_tx {
                                     let _ = tx.send(fission_test_driver::TestResponse::Error {
                                         message: "window not ready".into(),
@@ -2724,22 +2965,20 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                 };
 
                 #[cfg(target_os = "android")]
-                let mut drain_pending_test_events = || {
-                    loop {
-                        let pending = {
-                            let mut pending = pending_test_events
-                                .lock()
-                                .expect("pending test events lock poisoned");
-                            pending.pop_front()
-                        };
-                        let Some(test_event) = pending else {
-                            break;
-                        };
-                        if debug_android_events {
-                            eprintln!("[android-debug] draining_test_queue");
-                        }
-                        handle_test_event(test_event);
+                let mut drain_pending_test_events = || loop {
+                    let pending = {
+                        let mut pending = pending_test_events
+                            .lock()
+                            .expect("pending test events lock poisoned");
+                        pending.pop_front()
+                    };
+                    let Some(test_event) = pending else {
+                        break;
+                    };
+                    if debug_android_events {
+                        eprintln!("[android-debug] draining_test_queue");
                     }
+                    handle_test_event(test_event);
                 };
 
                 match event {
@@ -2748,12 +2987,17 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                             eprintln!("[android-events] resumed");
                         }
                         #[cfg(target_os = "android")]
-                        if window.is_none() {
-                            match build_window(&window_title, background_test_mode, elwt) {
+                        if platform_window.is_none() {
+                            match build_window(
+                                &window_title,
+                                background_test_mode,
+                                elwt,
+                                web_mount_selector.as_deref(),
+                            ) {
                                 Ok(new_window) => {
                                     ime_handler.set_window(Some(new_window.clone()));
                                     sync_window_cursor(&new_window, &runtime);
-                                    window = Some(new_window);
+                                    platform_window = Some(new_window);
                                 }
                                 Err(err) => {
                                     eprintln!("window build error: {err}");
@@ -2762,7 +3006,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                 }
                             }
                         }
-                        let Some(window) = current_window(&window) else {
+                        let Some(window) = platform_window.active_window() else {
                             return;
                         };
                         let current_viewport = WindowViewportState::from_window(window);
@@ -2791,11 +3035,18 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                         );
                     }
                     Event::Suspended => {
-                        render_state = None;
+                        #[cfg(not(target_arch = "wasm32"))]
+                        {
+                            render_state = None;
+                        }
+                        #[cfg(target_arch = "wasm32")]
+                        {
+                            web_canvas_presenter = None;
+                        }
                         #[cfg(target_os = "android")]
                         {
                             ime_handler.set_window(None);
-                            window = None;
+                            platform_window = None;
                             window_viewport = None;
                             pending_resize = None;
                             resize_needs_settled_frame = false;
@@ -2825,7 +3076,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                     // AboutToWait — idle / animation / blink / effects
                     // ═══════════════════════════════════════════════════════
                     Event::AboutToWait => {
-                        let Some(window) = current_window(&window) else {
+                        let Some(window) = platform_window.active_window() else {
                             elwt.set_control_flow(ControlFlow::Wait);
                             return;
                         };
@@ -2842,21 +3093,31 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
 
                             // Create player if missing
                             if !players.contains_key(&surface.widget_id) {
-                                if let Some(state) = runtime.runtime_state.video.states.get(&surface.widget_id) {
+                                if let Some(state) =
+                                    runtime.runtime_state.video.states.get(&surface.widget_id)
+                                {
                                     let source = &state.asset_source;
                                     if !source.is_empty() {
                                         let player = video_backend.create_player(source);
                                         surface.surface_id = player.surface_id();
-                                        if let Some(state) = runtime.runtime_state.video.states.get_mut(&surface.widget_id) {
+                                        if let Some(state) = runtime
+                                            .runtime_state
+                                            .video
+                                            .states
+                                            .get_mut(&surface.widget_id)
+                                        {
                                             state.surface_id = Some(surface.surface_id);
                                         }
-                                        players.insert(surface.widget_id, ActivePlayer {
-                                            player,
-                                            last_status: None,
-                                            last_rate: None,
-                                            last_volume: None,
-                                            last_muted: None,
-                                        });
+                                        players.insert(
+                                            surface.widget_id,
+                                            ActivePlayer {
+                                                player,
+                                                last_status: None,
+                                                last_rate: None,
+                                                last_volume: None,
+                                                last_muted: None,
+                                            },
+                                        );
                                     }
                                 }
                             } else if let Some(active_player) = players.get(&surface.widget_id) {
@@ -2874,7 +3135,9 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
 
                         // Video Logic - Process Player Events and Sync State
                         for (widget_id, active_player) in players.iter_mut() {
-                            if let Some(video_state) = runtime.runtime_state.video.states.get_mut(widget_id) {
+                            if let Some(video_state) =
+                                runtime.runtime_state.video.states.get_mut(widget_id)
+                            {
                                 let player = &mut active_player.player;
 
                                 // Sync player controls from runtime state
@@ -2896,7 +3159,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                             if video_state.status == VideoStatus::Playing {
                                                 player.play();
                                             }
-                                        },
+                                        }
                                         VideoEvent::Ended => {
                                             video_state.status = VideoStatus::Ended;
                                             active_player.last_status = Some(VideoStatus::Ended);
@@ -2909,9 +3172,12 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                                 &mut frame_trace,
                                                 "video_ended",
                                             );
-                                        },
+                                        }
                                         VideoEvent::Error(e) => {
-                                            eprintln!("Video playback error for {:?}: {:?}", widget_id, e);
+                                            eprintln!(
+                                                "Video playback error for {:?}: {:?}",
+                                                widget_id, e
+                                            );
                                             video_state.status = VideoStatus::Error;
                                             active_player.last_status = Some(VideoStatus::Error);
                                             request_redraw_logged(
@@ -2923,7 +3189,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                                 &mut frame_trace,
                                                 "video_error",
                                             );
-                                        },
+                                        }
                                     }
                                 }
                                 // Sync other properties
@@ -2959,14 +3225,15 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                             resize_needs_settled_frame,
                             live_resize.is_live(now),
                         );
-                        let repeat_animation_interval = if resize_unsettled || pending_capture_settle {
-                            None
-                        } else {
-                            repeating_animation_redraw_interval(
-                                &runtime.runtime_state.animation,
-                                repeat_animation_frame,
-                            )
-                        };
+                        let repeat_animation_interval =
+                            if resize_unsettled || pending_capture_settle {
+                                None
+                            } else {
+                                repeating_animation_redraw_interval(
+                                    &runtime.runtime_state.animation,
+                                    repeat_animation_frame,
+                                )
+                            };
                         let has_playing_video = players.iter().any(|(widget_id, _)| {
                             runtime
                                 .runtime_state
@@ -3014,7 +3281,12 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                         if blink_enabled {
                             if let Some(id) = blink_focus_id {
                                 if now.duration_since(last_blink_toggle) >= blink_period {
-                                    let visible = runtime.runtime_state.caret_visible.get(&id).copied().unwrap_or(true);
+                                    let visible = runtime
+                                        .runtime_state
+                                        .caret_visible
+                                        .get(&id)
+                                        .copied()
+                                        .unwrap_or(true);
                                     runtime.runtime_state.caret_visible.insert(id, !visible);
                                     last_blink_toggle = now;
                                     invalidations.mark_build();
@@ -3053,7 +3325,6 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                 &mut runtime,
                                 &effect_result_tx,
                                 &event_proxy,
-
                                 &async_registry,
                                 &mut active_services,
                                 &mut service_bindings,
@@ -3115,12 +3386,11 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                             None
                         };
 
-                        let has_pending_work =
-                            effect_results_dispatched
-                                || frame_hook_wants_redraw
-                                || invalidations.any()
-                                || resize_unsettled
-                                || pending_capture_settle;
+                        let has_pending_work = effect_results_dispatched
+                            || frame_hook_wants_redraw
+                            || invalidations.any()
+                            || resize_unsettled
+                            || pending_capture_settle;
                         let active_keys = active_animation_keys(&runtime);
 
                         if has_pending_work {
@@ -3283,16 +3553,16 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                     // WindowEvent — real user interaction
                     // ═══════════════════════════════════════════════════════
                     Event::WindowEvent { window_id, event }
-                        if current_window_id(&window) == Some(window_id) =>
+                        if platform_window.active_window_id() == Some(window_id) =>
                     {
-                        let Some(window) = current_window(&window) else {
+                        let Some(window) = platform_window.active_window() else {
                             return;
                         };
                         match event {
                             WindowEvent::Resized(size) => {
                                 if size.width > 0 && size.height > 0 {
                                     let next_viewport = pending_resize
-                                        .unwrap_or_else(|| WindowViewportState::from_window(&window))
+                                        .unwrap_or_else(|| WindowViewportState::from_window(window))
                                         .with_physical_size(size);
                                     #[cfg(not(target_os = "android"))]
                                     {
@@ -3322,7 +3592,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                             }
                             WindowEvent::ScaleFactorChanged { scale_factor, .. } => {
                                 let next_viewport = pending_resize
-                                    .unwrap_or_else(|| WindowViewportState::from_window(&window))
+                                    .unwrap_or_else(|| WindowViewportState::from_window(window))
                                     .with_scale_factor(scale_factor);
                                 #[cfg(not(target_os = "android"))]
                                 {
@@ -3362,8 +3632,8 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                 let pre_tick_active = active_animation_keys(&runtime);
                                 match runtime.tick(dt_ms) {
                                     Ok(tick_result) => {
-                                        let tick_invalidations =
-                                            pipeline.classify_animation_updates(
+                                        let tick_invalidations = pipeline
+                                            .classify_animation_updates(
                                                 &tick_result.changed_animations,
                                             );
                                         invalidations.merge(tick_invalidations);
@@ -3400,7 +3670,6 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                     &mut runtime,
                                     &effect_result_tx,
                                     &event_proxy,
-
                                     &async_registry,
                                     &mut active_services,
                                     &mut service_bindings,
@@ -3424,8 +3693,9 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                     }
                                     #[cfg(target_os = "android")]
                                     {
-                                        window_viewport
-                                            .unwrap_or_else(|| WindowViewportState::from_window(&window))
+                                        window_viewport.unwrap_or_else(|| {
+                                            WindowViewportState::from_window(window)
+                                        })
                                     }
                                 });
                                 #[cfg(not(target_os = "android"))]
@@ -3442,17 +3712,19 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                     return;
                                 }
 
-                                if render_state.is_none() {
-                                    match create_render_state(
-                                        &mut render_cx,
-                                        window.clone(),
-                                        viewport_state,
-                                    ) {
-                                        Ok(state) => {
-                                            render_state = Some(state);
+                                let scale_factor = viewport_state.scale_factor;
+                                let pending_layout_viewport = viewport_state.logical_size();
+                                let render_target_size =
+                                    (swapchain_size.width, swapchain_size.height);
+
+                                #[cfg(target_arch = "wasm32")]
+                                if web_canvas_presenter.is_none() {
+                                    match WebCanvasPresenter::new(window) {
+                                        Ok(presenter) => {
+                                            web_canvas_presenter = Some(presenter);
                                         }
                                         Err(err) => {
-                                            eprintln!("render surface not ready yet: {err}");
+                                            eprintln!("web canvas not ready yet: {err}");
                                             request_redraw_logged(
                                                 &window,
                                                 elwt,
@@ -3460,59 +3732,93 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                                 min_frame,
                                                 &mut redraw_pending,
                                                 &mut frame_trace,
-                                                "render_surface_pending",
+                                                "web_canvas_pending",
                                             );
                                             diag::end_frame(diag::FrameStats::default());
                                             return;
                                         }
                                     }
                                 }
-                                let render_state = render_state.as_mut().expect("render state");
 
-                                let mut surface_target_replaced = false;
-                                if swapchain_size.width != render_state.surface.config.width
-                                    || swapchain_size.height != render_state.surface.config.height
+                                #[cfg(not(target_arch = "wasm32"))]
                                 {
-                                    render_cx.resize_surface(
-                                        &mut render_state.surface,
-                                        swapchain_size.width,
-                                        swapchain_size.height,
-                                    );
+                                    if render_state.is_none() {
+                                        let Some(render_window) =
+                                            platform_window.active_window_arc()
+                                        else {
+                                            diag::end_frame(diag::FrameStats::default());
+                                            return;
+                                        };
+                                        match create_render_state(
+                                            &mut render_cx,
+                                            render_window,
+                                            viewport_state,
+                                        ) {
+                                            Ok(state) => {
+                                                render_state = Some(state);
+                                            }
+                                            Err(err) => {
+                                                eprintln!("render surface not ready yet: {err}");
+                                                request_redraw_logged(
+                                                    &window,
+                                                    elwt,
+                                                    &mut last_redraw_at,
+                                                    min_frame,
+                                                    &mut redraw_pending,
+                                                    &mut frame_trace,
+                                                    "render_surface_pending",
+                                                );
+                                                diag::end_frame(diag::FrameStats::default());
+                                                return;
+                                            }
+                                        }
+                                    }
+                                    let render_state = render_state.as_mut().expect("render state");
+
+                                    let mut surface_target_replaced = false;
+                                    if swapchain_size.width != render_state.surface.config.width
+                                        || swapchain_size.height
+                                            != render_state.surface.config.height
+                                    {
+                                        render_cx.resize_surface(
+                                            &mut render_state.surface,
+                                            swapchain_size.width,
+                                            swapchain_size.height,
+                                        );
+                                        let device_handle =
+                                            &render_cx.devices[render_state.surface.dev_id];
+                                        render_state.surface.config.alpha_mode =
+                                            wgpu::CompositeAlphaMode::PostMultiplied;
+                                        render_state.surface.surface.configure(
+                                            &device_handle.device,
+                                            &render_state.surface.config,
+                                        );
+                                        sync_tracked_target_texture_size_to_surface(
+                                            &mut render_state.target_texture_size,
+                                            swapchain_size,
+                                        );
+                                        surface_target_replaced = true;
+                                    }
                                     let device_handle =
                                         &render_cx.devices[render_state.surface.dev_id];
-                                    render_state.surface.config.alpha_mode =
-                                        wgpu::CompositeAlphaMode::PostMultiplied;
-                                    render_state
-                                        .surface
-                                        .surface
-                                        .configure(&device_handle.device, &render_state.surface.config);
-                                    sync_tracked_target_texture_size_to_surface(
-                                        &mut render_state.target_texture_size,
-                                        swapchain_size,
-                                    );
-                                    surface_target_replaced = true;
-                                }
-                                let device_handle = &render_cx.devices[render_state.surface.dev_id];
 
-                                let scale_factor = viewport_state.scale_factor;
-                                let pending_layout_viewport = viewport_state.logical_size();
-                                let render_target_size = (swapchain_size.width, swapchain_size.height);
-                                if surface_target_replaced
-                                    || render_target_size != render_state.target_texture_size
-                                {
-                                    recreate_target_texture(
-                                        &mut render_state.surface,
-                                        &render_cx,
-                                        render_target_size.0,
-                                        render_target_size.1,
-                                    );
-                                    // Keep the 3D depth target in lockstep with the shared render target.
-                                    render_state.scene3d_renderer.resize(
-                                        &device_handle.device,
-                                        render_target_size.0,
-                                        render_target_size.1,
-                                    );
-                                    render_state.target_texture_size = render_target_size;
+                                    if surface_target_replaced
+                                        || render_target_size != render_state.target_texture_size
+                                    {
+                                        recreate_target_texture(
+                                            &mut render_state.surface,
+                                            &render_cx,
+                                            render_target_size.0,
+                                            render_target_size.1,
+                                        );
+                                        // Keep the 3D depth target in lockstep with the shared render target.
+                                        render_state.scene3d_renderer.resize(
+                                            &device_handle.device,
+                                            render_target_size.0,
+                                            render_target_size.1,
+                                        );
+                                        render_state.target_texture_size = render_target_size;
+                                    }
                                 }
 
                                 let resize_settled =
@@ -3532,14 +3838,22 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                 }
                                 let desired_window_title = env.window.title.plain_text();
                                 if desired_window_title != applied_window_title {
-                                    if let Some(window) = current_window(&window) {
+                                    if let Some(window) = platform_window.active_window() {
                                         window.set_title(desired_window_title);
                                     }
                                     applied_window_title = desired_window_title.to_string();
                                 }
 
                                 if invalidations.build || pipeline.prev_ir.is_none() {
-                                    let (node_tree, registry, resources, anims, videos, web_views, portals) = {
+                                    let (
+                                        node_tree,
+                                        registry,
+                                        resources,
+                                        anims,
+                                        videos,
+                                        web_views,
+                                        portals,
+                                    ) = {
                                         let state = runtime.get_app_state::<S>().unwrap();
                                         let view = View::new(
                                             state,
@@ -3557,7 +3871,9 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
 
                                         let portals = portals_with_ids
                                             .into_iter()
-                                            .map(|(id, node)| wrap_portal_for_viewport(id, node, &env))
+                                            .map(|(id, node)| {
+                                                wrap_portal_for_viewport(id, node, &env)
+                                            })
                                             .collect::<Vec<_>>();
 
                                         diag::emit(
@@ -3567,13 +3883,24 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                                 portal_count: portals.len() as u32,
                                             },
                                         );
-                                        (node, ctx.registry, resources, anims, videos, web_views, portals)
+                                        (
+                                            node,
+                                            ctx.registry,
+                                            resources,
+                                            anims,
+                                            videos,
+                                            web_views,
+                                            portals,
+                                        )
                                     };
 
                                     runtime.clear_reducers();
                                     runtime.absorb_registry(registry);
                                     if let Err(err) = runtime.reconcile_resources(resources) {
-                                        eprintln!("Runtime resource reconciliation error: {:?}", err);
+                                        eprintln!(
+                                            "Runtime resource reconciliation error: {:?}",
+                                            err
+                                        );
                                     }
                                     if !startup_dispatched {
                                         if let Some(action) = startup_action.clone() {
@@ -3592,8 +3919,8 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                     runtime.sync_video_nodes(&videos);
                                     runtime.sync_web_nodes(&web_views);
 
-                                    let final_root = fission_core::Node::Overlay(
-                                        fission_core::ui::Overlay {
+                                    let final_root =
+                                        fission_core::Node::Overlay(fission_core::ui::Overlay {
                                             id: None,
                                             content: Box::new(node_tree),
                                             overlay: Box::new(fission_core::Node::ZStack(
@@ -3602,8 +3929,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                                     ..Default::default()
                                                 },
                                             )),
-                                        },
-                                    );
+                                        });
 
                                     let mut lower_cx = LoweringContext::new(
                                         &env,
@@ -3656,109 +3982,183 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                     &runtime.runtime_state.web,
                                 ) {
                                     Ok(_stats) => {
-                                        let surface_texture = render_state
-                                            .surface
-                                            .surface
-                                            .get_current_texture()
-                                            .expect("failed to get texture");
-                                        let device_handle =
-                                            &render_cx.devices[render_state.surface.dev_id];
+                                        #[cfg(target_arch = "wasm32")]
+                                        {
+                                            let retained_scene = pipeline.retained_scene().expect(
+                                                "retained render scene missing before render",
+                                            );
+                                            let rgba = SoftwareRenderer::render(
+                                                retained_scene,
+                                                render_target_size.0,
+                                                render_target_size.1,
+                                                fission_render::Color {
+                                                    r: env.theme.tokens.colors.background.r,
+                                                    g: env.theme.tokens.colors.background.g,
+                                                    b: env.theme.tokens.colors.background.b,
+                                                    a: env.theme.tokens.colors.background.a,
+                                                },
+                                                scale_factor as f32,
+                                            )
+                                            .expect("failed to rasterize software web frame");
 
-                                        let clear_color = vello::wgpu::Color {
-                                            r: env.theme.tokens.colors.background.r as f64 / 255.0,
-                                            g: env.theme.tokens.colors.background.g as f64 / 255.0,
-                                            b: env.theme.tokens.colors.background.b as f64 / 255.0,
-                                            a: env.theme.tokens.colors.background.a as f64 / 255.0,
-                                        };
-                                        match &mut render_state.main_renderer {
-                                            MainRenderer::Vello {
-                                                renderer,
-                                                texture_compositor,
-                                            } => {
-                                                let texture_plans =
-                                                    pipeline.texture_compositor_plans();
-                                                let texture_plans_fit_limits =
-                                                    texture_plans_fit_device_limits(
-                                                        texture_plans,
-                                                        scale_factor,
-                                                        device_handle
-                                                            .device
-                                                            .limits()
-                                                            .max_texture_dimension_2d,
-                                                    );
-                                                let has_active_scroll_offsets = runtime
-                                                    .runtime_state
-                                                    .scroll
-                                                    .offsets
-                                                    .values()
-                                                    .any(|offset| offset.abs() > 0.5);
-                                                let enable_texture_compositor =
-                                                    std::env::var(
+                                            let Some(presenter) = web_canvas_presenter.as_mut()
+                                            else {
+                                                eprintln!("web canvas presenter is unavailable");
+                                                diag::end_frame(diag::FrameStats::default());
+                                                return;
+                                            };
+                                            if let Err(err) = presenter.present(
+                                                &rgba,
+                                                render_target_size.0,
+                                                render_target_size.1,
+                                            ) {
+                                                eprintln!(
+                                                    "failed to present web canvas frame: {err}"
+                                                );
+                                                diag::end_frame(diag::FrameStats::default());
+                                                return;
+                                            }
+
+                                            let capture_ready =
+                                                !pending_capture_settle || resize_settled;
+                                            if capture_ready {
+                                                pending_capture_settle = false;
+                                                let _ = pending_screenshot_path.take();
+                                            }
+
+                                            pending_resize = None;
+                                            if resize_settled {
+                                                resize_needs_settled_frame = false;
+                                            }
+                                            invalidations = InvalidationSet::default();
+
+                                            presented_frames = presented_frames.saturating_add(1);
+                                            flush_text_traces(
+                                                text_trace_enabled,
+                                                &mut pending_text_traces,
+                                                presented_frames,
+                                            );
+
+                                            diag::end_frame(diag::FrameStats::default());
+                                        }
+                                        #[cfg(not(target_arch = "wasm32"))]
+                                        {
+                                            let render_state =
+                                                render_state.as_mut().expect("render state");
+                                            let surface_texture = render_state
+                                                .surface
+                                                .surface
+                                                .get_current_texture()
+                                                .expect("failed to get texture");
+                                            let device_handle =
+                                                &render_cx.devices[render_state.surface.dev_id];
+
+                                            let clear_color = vello::wgpu::Color {
+                                                r: env.theme.tokens.colors.background.r as f64
+                                                    / 255.0,
+                                                g: env.theme.tokens.colors.background.g as f64
+                                                    / 255.0,
+                                                b: env.theme.tokens.colors.background.b as f64
+                                                    / 255.0,
+                                                a: env.theme.tokens.colors.background.a as f64
+                                                    / 255.0,
+                                            };
+                                            match &mut render_state.main_renderer {
+                                                MainRenderer::Vello {
+                                                    renderer,
+                                                    texture_compositor,
+                                                } => {
+                                                    let texture_plans =
+                                                        pipeline.texture_compositor_plans();
+                                                    let texture_plans_fit_limits =
+                                                        texture_plans_fit_device_limits(
+                                                            texture_plans,
+                                                            scale_factor,
+                                                            device_handle
+                                                                .device
+                                                                .limits()
+                                                                .max_texture_dimension_2d,
+                                                        );
+                                                    let has_active_scroll_offsets = runtime
+                                                        .runtime_state
+                                                        .scroll
+                                                        .offsets
+                                                        .values()
+                                                        .any(|offset| offset.abs() > 0.5);
+                                                    let enable_texture_compositor = std::env::var(
                                                         "FISSION_ENABLE_TEXTURE_COMPOSITOR",
                                                     )
                                                     .ok()
                                                     .as_deref()
                                                         == Some("1");
-                                                if !enable_texture_compositor
-                                                    || texture_plans.is_empty()
-                                                    || !texture_plans_fit_limits
-                                                    || has_active_scroll_offsets
-                                                {
-                                                    let render_params = vello::RenderParams {
-                                                        base_color:
-                                                            vello::peniko::Color::from_rgba8(
-                                                                env.theme.tokens.colors
-                                                                    .background
-                                                                    .r,
-                                                                env.theme.tokens.colors
-                                                                    .background
-                                                                    .g,
-                                                                env.theme.tokens.colors
-                                                                    .background
-                                                                    .b,
-                                                                env.theme.tokens.colors
-                                                                    .background
-                                                                    .a,
-                                                            ),
-                                                        width: render_target_size.0,
-                                                        height: render_target_size.1,
-                                                        antialiasing_method:
-                                                            vello::AaConfig::Area,
-                                                    };
+                                                    if !enable_texture_compositor
+                                                        || texture_plans.is_empty()
+                                                        || !texture_plans_fit_limits
+                                                        || has_active_scroll_offsets
+                                                    {
+                                                        let render_params = vello::RenderParams {
+                                                            base_color:
+                                                                vello::peniko::Color::from_rgba8(
+                                                                    env.theme
+                                                                        .tokens
+                                                                        .colors
+                                                                        .background
+                                                                        .r,
+                                                                    env.theme
+                                                                        .tokens
+                                                                        .colors
+                                                                        .background
+                                                                        .g,
+                                                                    env.theme
+                                                                        .tokens
+                                                                        .colors
+                                                                        .background
+                                                                        .b,
+                                                                    env.theme
+                                                                        .tokens
+                                                                        .colors
+                                                                        .background
+                                                                        .a,
+                                                                ),
+                                                            width: render_target_size.0,
+                                                            height: render_target_size.1,
+                                                            antialiasing_method:
+                                                                vello::AaConfig::Area,
+                                                        };
 
-                                                    scene.reset();
-                                                    let retained_scene = pipeline
+                                                        scene.reset();
+                                                        let retained_scene = pipeline
                                                         .retained_scene()
                                                         .expect(
                                                             "retained render scene missing before render",
                                                         );
-                                                    let mut renderer_wrapper =
-                                                        VelloRenderer::new(
-                                                            &mut scene,
-                                                            measurer.clone(),
-                                                            &mut retained_scene_cache,
-                                                            scale_factor,
-                                                        );
-                                                    renderer_wrapper
-                                                        .render_scene(retained_scene)
-                                                        .expect(
-                                                            "failed to encode retained scene",
-                                                        );
-                                                    renderer
-                                                        .render_to_texture(
-                                                            &device_handle.device,
-                                                            &device_handle.queue,
-                                                            &scene,
-                                                            &render_state.surface.target_view,
-                                                            &render_params,
-                                                        )
-                                                        .expect("failed to render");
-                                                } else {
-                                                    let force_full_compositor_redraw =
-                                                        invalidations.build
-                                                            || invalidations.layout
-                                                            || invalidations.paint;
-                                                    let _compositor_stats = texture_compositor
+                                                        let mut renderer_wrapper =
+                                                            VelloRenderer::new(
+                                                                &mut scene,
+                                                                measurer.clone(),
+                                                                &mut retained_scene_cache,
+                                                                scale_factor,
+                                                            );
+                                                        renderer_wrapper
+                                                            .render_scene(retained_scene)
+                                                            .expect(
+                                                                "failed to encode retained scene",
+                                                            );
+                                                        renderer
+                                                            .render_to_texture(
+                                                                &device_handle.device,
+                                                                &device_handle.queue,
+                                                                &scene,
+                                                                &render_state.surface.target_view,
+                                                                &render_params,
+                                                            )
+                                                            .expect("failed to render");
+                                                    } else {
+                                                        let force_full_compositor_redraw =
+                                                            invalidations.build
+                                                                || invalidations.layout
+                                                                || invalidations.paint;
+                                                        let _compositor_stats = texture_compositor
                                                         .render_layers(
                                                             &device_handle.device,
                                                             &device_handle.queue,
@@ -3769,7 +4169,8 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                                             render_target_size.0,
                                                             render_target_size.1,
                                                             pipeline
-                                                                .texture_compositor_root_transform(),
+                                                                .texture_compositor_root_transform(
+                                                                ),
                                                             texture_plans,
                                                             force_full_compositor_redraw,
                                                             clear_color,
@@ -3778,159 +4179,167 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                                         .expect(
                                                             "failed to composite texture layers",
                                                         );
+                                                    }
                                                 }
-                                            }
-                                            MainRenderer::Software => {
-                                                let retained_scene = pipeline
+                                                MainRenderer::Software => {
+                                                    let retained_scene = pipeline
                                                     .retained_scene()
                                                     .expect(
-                                                        "retained render scene missing before render",
+                                                    "retained render scene missing before render",
+                                                );
+                                                    let rgba = SoftwareRenderer::render(
+                                                        retained_scene,
+                                                        render_target_size.0,
+                                                        render_target_size.1,
+                                                        fission_render::Color {
+                                                            r: env.theme.tokens.colors.background.r,
+                                                            g: env.theme.tokens.colors.background.g,
+                                                            b: env.theme.tokens.colors.background.b,
+                                                            a: env.theme.tokens.colors.background.a,
+                                                        },
+                                                        scale_factor as f32,
+                                                    )
+                                                    .expect("failed to rasterize software frame");
+                                                    device_handle.queue.write_texture(
+                                                        wgpu::TexelCopyTextureInfo {
+                                                            texture: &render_state
+                                                                .surface
+                                                                .target_texture,
+                                                            mip_level: 0,
+                                                            origin: wgpu::Origin3d::ZERO,
+                                                            aspect: wgpu::TextureAspect::All,
+                                                        },
+                                                        &rgba,
+                                                        wgpu::TexelCopyBufferLayout {
+                                                            offset: 0,
+                                                            bytes_per_row: Some(
+                                                                render_target_size.0 * 4,
+                                                            ),
+                                                            rows_per_image: Some(
+                                                                render_target_size.1,
+                                                            ),
+                                                        },
+                                                        wgpu::Extent3d {
+                                                            width: render_target_size.0,
+                                                            height: render_target_size.1,
+                                                            depth_or_array_layers: 1,
+                                                        },
                                                     );
-                                                let rgba = SoftwareRenderer::render(
-                                                    retained_scene,
-                                                    render_target_size.0,
-                                                    render_target_size.1,
-                                                    fission_render::Color {
-                                                        r: env.theme.tokens.colors.background.r,
-                                                        g: env.theme.tokens.colors.background.g,
-                                                        b: env.theme.tokens.colors.background.b,
-                                                        a: env.theme.tokens.colors.background.a,
-                                                    },
-                                                    scale_factor as f32,
-                                                )
-                                                .expect(
-                                                    "failed to rasterize software frame",
-                                                );
-                                                device_handle.queue.write_texture(
-                                                    wgpu::TexelCopyTextureInfo {
-                                                        texture: &render_state
-                                                            .surface
-                                                            .target_texture,
-                                                        mip_level: 0,
-                                                        origin: wgpu::Origin3d::ZERO,
-                                                        aspect: wgpu::TextureAspect::All,
-                                                    },
-                                                    &rgba,
-                                                    wgpu::TexelCopyBufferLayout {
-                                                        offset: 0,
-                                                        bytes_per_row: Some(
-                                                            render_target_size.0 * 4,
-                                                        ),
-                                                        rows_per_image: Some(
-                                                            render_target_size.1,
-                                                        ),
-                                                    },
-                                                    wgpu::Extent3d {
-                                                        width: render_target_size.0,
-                                                        height: render_target_size.1,
-                                                        depth_or_array_layers: 1,
-                                                    },
-                                                );
+                                                }
                                             }
-                                        }
 
-                                        for (_, rect, payload) in &pipeline.scene_3d_surfaces {
-                                            if let Ok(primitives) =
-                                                bincode::deserialize::<Vec<fission_3d::Primitive3D>>(payload)
-                                            {
-                                                let scene3d = fission_3d::Scene3D {
-                                                    width: Some(rect.size.width),
-                                                    height: Some(rect.size.height),
-                                                    primitives,
-                                                };
-                                                let scale = scale_factor as f32;
-                                                render_state.scene3d_renderer.render_in_rect(
-                                                    &device_handle.device,
-                                                    &device_handle.queue,
-                                                    &render_state.surface.target_view,
-                                                    &scene3d,
-                                                    fission_3d::render::Scene3DViewport {
-                                                        x: rect.origin.x * scale,
-                                                        y: rect.origin.y * scale,
-                                                        width: rect.size.width * scale,
-                                                        height: rect.size.height * scale,
+                                            for (_, rect, payload) in &pipeline.scene_3d_surfaces {
+                                                if let Ok(primitives) = bincode::deserialize::<
+                                                    Vec<fission_3d::Primitive3D>,
+                                                >(
+                                                    payload
+                                                ) {
+                                                    let scene3d = fission_3d::Scene3D {
+                                                        width: Some(rect.size.width),
+                                                        height: Some(rect.size.height),
+                                                        primitives,
+                                                    };
+                                                    let scale = scale_factor as f32;
+                                                    render_state.scene3d_renderer.render_in_rect(
+                                                        &device_handle.device,
+                                                        &device_handle.queue,
+                                                        &render_state.surface.target_view,
+                                                        &scene3d,
+                                                        fission_3d::render::Scene3DViewport {
+                                                            x: rect.origin.x * scale,
+                                                            y: rect.origin.y * scale,
+                                                            width: rect.size.width * scale,
+                                                            height: rect.size.height * scale,
+                                                        },
+                                                    );
+                                                }
+                                            }
+
+                                            let surface_view = surface_texture.texture.create_view(
+                                                &wgpu::TextureViewDescriptor::default(),
+                                            );
+
+                                            let mut encoder =
+                                                device_handle.device.create_command_encoder(
+                                                    &wgpu::CommandEncoderDescriptor {
+                                                        label: Some("Surface Blit"),
                                                     },
                                                 );
+
+                                            render_state.surface.blitter.copy(
+                                                &device_handle.device,
+                                                &mut encoder,
+                                                &render_state.surface.target_view,
+                                                &surface_view,
+                                            );
+
+                                            device_handle.queue.submit(Some(encoder.finish()));
+
+                                            let capture_ready =
+                                                !pending_capture_settle || resize_settled;
+                                            if capture_ready {
+                                                pending_capture_settle = false;
                                             }
-                                        }
-
-                                        let surface_view = surface_texture
-                                            .texture
-                                            .create_view(&wgpu::TextureViewDescriptor::default());
-
-                                        let mut encoder = device_handle.device.create_command_encoder(
-                                            &wgpu::CommandEncoderDescriptor {
-                                                label: Some("Surface Blit"),
-                                            },
-                                        );
-
-                                        render_state.surface.blitter.copy(
-                                            &device_handle.device,
-                                            &mut encoder,
-                                            &render_state.surface.target_view,
-                                            &surface_view,
-                                        );
-
-                                        device_handle.queue.submit(Some(encoder.finish()));
-
-                                        let capture_ready =
-                                            !pending_capture_settle || resize_settled;
-                                        if capture_ready {
-                                            pending_capture_settle = false;
-                                        }
-                                        if capture_ready {
-                                            if let Some(path) = pending_screenshot_path.take() {
-                                                let screenshot_dimensions =
-                                                    layout_size_to_image_dimensions(target_viewport);
-                                                if let Some(ref tx) = test_response_tx {
-                                                    if path == "__pump__" {
-                                                        let _ = tx.send(
+                                            if capture_ready {
+                                                if let Some(path) = pending_screenshot_path.take() {
+                                                    let screenshot_dimensions =
+                                                        layout_size_to_image_dimensions(
+                                                            target_viewport,
+                                                        );
+                                                    if let Some(ref tx) = test_response_tx {
+                                                        if path == "__pump__" {
+                                                            let _ = tx.send(
                                                             fission_test_driver::TestResponse::Ok {},
                                                         );
-                                                    } else if path == "__capture__" {
-                                                        let resp = gpu_screenshot(
-                                                            &device_handle.device,
-                                                            &device_handle.queue,
-                                                            &render_state.surface.target_texture,
-                                                            render_target_size.0,
-                                                            render_target_size.1,
-                                                            screenshot_dimensions.0,
-                                                            screenshot_dimensions.1,
-                                                            None,
-                                                        );
-                                                        let _ = tx.send(resp);
-                                                    } else {
-                                                        let resp = gpu_screenshot(
-                                                            &device_handle.device,
-                                                            &device_handle.queue,
-                                                            &render_state.surface.target_texture,
-                                                            render_target_size.0,
-                                                            render_target_size.1,
-                                                            screenshot_dimensions.0,
-                                                            screenshot_dimensions.1,
-                                                            Some(&path),
-                                                        );
-                                                        let _ = tx.send(resp);
+                                                        } else if path == "__capture__" {
+                                                            let resp = gpu_screenshot(
+                                                                &device_handle.device,
+                                                                &device_handle.queue,
+                                                                &render_state
+                                                                    .surface
+                                                                    .target_texture,
+                                                                render_target_size.0,
+                                                                render_target_size.1,
+                                                                screenshot_dimensions.0,
+                                                                screenshot_dimensions.1,
+                                                                None,
+                                                            );
+                                                            let _ = tx.send(resp);
+                                                        } else {
+                                                            let resp = gpu_screenshot(
+                                                                &device_handle.device,
+                                                                &device_handle.queue,
+                                                                &render_state
+                                                                    .surface
+                                                                    .target_texture,
+                                                                render_target_size.0,
+                                                                render_target_size.1,
+                                                                screenshot_dimensions.0,
+                                                                screenshot_dimensions.1,
+                                                                Some(&path),
+                                                            );
+                                                            let _ = tx.send(resp);
+                                                        }
                                                     }
                                                 }
                                             }
+
+                                            surface_texture.present();
+                                            pending_resize = None;
+                                            if resize_settled {
+                                                resize_needs_settled_frame = false;
+                                            }
+                                            invalidations = InvalidationSet::default();
+
+                                            presented_frames = presented_frames.saturating_add(1);
+                                            flush_text_traces(
+                                                text_trace_enabled,
+                                                &mut pending_text_traces,
+                                                presented_frames,
+                                            );
+
+                                            diag::end_frame(diag::FrameStats::default());
                                         }
-
-                                        surface_texture.present();
-                                        pending_resize = None;
-                                        if resize_settled {
-                                            resize_needs_settled_frame = false;
-                                        }
-                                        invalidations = InvalidationSet::default();
-
-                                        presented_frames = presented_frames.saturating_add(1);
-                                        flush_text_traces(
-                                            text_trace_enabled,
-                                            &mut pending_text_traces,
-                                            presented_frames,
-                                        );
-
-                                        diag::end_frame(diag::FrameStats::default());
                                     }
                                     Err(e) => {
                                         eprintln!("Pipeline error: {:?}", e);
@@ -3949,12 +4358,22 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                 let x = (position.x / scale_factor) as f32;
                                 let y = (position.y / scale_factor) as f32;
                                 handle_cursor_moved(
-                                    x, y, current_mods,
-                                    &mut runtime, &pipeline,
-                                    &effect_result_tx, &event_proxy,
-                                &async_registry, &mut active_services, &mut service_bindings, &mut next_service_instance_id,
-                                    &window, elwt,
-                                    &mut last_redraw_at, min_frame, &mut redraw_pending,
+                                    x,
+                                    y,
+                                    current_mods,
+                                    &mut runtime,
+                                    &pipeline,
+                                    &effect_result_tx,
+                                    &event_proxy,
+                                    &async_registry,
+                                    &mut active_services,
+                                    &mut service_bindings,
+                                    &mut next_service_instance_id,
+                                    &window,
+                                    elwt,
+                                    &mut last_redraw_at,
+                                    min_frame,
+                                    &mut redraw_pending,
                                     &mut frame_trace,
                                     &mut invalidations,
                                 );
@@ -3966,7 +4385,6 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                     &pipeline,
                                     &effect_result_tx,
                                     &event_proxy,
-
                                     &async_registry,
                                     &mut active_services,
                                     &mut service_bindings,
@@ -3989,14 +4407,28 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                     if let Some(btn) = map_mouse_button(button) {
                                         let is_pressed = state.is_pressed();
                                         handle_mouse_button(
-                                            x, y, btn, is_pressed, current_mods,
-                                            &mut runtime, &pipeline,
-                                            &effect_result_tx, &event_proxy,
-                                &async_registry, &mut active_services, &mut service_bindings, &mut next_service_instance_id,
-                                            &window, elwt,
-                                            &mut last_redraw_at, min_frame, &mut redraw_pending,
-                                            text_trace_enabled, &mut pending_text_traces,
-                                            &mut next_text_trace_seq, presented_frames,
+                                            x,
+                                            y,
+                                            btn,
+                                            is_pressed,
+                                            current_mods,
+                                            &mut runtime,
+                                            &pipeline,
+                                            &effect_result_tx,
+                                            &event_proxy,
+                                            &async_registry,
+                                            &mut active_services,
+                                            &mut service_bindings,
+                                            &mut next_service_instance_id,
+                                            &window,
+                                            elwt,
+                                            &mut last_redraw_at,
+                                            min_frame,
+                                            &mut redraw_pending,
+                                            text_trace_enabled,
+                                            &mut pending_text_traces,
+                                            &mut next_text_trace_seq,
+                                            presented_frames,
                                             &mut last_blink_toggle,
                                             &mut frame_trace,
                                             &mut invalidations,
@@ -4013,28 +4445,51 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                     let (dx, dy) =
                                         normalize_winit_scroll_delta(&delta, scale_factor);
 
-                                    if std::env::var("FISSION_SCROLL_TRACE").ok().as_deref() == Some("1") {
+                                    if std::env::var("FISSION_SCROLL_TRACE").ok().as_deref()
+                                        == Some("1")
+                                    {
                                         eprintln!(
                                             "[scroll-trace] mousewheel raw={:?} point=({:.1},{:.1}) delta=({:.1},{:.1})",
                                             delta, point_x, point_y, dx, dy
                                         );
                                     }
                                     handle_scroll(
-                                        point_x, point_y, dx, dy, current_mods,
-                                        &mut runtime, &pipeline,
-                                        &effect_result_tx, &event_proxy,
-                                &async_registry, &mut active_services, &mut service_bindings, &mut next_service_instance_id,
-                                        &window, elwt,
-                                        &mut last_redraw_at, min_frame, &mut redraw_pending,
+                                        point_x,
+                                        point_y,
+                                        dx,
+                                        dy,
+                                        current_mods,
+                                        &mut runtime,
+                                        &pipeline,
+                                        &effect_result_tx,
+                                        &event_proxy,
+                                        &async_registry,
+                                        &mut active_services,
+                                        &mut service_bindings,
+                                        &mut next_service_instance_id,
+                                        &window,
+                                        elwt,
+                                        &mut last_redraw_at,
+                                        min_frame,
+                                        &mut redraw_pending,
                                         &mut frame_trace,
                                         &mut invalidations,
                                     );
                                 }
                             }
                             WindowEvent::Touch(touch) => {
-                                let position = touch.location;
+                                let current_position = touch.location;
+                                // Some mobile backends report the end/cancel location after the
+                                // contact has already been cleared. Keep the last active touch
+                                // position so a normal tap releases over the same hit target.
+                                let position = match touch.phase {
+                                    TouchPhase::Ended | TouchPhase::Cancelled => touch_positions
+                                        .get(&touch.id)
+                                        .copied()
+                                        .unwrap_or(current_position),
+                                    TouchPhase::Started | TouchPhase::Moved => current_position,
+                                };
                                 last_cursor_position = Some(position);
-                                touch_positions.insert(touch.id, position);
 
                                 let scale_factor = window.scale_factor();
                                 let x = (position.x / scale_factor) as f32;
@@ -4042,29 +4497,54 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
 
                                 match touch.phase {
                                     TouchPhase::Started => {
+                                        touch_positions.insert(touch.id, position);
                                         if active_primary_touch.is_none() {
                                             active_primary_touch = Some(touch.id);
                                         }
                                         if active_primary_touch == Some(touch.id) {
                                             handle_cursor_moved(
-                                                x, y, current_mods,
-                                                &mut runtime, &pipeline,
-                                                &effect_result_tx, &event_proxy,
-                                &async_registry, &mut active_services, &mut service_bindings, &mut next_service_instance_id,
-                                                &window, elwt,
-                                                &mut last_redraw_at, min_frame, &mut redraw_pending,
+                                                x,
+                                                y,
+                                                current_mods,
+                                                &mut runtime,
+                                                &pipeline,
+                                                &effect_result_tx,
+                                                &event_proxy,
+                                                &async_registry,
+                                                &mut active_services,
+                                                &mut service_bindings,
+                                                &mut next_service_instance_id,
+                                                &window,
+                                                elwt,
+                                                &mut last_redraw_at,
+                                                min_frame,
+                                                &mut redraw_pending,
                                                 &mut frame_trace,
                                                 &mut invalidations,
                                             );
                                             handle_mouse_button(
-                                                x, y, PointerButton::Primary, true, current_mods,
-                                                &mut runtime, &pipeline,
-                                                &effect_result_tx, &event_proxy,
-                                &async_registry, &mut active_services, &mut service_bindings, &mut next_service_instance_id,
-                                                &window, elwt,
-                                                &mut last_redraw_at, min_frame, &mut redraw_pending,
-                                                text_trace_enabled, &mut pending_text_traces,
-                                                &mut next_text_trace_seq, presented_frames,
+                                                x,
+                                                y,
+                                                PointerButton::Primary,
+                                                true,
+                                                current_mods,
+                                                &mut runtime,
+                                                &pipeline,
+                                                &effect_result_tx,
+                                                &event_proxy,
+                                                &async_registry,
+                                                &mut active_services,
+                                                &mut service_bindings,
+                                                &mut next_service_instance_id,
+                                                &window,
+                                                elwt,
+                                                &mut last_redraw_at,
+                                                min_frame,
+                                                &mut redraw_pending,
+                                                text_trace_enabled,
+                                                &mut pending_text_traces,
+                                                &mut next_text_trace_seq,
+                                                presented_frames,
                                                 &mut last_blink_toggle,
                                                 &mut frame_trace,
                                                 &mut invalidations,
@@ -4072,14 +4552,25 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                         }
                                     }
                                     TouchPhase::Moved => {
+                                        touch_positions.insert(touch.id, position);
                                         if active_primary_touch == Some(touch.id) {
                                             handle_cursor_moved(
-                                                x, y, current_mods,
-                                                &mut runtime, &pipeline,
-                                                &effect_result_tx, &event_proxy,
-                                &async_registry, &mut active_services, &mut service_bindings, &mut next_service_instance_id,
-                                                &window, elwt,
-                                                &mut last_redraw_at, min_frame, &mut redraw_pending,
+                                                x,
+                                                y,
+                                                current_mods,
+                                                &mut runtime,
+                                                &pipeline,
+                                                &effect_result_tx,
+                                                &event_proxy,
+                                                &async_registry,
+                                                &mut active_services,
+                                                &mut service_bindings,
+                                                &mut next_service_instance_id,
+                                                &window,
+                                                elwt,
+                                                &mut last_redraw_at,
+                                                min_frame,
+                                                &mut redraw_pending,
                                                 &mut frame_trace,
                                                 &mut invalidations,
                                             );
@@ -4088,24 +4579,48 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                     TouchPhase::Ended | TouchPhase::Cancelled => {
                                         if active_primary_touch == Some(touch.id) {
                                             handle_cursor_moved(
-                                                x, y, current_mods,
-                                                &mut runtime, &pipeline,
-                                                &effect_result_tx, &event_proxy,
-                                &async_registry, &mut active_services, &mut service_bindings, &mut next_service_instance_id,
-                                                &window, elwt,
-                                                &mut last_redraw_at, min_frame, &mut redraw_pending,
+                                                x,
+                                                y,
+                                                current_mods,
+                                                &mut runtime,
+                                                &pipeline,
+                                                &effect_result_tx,
+                                                &event_proxy,
+                                                &async_registry,
+                                                &mut active_services,
+                                                &mut service_bindings,
+                                                &mut next_service_instance_id,
+                                                &window,
+                                                elwt,
+                                                &mut last_redraw_at,
+                                                min_frame,
+                                                &mut redraw_pending,
                                                 &mut frame_trace,
                                                 &mut invalidations,
                                             );
                                             handle_mouse_button(
-                                                x, y, PointerButton::Primary, false, current_mods,
-                                                &mut runtime, &pipeline,
-                                                &effect_result_tx, &event_proxy,
-                                &async_registry, &mut active_services, &mut service_bindings, &mut next_service_instance_id,
-                                                &window, elwt,
-                                                &mut last_redraw_at, min_frame, &mut redraw_pending,
-                                                text_trace_enabled, &mut pending_text_traces,
-                                                &mut next_text_trace_seq, presented_frames,
+                                                x,
+                                                y,
+                                                PointerButton::Primary,
+                                                false,
+                                                current_mods,
+                                                &mut runtime,
+                                                &pipeline,
+                                                &effect_result_tx,
+                                                &event_proxy,
+                                                &async_registry,
+                                                &mut active_services,
+                                                &mut service_bindings,
+                                                &mut next_service_instance_id,
+                                                &window,
+                                                elwt,
+                                                &mut last_redraw_at,
+                                                min_frame,
+                                                &mut redraw_pending,
+                                                text_trace_enabled,
+                                                &mut pending_text_traces,
+                                                &mut next_text_trace_seq,
+                                                presented_frames,
                                                 &mut last_blink_toggle,
                                                 &mut frame_trace,
                                                 &mut invalidations,
@@ -4118,10 +4633,18 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                             }
                             WindowEvent::ModifiersChanged(modifiers) => {
                                 current_mods = 0;
-                                if modifiers.state().shift_key() { current_mods |= 1; }
-                                if modifiers.state().alt_key() { current_mods |= 2; }
-                                if modifiers.state().control_key() { current_mods |= 4; }
-                                if modifiers.state().super_key() { current_mods |= 8; }
+                                if modifiers.state().shift_key() {
+                                    current_mods |= 1;
+                                }
+                                if modifiers.state().alt_key() {
+                                    current_mods |= 2;
+                                }
+                                if modifiers.state().control_key() {
+                                    current_mods |= 4;
+                                }
+                                if modifiers.state().super_key() {
+                                    current_mods |= 8;
+                                }
                             }
                             WindowEvent::KeyboardInput { event, .. } => {
                                 if event.state.is_pressed() {
@@ -4152,14 +4675,25 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
 
                                     if let Some(code) = key_code {
                                         handle_key_down::<S>(
-                                            code, current_mods,
-                                            &mut runtime, &pipeline,
-                                            &effect_result_tx, &event_proxy,
-                                &async_registry, &mut active_services, &mut service_bindings, &mut next_service_instance_id,
-                                            &window, elwt,
-                                            &mut last_redraw_at, min_frame, &mut redraw_pending,
-                                            text_trace_enabled, &mut pending_text_traces,
-                                            &mut next_text_trace_seq, presented_frames,
+                                            code,
+                                            current_mods,
+                                            &mut runtime,
+                                            &pipeline,
+                                            &effect_result_tx,
+                                            &event_proxy,
+                                            &async_registry,
+                                            &mut active_services,
+                                            &mut service_bindings,
+                                            &mut next_service_instance_id,
+                                            &window,
+                                            elwt,
+                                            &mut last_redraw_at,
+                                            min_frame,
+                                            &mut redraw_pending,
+                                            text_trace_enabled,
+                                            &mut pending_text_traces,
+                                            &mut next_text_trace_seq,
+                                            presented_frames,
                                             &mut last_blink_toggle,
                                             self.key_handler.as_ref(),
                                             &mut frame_trace,
@@ -4169,21 +4703,34 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                 }
                             }
                             WindowEvent::Ime(ime) => {
-                                if let (Some(ir), Some(layout)) = (&pipeline.prev_ir, &pipeline.last_snapshot) {
+                                if let (Some(ir), Some(layout)) =
+                                    (&pipeline.prev_ir, &pipeline.last_snapshot)
+                                {
                                     let (input_event, source) = match ime {
                                         Ime::Commit(text) => (
-                                            Some(InputEvent::Ime(fission_core::event::ImeEvent::Commit { text: text.clone() })),
+                                            Some(InputEvent::Ime(
+                                                fission_core::event::ImeEvent::Commit {
+                                                    text: text.clone(),
+                                                },
+                                            )),
                                             Some(format!("ime_commit:{}", text.chars().count())),
                                         ),
                                         Ime::Preedit(text, _) => (
-                                            Some(InputEvent::Ime(fission_core::event::ImeEvent::Preedit { text: text.clone() })),
+                                            Some(InputEvent::Ime(
+                                                fission_core::event::ImeEvent::Preedit {
+                                                    text: text.clone(),
+                                                },
+                                            )),
                                             Some(format!("ime_preedit:{}", text.chars().count())),
                                         ),
                                         _ => (None, None),
                                     };
 
                                     if let Some(e) = input_event {
-                                        let target = focused_text_input_id(&runtime, pipeline.prev_ir.as_ref());
+                                        let target = focused_text_input_id(
+                                            &runtime,
+                                            pipeline.prev_ir.as_ref(),
+                                        );
                                         let trace_seq = start_text_trace(
                                             text_trace_enabled && target.is_some(),
                                             &mut pending_text_traces,
@@ -4194,18 +4741,23 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                         );
                                         runtime.handle_input(e, ir, layout).ok();
                                         invalidations.mark_build();
-                                        mark_text_trace_handled(&mut pending_text_traces, trace_seq);
+                                        mark_text_trace_handled(
+                                            &mut pending_text_traces,
+                                            trace_seq,
+                                        );
                                         if process_pending_effects(
                                             &mut runtime,
                                             &effect_result_tx,
                                             &event_proxy,
-
                                             &async_registry,
                                             &mut active_services,
                                             &mut service_bindings,
                                             &mut next_service_instance_id,
                                         ) {
-                                            mark_text_trace_effects(&mut pending_text_traces, trace_seq);
+                                            mark_text_trace_effects(
+                                                &mut pending_text_traces,
+                                                trace_seq,
+                                            );
                                             invalidations.mark_build();
                                             request_redraw_logged(
                                                 &window,
@@ -4217,7 +4769,11 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                                 "ime:effects",
                                             );
                                         }
-                                        reset_text_input_caret(&mut runtime, pipeline.prev_ir.as_ref(), &mut last_blink_toggle);
+                                        reset_text_input_caret(
+                                            &mut runtime,
+                                            pipeline.prev_ir.as_ref(),
+                                            &mut last_blink_toggle,
+                                        );
                                         request_redraw_logged(
                                             &window,
                                             elwt,
@@ -4235,8 +4791,19 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                     }
                     _ => {}
                 }
-            })
-            .map_err(|e| anyhow::anyhow!("Event loop error: {}", e))
+            };
+
+        #[cfg(target_arch = "wasm32")]
+        {
+            event_loop.spawn(event_handler);
+            Ok(())
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            event_loop
+                .run(event_handler)
+                .map_err(|e| anyhow::anyhow!("Event loop error: {}", e))
+        }
     }
 }
 

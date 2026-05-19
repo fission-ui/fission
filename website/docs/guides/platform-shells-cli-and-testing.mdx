@@ -73,7 +73,9 @@ you are not cloning your product into separate codebases. You are generating add
 
 That is the right way to think about the command-line interface. It creates and extends the host boundary. It does not change the core architecture of your app.
 
-A generated host project is simply the platform-specific wrapper around the shared runtime. A generated host script is a helper that runs the repeated build, package, install, or serve commands for that host. On the web, that means bundling and serving the WebAssembly output. On Android and iOS, that means packaging and launching through the correct mobile host path.
+A generated host project is simply the platform-specific wrapper around the shared runtime. The command-line interface is the normal front door for that wrapper: `cargo fission devices` shows where the app can run, `cargo fission run --target <target>` builds and launches it, `cargo fission logs` reconnects to supported log streams, and `cargo fission test --target <target>` runs the generated smoke test. The lower-level scripts remain checked in under `platforms/<target>/` for continuous integration and advanced debugging, but day-to-day development should not require memorizing platform-specific script names.
+
+On the web, that means building the WebAssembly output, serving it locally, and opening the browser when requested. On Android and iOS, that means packaging, installing, launching, and attaching to the device or simulator logs by default.
 
 ## Readiness, tooling, and surface caveats are not the same thing
 

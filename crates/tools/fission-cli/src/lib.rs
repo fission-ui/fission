@@ -5,6 +5,9 @@ use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 
+mod doctor;
+mod workflow;
+
 const CURRENT_VERSION: &str = env!("CARGO_PKG_VERSION");
 const DEFAULT_APP_ICON_PNG: &[u8] = include_bytes!("../../../../docs/fission_logo.png");
 
@@ -42,6 +45,108 @@ enum Command {
         /// Project directory; defaults to the current working directory.
         #[arg(long, default_value = ".")]
         project_dir: PathBuf,
+    },
+    /// Check local toolchains and SDKs needed by Fission targets.
+    Doctor {
+        /// Targets to check; defaults to web, iOS, and Android.
+        #[arg(value_enum)]
+        targets: Vec<Target>,
+        /// Project directory; defaults to the current working directory.
+        #[arg(long, default_value = ".")]
+        project_dir: PathBuf,
+        /// Exit with a non-zero status when required checks fail.
+        #[arg(long)]
+        strict: bool,
+    },
+    /// List runnable desktop, browser, simulator, emulator, and device targets.
+    Devices {
+        /// Project directory; defaults to the current working directory.
+        #[arg(long, default_value = ".")]
+        project_dir: PathBuf,
+        /// Emit machine-readable JSON.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Build and run the app on a selected device, attaching logs by default.
+    Run {
+        /// Restrict device selection to one target.
+        #[arg(long, value_enum)]
+        target: Option<Target>,
+        /// Device id or exact/prefix device name from `fission devices`.
+        #[arg(long)]
+        device: Option<String>,
+        /// Project directory; defaults to the current working directory.
+        #[arg(long, default_value = ".")]
+        project_dir: PathBuf,
+        /// Start the app and return instead of attaching logs/process output.
+        #[arg(long)]
+        detach: bool,
+        /// Build in release mode.
+        #[arg(long)]
+        release: bool,
+        /// Host for the local web server.
+        #[arg(long, default_value = "127.0.0.1")]
+        host: String,
+        /// Port for the local web server.
+        #[arg(long, default_value_t = 8123)]
+        port: u16,
+        /// Do not open a browser, Simulator, or emulator UI where supported.
+        #[arg(long)]
+        no_open: bool,
+        /// Prefer headless simulator/emulator execution where supported.
+        #[arg(long)]
+        headless: bool,
+    },
+    /// Build a configured target without launching it.
+    Build {
+        /// Target to build; defaults to the host desktop target.
+        #[arg(long, value_enum)]
+        target: Option<Target>,
+        /// Project directory; defaults to the current working directory.
+        #[arg(long, default_value = ".")]
+        project_dir: PathBuf,
+        /// Build in release mode.
+        #[arg(long)]
+        release: bool,
+    },
+    /// Run the generated smoke test for a configured target.
+    Test {
+        /// Target to test; defaults to the host desktop target.
+        #[arg(long, value_enum)]
+        target: Option<Target>,
+        /// Project directory; defaults to the current working directory.
+        #[arg(long, default_value = ".")]
+        project_dir: PathBuf,
+        /// Prefer headless simulator/emulator execution where supported.
+        #[arg(long)]
+        headless: bool,
+    },
+    /// Attach to logs for an already-running Fission app.
+    Logs {
+        /// Restrict device selection to one target.
+        #[arg(long, value_enum)]
+        target: Option<Target>,
+        /// Device id or exact/prefix device name from `fission devices`.
+        #[arg(long)]
+        device: Option<String>,
+        /// Project directory; defaults to the current working directory.
+        #[arg(long, default_value = ".")]
+        project_dir: PathBuf,
+        /// Continue following logs instead of printing the current buffer.
+        #[arg(long)]
+        follow: bool,
+    },
+    /// Hidden helper used by `fission run --target web --detach`.
+    #[command(hide = true)]
+    ServeWeb {
+        #[arg(long, default_value = ".")]
+        project_dir: PathBuf,
+        #[arg(long, default_value = "127.0.0.1")]
+        host: String,
+        #[arg(long, default_value_t = 8123)]
+        port: u16,
+        #[arg(long)]
+        open: bool,
     },
 }
 
@@ -92,6 +197,22 @@ struct AppConfig {
     app_id: String,
 }
 
+#[derive(Debug, Deserialize)]
+struct CargoManifest {
+    package: Option<CargoPackage>,
+}
+
+#[derive(Debug, Deserialize)]
+struct CargoPackage {
+    name: String,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum WritePolicy {
+    Overwrite,
+    PreserveExisting,
+}
+
 pub fn run<I, S>(args: I) -> Result<()>
 where
     I: IntoIterator<Item = S>,
@@ -120,6 +241,73 @@ where
             targets,
             project_dir,
         } => add_targets(&project_dir, &targets),
+        Command::Doctor {
+            targets,
+            project_dir,
+            strict,
+        } => doctor::run_doctor(&project_dir, &targets, strict),
+        Command::Devices { project_dir, json } => workflow::list_devices(&project_dir, json),
+        Command::Run {
+            target,
+            device,
+            project_dir,
+            detach,
+            release,
+            host,
+            port,
+            no_open,
+            headless,
+        } => workflow::run_app(workflow::RunOptions {
+            project_dir,
+            target,
+            device,
+            detach,
+            release,
+            host,
+            port,
+            no_open,
+            headless,
+        }),
+        Command::Build {
+            target,
+            project_dir,
+            release,
+        } => workflow::build_app(workflow::BuildOptions {
+            project_dir,
+            target,
+            release,
+        }),
+        Command::Test {
+            target,
+            project_dir,
+            headless,
+        } => workflow::test_app(workflow::TestOptions {
+            project_dir,
+            target,
+            headless,
+        }),
+        Command::Logs {
+            target,
+            device,
+            project_dir,
+            follow,
+        } => workflow::attach_logs(workflow::LogOptions {
+            project_dir,
+            target,
+            device,
+            follow,
+        }),
+        Command::ServeWeb {
+            project_dir,
+            host,
+            port,
+            open,
+        } => workflow::serve_web(workflow::ServeWebOptions {
+            project_dir,
+            host,
+            port,
+            open,
+        }),
     }
 }
 
@@ -129,52 +317,128 @@ fn init_project(
     app_id: Option<String>,
     local_path: Option<PathBuf>,
 ) -> Result<()> {
-    if root.exists() && root.read_dir()?.next().is_some() {
-        bail!(
-            "refusing to initialize into a non-empty directory: {}",
-            root.display()
-        );
-    }
+    let existing_project = root.exists() && root.read_dir()?.next().is_some();
     fs::create_dir_all(root.join("src"))?;
 
-    let project_name = name.unwrap_or_else(|| {
-        root.file_name()
-            .and_then(|value| value.to_str())
-            .unwrap_or("fission-app")
-            .to_string()
-    });
-    let normalized_name = normalize_crate_name(&project_name);
-    let project = FissionProject {
-        app: AppConfig {
-            name: normalized_name.clone(),
-            app_id: app_id
-                .unwrap_or_else(|| format!("com.example.{}", normalized_name.replace('-', "_"))),
-        },
-        targets: [Target::Windows, Target::Macos, Target::Linux]
-            .into_iter()
-            .collect(),
+    let write_policy = if existing_project {
+        WritePolicy::PreserveExisting
+    } else {
+        WritePolicy::Overwrite
     };
+    let project = initial_project_config(root, name, app_id)?;
 
-    write_file(
+    write_file_with_policy(
         &root.join("Cargo.toml"),
         &render_cargo_toml(&project, local_path.as_deref()),
+        write_policy,
     )?;
-    write_file(
+    write_file_with_policy(
         &root.join("src/main.rs"),
         &render_app_main(project.app.name.as_str()),
+        write_policy,
     )?;
-    write_file(&root.join("src/lib.rs"), APP_LIB)?;
-    write_file(&root.join("src/app.rs"), APP_RS)?;
-    write_binary_file(&root.join("assets/app-icon.png"), DEFAULT_APP_ICON_PNG)?;
-    write_file(&root.join("README.md"), &render_project_readme(&project))?;
-    write_file(&root.join(".gitignore"), "target/\nplatforms/*/build/\n")?;
+    write_file_with_policy(&root.join("src/lib.rs"), APP_LIB, write_policy)?;
+    write_file_with_policy(&root.join("src/app.rs"), APP_RS, write_policy)?;
+    write_binary_file_with_policy(
+        &root.join("assets/app-icon.png"),
+        DEFAULT_APP_ICON_PNG,
+        write_policy,
+    )?;
+    write_file_with_policy(
+        &root.join("README.md"),
+        &render_project_readme(&project),
+        write_policy,
+    )?;
+    write_file_with_policy(
+        &root.join(".gitignore"),
+        "target/\nplatforms/*/build/\n",
+        write_policy,
+    )?;
     write_project_config(root, &project)?;
 
-    for target in &project.targets {
-        scaffold_target(root, &project, *target)?;
+    let targets = project.targets.iter().copied().collect::<Vec<_>>();
+    for target in targets {
+        scaffold_target_with_policy(root, &project, target, write_policy)?;
     }
 
     Ok(())
+}
+
+fn initial_project_config(
+    root: &Path,
+    name: Option<String>,
+    app_id: Option<String>,
+) -> Result<FissionProject> {
+    let existing = if root.join("fission.toml").exists() {
+        Some(read_project_config(root)?)
+    } else {
+        None
+    };
+    let cargo_name = cargo_package_name(root);
+    if let (Some(requested), Some(cargo_name)) = (&name, &cargo_name) {
+        let requested = normalize_crate_name(requested);
+        let cargo_name = normalize_crate_name(cargo_name);
+        if requested != cargo_name {
+            bail!(
+                "refusing to set app name `{requested}` for existing Cargo package `{cargo_name}`; rename the package in Cargo.toml first or omit --name"
+            );
+        }
+    }
+    let project_name = cargo_name
+        .or(name)
+        .or_else(|| existing.as_ref().map(|project| project.app.name.clone()))
+        .unwrap_or_else(|| {
+            root.file_name()
+                .and_then(|value| value.to_str())
+                .unwrap_or("fission-app")
+                .to_string()
+        });
+    let normalized_name = normalize_crate_name(&project_name);
+
+    let mut targets = existing
+        .as_ref()
+        .map(|project| project.targets.clone())
+        .unwrap_or_default();
+    targets.extend(detect_project_targets(root));
+    if targets.is_empty() {
+        targets.extend([Target::Windows, Target::Macos, Target::Linux]);
+    }
+
+    Ok(FissionProject {
+        app: AppConfig {
+            name: normalized_name.clone(),
+            app_id: app_id
+                .or_else(|| existing.map(|project| project.app.app_id))
+                .unwrap_or_else(|| format!("com.example.{}", normalized_name.replace('-', "_"))),
+        },
+        targets,
+    })
+}
+
+fn cargo_package_name(root: &Path) -> Option<String> {
+    let manifest = fs::read_to_string(root.join("Cargo.toml")).ok()?;
+    let manifest: CargoManifest = toml::from_str(&manifest).ok()?;
+    manifest.package.map(|package| package.name)
+}
+
+fn detect_project_targets(root: &Path) -> BTreeSet<Target> {
+    let mut targets = BTreeSet::new();
+    if root.join("src/main.rs").exists() || root.join("src/lib.rs").exists() {
+        targets.extend([Target::Windows, Target::Macos, Target::Linux]);
+    }
+    for (target, relative) in [
+        (Target::Android, "platforms/android"),
+        (Target::Ios, "platforms/ios"),
+        (Target::Linux, "platforms/linux"),
+        (Target::Macos, "platforms/macos"),
+        (Target::Web, "platforms/web"),
+        (Target::Windows, "platforms/windows"),
+    ] {
+        if root.join(relative).exists() {
+            targets.insert(target);
+        }
+    }
+    targets
 }
 
 fn add_targets(project_dir: &Path, targets: &[Target]) -> Result<()> {
@@ -183,15 +447,29 @@ fn add_targets(project_dir: &Path, targets: &[Target]) -> Result<()> {
     }
     let mut project = read_project_config(project_dir)?;
     for target in targets {
+        let target_exists =
+            project.targets.contains(target) || target_scaffold_dir_exists(project_dir, *target);
         project.targets.insert(*target);
-        scaffold_target(project_dir, &project, *target)?;
+        let write_policy = if target_exists {
+            WritePolicy::PreserveExisting
+        } else {
+            WritePolicy::Overwrite
+        };
+        scaffold_target_with_policy(project_dir, &project, *target, write_policy)?;
     }
     write_project_config(project_dir, &project)?;
-    write_file(
+    write_file_with_policy(
         &project_dir.join("README.md"),
         &render_project_readme(&project),
+        WritePolicy::PreserveExisting,
     )?;
     Ok(())
+}
+
+fn target_scaffold_dir_exists(project_dir: &Path, target: Target) -> bool {
+    Path::new(target.scaffold_relative_path())
+        .parent()
+        .is_some_and(|relative| project_dir.join(relative).exists())
 }
 
 fn write_project_config(root: &Path, project: &FissionProject) -> Result<()> {
@@ -201,24 +479,38 @@ fn write_project_config(root: &Path, project: &FissionProject) -> Result<()> {
 
 fn read_project_config(root: &Path) -> Result<FissionProject> {
     let path = root.join("fission.toml");
-    let data =
-        fs::read_to_string(&path).with_context(|| format!("failed to read {}", path.display()))?;
+    let data = fs::read_to_string(&path).with_context(|| {
+        format!(
+            "failed to read {}; run `fission init {}` to register this project without overwriting existing files",
+            path.display(),
+            root.display()
+        )
+    })?;
     toml::from_str(&data).with_context(|| format!("failed to parse {}", path.display()))
 }
 
-fn scaffold_target(root: &Path, project: &FissionProject, target: Target) -> Result<()> {
+fn scaffold_target_with_policy(
+    root: &Path,
+    project: &FissionProject,
+    target: Target,
+    write_policy: WritePolicy,
+) -> Result<()> {
     let relative = Path::new(target.scaffold_relative_path());
     let text = match target {
         Target::Android => {
-            scaffold_android_bundle(root, project)?;
+            scaffold_android_bundle(root, project, write_policy)?;
             platform_readme(
                 "Android",
                 "Runnable emulator target. The CLI generates a NativeActivity manifest plus shell scripts that build, install, and launch the Fission app on an Android emulator.",
                 &[
                     "Install the Rust target: `rustup target add aarch64-linux-android`.",
-                    "Set `ANDROID_HOME` and `ANDROID_NDK`.",
+                    "Run `cargo fission doctor android --project-dir .` to check SDK, NDK, emulator, and Rust target setup.",
+                    "Run `cargo fission devices --project-dir .` to list connected Android devices and configured emulators.",
+                    "Run `cargo fission run --target android --project-dir .` to build, install, launch, and attach to logs.",
+                    "Run `cargo fission run --target android --device <adb-serial> --project-dir .` to launch on a specific device.",
+                    "Run `cargo fission test --target android --project-dir .` for an emulator launch plus test-control health check.",
                     "Run `./platforms/android/run-emulator.sh` from the project root to build, package, install, and launch the app on the configured emulator.",
-                    "Override `ANDROID_AVD_NAME`, `ANDROID_SYSTEM_IMAGE`, or `ANDROID_HOME` if your local SDK setup differs.",
+                    "Override `ANDROID_HOME`, `ANDROID_NDK`, `ANDROID_MIN_API_LEVEL`, `ANDROID_TARGET_API_LEVEL`, `ANDROID_AVD_NAME`, or `ANDROID_SYSTEM_IMAGE` if your local SDK setup differs.",
                     "Set `ANDROID_EMULATOR_HEADLESS=1` for background/CI runs, or `ANDROID_EMULATOR_RESTART=1` to relaunch a hidden emulator visibly.",
                     "The generated package uses `assets/app-icon.png` as its default launcher icon.",
                     "Set `FISSION_TEST_CONTROL_PORT=<host-port>` before `run-emulator.sh`; the script forwards it to the fixed in-app device port.",
@@ -226,29 +518,40 @@ fn scaffold_target(root: &Path, project: &FissionProject, target: Target) -> Res
             )
         }
         Target::Ios => {
-            scaffold_ios_bundle(root, project)?;
+            scaffold_ios_bundle(root, project, write_policy)?;
             platform_readme(
                 "iOS",
-                "Simulator scaffolding target. The CLI generates a simulator app bundle template plus shell scripts that build, install, and launch the Fission app with `simctl`, but the current Vello path still renders a black frame on CoreSimulator.",
+                "Simulator target. The CLI generates a simulator app bundle template plus shell scripts that build, install, launch, and smoke-test the Fission app with `simctl`.",
                 &[
                     "Install the Rust targets: `rustup target add aarch64-apple-ios aarch64-apple-ios-sim`.",
+                    "Run `cargo fission doctor ios --project-dir .` to check Xcode, simulator, and Rust target setup.",
                     "Confirm the simulator SDK path with `xcrun --sdk iphonesimulator --show-sdk-path`.",
+                    "Run `cargo fission devices --project-dir .` to list available iOS simulators.",
+                    "Run `cargo fission run --target ios --project-dir .` to build, install, launch, and attach to simulator logs.",
+                    "Run `cargo fission run --target ios --device <simulator-udid> --project-dir .` to launch on a specific simulator.",
+                    "Run `cargo fission test --target ios --project-dir .` for a simulator launch plus test-control health check.",
                     "Run `./platforms/ios/run-sim.sh` from the project root to build, install, and launch the app on the first available iPhone simulator.",
-                    "Current blocker: CoreSimulator's Metal device does not expose `DownlevelFlags(INDIRECT_EXECUTION)`, so the app launches but only renders a black frame inside `wgpu` / Vello.",
                     "The generated bundle uses `assets/app-icon.png` as its default app icon.",
                     "Set `FISSION_TEST_CONTROL_PORT=<port>` before `run-sim.sh` to expose the in-app test control server on the host.",
                     "Set `IOS_SIM_DEVICE_ID=<udid>` if you want a specific simulator device.",
+                    "Set `IOS_SIM_HEADLESS=1` for CI or background-only simulator runs; otherwise the script opens Simulator visibly.",
                 ],
             )
         }
         Target::Web => {
-            scaffold_web_bundle(root, project)?;
+            scaffold_web_bundle(root, project, write_policy)?;
             platform_readme(
                 "Web",
                 "Runnable browser target. The CLI generates a WASM host page plus helper scripts that build the app with `wasm-pack` and serve it locally.",
                 &[
                     "Install the Rust target: `rustup target add wasm32-unknown-unknown`.",
                     "Install `wasm-pack` once: `cargo install wasm-pack`.",
+                    "Install Node.js 22+ so the smoke test can inspect Chrome/Chromium CDP runtime and console output.",
+                    "Run `cargo fission doctor web --project-dir .` to check wasm-pack, Node.js, Chrome/Chromium, and Rust target setup.",
+                    "Run `cargo fission devices --project-dir .` to confirm Chrome/Chromium detection.",
+                    "Run `cargo fission run --target web --project-dir .` to build, serve, open, and attach to the local server.",
+                    "Run `cargo fission run --target web --detach --project-dir .` to keep the local server running in the background.",
+                    "Run `cargo fission test --target web --project-dir .` for a headless Chrome/Chromium CDP smoke test.",
                     "Run `./platforms/web/run-browser.sh` from the project root to build the wasm package and serve the app locally.",
                     "Set `FISSION_WEB_PORT=<port>` or `FISSION_WEB_HOST=<host>` if the default `127.0.0.1:8123` does not suit your machine.",
                     "Set `FISSION_WEB_OPEN=1` if you want the helper script to open a browser tab automatically.",
@@ -265,70 +568,144 @@ fn scaffold_target(root: &Path, project: &FissionProject, target: Target) -> Res
             },
             "Runnable target. Desktop platforms share the default `src/main.rs` entrypoint through `DesktopApp`.",
             &[
-                "Run `cargo run` from the project root to launch the desktop app.",
+                "Run `cargo fission run --project-dir .` from the project root to launch the desktop app and attach output.",
+                "Run `cargo fission build --project-dir . --release` for a release desktop build.",
+                "Run `cargo fission test --project-dir .` for the app crate's Rust tests.",
                 "This target uses the default Vello desktop shell path.",
             ],
         ),
     };
-    write_file(&root.join(relative), &text)
+    write_file_with_policy(&root.join(relative), &text, write_policy)
 }
 
-fn scaffold_ios_bundle(root: &Path, project: &FissionProject) -> Result<()> {
+fn scaffold_ios_bundle(
+    root: &Path,
+    project: &FissionProject,
+    write_policy: WritePolicy,
+) -> Result<()> {
     let executable = ios_executable_name(project);
     let bundle_name = ios_bundle_name(project);
     let plist = render_ios_plist(project, &executable);
     let package_script = render_ios_package_script(project, &bundle_name, &executable);
     let run_script = render_ios_run_script(project);
+    let test_script = render_ios_test_script();
 
-    write_file(&root.join("platforms/ios/Info.plist"), &plist)?;
-    write_file(&root.join("platforms/ios/package-sim.sh"), &package_script)?;
-    write_file(&root.join("platforms/ios/run-sim.sh"), &run_script)?;
+    write_file_with_policy(&root.join("platforms/ios/Info.plist"), &plist, write_policy)?;
+    write_file_with_policy(
+        &root.join("platforms/ios/package-sim.sh"),
+        &package_script,
+        write_policy,
+    )?;
+    write_file_with_policy(
+        &root.join("platforms/ios/run-sim.sh"),
+        &run_script,
+        write_policy,
+    )?;
+    write_file_with_policy(
+        &root.join("platforms/ios/test-sim.sh"),
+        &test_script,
+        write_policy,
+    )?;
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        let package_path = root.join("platforms/ios/package-sim.sh");
-        let run_path = root.join("platforms/ios/run-sim.sh");
-        fs::set_permissions(&package_path, fs::Permissions::from_mode(0o755))?;
-        fs::set_permissions(&run_path, fs::Permissions::from_mode(0o755))?;
+        for relative in [
+            "platforms/ios/package-sim.sh",
+            "platforms/ios/run-sim.sh",
+            "platforms/ios/test-sim.sh",
+        ] {
+            let path = root.join(relative);
+            if path.exists() {
+                fs::set_permissions(path, fs::Permissions::from_mode(0o755))?;
+            }
+        }
     }
     Ok(())
 }
 
-fn scaffold_android_bundle(root: &Path, project: &FissionProject) -> Result<()> {
+fn scaffold_android_bundle(
+    root: &Path,
+    project: &FissionProject,
+    write_policy: WritePolicy,
+) -> Result<()> {
     let manifest = render_android_manifest(project);
     let package_script = render_android_package_script(project);
     let run_script = render_android_run_script(project);
+    let test_script = render_android_test_script();
 
-    write_file(
+    write_file_with_policy(
         &root.join("platforms/android/AndroidManifest.xml"),
         &manifest,
+        write_policy,
     )?;
-    write_file(
+    write_file_with_policy(
         &root.join("platforms/android/package-apk.sh"),
         &package_script,
+        write_policy,
     )?;
-    write_file(&root.join("platforms/android/run-emulator.sh"), &run_script)?;
+    write_file_with_policy(
+        &root.join("platforms/android/run-emulator.sh"),
+        &run_script,
+        write_policy,
+    )?;
+    write_file_with_policy(
+        &root.join("platforms/android/test-emulator.sh"),
+        &test_script,
+        write_policy,
+    )?;
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        let package_path = root.join("platforms/android/package-apk.sh");
-        let run_path = root.join("platforms/android/run-emulator.sh");
-        fs::set_permissions(&package_path, fs::Permissions::from_mode(0o755))?;
-        fs::set_permissions(&run_path, fs::Permissions::from_mode(0o755))?;
+        for relative in [
+            "platforms/android/package-apk.sh",
+            "platforms/android/run-emulator.sh",
+            "platforms/android/test-emulator.sh",
+        ] {
+            let path = root.join(relative);
+            if path.exists() {
+                fs::set_permissions(path, fs::Permissions::from_mode(0o755))?;
+            }
+        }
     }
     Ok(())
 }
 
-fn scaffold_web_bundle(root: &Path, project: &FissionProject) -> Result<()> {
+fn scaffold_web_bundle(
+    root: &Path,
+    project: &FissionProject,
+    write_policy: WritePolicy,
+) -> Result<()> {
     let index_html = render_web_index(project);
     let bootstrap = render_web_bootstrap(project);
     let build_script = render_web_build_script();
     let run_script = render_web_run_script(project);
+    let test_script = render_web_test_script(project);
 
-    write_file(&root.join("platforms/web/index.html"), &index_html)?;
-    write_file(&root.join("platforms/web/bootstrap.mjs"), &bootstrap)?;
-    write_file(&root.join("platforms/web/build-wasm.sh"), &build_script)?;
-    write_file(&root.join("platforms/web/run-browser.sh"), &run_script)?;
+    write_file_with_policy(
+        &root.join("platforms/web/index.html"),
+        &index_html,
+        write_policy,
+    )?;
+    write_file_with_policy(
+        &root.join("platforms/web/bootstrap.mjs"),
+        &bootstrap,
+        write_policy,
+    )?;
+    write_file_with_policy(
+        &root.join("platforms/web/build-wasm.sh"),
+        &build_script,
+        write_policy,
+    )?;
+    write_file_with_policy(
+        &root.join("platforms/web/run-browser.sh"),
+        &run_script,
+        write_policy,
+    )?;
+    write_file_with_policy(
+        &root.join("platforms/web/test-browser.sh"),
+        &test_script,
+        write_policy,
+    )?;
 
     #[cfg(unix)]
     {
@@ -336,11 +713,14 @@ fn scaffold_web_bundle(root: &Path, project: &FissionProject) -> Result<()> {
         for relative in [
             "platforms/web/build-wasm.sh",
             "platforms/web/run-browser.sh",
+            "platforms/web/test-browser.sh",
         ] {
             let path = root.join(relative);
-            let mut perms = fs::metadata(&path)?.permissions();
-            perms.set_mode(0o755);
-            fs::set_permissions(path, perms)?;
+            if path.exists() {
+                let mut perms = fs::metadata(&path)?.permissions();
+                perms.set_mode(0o755);
+                fs::set_permissions(path, perms)?;
+            }
         }
     }
 
@@ -348,13 +728,27 @@ fn scaffold_web_bundle(root: &Path, project: &FissionProject) -> Result<()> {
 }
 
 fn write_file(path: &Path, contents: &str) -> Result<()> {
+    write_file_with_policy(path, contents, WritePolicy::Overwrite)
+}
+
+fn write_file_with_policy(path: &Path, contents: &str, write_policy: WritePolicy) -> Result<()> {
+    if write_policy == WritePolicy::PreserveExisting && path.exists() {
+        return Ok(());
+    }
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
     }
     fs::write(path, contents).with_context(|| format!("failed to write {}", path.display()))
 }
 
-fn write_binary_file(path: &Path, contents: &[u8]) -> Result<()> {
+fn write_binary_file_with_policy(
+    path: &Path,
+    contents: &[u8],
+    write_policy: WritePolicy,
+) -> Result<()> {
+    if write_policy == WritePolicy::PreserveExisting && path.exists() {
+        return Ok(());
+    }
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
     }
@@ -385,7 +779,7 @@ fn render_project_readme(project: &FissionProject) -> String {
         targets.push_str(&format!("- `{}`\n", target.as_str()));
     }
     format!(
-        "# {}\n\nGenerated by `fission init`.\n\n## Targets\n\n{}\n## Commands\n\n- `cargo run` -- launch the desktop app\n- `cargo fission add-target web ios android` -- scaffold more targets\n- `cat platforms/<target>/README.md` -- inspect the current prerequisites and status for each target\n\n## Assets\n\n- `assets/app-icon.png` is the default app icon seed copied from Fission's `docs/fission_logo.png`\n\n## Status\n\nDesktop is runnable today. iOS is runnable on the simulator after `cargo fission add-target ios` via `./platforms/ios/run-sim.sh`. Android is runnable on the emulator after `cargo fission add-target android` via `./platforms/android/run-emulator.sh`. Web is runnable in the browser after `cargo fission add-target web` via `./platforms/web/run-browser.sh`.\n",
+        "# {}\n\nGenerated by `fission init`.\n\n## Targets\n\n{}\n## Commands\n\n- `cargo fission doctor --project-dir .` -- check local SDKs, browsers, emulators, and Rust targets\n- `cargo fission devices --project-dir .` -- list runnable desktop, browser, simulator, emulator, and device targets\n- `cargo fission run --project-dir .` -- launch the desktop app and attach to output\n- `cargo fission run --target web --project-dir .` -- launch the web app and attach to the local server\n- `cargo fission run --target ios --project-dir .` -- build, install, launch, and attach to simulator logs\n- `cargo fission run --target android --project-dir .` -- build, install, launch, and attach to Android logs\n- `cargo fission run --target <target> --device <id> --detach --project-dir .` -- launch without attaching\n- `cargo fission logs --target <target> --device <id> --project-dir . --follow` -- attach later where supported\n- `cargo fission build --target <target> --project-dir . --release` -- build a target without launching it\n- `cargo fission test --target <target> --project-dir .` -- run the generated platform smoke test\n- `cargo fission add-target web ios android --project-dir .` -- scaffold more targets\n- `cat platforms/<target>/README.md` -- inspect target-specific prerequisites and environment variables\n\n## Assets\n\n- `assets/app-icon.png` is the default app icon seed copied from Fission's `docs/fission_logo.png`\n\n## Status\n\nDesktop, web, iOS simulator, and Android emulator workflows are runnable through `cargo fission run`. The platform scripts remain checked in so CI and advanced users can call the lower-level build, run, and smoke-test steps directly when needed.\n",
         project.app.name, targets
     )
 }
@@ -497,8 +891,10 @@ PROJECT_DIR=$(cd -- "$SCRIPT_DIR/../.." && pwd)
 TARGET="${{IOS_SIM_TARGET:-aarch64-apple-ios-sim}}"
 PROFILE="${{IOS_SIM_PROFILE:-debug}}"
 PACKAGE_NAME="{package_name}"
-BUNDLE_NAME="{bundle_name}.app"
-EXECUTABLE_NAME="{executable}"
+BUNDLE_ID="${{IOS_BUNDLE_ID:-{bundle_id}}}"
+DISPLAY_NAME="${{IOS_DISPLAY_NAME:-{bundle_name}}}"
+EXECUTABLE_NAME="${{IOS_EXECUTABLE_NAME:-{executable}}}"
+BUNDLE_NAME="${{IOS_BUNDLE_NAME:-$DISPLAY_NAME.app}}"
 BUILD_DIR="$SCRIPT_DIR/build/$PROFILE"
 BUNDLE_DIR="$BUILD_DIR/$BUNDLE_NAME"
 
@@ -525,13 +921,30 @@ print(metadata["target_directory"])
 PY
 )
 
+rm -rf "$BUNDLE_DIR"
 mkdir -p "$BUNDLE_DIR"
 cp "$TARGET_DIR/$TARGET/$ARTIFACT_DIR/$PACKAGE_NAME" "$BUNDLE_DIR/$EXECUTABLE_NAME"
-cp "$SCRIPT_DIR/Info.plist" "$BUNDLE_DIR/Info.plist"
+chmod +x "$BUNDLE_DIR/$EXECUTABLE_NAME"
+python3 - <<'PY' "$SCRIPT_DIR/Info.plist" "$BUNDLE_DIR/Info.plist" "$BUNDLE_ID" "$DISPLAY_NAME" "$EXECUTABLE_NAME"
+import plistlib
+import sys
+
+source, dest, bundle_id, display_name, executable_name = sys.argv[1:]
+with open(source, "rb") as handle:
+    plist = plistlib.load(handle)
+plist["CFBundleIdentifier"] = bundle_id
+plist["CFBundleDisplayName"] = display_name
+plist["CFBundleName"] = display_name
+plist["CFBundleExecutable"] = executable_name
+with open(dest, "wb") as handle:
+    plistlib.dump(plist, handle, sort_keys=False)
+PY
 cp "$PROJECT_DIR/assets/app-icon.png" "$BUNDLE_DIR/AppIcon.png"
+printf 'APPL????' > "$BUNDLE_DIR/PkgInfo"
 printf '%s\n' "$BUNDLE_DIR"
 "#,
         package_name = project.app.name,
+        bundle_id = project.app.app_id,
         bundle_name = bundle_name,
         executable = executable,
     )
@@ -544,6 +957,7 @@ set -euo pipefail
 
 SCRIPT_DIR=$(cd -- "$(dirname "${{BASH_SOURCE[0]}}")" && pwd)
 BUNDLE_DIR=$("$SCRIPT_DIR/package-sim.sh")
+BUNDLE_ID="${{IOS_BUNDLE_ID:-{bundle_id}}}"
 DEVICE_ID="${{IOS_SIM_DEVICE_ID:-}}"
 
 if [[ -z "$DEVICE_ID" ]]; then
@@ -563,19 +977,59 @@ PY
 )
 fi
 
+if [[ "${{IOS_SIM_HEADLESS:-0}}" != "1" ]] && command -v open >/dev/null 2>&1; then
+  open -a Simulator --args -CurrentDeviceUDID "$DEVICE_ID" >/dev/null 2>&1 \
+    || open -a Simulator >/dev/null 2>&1 \
+    || true
+fi
+
 xcrun simctl boot "$DEVICE_ID" >/dev/null 2>&1 || true
 xcrun simctl bootstatus "$DEVICE_ID" -b
 xcrun simctl install "$DEVICE_ID" "$BUNDLE_DIR"
 
 if [[ -n "${{FISSION_TEST_CONTROL_PORT:-}}" ]]; then
   SIMCTL_CHILD_FISSION_TEST_CONTROL_PORT="${{FISSION_TEST_CONTROL_PORT}}" \
-    xcrun simctl launch --terminate-running-process "$DEVICE_ID" "{bundle_id}"
+    xcrun simctl launch --terminate-running-process "$DEVICE_ID" "$BUNDLE_ID"
 else
-  xcrun simctl launch --terminate-running-process "$DEVICE_ID" "{bundle_id}"
+  xcrun simctl launch --terminate-running-process "$DEVICE_ID" "$BUNDLE_ID"
 fi
 "#,
         bundle_id = project.app.app_id,
     )
+}
+
+fn render_ios_test_script() -> String {
+    r#"#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR=$(cd -- "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+export FISSION_TEST_CONTROL_PORT="${FISSION_TEST_CONTROL_PORT:-48711}"
+
+"$SCRIPT_DIR/run-sim.sh"
+
+python3 - <<'PY' "$FISSION_TEST_CONTROL_PORT"
+import sys
+import time
+import urllib.request
+
+port = sys.argv[1]
+url = f"http://127.0.0.1:{port}/health"
+deadline = time.time() + 90
+last_error = None
+while time.time() < deadline:
+    try:
+        with urllib.request.urlopen(url, timeout=1) as response:
+            body = response.read().decode("utf-8", "replace")
+        if response.status == 200 and '"status":"ok"' in body:
+            print(f"iOS simulator test control is healthy on {url}")
+            raise SystemExit(0)
+    except Exception as error:
+        last_error = error
+    time.sleep(1)
+raise SystemExit(f"iOS simulator test control did not become healthy on {url}: {last_error}")
+PY
+"#
+    .to_string()
 }
 
 fn render_android_manifest(project: &FissionProject) -> String {
@@ -588,7 +1042,7 @@ fn render_android_manifest(project: &FissionProject) -> String {
 
     <uses-sdk
         android:minSdkVersion="24"
-        android:targetSdkVersion="32" />
+        android:targetSdkVersion="35" />
 
     <application
         android:debuggable="true"
@@ -631,21 +1085,102 @@ TARGET="${{ANDROID_TARGET_TRIPLE:-aarch64-linux-android}}"
 PACKAGE_NAME="{package_name}"
 LIB_NAME="{lib_name}"
 PROFILE="${{ANDROID_PROFILE:-debug}}"
-ANDROID_HOME="${{ANDROID_HOME:-$HOME/Library/Android/sdk}}"
-ANDROID_NDK="${{ANDROID_NDK:-$ANDROID_HOME/ndk/24.0.8215888}}"
-ANDROID_TOOLCHAIN="${{ANDROID_TOOLCHAIN:-$ANDROID_NDK/toolchains/llvm/prebuilt/darwin-x86_64/bin}}"
-CC_aarch64_linux_android="${{CC_aarch64_linux_android:-$ANDROID_TOOLCHAIN/aarch64-linux-android24-clang}}"
+ANDROID_HOME="${{ANDROID_HOME:-${{ANDROID_SDK_ROOT:-$HOME/Library/Android/sdk}}}}"
+ANDROID_MIN_API_LEVEL="${{ANDROID_MIN_API_LEVEL:-${{ANDROID_API_LEVEL:-24}}}}"
+
+find_android_ndk() {{
+  if [[ -n "${{ANDROID_NDK:-}}" ]]; then
+    printf '%s\n' "$ANDROID_NDK"
+    return
+  fi
+  local ndk_root="$ANDROID_HOME/ndk"
+  if [[ ! -d "$ndk_root" ]]; then
+    printf 'Android NDK not found. Set ANDROID_NDK or install one under %s.\n' "$ndk_root" >&2
+    return 1
+  fi
+  local ndk
+  ndk=$(find "$ndk_root" -maxdepth 1 -mindepth 1 -type d | sort -V | tail -1)
+  if [[ -z "$ndk" ]]; then
+    printf 'Android NDK not found. Set ANDROID_NDK or install one under %s.\n' "$ndk_root" >&2
+    return 1
+  fi
+  printf '%s\n' "$ndk"
+}}
+
+detect_android_toolchain() {{
+  local prebuilt_root="$ANDROID_NDK/toolchains/llvm/prebuilt"
+  local host
+  for host in darwin-aarch64 darwin-x86_64 linux-x86_64 windows-x86_64; do
+    if [[ -d "$prebuilt_root/$host/bin" ]]; then
+      printf '%s\n' "$prebuilt_root/$host/bin"
+      return
+    fi
+  done
+  local fallback
+  fallback=$(find "$prebuilt_root" -maxdepth 1 -mindepth 1 -type d 2>/dev/null | sort | head -1 || true)
+  if [[ -n "$fallback" && -d "$fallback/bin" ]]; then
+    printf '%s\n' "$fallback/bin"
+    return
+  fi
+  printf 'No Android NDK LLVM prebuilt toolchain found under %s. Expected a prebuilt host directory such as darwin-x86_64 or linux-x86_64.\n' "$prebuilt_root" >&2
+  return 1
+}}
+
+detect_latest_android_api() {{
+  find "$ANDROID_HOME/platforms" -maxdepth 1 -type d -name 'android-*' 2>/dev/null \
+    | sed 's#.*android-##' \
+    | sort -n \
+    | tail -1
+}}
+
+detect_build_tools_dir() {{
+  if [[ -n "${{ANDROID_BUILD_TOOLS:-}}" ]]; then
+    if [[ -d "$ANDROID_BUILD_TOOLS" ]]; then
+      printf '%s\n' "$ANDROID_BUILD_TOOLS"
+      return
+    fi
+    if [[ -d "$ANDROID_HOME/build-tools/$ANDROID_BUILD_TOOLS" ]]; then
+      printf '%s\n' "$ANDROID_HOME/build-tools/$ANDROID_BUILD_TOOLS"
+      return
+    fi
+  fi
+  find "$ANDROID_HOME/build-tools" -maxdepth 1 -mindepth 1 -type d 2>/dev/null | sort -V | tail -1
+}}
+
+ANDROID_TARGET_API_LEVEL="${{ANDROID_TARGET_API_LEVEL:-$(detect_latest_android_api)}}"
+if [[ -z "$ANDROID_TARGET_API_LEVEL" ]]; then
+  printf 'No Android platform found under %s/platforms. Install one with sdkmanager "platforms;android-35" or newer.\n' "$ANDROID_HOME" >&2
+  exit 1
+fi
+
+ANDROID_NDK=$(find_android_ndk)
+ANDROID_TOOLCHAIN="${{ANDROID_TOOLCHAIN:-$(detect_android_toolchain)}}"
+CC_aarch64_linux_android="${{CC_aarch64_linux_android:-$ANDROID_TOOLCHAIN/aarch64-linux-android${{ANDROID_MIN_API_LEVEL}}-clang}}"
 AR_aarch64_linux_android="${{AR_aarch64_linux_android:-$ANDROID_TOOLCHAIN/llvm-ar}}"
 CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER="${{CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER:-$CC_aarch64_linux_android}}"
 CARGO_TARGET_AARCH64_LINUX_ANDROID_AR="${{CARGO_TARGET_AARCH64_LINUX_ANDROID_AR:-$AR_aarch64_linux_android}}"
-export ANDROID_HOME ANDROID_NDK ANDROID_TOOLCHAIN CC_aarch64_linux_android AR_aarch64_linux_android
+export ANDROID_HOME ANDROID_NDK ANDROID_MIN_API_LEVEL ANDROID_TARGET_API_LEVEL ANDROID_TOOLCHAIN CC_aarch64_linux_android AR_aarch64_linux_android
 export CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER CARGO_TARGET_AARCH64_LINUX_ANDROID_AR
 
-BUILD_TOOLS=$(find "$ANDROID_HOME/build-tools" -maxdepth 1 -mindepth 1 -type d | sort -V | tail -1)
-ANDROID_JAR=$(find "$ANDROID_HOME/platforms" -maxdepth 2 -path '*/android.jar' | sort -V | tail -1)
+BUILD_TOOLS=$(detect_build_tools_dir)
+if [[ -z "$BUILD_TOOLS" || ! -d "$BUILD_TOOLS" ]]; then
+  printf 'Android build-tools not found. Install them with sdkmanager "build-tools;35.0.0" or set ANDROID_BUILD_TOOLS.\n' >&2
+  exit 1
+fi
+ANDROID_JAR="$ANDROID_HOME/platforms/android-$ANDROID_TARGET_API_LEVEL/android.jar"
+if [[ ! -f "$ANDROID_JAR" ]]; then
+  printf 'Android platform android-%s not found. Install it with sdkmanager "platforms;android-%s" or set ANDROID_TARGET_API_LEVEL.\n' "$ANDROID_TARGET_API_LEVEL" "$ANDROID_TARGET_API_LEVEL" >&2
+  exit 1
+fi
 AAPT="$BUILD_TOOLS/aapt"
 ZIPALIGN="$BUILD_TOOLS/zipalign"
 APKSIGNER="$BUILD_TOOLS/apksigner"
+for tool in "$AAPT" "$ZIPALIGN" "$APKSIGNER"; do
+  if [[ ! -x "$tool" ]]; then
+    printf 'Required Android build tool is missing or not executable: %s\n' "$tool" >&2
+    exit 1
+  fi
+done
 
 BUILD_ARGS=(build --manifest-path "$PROJECT_DIR/Cargo.toml" --lib --target "$TARGET" --package "$PACKAGE_NAME")
 ARTIFACT_DIR=debug
@@ -683,7 +1218,19 @@ mkdir -p "$APK_ROOT/lib/arm64-v8a" "$APK_ROOT/res/drawable-nodpi" "$BUILD_DIR"
 cp "$SO_PATH" "$APK_ROOT/lib/arm64-v8a/lib$LIB_NAME.so"
 cp "$PROJECT_DIR/assets/app-icon.png" "$APK_ROOT/res/drawable-nodpi/app_icon.png"
 
-"$AAPT" package -f -F "$UNALIGNED_APK" -M "$SCRIPT_DIR/AndroidManifest.xml" -S "$APK_ROOT/res" -I "$ANDROID_JAR"
+BUILD_MANIFEST="$BUILD_DIR/AndroidManifest.xml"
+python3 - <<'PY' "$SCRIPT_DIR/AndroidManifest.xml" "$BUILD_MANIFEST" "$ANDROID_MIN_API_LEVEL" "$ANDROID_TARGET_API_LEVEL"
+import re
+import sys
+
+source, dest, min_api, target_api = sys.argv[1:]
+manifest = open(source, encoding="utf-8").read()
+manifest = re.sub(r'android:minSdkVersion="\d+"', f'android:minSdkVersion="{{min_api}}"', manifest)
+manifest = re.sub(r'android:targetSdkVersion="\d+"', f'android:targetSdkVersion="{{target_api}}"', manifest)
+open(dest, "w", encoding="utf-8").write(manifest)
+PY
+
+"$AAPT" package -f -F "$UNALIGNED_APK" -M "$BUILD_MANIFEST" -S "$APK_ROOT/res" -I "$ANDROID_JAR"
 (cd "$APK_ROOT" && zip -qr "$UNALIGNED_APK" lib)
 "$ZIPALIGN" -f 4 "$UNALIGNED_APK" "$ALIGNED_APK"
 
@@ -720,18 +1267,48 @@ fn render_android_run_script(project: &FissionProject) -> String {
 set -euo pipefail
 
 SCRIPT_DIR=$(cd -- "$(dirname "${{BASH_SOURCE[0]}}")" && pwd)
-ANDROID_HOME="${{ANDROID_HOME:-$HOME/Library/Android/sdk}}"
+ANDROID_HOME="${{ANDROID_HOME:-${{ANDROID_SDK_ROOT:-$HOME/Library/Android/sdk}}}}"
 ADB="$ANDROID_HOME/platform-tools/adb"
 EMULATOR_BIN="$ANDROID_HOME/emulator/emulator"
 AVDMANAGER="${{ANDROID_AVDMANAGER:-$ANDROID_HOME/cmdline-tools/latest/bin/avdmanager}}"
-AVD_NAME="${{ANDROID_AVD_NAME:-FissionApi32Arm64}}"
-SYSTEM_IMAGE="${{ANDROID_SYSTEM_IMAGE:-system-images;android-32;google_apis;arm64-v8a}}"
+
+detect_latest_emulator_api() {{
+  find "$ANDROID_HOME/system-images" -path '*/google_apis/arm64-v8a' -type d 2>/dev/null \
+    | sed -n 's#.*system-images/android-\([0-9][0-9]*\)/google_apis/arm64-v8a#\1#p' \
+    | sort -n \
+    | tail -1
+}}
+
+android_system_image_path() {{
+  local image="$1"
+  image="${{image#system-images;}}"
+  printf '%s/system-images/%s\n' "$ANDROID_HOME" "${{image//;/\/}}"
+}}
+
+ANDROID_EMULATOR_API_LEVEL="${{ANDROID_EMULATOR_API_LEVEL:-$(detect_latest_emulator_api)}}"
+if [[ -z "$ANDROID_EMULATOR_API_LEVEL" ]]; then
+  printf 'No Android arm64 google_apis emulator image found under %s/system-images.\nInstall one with sdkmanager "system-images;android-35;google_apis;arm64-v8a" or set ANDROID_SYSTEM_IMAGE.\n' "$ANDROID_HOME" >&2
+  exit 1
+fi
+AVD_NAME="${{ANDROID_AVD_NAME:-FissionApi${{ANDROID_EMULATOR_API_LEVEL}}Arm64}}"
+SYSTEM_IMAGE="${{ANDROID_SYSTEM_IMAGE:-system-images;android-${{ANDROID_EMULATOR_API_LEVEL}};google_apis;arm64-v8a}}"
 DEVICE_PORT="${{ANDROID_TEST_CONTROL_DEVICE_PORT:-48761}}"
 HOST_PORT="${{FISSION_TEST_CONTROL_PORT:-48761}}"
 HEADLESS="${{ANDROID_EMULATOR_HEADLESS:-0}}"
 RESTART_EMULATOR="${{ANDROID_EMULATOR_RESTART:-0}}"
 
+for tool in "$ADB" "$EMULATOR_BIN" "$AVDMANAGER"; do
+  if [[ ! -x "$tool" ]]; then
+    printf 'Required Android tool is missing or not executable: %s\nRun `cargo fission doctor android --project-dir .` for setup help.\n' "$tool" >&2
+    exit 1
+  fi
+done
+
 if ! "$AVDMANAGER" list avd | grep -q "Name: $AVD_NAME"; then
+  if [[ ! -d "$(android_system_image_path "$SYSTEM_IMAGE")" ]]; then
+    printf 'Android system image is not installed: %s\nInstall it with sdkmanager "%s" or set ANDROID_SYSTEM_IMAGE.\n' "$SYSTEM_IMAGE" "$SYSTEM_IMAGE" >&2
+    exit 1
+  fi
   echo "no" | "$AVDMANAGER" create avd -n "$AVD_NAME" -k "$SYSTEM_IMAGE" --abi "google_apis/arm64-v8a" --device "pixel_5"
 fi
 
@@ -772,6 +1349,40 @@ printf 'APK=%s\n' "$APK"
     )
 }
 
+fn render_android_test_script() -> String {
+    r#"#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR=$(cd -- "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+export FISSION_TEST_CONTROL_PORT="${FISSION_TEST_CONTROL_PORT:-48761}"
+
+"$SCRIPT_DIR/run-emulator.sh"
+
+python3 - <<'PY' "$FISSION_TEST_CONTROL_PORT"
+import sys
+import time
+import urllib.request
+
+port = sys.argv[1]
+url = f"http://127.0.0.1:{port}/health"
+deadline = time.time() + 90
+last_error = None
+while time.time() < deadline:
+    try:
+        with urllib.request.urlopen(url, timeout=1) as response:
+            body = response.read().decode("utf-8", "replace")
+        if response.status == 200 and '"status":"ok"' in body:
+            print(f"Android emulator test control is healthy on {url}")
+            raise SystemExit(0)
+    except Exception as error:
+        last_error = error
+    time.sleep(1)
+raise SystemExit(f"Android emulator test control did not become healthy on {url}: {last_error}")
+PY
+"#
+    .to_string()
+}
+
 fn render_web_index(project: &FissionProject) -> String {
     let title = ios_bundle_name(project);
     format!(
@@ -789,42 +1400,34 @@ fn render_web_index(project: &FissionProject) -> String {
       }}
       html, body {{
         margin: 0;
-        min-height: 100%;
-        background: radial-gradient(circle at top, #243043 0%, #14171f 55%);
-        color: #f6fbff;
-        font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        overscroll-behavior: none;
+        background: #14171f;
       }}
-      body {{
-        display: grid;
-        grid-template-rows: auto 1fr;
-      }}
-      header {{
-        padding: 16px 20px 0;
-      }}
-      h1 {{
-        margin: 0;
-        font-size: 14px;
-        letter-spacing: 0.14em;
-        text-transform: uppercase;
-        color: #9acdbd;
-      }}
-      p {{
-        margin: 6px 0 0;
-        color: #b8c2d1;
-        font-size: 14px;
+      body, #fission-web-mount {{
+        width: 100vw;
+        height: 100vh;
       }}
       canvas {{
         display: block;
         width: 100vw;
-        height: calc(100vh - 64px);
+        height: 100vh;
+        border: 0;
+        outline: none;
+        user-select: none;
+        -webkit-user-drag: none;
+        touch-action: none;
+        -webkit-tap-highlight-color: transparent;
+      }}
+      canvas:focus, canvas:focus-visible {{
+        outline: none;
       }}
     </style>
   </head>
   <body>
-    <header>
-      <h1>{title}</h1>
-      <p>Generated by `fission add-target web`.</p>
-    </header>
+    <main id="fission-web-mount" aria-label="{title}"></main>
     <script type="module" src="./bootstrap.mjs"></script>
   </body>
 </html>
@@ -877,7 +1480,15 @@ URL="http://${{HOST}}:${{PORT}}/platforms/web/"
 printf 'Serving %s\n' "$URL"
 printf 'Press Ctrl+C to stop the local server.\n'
 if [[ "${{FISSION_WEB_OPEN:-0}}" == "1" ]]; then
-  open "$URL"
+  if command -v open >/dev/null 2>&1; then
+    open "$URL"
+  elif command -v xdg-open >/dev/null 2>&1; then
+    xdg-open "$URL"
+  elif command -v cmd.exe >/dev/null 2>&1; then
+    cmd.exe /C start "$URL"
+  else
+    printf 'No browser opener found. Open %s manually.\n' "$URL"
+  fi
 fi
 
 cd "$PROJECT_DIR"
@@ -886,6 +1497,284 @@ python3 -m http.server "$PORT" --bind "$HOST"
     )
 }
 
+fn render_web_test_script(_project: &FissionProject) -> String {
+    r#"#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR=$(cd -- "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+PROJECT_DIR=$(cd -- "$SCRIPT_DIR/../.." && pwd)
+HOST="${FISSION_WEB_HOST:-127.0.0.1}"
+PORT="${FISSION_WEB_PORT:-8123}"
+CDP_PORT="${FISSION_WEB_CDP_PORT:-9222}"
+URL="http://${HOST}:${PORT}/platforms/web/"
+PROFILE_DIR="$SCRIPT_DIR/build/chrome-profile"
+
+require_node_websocket() {
+  if ! command -v node >/dev/null 2>&1; then
+    printf 'Node.js was not found. Install Node 22+ so the generated browser smoke test can inspect Chrome CDP console/runtime errors.\n' >&2
+    exit 1
+  fi
+  if ! node -e 'process.exit(typeof WebSocket === "function" ? 0 : 1)' >/dev/null 2>&1; then
+    printf 'Node.js is available but does not expose the built-in WebSocket client. Install Node 22+ for Chrome CDP smoke tests.\n' >&2
+    exit 1
+  fi
+}
+
+detect_chrome() {
+  if [[ -n "${FISSION_CHROME:-}" && -x "$FISSION_CHROME" ]]; then
+    printf '%s\n' "$FISSION_CHROME"
+    return
+  fi
+  local candidate
+  for candidate in \
+    "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" \
+    "/Applications/Chromium.app/Contents/MacOS/Chromium" \
+    "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge"; do
+    if [[ -x "$candidate" ]]; then
+      printf '%s\n' "$candidate"
+      return
+    fi
+  done
+  for candidate in google-chrome chromium chromium-browser chrome; do
+    if command -v "$candidate" >/dev/null 2>&1; then
+      command -v "$candidate"
+      return
+    fi
+  done
+  return 1
+}
+
+require_node_websocket
+"$SCRIPT_DIR/build-wasm.sh"
+
+mkdir -p "$SCRIPT_DIR/build"
+cd "$PROJECT_DIR"
+python3 -m http.server "$PORT" --bind "$HOST" >"$SCRIPT_DIR/build/web-server.log" 2>&1 &
+SERVER_PID=$!
+
+cleanup() {
+  if [[ -n "${CHROME_PID:-}" ]]; then
+    kill "$CHROME_PID" >/dev/null 2>&1 || true
+  fi
+  kill "$SERVER_PID" >/dev/null 2>&1 || true
+}
+trap cleanup EXIT
+
+printf 'Running transient web smoke test at %s\n' "$URL"
+printf 'The local server is stopped automatically when this script exits.\n'
+
+python3 - <<'PY' "$URL"
+import sys
+import time
+import urllib.request
+
+url = sys.argv[1]
+deadline = time.time() + 30
+last_error = None
+while time.time() < deadline:
+    try:
+        with urllib.request.urlopen(url, timeout=1) as response:
+            if response.status == 200:
+                raise SystemExit(0)
+    except Exception as error:
+        last_error = error
+    time.sleep(0.5)
+raise SystemExit(f"web server did not serve {url}: {last_error}")
+PY
+
+CHROME=$(detect_chrome) || {
+  printf 'Chrome/Chromium was not found. Set FISSION_CHROME=/path/to/chrome or run `cargo fission doctor web --project-dir .`.\n' >&2
+  exit 1
+}
+
+rm -rf "$PROFILE_DIR"
+"$CHROME" \
+  --headless=new \
+  --no-first-run \
+  --no-default-browser-check \
+  --remote-debugging-port="$CDP_PORT" \
+  --user-data-dir="$PROFILE_DIR" \
+  "$URL" >"$SCRIPT_DIR/build/chrome.log" 2>&1 &
+CHROME_PID=$!
+
+CDP_PORT="$CDP_PORT" FISSION_WEB_URL="$URL" node <<'NODE'
+const cdpPort = process.env.CDP_PORT;
+const expectedUrl = process.env.FISSION_WEB_URL;
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+async function waitForTarget() {
+  const deadline = Date.now() + 60_000;
+  let lastError = null;
+  while (Date.now() < deadline) {
+    try {
+      const response = await fetch(`http://127.0.0.1:${cdpPort}/json/list`);
+      const targets = await response.json();
+      const target = targets.find((entry) => entry.type === 'page' && entry.url.startsWith(expectedUrl));
+      if (target?.webSocketDebuggerUrl) {
+        return target.webSocketDebuggerUrl;
+      }
+    } catch (error) {
+      lastError = error;
+    }
+    await sleep(250);
+  }
+  throw new Error(`Chrome CDP target did not become ready for ${expectedUrl}: ${lastError?.message ?? lastError}`);
+}
+
+class CdpClient {
+  constructor(url) {
+    this.url = url;
+    this.ws = null;
+    this.nextId = 1;
+    this.pending = new Map();
+    this.errors = [];
+  }
+
+  async open() {
+    await new Promise((resolve, reject) => {
+      const ws = new WebSocket(this.url);
+      this.ws = ws;
+      ws.addEventListener('open', resolve, { once: true });
+      ws.addEventListener('error', (event) => reject(new Error(`CDP websocket error: ${event.message ?? 'unknown error'}`)), { once: true });
+      ws.addEventListener('message', (event) => this.onMessage(event.data));
+      ws.addEventListener('close', () => {
+        for (const { reject: rejectPending } of this.pending.values()) {
+          rejectPending(new Error('CDP websocket closed'));
+        }
+        this.pending.clear();
+      });
+    });
+  }
+
+  send(method, params = {}) {
+    const id = this.nextId++;
+    const message = { id, method, params };
+    return new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        this.pending.delete(id);
+        reject(new Error(`CDP command timed out: ${method}`));
+      }, 10_000);
+      this.pending.set(id, { resolve, reject, timeout, method });
+      this.ws.send(JSON.stringify(message));
+    });
+  }
+
+  onMessage(raw) {
+    const message = JSON.parse(raw);
+    if (message.id) {
+      const pending = this.pending.get(message.id);
+      if (!pending) return;
+      clearTimeout(pending.timeout);
+      this.pending.delete(message.id);
+      if (message.error) {
+        pending.reject(new Error(`${pending.method}: ${message.error.message}`));
+      } else {
+        pending.resolve(message.result ?? {});
+      }
+      return;
+    }
+
+    if (message.method === 'Runtime.exceptionThrown') {
+      this.errors.push(formatException(message.params?.exceptionDetails));
+    } else if (message.method === 'Runtime.consoleAPICalled') {
+      const type = message.params?.type;
+      if (type === 'error' || type === 'assert') {
+        this.errors.push(`console.${type}: ${(message.params?.args ?? []).map(formatRemoteObject).join(' ')}`);
+      }
+    } else if (message.method === 'Log.entryAdded') {
+      const entry = message.params?.entry;
+      if (entry?.level === 'error') {
+        this.errors.push(`browser log error: ${entry.text}${entry.url ? ` (${entry.url}:${entry.lineNumber ?? 0})` : ''}`);
+      }
+    }
+  }
+
+  close() {
+    this.ws?.close();
+  }
+}
+
+function formatRemoteObject(value) {
+  if (!value) return '<missing>';
+  if (Object.prototype.hasOwnProperty.call(value, 'value')) return JSON.stringify(value.value);
+  return value.description ?? value.unserializableValue ?? value.type ?? '<unknown>';
+}
+
+function formatException(details) {
+  if (!details) return 'runtime exception: <missing details>';
+  const exception = details.exception?.description ?? details.exception?.value ?? details.text ?? 'unknown exception';
+  const location = details.url ? ` at ${details.url}:${details.lineNumber ?? 0}:${details.columnNumber ?? 0}` : '';
+  return `runtime exception: ${exception}${location}`;
+}
+
+function errorBlock(errors) {
+  return errors.slice(0, 10).map((error, index) => `${index + 1}. ${error}`).join('\n');
+}
+
+async function readCanvas(client) {
+  const expression = `(() => {
+    const canvas = document.querySelector('canvas');
+    if (!canvas) return { ready: false, reason: 'no canvas element' };
+    const rect = canvas.getBoundingClientRect();
+    return {
+      ready: rect.width > 0 && rect.height > 0,
+      width: Math.round(rect.width),
+      height: Math.round(rect.height),
+      gpu: typeof navigator.gpu !== 'undefined',
+      title: document.title,
+    };
+  })()`;
+  const result = await client.send('Runtime.evaluate', { expression, returnByValue: true });
+  if (result.exceptionDetails) {
+    throw new Error(formatException(result.exceptionDetails));
+  }
+  return result.result?.value ?? { ready: false, reason: 'evaluation returned no value' };
+}
+
+async function main() {
+  const wsUrl = await waitForTarget();
+  const client = new CdpClient(wsUrl);
+  await client.open();
+  try {
+    await Promise.all([
+      client.send('Runtime.enable'),
+      client.send('Log.enable'),
+      client.send('Page.enable'),
+    ]);
+
+    const deadline = Date.now() + 60_000;
+    let readySince = null;
+    let lastCanvas = null;
+    while (Date.now() < deadline) {
+      if (client.errors.length > 0) {
+        throw new Error(`browser reported runtime/console errors:\n${errorBlock(client.errors)}`);
+      }
+      lastCanvas = await readCanvas(client);
+      if (lastCanvas.ready) {
+        readySince ??= Date.now();
+        if (Date.now() - readySince >= 1_500) {
+          console.log(`Web app rendered canvas ${lastCanvas.width}x${lastCanvas.height}; no runtime console errors observed.`);
+          return;
+        }
+      } else {
+        readySince = null;
+      }
+      await sleep(250);
+    }
+    throw new Error(`web app did not render a non-empty canvas. Last canvas state: ${JSON.stringify(lastCanvas)}`);
+  } finally {
+    client.close();
+  }
+}
+
+main().catch((error) => {
+  console.error(error.stack ?? error.message ?? String(error));
+  process.exit(1);
+});
+NODE
+"#
+    .to_string()
+}
 fn render_app_main(package_name: &str) -> String {
     let lib_name = package_name.replace('-', "_");
     format!(
@@ -1024,6 +1913,12 @@ mod tests {
         assert!(dir.join("platforms/windows/README.md").exists());
         assert!(dir.join("platforms/macos/README.md").exists());
         assert!(dir.join("platforms/linux/README.md").exists());
+        let readme = std::fs::read_to_string(dir.join("README.md")).unwrap();
+        assert!(readme.contains("cargo fission devices --project-dir ."));
+        assert!(readme.contains("cargo fission run --project-dir ."));
+        assert!(readme.contains("cargo fission logs --target <target>"));
+        assert!(readme.contains("cargo fission build --target <target>"));
+        assert!(readme.contains("cargo fission test --target <target>"));
     }
 
     #[test]
@@ -1050,29 +1945,195 @@ mod tests {
         assert!(dir.join("platforms/web/bootstrap.mjs").exists());
         assert!(dir.join("platforms/web/build-wasm.sh").exists());
         assert!(dir.join("platforms/web/run-browser.sh").exists());
+        assert!(dir.join("platforms/web/test-browser.sh").exists());
         assert!(dir.join("platforms/ios/README.md").exists());
         assert!(dir.join("platforms/ios/Info.plist").exists());
         assert!(dir.join("platforms/ios/package-sim.sh").exists());
         assert!(dir.join("platforms/ios/run-sim.sh").exists());
+        assert!(dir.join("platforms/ios/test-sim.sh").exists());
         assert!(dir.join("platforms/android/README.md").exists());
         assert!(dir.join("platforms/android/AndroidManifest.xml").exists());
         assert!(dir.join("platforms/android/package-apk.sh").exists());
         assert!(dir.join("platforms/android/run-emulator.sh").exists());
+        assert!(dir.join("platforms/android/test-emulator.sh").exists());
+        let android_manifest =
+            std::fs::read_to_string(dir.join("platforms/android/AndroidManifest.xml")).unwrap();
+        assert!(android_manifest.contains("android:icon=\"@drawable/app_icon\""));
+        assert!(android_manifest.contains("android:targetSdkVersion=\"35\""));
+        let android_package_script =
+            std::fs::read_to_string(dir.join("platforms/android/package-apk.sh")).unwrap();
+        assert!(android_package_script.contains("detect_android_toolchain"));
+        assert!(android_package_script
+            .contains("darwin-aarch64 darwin-x86_64 linux-x86_64 windows-x86_64"));
+        assert!(android_package_script.contains(
+            "ANDROID_MIN_API_LEVEL=\"${ANDROID_MIN_API_LEVEL:-${ANDROID_API_LEVEL:-24}}\""
+        ));
+        assert!(android_package_script.contains("ANDROID_TARGET_API_LEVEL="));
         assert!(
-            std::fs::read_to_string(dir.join("platforms/android/AndroidManifest.xml"))
-                .unwrap()
-                .contains("android:icon=\"@drawable/app_icon\"")
+            android_package_script.contains("aarch64-linux-android${ANDROID_MIN_API_LEVEL}-clang")
         );
+        assert!(android_package_script.contains("BUILD_MANIFEST"));
+        assert!(android_package_script.contains("android:targetSdkVersion=\"{target_api}\""));
+        let android_run_script =
+            std::fs::read_to_string(dir.join("platforms/android/run-emulator.sh")).unwrap();
+        assert!(android_run_script.contains("ANDROID_EMULATOR_API_LEVEL"));
+        assert!(android_run_script.contains("cargo fission doctor android"));
         assert!(
-            std::fs::read_to_string(dir.join("platforms/ios/package-sim.sh"))
+            std::fs::read_to_string(dir.join("platforms/android/README.md"))
                 .unwrap()
-                .contains("AppIcon.png")
+                .contains("cargo fission run --target android")
+        );
+        let android_test_script =
+            std::fs::read_to_string(dir.join("platforms/android/test-emulator.sh")).unwrap();
+        assert!(android_test_script.contains("/health"));
+        let ios_package_script =
+            std::fs::read_to_string(dir.join("platforms/ios/package-sim.sh")).unwrap();
+        assert!(ios_package_script.contains("TARGET=\"${IOS_SIM_TARGET:-aarch64-apple-ios-sim}\""));
+        assert!(ios_package_script.contains("PROFILE=\"${IOS_SIM_PROFILE:-debug}\""));
+        assert!(ios_package_script.contains("BUNDLE_ID=\"${IOS_BUNDLE_ID:-com.example."));
+        assert!(ios_package_script.contains("DISPLAY_NAME=\"${IOS_DISPLAY_NAME:-"));
+        assert!(ios_package_script.contains("EXECUTABLE_NAME=\"${IOS_EXECUTABLE_NAME:-"));
+        assert!(ios_package_script.contains("plistlib.load"));
+        assert!(ios_package_script.contains("PkgInfo"));
+        assert!(ios_package_script.contains("AppIcon.png"));
+        let ios_run_script = std::fs::read_to_string(dir.join("platforms/ios/run-sim.sh")).unwrap();
+        assert!(ios_run_script.contains("BUNDLE_ID=\"${IOS_BUNDLE_ID:-com.example."));
+        assert!(ios_run_script.contains(
+            "xcrun simctl launch --terminate-running-process \"$DEVICE_ID\" \"$BUNDLE_ID\""
+        ));
+        assert!(std::fs::read_to_string(dir.join("platforms/ios/README.md"))
+            .unwrap()
+            .contains("cargo fission run --target ios"));
+        assert!(
+            std::fs::read_to_string(dir.join("platforms/ios/test-sim.sh"))
+                .unwrap()
+                .contains("/health")
         );
         assert!(
             std::fs::read_to_string(dir.join("platforms/web/index.html"))
                 .unwrap()
                 .contains("../../assets/app-icon.png")
         );
+        let web_index = std::fs::read_to_string(dir.join("platforms/web/index.html")).unwrap();
+        assert!(web_index.contains("id=\"fission-web-mount\""));
+        assert!(web_index.contains("height: 100vh"));
+        assert!(web_index.contains("outline: none"));
+        assert!(web_index.contains("touch-action: none"));
+        assert!(!web_index.contains("Generated by"));
+        let web_test_script =
+            std::fs::read_to_string(dir.join("platforms/web/test-browser.sh")).unwrap();
+        assert!(web_test_script.contains("--remote-debugging-port=\"$CDP_PORT\""));
+        assert!(web_test_script.contains("/json/list"));
+        assert!(std::fs::read_to_string(dir.join("platforms/web/README.md"))
+            .unwrap()
+            .contains("cargo fission run --target web"));
+    }
+
+    #[test]
+    fn init_existing_project_preserves_user_files_and_detects_targets() {
+        let dir = unique_dir("existing");
+        fs::create_dir_all(dir.join("src")).unwrap();
+        fs::create_dir_all(dir.join("platforms/web")).unwrap();
+        fs::write(
+            dir.join("Cargo.toml"),
+            "[package]\nname = \"existing-web\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+        )
+        .unwrap();
+        fs::write(dir.join("src/main.rs"), "fn main() {}\n").unwrap();
+        fs::write(dir.join("src/lib.rs"), "pub fn existing() {}\n").unwrap();
+        fs::write(dir.join("README.md"), "# keep me\n").unwrap();
+        fs::write(
+            dir.join("platforms/web/index.html"),
+            "<!doctype html><title>keep me</title>\n",
+        )
+        .unwrap();
+
+        run(["fission", "init", dir.to_str().unwrap()]).unwrap();
+
+        assert_eq!(
+            fs::read_to_string(dir.join("README.md")).unwrap(),
+            "# keep me\n"
+        );
+        assert_eq!(
+            fs::read_to_string(dir.join("src/main.rs")).unwrap(),
+            "fn main() {}\n"
+        );
+        assert_eq!(
+            fs::read_to_string(dir.join("src/lib.rs")).unwrap(),
+            "pub fn existing() {}\n"
+        );
+        assert_eq!(
+            fs::read_to_string(dir.join("platforms/web/index.html")).unwrap(),
+            "<!doctype html><title>keep me</title>\n"
+        );
+
+        let project = read_project_config(&dir).unwrap();
+        assert_eq!(project.app.name, "existing-web");
+        assert!(project.targets.contains(&Target::Web));
+        assert!(project.targets.contains(&Target::Macos));
+        assert!(project.targets.contains(&Target::Linux));
+        assert!(project.targets.contains(&Target::Windows));
+        assert!(dir.join("platforms/web/README.md").exists());
+        assert!(dir.join("platforms/web/bootstrap.mjs").exists());
+        assert!(dir.join("assets/app-icon.png").exists());
+    }
+
+    #[test]
+    fn init_existing_project_is_idempotent() {
+        let dir = unique_dir("idempotent");
+        run(["fission", "init", dir.to_str().unwrap(), "--name", "idem"]).unwrap();
+        let manifest = fs::read_to_string(dir.join("fission.toml")).unwrap();
+        let main = fs::read_to_string(dir.join("src/main.rs")).unwrap();
+
+        run(["fission", "init", dir.to_str().unwrap()]).unwrap();
+
+        assert_eq!(
+            fs::read_to_string(dir.join("fission.toml")).unwrap(),
+            manifest
+        );
+        assert_eq!(fs::read_to_string(dir.join("src/main.rs")).unwrap(), main);
+    }
+
+    #[test]
+    fn add_target_preserves_existing_target_files() {
+        let dir = unique_dir("preserve-target");
+        run([
+            "fission",
+            "init",
+            dir.to_str().unwrap(),
+            "--name",
+            "preserve-target",
+        ])
+        .unwrap();
+        fs::create_dir_all(dir.join("platforms/web")).unwrap();
+        fs::write(
+            dir.join("platforms/web/index.html"),
+            "<!doctype html><title>custom</title>\n",
+        )
+        .unwrap();
+        fs::write(dir.join("README.md"), "# custom readme\n").unwrap();
+
+        run([
+            "fission",
+            "add-target",
+            "web",
+            "--project-dir",
+            dir.to_str().unwrap(),
+        ])
+        .unwrap();
+
+        assert_eq!(
+            fs::read_to_string(dir.join("platforms/web/index.html")).unwrap(),
+            "<!doctype html><title>custom</title>\n"
+        );
+        assert_eq!(
+            fs::read_to_string(dir.join("README.md")).unwrap(),
+            "# custom readme\n"
+        );
+        assert!(dir.join("platforms/web/README.md").exists());
+        assert!(dir.join("platforms/web/bootstrap.mjs").exists());
+        let project = read_project_config(&dir).unwrap();
+        assert!(project.targets.contains(&Target::Web));
     }
 
     #[test]
@@ -1090,5 +2151,19 @@ mod tests {
 
         assert!(dir.join("Cargo.toml").exists());
         assert!(dir.join("fission.toml").exists());
+    }
+
+    #[test]
+    fn doctor_command_runs_in_non_strict_mode() {
+        let dir = unique_dir("doctor");
+        run(["fission", "init", dir.to_str().unwrap()]).unwrap();
+        run([
+            "fission",
+            "doctor",
+            "web",
+            "--project-dir",
+            dir.to_str().unwrap(),
+        ])
+        .unwrap();
     }
 }

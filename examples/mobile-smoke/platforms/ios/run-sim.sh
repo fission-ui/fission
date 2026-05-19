@@ -3,6 +3,7 @@ set -euo pipefail
 
 SCRIPT_DIR=$(cd -- "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 BUNDLE_DIR=$("$SCRIPT_DIR/package-sim.sh")
+BUNDLE_ID="${IOS_BUNDLE_ID:-ai.worka.fission.mobile-smoke}"
 DEVICE_ID="${IOS_SIM_DEVICE_ID:-}"
 
 if [[ -z "$DEVICE_ID" ]]; then
@@ -22,13 +23,19 @@ PY
 )
 fi
 
+if [[ "${IOS_SIM_HEADLESS:-0}" != "1" ]] && command -v open >/dev/null 2>&1; then
+  open -a Simulator --args -CurrentDeviceUDID "$DEVICE_ID" >/dev/null 2>&1 \
+    || open -a Simulator >/dev/null 2>&1 \
+    || true
+fi
+
 xcrun simctl boot "$DEVICE_ID" >/dev/null 2>&1 || true
 xcrun simctl bootstatus "$DEVICE_ID" -b
 xcrun simctl install "$DEVICE_ID" "$BUNDLE_DIR"
 
 if [[ -n "${FISSION_TEST_CONTROL_PORT:-}" ]]; then
   SIMCTL_CHILD_FISSION_TEST_CONTROL_PORT="${FISSION_TEST_CONTROL_PORT}" \
-    xcrun simctl launch --terminate-running-process "$DEVICE_ID" ai.worka.fission.mobile-smoke
+    xcrun simctl launch --terminate-running-process "$DEVICE_ID" "$BUNDLE_ID"
 else
-  xcrun simctl launch --terminate-running-process "$DEVICE_ID" ai.worka.fission.mobile-smoke
+  xcrun simctl launch --terminate-running-process "$DEVICE_ID" "$BUNDLE_ID"
 fi

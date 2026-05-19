@@ -19,6 +19,15 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WebApp<S, W> {
         self
     }
 
+    pub fn with_mount_selector(mut self, selector: impl Into<String>) -> Self {
+        self.inner = self.inner.with_mount_selector(selector);
+        self
+    }
+
+    pub fn mount(self, selector: impl Into<String>) -> Self {
+        self.with_mount_selector(selector)
+    }
+
     pub fn with_state_init<F>(mut self, init: F) -> Self
     where
         F: FnOnce(&mut S),

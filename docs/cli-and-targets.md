@@ -8,6 +8,14 @@ Create a new app:
 fission init my-app
 ```
 
+Register an existing app or example without replacing its files:
+
+```sh
+fission init examples/web-smoke
+```
+
+`fission init` is non-destructive for non-empty directories. It preserves existing source, README, asset, and platform files; derives the package name from `Cargo.toml` when possible; detects existing `platforms/<target>/` folders; writes `fission.toml`; and creates only missing generated support files.
+
 Create a new app against a local Fission checkout:
 
 ```sh
@@ -20,60 +28,87 @@ Add more platform targets:
 cargo fission add-target web ios android --project-dir my-app
 ```
 
+Diagnose local SDKs, emulators, browsers, and Rust targets:
+
+```sh
+cargo fission doctor web ios android --project-dir my-app
+```
+
+List the devices and runtime targets the CLI can launch:
+
+```sh
+cargo fission devices --project-dir my-app
+cargo fission devices --project-dir my-app --json
+```
+
+Run an app on the selected target. The command attaches by default, so desktop stdout/stderr, web server requests, iOS simulator logs, or Android `logcat` output stay in the terminal until you stop them:
+
+```sh
+cargo fission run --project-dir my-app
+cargo fission run --project-dir my-app --target web
+cargo fission run --project-dir my-app --target ios --device <simulator-udid>
+cargo fission run --project-dir my-app --target android --device emulator-5554
+```
+
+Start without attaching when you want the app to keep running in the background:
+
+```sh
+cargo fission run --project-dir my-app --target web --detach
+cargo fission logs --project-dir my-app --target web --follow
+```
+
+Build or smoke-test a configured target:
+
+```sh
+cargo fission build --project-dir my-app --target web --release
+cargo fission test --project-dir my-app --target web
+cargo fission test --project-dir my-app --target ios --headless
+cargo fission test --project-dir my-app --target android --headless
+```
+
 The generated project contains:
 
 - `src/main.rs` desktop entrypoint
-- `src/lib.rs` shared desktop/mobile entry helpers
+- `src/lib.rs` shared desktop/mobile/web entry helpers
 - `src/app.rs` minimal counter app
 - `assets/app-icon.png` seeded from `docs/fission_logo.png`
 - `fission.toml` target manifest
 - `platforms/<target>/README.md` target notes and prerequisites
+- target smoke scripts such as `platforms/web/test-browser.sh`, `platforms/ios/test-sim.sh`, and `platforms/android/test-emulator.sh`
 
 ## Verified flow
 
-This branch now has a verified scaffolding smoke test for the desktop and web paths:
+This branch has a verified scaffolding smoke path for desktop, web, iOS simulator, and Android emulator scaffolding:
 
 ```sh
 cargo run -p fission-cli --bin fission -- init /tmp/demo-app --local-path "$PWD"
 cargo run -p fission-cli --bin cargo-fission -- fission add-target web ios android --project-dir /tmp/demo-app
+cargo run -p fission-cli --bin fission -- doctor web ios android --project-dir /tmp/demo-app
 cd /tmp/demo-app
 cargo check
-```
-
-That flow completes successfully today.
-
-The repository now has two generated iOS simulator launch paths:
-
-1. the checked-in `examples/mobile-smoke/` example
-2. a CLI-generated app after `cargo fission add-target ios android web`
-
-Direct example commands:
-
-```sh
-./examples/mobile-smoke/platforms/ios/run-sim.sh
-```
-
-Those scripts package, launch, and render correctly. CoreSimulator still lacks `DownlevelFlags(INDIRECT_EXECUTION)`, so the shared shell now falls back to the software renderer there.
-
-On macOS, Android works end to end with the NDK toolchain environment configured:
-
-```sh
-export ANDROID_HOME="$HOME/Library/Android/sdk"
-export ANDROID_NDK="$ANDROID_HOME/ndk/24.0.8215888"
-export ANDROID_TOOLCHAIN="$ANDROID_NDK/toolchains/llvm/prebuilt/darwin-x86_64/bin"
-export CC_aarch64_linux_android="$ANDROID_TOOLCHAIN/aarch64-linux-android24-clang"
-export AR_aarch64_linux_android="$ANDROID_TOOLCHAIN/llvm-ar"
-
-cargo check -p fission-shell-mobile -p mobile-smoke --target aarch64-linux-android
 ```
 
 Generated-app commands from the scaffolded project root:
 
 ```sh
-./platforms/ios/run-sim.sh
-# after exporting the Android env block from below
-./platforms/android/run-emulator.sh
-./platforms/web/run-browser.sh
+cargo fission devices --project-dir .
+cargo fission run --target web --project-dir .
+cargo fission run --target ios --project-dir .
+cargo fission run --target android --project-dir .
+cargo fission test --target web --project-dir .
+cargo fission test --target ios --project-dir .
+cargo fission test --target android --project-dir .
+```
+
+The repository also keeps checked-in smoke examples:
+
+```sh
+./examples/mobile-smoke/platforms/ios/run-sim.sh
+./examples/mobile-smoke/platforms/ios/test-sim.sh
+./examples/mobile-smoke/platforms/android/run-emulator.sh
+./examples/mobile-smoke/platforms/android/test-emulator.sh
+./examples/web-smoke/platforms/web/run-browser.sh
+./examples/web-smoke/platforms/web/test-browser.sh
 ```
 
 ## Current target status
@@ -83,9 +118,23 @@ Generated-app commands from the scaffolded project root:
 | Windows | yes | yes | yes | Uses the generated desktop entrypoint |
 | macOS | yes | yes | yes | Uses the generated desktop entrypoint |
 | Linux | yes | yes | yes | Uses the generated desktop entrypoint |
-| iOS | yes | yes | yes (simulator) | the shared shell falls back to the software renderer when CoreSimulator cannot satisfy Vello's `INDIRECT_EXECUTION` requirement |
-| Android | yes | yes | yes (emulator) | the checked-in mobile smoke example and a CLI-generated app both package, install, and launch through `platforms/android/run-emulator.sh` |
-| Web | yes | yes | yes (browser) | the checked-in `web-smoke` example and CLI-generated apps both build with `wasm-pack` and serve through `platforms/web/run-browser.sh` |
+| iOS | yes | yes | yes (simulator) | simulator app bundles are generated and can be health-checked through test control |
+| Android | yes | yes | yes (emulator) | package scripts auto-detect SDK, NDK, toolchain, platform, and build-tools where possible |
+| Web | yes | yes | yes (browser) | `wasm-pack` builds the app and `test-browser.sh` launches Chrome/Chromium with CDP enabled |
+
+## Development workflow
+
+The intended daily workflow is:
+
+1. `cargo fission doctor --project-dir .` before starting platform work, especially on a new machine or CI runner.
+2. `cargo fission devices --project-dir .` to see the local desktop target, Chrome/Chromium, Android devices/emulators, and iOS simulators.
+3. `cargo fission run --target <target> --device <id> --project-dir .` while developing. Omit `--device` for the interactive selector when more than one runnable device exists.
+4. `cargo fission run --target <target> --detach --project-dir .` when you want the launched app/server to keep running without owning the terminal.
+5. `cargo fission logs --target <target> --device <id> --project-dir . --follow` to attach logs later.
+6. `cargo fission build --target <target> --project-dir . --release` before producing artifacts for a tester.
+7. `cargo fission test --target <target> --project-dir .` to run the generated platform smoke test.
+
+Device ids are stable enough for scripts: Android uses the `adb` serial, iOS uses the simulator UDID, web uses `chrome`, and desktop uses `desktop`.
 
 ## Toolchains, env vars, and paths
 
@@ -95,84 +144,103 @@ Install the Rust targets:
 rustup target add aarch64-apple-ios aarch64-apple-ios-sim aarch64-linux-android wasm32-unknown-unknown
 ```
 
-iOS prerequisites:
+Run doctor before platform work:
 
-- Xcode installed
-- `xcrun --sdk iphonesimulator --show-sdk-path` must resolve an iPhoneSimulator SDK
-- scaffold/launch command:
+```sh
+cargo fission doctor web ios android --project-dir .
+```
+
+### iOS
+
+Required tools:
+
+- macOS with Xcode installed
+- iPhoneSimulator SDK visible through `xcrun --sdk iphonesimulator --show-sdk-path`
+- Rust targets `aarch64-apple-ios` and `aarch64-apple-ios-sim`
+
+Commands:
 
 ```sh
 ./examples/mobile-smoke/platforms/ios/run-sim.sh
+./examples/mobile-smoke/platforms/ios/test-sim.sh
 ```
-
-Renderer note:
-
-- CoreSimulator still does not expose `DownlevelFlags(INDIRECT_EXECUTION)`
-- the shared shell falls back to the software renderer in that case so the simulator path remains usable
 
 Generated app command after `cargo fission add-target ios`:
 
 ```sh
-./platforms/ios/run-sim.sh
+cargo fission run --target ios --project-dir .
+cargo fission test --target ios --project-dir .
 ```
 
-Android prerequisites:
+The generated iOS script opens the Simulator app by default. Set `IOS_SIM_HEADLESS=1` for CI or background-only runs.
 
-- Android SDK installed
-- Android NDK installed
-- the verified macOS paths on this branch were:
-  - `ANDROID_HOME=$HOME/Library/Android/sdk`
-  - `ANDROID_NDK=$ANDROID_HOME/ndk/24.0.8215888`
-  - toolchain bin dir: `$ANDROID_NDK/toolchains/llvm/prebuilt/darwin-x86_64/bin`
-- required env:
+### Android
 
-```sh
-export ANDROID_HOME="$HOME/Library/Android/sdk"
-export ANDROID_NDK="$ANDROID_HOME/ndk/24.0.8215888"
-export ANDROID_TOOLCHAIN="$ANDROID_NDK/toolchains/llvm/prebuilt/darwin-x86_64/bin"
-export CC_aarch64_linux_android="$ANDROID_TOOLCHAIN/aarch64-linux-android24-clang"
-export AR_aarch64_linux_android="$ANDROID_TOOLCHAIN/llvm-ar"
-```
+Required tools:
 
-If your NDK uses a different host directory, replace `darwin-x86_64` with the matching prebuilt folder.
+- Android SDK
+- Android NDK
+- Rust target `aarch64-linux-android`
 
-Android run command from the checked-in example:
+The generated package script detects `ANDROID_HOME`, the latest installed NDK, the matching NDK LLVM prebuilt host directory, the latest installed Android platform, and build-tools. Override these only when the auto-detected value is wrong:
+
+- `ANDROID_HOME` or `ANDROID_SDK_ROOT`
+- `ANDROID_NDK`
+- `ANDROID_TOOLCHAIN`
+- `ANDROID_MIN_API_LEVEL` (default: `24`)
+- `ANDROID_TARGET_API_LEVEL` (default: latest installed platform)
+- `ANDROID_BUILD_TOOLS`
+
+Android emulator controls:
+
+- `ANDROID_EMULATOR_HEADLESS=1` for background/CI runs
+- `ANDROID_EMULATOR_RESTART=1` to kill an already-running hidden emulator and relaunch it visibly
+- `ANDROID_EMULATOR_API_LEVEL`, `ANDROID_AVD_NAME`, or `ANDROID_SYSTEM_IMAGE` to pick a specific emulator runtime
+
+Commands:
 
 ```sh
 ./examples/mobile-smoke/platforms/android/run-emulator.sh
+./examples/mobile-smoke/platforms/android/test-emulator.sh
 ```
 
-Android run command from a generated app:
+Generated app command after `cargo fission add-target android`:
 
 ```sh
-./platforms/android/run-emulator.sh
+cargo fission run --target android --project-dir .
+cargo fission test --target android --project-dir .
 ```
 
-Android emulator script controls:
+### Web / WASM
 
-- visible by default when it launches a fresh AVD
-- `ANDROID_EMULATOR_HEADLESS=1` for background/CI runs
-- `ANDROID_EMULATOR_RESTART=1` to kill an already-running hidden emulator and relaunch it visibly
+Required tools:
 
-WASM prerequisites:
+```sh
+rustup target add wasm32-unknown-unknown
+cargo install wasm-pack
+node --version # Node 22+ is required by the CDP smoke test
+cargo fission doctor web --project-dir .
+```
 
-- `rustup target add wasm32-unknown-unknown`
-- `cargo install wasm-pack`
+The browser test script uses Node.js plus Chrome/Chromium's DevTools Protocol endpoint. It starts a transient server, fails on browser runtime or console errors, and waits for a non-empty canvas. Set `FISSION_CHROME=/path/to/chrome` if the browser cannot be auto-detected.
 
-Browser run command from the checked-in example:
+Commands:
 
 ```sh
 ./examples/web-smoke/platforms/web/run-browser.sh
+./examples/web-smoke/platforms/web/test-browser.sh
 ```
 
-Browser run command from a generated app:
+Generated app command after `cargo fission add-target web`:
 
 ```sh
-./platforms/web/run-browser.sh
+cargo fission run --target web --project-dir .
+cargo fission test --target web --project-dir .
 ```
 
 Relevant paths:
 
+- CLI: `crates/tools/fission-cli/`
 - mobile shell: `crates/shell/fission-shell-mobile/`
 - web shell: `crates/shell/fission-shell-web/`
 - mobile smoke example: `examples/mobile-smoke/`
@@ -181,7 +249,7 @@ Relevant paths:
 
 ## Immediate next work
 
-1. add browser-side test control so web can use the same semantic interaction tooling as desktop/mobile
-2. harden the iOS simulator/software renderer path and then validate on physical devices
-3. extend generated host projects beyond smoke-level packaging
+1. add browser-side semantic test control so web can use the same interaction tooling as desktop/mobile
+2. validate iOS on physical devices after simulator coverage
+3. extend generated host projects from smoke packaging toward release packaging
 4. add first-party devtools hooks so the CLI can launch apps with widget-tree inspection enabled

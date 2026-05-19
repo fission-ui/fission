@@ -15,7 +15,10 @@ use parley::{FontContext, LayoutContext};
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
+#[cfg(not(target_arch = "wasm32"))]
 use std::time::Instant;
+#[cfg(target_arch = "wasm32")]
+use web_time::Instant;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct ParleyBrush(pub [u8; 4]);
