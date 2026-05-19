@@ -400,6 +400,7 @@ fn canvas_for_mount_selector(selector: &str) -> anyhow::Result<web_sys::HtmlCanv
         })?;
 
     if let Ok(canvas) = element.clone().dyn_into::<web_sys::HtmlCanvasElement>() {
+        apply_web_canvas_style(&canvas)?;
         return Ok(canvas);
     }
 
@@ -417,7 +418,23 @@ fn canvas_for_mount_selector(selector: &str) -> anyhow::Result<web_sys::HtmlCanv
             js_error_to_string(error)
         )
     })?;
+    apply_web_canvas_style(&canvas)?;
     Ok(canvas)
+}
+
+#[cfg(target_arch = "wasm32")]
+fn apply_web_canvas_style(canvas: &web_sys::HtmlCanvasElement) -> anyhow::Result<()> {
+    let existing = canvas.get_attribute("style").unwrap_or_default();
+    let suffix = "display:block;border:0;outline:none;user-select:none;-webkit-user-drag:none;touch-action:none;-webkit-tap-highlight-color:transparent;";
+    let style = if existing.trim().is_empty() {
+        suffix.to_string()
+    } else {
+        format!("{existing};{suffix}")
+    };
+    canvas.set_attribute("style", &style).map_err(|error| {
+        anyhow::anyhow!("failed to style web canvas: {}", js_error_to_string(error))
+    })?;
+    Ok(())
 }
 
 trait PlatformWindow {
@@ -4446,9 +4463,18 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                 }
                             }
                             WindowEvent::Touch(touch) => {
-                                let position = touch.location;
+                                let current_position = touch.location;
+                                // Some mobile backends report the end/cancel location after the
+                                // contact has already been cleared. Keep the last active touch
+                                // position so a normal tap releases over the same hit target.
+                                let position = match touch.phase {
+                                    TouchPhase::Ended | TouchPhase::Cancelled => touch_positions
+                                        .get(&touch.id)
+                                        .copied()
+                                        .unwrap_or(current_position),
+                                    TouchPhase::Started | TouchPhase::Moved => current_position,
+                                };
                                 last_cursor_position = Some(position);
-                                touch_positions.insert(touch.id, position);
 
                                 let scale_factor = window.scale_factor();
                                 let x = (position.x / scale_factor) as f32;
@@ -4456,6 +4482,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
 
                                 match touch.phase {
                                     TouchPhase::Started => {
+                                        touch_positions.insert(touch.id, position);
                                         if active_primary_touch.is_none() {
                                             active_primary_touch = Some(touch.id);
                                         }
@@ -4510,6 +4537,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                         }
                                     }
                                     TouchPhase::Moved => {
+                                        touch_positions.insert(touch.id, position);
                                         if active_primary_touch == Some(touch.id) {
                                             handle_cursor_moved(
                                                 x,
