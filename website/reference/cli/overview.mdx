@@ -55,7 +55,7 @@ fission init my-app
 
 This command creates the directory, writes the starter source files, seeds the default app icon, creates an initial desktop-ready entrypoint, and records project metadata in `fission.toml`.
 
-If the directory already contains files, the command refuses to continue. That safeguard helps you avoid accidentally scattering scaffold files into an existing project.
+If the directory already contains files, the command becomes non-destructive. It derives the package name from `Cargo.toml` when possible, detects existing `platforms/<target>/` folders, writes or updates `fission.toml`, and creates only missing generated support files. It does not overwrite existing source files, README files, host pages, scripts, or assets. That means you can safely run it on an existing example or app that predates `fission.toml`.
 
 ### Important `init` flags
 
@@ -85,6 +85,8 @@ These are the files most people open first:
 | `platforms/<target>/README.md` | generated notes | Explains prerequisites and host-specific commands for that target | Read this whenever you add a new target |
 
 The key idea is that only some of those files describe your app. Files under `src/` are the shared product logic. Files under `platforms/` are host-specific scaffolding. The command-line interface keeps those concerns separate because Fission itself keeps the shared app model separate from the platform shell that runs it.
+
+On an existing project, treat the table as "created if missing." Existing files are preserved. The main required output is `fission.toml`, because commands such as `cargo fission run --project-dir . --target web` use it to know which targets belong to the app.
 
 ## Adding more hosts with `cargo fission add-target`
 

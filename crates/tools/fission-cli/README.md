@@ -20,6 +20,14 @@ Create a new app:
 fission init my-app
 ```
 
+Register an existing app or example without overwriting existing files:
+
+```sh
+fission init existing-app
+```
+
+When the directory already has source, docs, assets, or platform files, `init` preserves them. It derives the package name from `Cargo.toml` when possible, detects existing `platforms/<target>/` folders, writes `fission.toml`, and creates only missing generated support files.
+
 Create a new app against a local Fission checkout:
 
 ```sh

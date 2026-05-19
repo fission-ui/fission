@@ -8,6 +8,14 @@ Create a new app:
 fission init my-app
 ```
 
+Register an existing app or example without replacing its files:
+
+```sh
+fission init examples/web-smoke
+```
+
+`fission init` is non-destructive for non-empty directories. It preserves existing source, README, asset, and platform files; derives the package name from `Cargo.toml` when possible; detects existing `platforms/<target>/` folders; writes `fission.toml`; and creates only missing generated support files.
+
 Create a new app against a local Fission checkout:
 
 ```sh

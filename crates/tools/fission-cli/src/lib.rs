@@ -197,6 +197,22 @@ struct AppConfig {
     app_id: String,
 }
 
+#[derive(Debug, Deserialize)]
+struct CargoManifest {
+    package: Option<CargoPackage>,
+}
+
+#[derive(Debug, Deserialize)]
+struct CargoPackage {
+    name: String,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum WritePolicy {
+    Overwrite,
+    PreserveExisting,
+}
+
 pub fn run<I, S>(args: I) -> Result<()>
 where
     I: IntoIterator<Item = S>,
@@ -301,52 +317,128 @@ fn init_project(
     app_id: Option<String>,
     local_path: Option<PathBuf>,
 ) -> Result<()> {
-    if root.exists() && root.read_dir()?.next().is_some() {
-        bail!(
-            "refusing to initialize into a non-empty directory: {}",
-            root.display()
-        );
-    }
+    let existing_project = root.exists() && root.read_dir()?.next().is_some();
     fs::create_dir_all(root.join("src"))?;
 
-    let project_name = name.unwrap_or_else(|| {
-        root.file_name()
-            .and_then(|value| value.to_str())
-            .unwrap_or("fission-app")
-            .to_string()
-    });
-    let normalized_name = normalize_crate_name(&project_name);
-    let project = FissionProject {
-        app: AppConfig {
-            name: normalized_name.clone(),
-            app_id: app_id
-                .unwrap_or_else(|| format!("com.example.{}", normalized_name.replace('-', "_"))),
-        },
-        targets: [Target::Windows, Target::Macos, Target::Linux]
-            .into_iter()
-            .collect(),
+    let write_policy = if existing_project {
+        WritePolicy::PreserveExisting
+    } else {
+        WritePolicy::Overwrite
     };
+    let project = initial_project_config(root, name, app_id)?;
 
-    write_file(
+    write_file_with_policy(
         &root.join("Cargo.toml"),
         &render_cargo_toml(&project, local_path.as_deref()),
+        write_policy,
     )?;
-    write_file(
+    write_file_with_policy(
         &root.join("src/main.rs"),
         &render_app_main(project.app.name.as_str()),
+        write_policy,
     )?;
-    write_file(&root.join("src/lib.rs"), APP_LIB)?;
-    write_file(&root.join("src/app.rs"), APP_RS)?;
-    write_binary_file(&root.join("assets/app-icon.png"), DEFAULT_APP_ICON_PNG)?;
-    write_file(&root.join("README.md"), &render_project_readme(&project))?;
-    write_file(&root.join(".gitignore"), "target/\nplatforms/*/build/\n")?;
+    write_file_with_policy(&root.join("src/lib.rs"), APP_LIB, write_policy)?;
+    write_file_with_policy(&root.join("src/app.rs"), APP_RS, write_policy)?;
+    write_binary_file_with_policy(
+        &root.join("assets/app-icon.png"),
+        DEFAULT_APP_ICON_PNG,
+        write_policy,
+    )?;
+    write_file_with_policy(
+        &root.join("README.md"),
+        &render_project_readme(&project),
+        write_policy,
+    )?;
+    write_file_with_policy(
+        &root.join(".gitignore"),
+        "target/\nplatforms/*/build/\n",
+        write_policy,
+    )?;
     write_project_config(root, &project)?;
 
-    for target in &project.targets {
-        scaffold_target(root, &project, *target)?;
+    let targets = project.targets.iter().copied().collect::<Vec<_>>();
+    for target in targets {
+        scaffold_target_with_policy(root, &project, target, write_policy)?;
     }
 
     Ok(())
+}
+
+fn initial_project_config(
+    root: &Path,
+    name: Option<String>,
+    app_id: Option<String>,
+) -> Result<FissionProject> {
+    let existing = if root.join("fission.toml").exists() {
+        Some(read_project_config(root)?)
+    } else {
+        None
+    };
+    let cargo_name = cargo_package_name(root);
+    if let (Some(requested), Some(cargo_name)) = (&name, &cargo_name) {
+        let requested = normalize_crate_name(requested);
+        let cargo_name = normalize_crate_name(cargo_name);
+        if requested != cargo_name {
+            bail!(
+                "refusing to set app name `{requested}` for existing Cargo package `{cargo_name}`; rename the package in Cargo.toml first or omit --name"
+            );
+        }
+    }
+    let project_name = cargo_name
+        .or(name)
+        .or_else(|| existing.as_ref().map(|project| project.app.name.clone()))
+        .unwrap_or_else(|| {
+            root.file_name()
+                .and_then(|value| value.to_str())
+                .unwrap_or("fission-app")
+                .to_string()
+        });
+    let normalized_name = normalize_crate_name(&project_name);
+
+    let mut targets = existing
+        .as_ref()
+        .map(|project| project.targets.clone())
+        .unwrap_or_default();
+    targets.extend(detect_project_targets(root));
+    if targets.is_empty() {
+        targets.extend([Target::Windows, Target::Macos, Target::Linux]);
+    }
+
+    Ok(FissionProject {
+        app: AppConfig {
+            name: normalized_name.clone(),
+            app_id: app_id
+                .or_else(|| existing.map(|project| project.app.app_id))
+                .unwrap_or_else(|| format!("com.example.{}", normalized_name.replace('-', "_"))),
+        },
+        targets,
+    })
+}
+
+fn cargo_package_name(root: &Path) -> Option<String> {
+    let manifest = fs::read_to_string(root.join("Cargo.toml")).ok()?;
+    let manifest: CargoManifest = toml::from_str(&manifest).ok()?;
+    manifest.package.map(|package| package.name)
+}
+
+fn detect_project_targets(root: &Path) -> BTreeSet<Target> {
+    let mut targets = BTreeSet::new();
+    if root.join("src/main.rs").exists() || root.join("src/lib.rs").exists() {
+        targets.extend([Target::Windows, Target::Macos, Target::Linux]);
+    }
+    for (target, relative) in [
+        (Target::Android, "platforms/android"),
+        (Target::Ios, "platforms/ios"),
+        (Target::Linux, "platforms/linux"),
+        (Target::Macos, "platforms/macos"),
+        (Target::Web, "platforms/web"),
+        (Target::Windows, "platforms/windows"),
+    ] {
+        if root.join(relative).exists() {
+            targets.insert(target);
+        }
+    }
+    targets
 }
 
 fn add_targets(project_dir: &Path, targets: &[Target]) -> Result<()> {
@@ -373,16 +465,30 @@ fn write_project_config(root: &Path, project: &FissionProject) -> Result<()> {
 
 fn read_project_config(root: &Path) -> Result<FissionProject> {
     let path = root.join("fission.toml");
-    let data =
-        fs::read_to_string(&path).with_context(|| format!("failed to read {}", path.display()))?;
+    let data = fs::read_to_string(&path).with_context(|| {
+        format!(
+            "failed to read {}; run `fission init {}` to register this project without overwriting existing files",
+            path.display(),
+            root.display()
+        )
+    })?;
     toml::from_str(&data).with_context(|| format!("failed to parse {}", path.display()))
 }
 
 fn scaffold_target(root: &Path, project: &FissionProject, target: Target) -> Result<()> {
+    scaffold_target_with_policy(root, project, target, WritePolicy::Overwrite)
+}
+
+fn scaffold_target_with_policy(
+    root: &Path,
+    project: &FissionProject,
+    target: Target,
+    write_policy: WritePolicy,
+) -> Result<()> {
     let relative = Path::new(target.scaffold_relative_path());
     let text = match target {
         Target::Android => {
-            scaffold_android_bundle(root, project)?;
+            scaffold_android_bundle(root, project, write_policy)?;
             platform_readme(
                 "Android",
                 "Runnable emulator target. The CLI generates a NativeActivity manifest plus shell scripts that build, install, and launch the Fission app on an Android emulator.",
@@ -402,7 +508,7 @@ fn scaffold_target(root: &Path, project: &FissionProject, target: Target) -> Res
             )
         }
         Target::Ios => {
-            scaffold_ios_bundle(root, project)?;
+            scaffold_ios_bundle(root, project, write_policy)?;
             platform_readme(
                 "iOS",
                 "Simulator target. The CLI generates a simulator app bundle template plus shell scripts that build, install, launch, and smoke-test the Fission app with `simctl`.",
@@ -423,7 +529,7 @@ fn scaffold_target(root: &Path, project: &FissionProject, target: Target) -> Res
             )
         }
         Target::Web => {
-            scaffold_web_bundle(root, project)?;
+            scaffold_web_bundle(root, project, write_policy)?;
             platform_readme(
                 "Web",
                 "Runnable browser target. The CLI generates a WASM host page plus helper scripts that build the app with `wasm-pack` and serve it locally.",
@@ -459,10 +565,14 @@ fn scaffold_target(root: &Path, project: &FissionProject, target: Target) -> Res
             ],
         ),
     };
-    write_file(&root.join(relative), &text)
+    write_file_with_policy(&root.join(relative), &text, write_policy)
 }
 
-fn scaffold_ios_bundle(root: &Path, project: &FissionProject) -> Result<()> {
+fn scaffold_ios_bundle(
+    root: &Path,
+    project: &FissionProject,
+    write_policy: WritePolicy,
+) -> Result<()> {
     let executable = ios_executable_name(project);
     let bundle_name = ios_bundle_name(project);
     let plist = render_ios_plist(project, &executable);
@@ -470,10 +580,22 @@ fn scaffold_ios_bundle(root: &Path, project: &FissionProject) -> Result<()> {
     let run_script = render_ios_run_script(project);
     let test_script = render_ios_test_script();
 
-    write_file(&root.join("platforms/ios/Info.plist"), &plist)?;
-    write_file(&root.join("platforms/ios/package-sim.sh"), &package_script)?;
-    write_file(&root.join("platforms/ios/run-sim.sh"), &run_script)?;
-    write_file(&root.join("platforms/ios/test-sim.sh"), &test_script)?;
+    write_file_with_policy(&root.join("platforms/ios/Info.plist"), &plist, write_policy)?;
+    write_file_with_policy(
+        &root.join("platforms/ios/package-sim.sh"),
+        &package_script,
+        write_policy,
+    )?;
+    write_file_with_policy(
+        &root.join("platforms/ios/run-sim.sh"),
+        &run_script,
+        write_policy,
+    )?;
+    write_file_with_policy(
+        &root.join("platforms/ios/test-sim.sh"),
+        &test_script,
+        write_policy,
+    )?;
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
@@ -482,30 +604,44 @@ fn scaffold_ios_bundle(root: &Path, project: &FissionProject) -> Result<()> {
             "platforms/ios/run-sim.sh",
             "platforms/ios/test-sim.sh",
         ] {
-            fs::set_permissions(root.join(relative), fs::Permissions::from_mode(0o755))?;
+            let path = root.join(relative);
+            if path.exists() {
+                fs::set_permissions(path, fs::Permissions::from_mode(0o755))?;
+            }
         }
     }
     Ok(())
 }
 
-fn scaffold_android_bundle(root: &Path, project: &FissionProject) -> Result<()> {
+fn scaffold_android_bundle(
+    root: &Path,
+    project: &FissionProject,
+    write_policy: WritePolicy,
+) -> Result<()> {
     let manifest = render_android_manifest(project);
     let package_script = render_android_package_script(project);
     let run_script = render_android_run_script(project);
     let test_script = render_android_test_script();
 
-    write_file(
+    write_file_with_policy(
         &root.join("platforms/android/AndroidManifest.xml"),
         &manifest,
+        write_policy,
     )?;
-    write_file(
+    write_file_with_policy(
         &root.join("platforms/android/package-apk.sh"),
         &package_script,
+        write_policy,
     )?;
-    write_file(&root.join("platforms/android/run-emulator.sh"), &run_script)?;
-    write_file(
+    write_file_with_policy(
+        &root.join("platforms/android/run-emulator.sh"),
+        &run_script,
+        write_policy,
+    )?;
+    write_file_with_policy(
         &root.join("platforms/android/test-emulator.sh"),
         &test_script,
+        write_policy,
     )?;
     #[cfg(unix)]
     {
@@ -515,24 +651,51 @@ fn scaffold_android_bundle(root: &Path, project: &FissionProject) -> Result<()> 
             "platforms/android/run-emulator.sh",
             "platforms/android/test-emulator.sh",
         ] {
-            fs::set_permissions(root.join(relative), fs::Permissions::from_mode(0o755))?;
+            let path = root.join(relative);
+            if path.exists() {
+                fs::set_permissions(path, fs::Permissions::from_mode(0o755))?;
+            }
         }
     }
     Ok(())
 }
 
-fn scaffold_web_bundle(root: &Path, project: &FissionProject) -> Result<()> {
+fn scaffold_web_bundle(
+    root: &Path,
+    project: &FissionProject,
+    write_policy: WritePolicy,
+) -> Result<()> {
     let index_html = render_web_index(project);
     let bootstrap = render_web_bootstrap(project);
     let build_script = render_web_build_script();
     let run_script = render_web_run_script(project);
     let test_script = render_web_test_script(project);
 
-    write_file(&root.join("platforms/web/index.html"), &index_html)?;
-    write_file(&root.join("platforms/web/bootstrap.mjs"), &bootstrap)?;
-    write_file(&root.join("platforms/web/build-wasm.sh"), &build_script)?;
-    write_file(&root.join("platforms/web/run-browser.sh"), &run_script)?;
-    write_file(&root.join("platforms/web/test-browser.sh"), &test_script)?;
+    write_file_with_policy(
+        &root.join("platforms/web/index.html"),
+        &index_html,
+        write_policy,
+    )?;
+    write_file_with_policy(
+        &root.join("platforms/web/bootstrap.mjs"),
+        &bootstrap,
+        write_policy,
+    )?;
+    write_file_with_policy(
+        &root.join("platforms/web/build-wasm.sh"),
+        &build_script,
+        write_policy,
+    )?;
+    write_file_with_policy(
+        &root.join("platforms/web/run-browser.sh"),
+        &run_script,
+        write_policy,
+    )?;
+    write_file_with_policy(
+        &root.join("platforms/web/test-browser.sh"),
+        &test_script,
+        write_policy,
+    )?;
 
     #[cfg(unix)]
     {
@@ -543,9 +706,11 @@ fn scaffold_web_bundle(root: &Path, project: &FissionProject) -> Result<()> {
             "platforms/web/test-browser.sh",
         ] {
             let path = root.join(relative);
-            let mut perms = fs::metadata(&path)?.permissions();
-            perms.set_mode(0o755);
-            fs::set_permissions(path, perms)?;
+            if path.exists() {
+                let mut perms = fs::metadata(&path)?.permissions();
+                perms.set_mode(0o755);
+                fs::set_permissions(path, perms)?;
+            }
         }
     }
 
@@ -553,13 +718,27 @@ fn scaffold_web_bundle(root: &Path, project: &FissionProject) -> Result<()> {
 }
 
 fn write_file(path: &Path, contents: &str) -> Result<()> {
+    write_file_with_policy(path, contents, WritePolicy::Overwrite)
+}
+
+fn write_file_with_policy(path: &Path, contents: &str, write_policy: WritePolicy) -> Result<()> {
+    if write_policy == WritePolicy::PreserveExisting && path.exists() {
+        return Ok(());
+    }
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
     }
     fs::write(path, contents).with_context(|| format!("failed to write {}", path.display()))
 }
 
-fn write_binary_file(path: &Path, contents: &[u8]) -> Result<()> {
+fn write_binary_file_with_policy(
+    path: &Path,
+    contents: &[u8],
+    write_policy: WritePolicy,
+) -> Result<()> {
+    if write_policy == WritePolicy::PreserveExisting && path.exists() {
+        return Ok(());
+    }
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
     }
@@ -1840,6 +2019,71 @@ mod tests {
         assert!(std::fs::read_to_string(dir.join("platforms/web/README.md"))
             .unwrap()
             .contains("cargo fission run --target web"));
+    }
+
+    #[test]
+    fn init_existing_project_preserves_user_files_and_detects_targets() {
+        let dir = unique_dir("existing");
+        fs::create_dir_all(dir.join("src")).unwrap();
+        fs::create_dir_all(dir.join("platforms/web")).unwrap();
+        fs::write(
+            dir.join("Cargo.toml"),
+            "[package]\nname = \"existing-web\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+        )
+        .unwrap();
+        fs::write(dir.join("src/main.rs"), "fn main() {}\n").unwrap();
+        fs::write(dir.join("src/lib.rs"), "pub fn existing() {}\n").unwrap();
+        fs::write(dir.join("README.md"), "# keep me\n").unwrap();
+        fs::write(
+            dir.join("platforms/web/index.html"),
+            "<!doctype html><title>keep me</title>\n",
+        )
+        .unwrap();
+
+        run(["fission", "init", dir.to_str().unwrap()]).unwrap();
+
+        assert_eq!(
+            fs::read_to_string(dir.join("README.md")).unwrap(),
+            "# keep me\n"
+        );
+        assert_eq!(
+            fs::read_to_string(dir.join("src/main.rs")).unwrap(),
+            "fn main() {}\n"
+        );
+        assert_eq!(
+            fs::read_to_string(dir.join("src/lib.rs")).unwrap(),
+            "pub fn existing() {}\n"
+        );
+        assert_eq!(
+            fs::read_to_string(dir.join("platforms/web/index.html")).unwrap(),
+            "<!doctype html><title>keep me</title>\n"
+        );
+
+        let project = read_project_config(&dir).unwrap();
+        assert_eq!(project.app.name, "existing-web");
+        assert!(project.targets.contains(&Target::Web));
+        assert!(project.targets.contains(&Target::Macos));
+        assert!(project.targets.contains(&Target::Linux));
+        assert!(project.targets.contains(&Target::Windows));
+        assert!(dir.join("platforms/web/README.md").exists());
+        assert!(dir.join("platforms/web/bootstrap.mjs").exists());
+        assert!(dir.join("assets/app-icon.png").exists());
+    }
+
+    #[test]
+    fn init_existing_project_is_idempotent() {
+        let dir = unique_dir("idempotent");
+        run(["fission", "init", dir.to_str().unwrap(), "--name", "idem"]).unwrap();
+        let manifest = fs::read_to_string(dir.join("fission.toml")).unwrap();
+        let main = fs::read_to_string(dir.join("src/main.rs")).unwrap();
+
+        run(["fission", "init", dir.to_str().unwrap()]).unwrap();
+
+        assert_eq!(
+            fs::read_to_string(dir.join("fission.toml")).unwrap(),
+            manifest
+        );
+        assert_eq!(fs::read_to_string(dir.join("src/main.rs")).unwrap(), main);
     }
 
     #[test]
