@@ -8,7 +8,9 @@ use fission::prelude::*;
 
 #[cfg(target_arch = "wasm32")]
 fn web_app() -> WebApp<CounterState, CounterApp> {
-    WebApp::new(CounterApp).with_title("Fission Web Smoke")
+    WebApp::new(CounterApp)
+        .with_title("Fission Web Smoke")
+        .mount("#fission-web-mount")
 }
 
 #[cfg(not(target_arch = "wasm32"))]

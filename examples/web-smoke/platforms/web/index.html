@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Fission Web Smoke</title>
-    <link rel="icon" type="image/png" href="../../../docs/fission_logo.png" />
+    <link rel="icon" type="image/png" href="/docs/fission_logo.png" />
     <style>
       :root {
         color-scheme: dark;
@@ -41,6 +41,9 @@
         width: 100vw;
         height: calc(100vh - 64px);
       }
+      #fission-web-mount {
+        min-height: calc(100vh - 64px);
+      }
     </style>
   </head>
   <body>
@@ -48,6 +51,7 @@
       <h1>Fission Web Smoke</h1>
       <p>WASM shell smoke test using the shared runtime and the default Fission icon.</p>
     </header>
+    <main id="fission-web-mount" aria-label="Fission web smoke application"></main>
     <script type="module" src="./bootstrap.mjs"></script>
   </body>
 </html>
