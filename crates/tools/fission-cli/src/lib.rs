@@ -6,7 +6,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 mod doctor;
-mod tui;
+mod ui;
 mod workflow;
 
 const CURRENT_VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -143,7 +143,7 @@ enum Command {
         follow: bool,
     },
     /// Open the interactive Fission CLI terminal UI.
-    Tui {
+    Ui {
         /// Project directory; defaults to the current working directory.
         #[arg(long, default_value = ".")]
         project_dir: PathBuf,
@@ -388,13 +388,13 @@ where
             device,
             follow,
         }),
-        Command::Tui {
+        Command::Ui {
             project_dir,
             screenshot,
             exit_after_render,
             width,
             height,
-        } => tui::run_tui(tui::TuiOptions {
+        } => ui::run_ui(ui::UiOptions {
             project_dir,
             screenshot,
             exit_after_render,

@@ -6,7 +6,7 @@ use fission::terminal::TerminalRunOptions;
 use std::path::PathBuf;
 
 #[derive(Clone, Debug)]
-pub(crate) struct TuiOptions {
+pub(crate) struct UiOptions {
     pub(crate) project_dir: PathBuf,
     pub(crate) screenshot: Option<PathBuf>,
     pub(crate) exit_after_render: bool,
@@ -15,19 +15,19 @@ pub(crate) struct TuiOptions {
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
-struct CliTuiState {
+struct CliUiState {
     project_name: String,
     app_id: String,
     project_dir: PathBuf,
     project_status: String,
     targets: Vec<String>,
-    devices: Vec<TuiDevice>,
+    devices: Vec<UiDevice>,
 }
 
-impl AppState for CliTuiState {}
+impl AppState for CliUiState {}
 
 #[derive(Clone, Debug, Default, PartialEq)]
-struct TuiDevice {
+struct UiDevice {
     id: String,
     target: String,
     kind: String,
@@ -35,7 +35,7 @@ struct TuiDevice {
     name: String,
 }
 
-pub(crate) fn run_tui(options: TuiOptions) -> Result<()> {
+pub(crate) fn run_ui(options: UiOptions) -> Result<()> {
     let state = load_state(options.project_dir.clone());
     let run_options = TerminalRunOptions {
         width: options.width,
@@ -44,12 +44,12 @@ pub(crate) fn run_tui(options: TuiOptions) -> Result<()> {
         exit_after_render: options.exit_after_render,
         ..TerminalRunOptions::default()
     };
-    TerminalApp::with_state(CliTuiApp, state)
+    TerminalApp::with_state(CliUiApp, state)
         .with_title("Fission CLI")
         .run_with_options(run_options)
 }
 
-fn load_state(project_dir: PathBuf) -> CliTuiState {
+fn load_state(project_dir: PathBuf) -> CliUiState {
     let (project_name, app_id, targets, project_status) = match read_project_config(&project_dir) {
         Ok(project) => (
             project.app.name,
@@ -76,7 +76,7 @@ fn load_state(project_dir: PathBuf) -> CliTuiState {
     };
     let devices = workflow::discover_devices(&project_dir)
         .into_iter()
-        .map(|device| TuiDevice {
+        .map(|device| UiDevice {
             id: device.id,
             target: device.target.as_str().to_string(),
             kind: device.kind,
@@ -84,7 +84,7 @@ fn load_state(project_dir: PathBuf) -> CliTuiState {
             name: device.name,
         })
         .collect();
-    CliTuiState {
+    CliUiState {
         project_name,
         app_id,
         project_dir,
@@ -94,11 +94,11 @@ fn load_state(project_dir: PathBuf) -> CliTuiState {
     }
 }
 
-struct CliTuiApp;
+struct CliUiApp;
 
-impl Widget<CliTuiState> for CliTuiApp {
-    fn build(&self, _ctx: &mut BuildCtx<CliTuiState>, view: &View<CliTuiState>) -> Node {
-        let colors = TuiColors::from_env(view.env);
+impl Widget<CliUiState> for CliUiApp {
+    fn build(&self, _ctx: &mut BuildCtx<CliUiState>, view: &View<CliUiState>) -> Node {
+        let colors = UiColors::from_env(view.env);
         let viewport = view.env.viewport_size;
         let width = viewport.width.max(80.0);
         let height = viewport.height.max(24.0);
@@ -136,7 +136,7 @@ impl Widget<CliTuiState> for CliTuiApp {
 }
 
 #[derive(Clone, Copy)]
-struct TuiColors {
+struct UiColors {
     background: Color,
     surface: Color,
     raised: Color,
@@ -149,7 +149,7 @@ struct TuiColors {
     warning: Color,
 }
 
-impl TuiColors {
+impl UiColors {
     fn from_env(env: &Env) -> Self {
         let tokens = &env.theme.tokens.colors;
         Self {
@@ -167,7 +167,7 @@ impl TuiColors {
     }
 }
 
-fn header(state: &CliTuiState, colors: TuiColors, width: f32) -> Node {
+fn header(state: &CliUiState, colors: UiColors, width: f32) -> Node {
     Container::new(
         Row {
             justify_content: JustifyContent::SpaceBetween,
@@ -205,7 +205,7 @@ fn header(state: &CliTuiState, colors: TuiColors, width: f32) -> Node {
     .into_node()
 }
 
-fn left_panel(state: &CliTuiState, colors: TuiColors, width: f32, height: f32) -> Node {
+fn left_panel(state: &CliUiState, colors: UiColors, width: f32, height: f32) -> Node {
     let mut children = vec![
         section_title("Project", colors),
         key_value(
@@ -247,7 +247,7 @@ fn left_panel(state: &CliTuiState, colors: TuiColors, width: f32, height: f32) -
     )
 }
 
-fn right_panel(state: &CliTuiState, colors: TuiColors, width: f32, height: f32) -> Node {
+fn right_panel(state: &CliUiState, colors: UiColors, width: f32, height: f32) -> Node {
     let mut children = vec![
         section_title("Detected devices", colors),
         table_header(colors),
@@ -292,7 +292,7 @@ fn right_panel(state: &CliTuiState, colors: TuiColors, width: f32, height: f32) 
     )
 }
 
-fn panel(width: f32, height: f32, colors: TuiColors, child: Node) -> Node {
+fn panel(width: f32, height: f32, colors: UiColors, child: Node) -> Node {
     Container::new(child)
         .width(width)
         .height(height)
@@ -302,7 +302,7 @@ fn panel(width: f32, height: f32, colors: TuiColors, child: Node) -> Node {
         .into_node()
 }
 
-fn footer(colors: TuiColors, width: f32) -> Node {
+fn footer(colors: UiColors, width: f32) -> Node {
     Container::new(
         Text::new("Terminal support is derived from Core IR and semantics. Unsupported graphical operations fail before render.")
             .color(colors.muted)
@@ -316,11 +316,11 @@ fn footer(colors: TuiColors, width: f32) -> Node {
     .into_node()
 }
 
-fn section_title(title: &str, colors: TuiColors) -> Node {
+fn section_title(title: &str, colors: UiColors) -> Node {
     Text::new(title).color(colors.accent).into_node()
 }
 
-fn key_value(key: &str, value: &str, colors: TuiColors) -> Node {
+fn key_value(key: &str, value: &str, colors: UiColors) -> Node {
     Row {
         gap: Some(1.0),
         children: vec![
@@ -335,7 +335,7 @@ fn key_value(key: &str, value: &str, colors: TuiColors) -> Node {
     .into_node()
 }
 
-fn chip(label: &str, colors: TuiColors) -> Node {
+fn chip(label: &str, colors: UiColors) -> Node {
     Container::new(
         Text::new(label.to_string())
             .color(colors.accent_text)
@@ -347,13 +347,13 @@ fn chip(label: &str, colors: TuiColors) -> Node {
     .into_node()
 }
 
-fn command_line(command: &str, colors: TuiColors) -> Node {
+fn command_line(command: &str, colors: UiColors) -> Node {
     Text::new(command.to_string())
         .color(colors.muted)
         .into_node()
 }
 
-fn table_header(colors: TuiColors) -> Node {
+fn table_header(colors: UiColors) -> Node {
     Row {
         gap: Some(1.0),
         children: vec![
@@ -376,7 +376,7 @@ fn table_header(colors: TuiColors) -> Node {
     .into_node()
 }
 
-fn device_row(device: &TuiDevice, colors: TuiColors) -> Node {
+fn device_row(device: &UiDevice, colors: UiColors) -> Node {
     let status_color = if device.status == "available" {
         colors.success
     } else {

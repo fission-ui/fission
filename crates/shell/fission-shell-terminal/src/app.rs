@@ -166,37 +166,51 @@ where
 
         let mut stdout = stdout();
         let _guard = TerminalGuard::enter(&mut stdout)?;
-        render_to_terminal(&mut stdout, &frame)?;
+        let mut current_size = (width, height);
+        render_to_terminal(&mut stdout, &frame, true)?;
 
         loop {
-            if event::poll(options.poll_interval)? {
-                match event::read()? {
-                    Event::Key(key) if should_exit(key.code, key.modifiers) => break,
-                    Event::Key(key) => {
-                        if let Some(input) = map_key_event(key.code, key.kind, key.modifiers) {
-                            self.send_event(input)?;
-                        }
-                    }
-                    Event::Mouse(mouse) => {
-                        if let Some(input) =
-                            map_mouse_event(mouse.kind, mouse.column, mouse.row, mouse.modifiers)
-                        {
-                            self.send_event(input)?;
-                        }
-                    }
-                    Event::Resize(width, height) => {
-                        self.send_event(InputEvent::Lifecycle(
-                            fission_core::event::LifecycleEvent::Resize {
-                                size: LayoutSize::new(f32::from(width), f32::from(height)),
-                            },
-                        ))?;
-                    }
-                    Event::FocusGained | Event::FocusLost | Event::Paste(_) => {}
-                }
+            if !event::poll(options.poll_interval)? {
+                continue;
             }
-            let (width, height) = terminal_size_or_options(&options)?;
-            frame = self.render_frame(width, height)?;
-            render_to_terminal(&mut stdout, &frame)?;
+
+            let mut dirty = false;
+            let mut clear = false;
+            match event::read()? {
+                Event::Key(key) if should_exit(key.code, key.modifiers) => break,
+                Event::Key(key) => {
+                    if let Some(input) = map_key_event(key.code, key.kind, key.modifiers) {
+                        self.send_event(input)?;
+                        dirty = true;
+                    }
+                }
+                Event::Mouse(mouse) => {
+                    if let Some(input) =
+                        map_mouse_event(mouse.kind, mouse.column, mouse.row, mouse.modifiers)
+                    {
+                        self.send_event(input)?;
+                        dirty = true;
+                    }
+                }
+                Event::Resize(width, height) => {
+                    self.send_event(InputEvent::Lifecycle(
+                        fission_core::event::LifecycleEvent::Resize {
+                            size: LayoutSize::new(f32::from(width), f32::from(height)),
+                        },
+                    ))?;
+                    dirty = true;
+                    clear = true;
+                }
+                Event::FocusGained | Event::FocusLost | Event::Paste(_) => {}
+            }
+
+            if dirty {
+                let next_size = terminal_size_or_options(&options)?;
+                clear |= next_size != current_size;
+                current_size = next_size;
+                frame = self.render_frame(next_size.0, next_size.1)?;
+                render_to_terminal(&mut stdout, &frame, clear)?;
+            }
         }
         Ok(())
     }
@@ -271,8 +285,11 @@ fn terminal_size_or_options(options: &TerminalRunOptions) -> Result<(u16, u16)> 
     ))
 }
 
-fn render_to_terminal(stdout: &mut Stdout, frame: &TerminalFrame) -> Result<()> {
-    queue!(stdout, MoveTo(0, 0), Clear(ClearType::All))?;
+fn render_to_terminal(stdout: &mut Stdout, frame: &TerminalFrame, clear: bool) -> Result<()> {
+    queue!(stdout, MoveTo(0, 0))?;
+    if clear {
+        queue!(stdout, Clear(ClearType::All))?;
+    }
     for y in 0..frame.height {
         queue!(stdout, MoveTo(0, y))?;
         for x in 0..frame.width {
