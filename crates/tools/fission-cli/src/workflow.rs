@@ -382,7 +382,7 @@ fn run_site_builder(
     run_status(&mut command, "site builder")
 }
 
-fn discover_devices(_project_dir: &Path) -> Vec<Device> {
+pub(crate) fn discover_devices(_project_dir: &Path) -> Vec<Device> {
     let mut devices = Vec::new();
     devices.push(Device {
         id: "desktop".to_string(),
