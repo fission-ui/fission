@@ -14,6 +14,11 @@ pub(crate) fn toggle_theme(state: &mut UiState) {
     state.theme_mode = state.theme_mode.toggle();
 }
 
+#[fission_reducer(ToggleCompactMode)]
+pub(crate) fn toggle_compact_mode(state: &mut UiState) {
+    state.compact_mode = !state.compact_mode;
+}
+
 #[fission_reducer(SelectTarget)]
 pub(crate) fn select_target(state: &mut UiState, target: Target) {
     state.selected_target = Some(target);
@@ -54,6 +59,19 @@ pub(crate) fn set_port(state: &mut UiState, value: String) {
     state.port = value;
 }
 
+#[fission_reducer(SetScrollbackLimitInput)]
+pub(crate) fn set_scrollback_limit_input(state: &mut UiState, value: String) {
+    state.scrollback_limit_input = value.clone();
+    if let Some(limit) = parse_scrollback_limit(&value) {
+        state.set_scrollback_limit(limit);
+    }
+}
+
+#[fission_reducer(SetScrollbackLimit)]
+pub(crate) fn set_scrollback_limit(state: &mut UiState, limit: usize) {
+    state.set_scrollback_limit(limit);
+}
+
 #[fission_reducer(ToggleStrict)]
 pub(crate) fn toggle_strict(state: &mut UiState) {
     state.strict = !state.strict;
@@ -82,4 +100,24 @@ pub(crate) fn toggle_headless(state: &mut UiState) {
 #[fission_reducer(ExecuteCommand)]
 pub(crate) fn execute_command(state: &mut UiState, command: UiCommand) {
     execute_ui_command(state, command);
+}
+
+fn parse_scrollback_limit(value: &str) -> Option<usize> {
+    let compact = value.trim().replace('_', "");
+    if compact.is_empty() {
+        return None;
+    }
+    let lower = compact.to_ascii_lowercase();
+    let (digits, multiplier) = if let Some(digits) = lower.strip_suffix('k') {
+        (digits, 1_000usize)
+    } else if let Some(digits) = lower.strip_suffix('m') {
+        (digits, 1_000_000usize)
+    } else {
+        (lower.as_str(), 1usize)
+    };
+    digits
+        .parse::<usize>()
+        .ok()
+        .and_then(|value| value.checked_mul(multiplier))
+        .filter(|value| *value > 0)
 }

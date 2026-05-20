@@ -18,8 +18,8 @@ use fission_core::lowering::build_layout_tree;
 use fission_core::ui::{Container, Node, Overlay, ZStack};
 use fission_core::{
     AppState, BuildCtx, Env, InputEvent, KeyCode, KeyEvent, LayoutEngine, LayoutPoint, LayoutSize,
-    LayoutSnapshot, LoweringContext, PointerButton, PointerEvent, Runtime, View, Widget,
-    WindowTitle,
+    LayoutSnapshot, LoweringContext, PointerButton, PointerEvent, Runtime, RuntimeState, View,
+    Widget, WindowTitle,
 };
 use fission_ir::CoreIR;
 use fission_layout::TextMeasurer;
@@ -59,7 +59,7 @@ where
     layout_engine: LayoutEngine,
     env: Env,
     sync_env: Option<Box<dyn Fn(&S, &mut Env)>>,
-    state_update: Option<Box<dyn FnMut(&mut S) -> bool>>,
+    state_update: Option<Box<dyn FnMut(&mut S, &mut RuntimeState, &Env) -> bool>>,
     measurer: Arc<dyn TextMeasurer>,
     last_ir: Option<CoreIR>,
     last_snapshot: Option<LayoutSnapshot>,
@@ -123,7 +123,7 @@ where
 
     pub fn with_state_update<F>(mut self, update: F) -> Self
     where
-        F: FnMut(&mut S) -> bool + 'static,
+        F: FnMut(&mut S, &mut RuntimeState, &Env) -> bool + 'static,
     {
         self.state_update = Some(Box::new(update));
         self
@@ -256,11 +256,14 @@ where
         let Some(update) = &mut self.state_update else {
             return Ok(false);
         };
-        let state = self
-            .runtime
-            .get_app_state_mut::<S>()
+        let mut app_states = std::mem::take(&mut self.runtime.app_states);
+        let state = app_states
+            .get_mut(&std::any::TypeId::of::<S>())
+            .and_then(|state| state.downcast_mut::<S>())
             .context("terminal app state is missing")?;
-        Ok(update(state))
+        let changed = update(state, &mut self.runtime.runtime_state, &self.env);
+        self.runtime.app_states = app_states;
+        Ok(changed)
     }
 
     fn build_node_tree(&mut self, viewport: LayoutSize) -> Result<Node> {

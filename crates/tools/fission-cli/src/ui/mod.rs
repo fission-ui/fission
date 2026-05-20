@@ -2,6 +2,7 @@ mod actions;
 mod app;
 mod commands;
 mod components;
+mod density;
 mod routes;
 mod screens;
 mod state;
@@ -44,7 +45,7 @@ pub(crate) fn run_ui(options: UiOptions) -> Result<()> {
                 UiThemeMode::Light => fission::theme::Theme::default(),
             };
         })
-        .with_state_update(|state| state.poll_command_status())
+        .with_state_update(|state, runtime, env| state.poll_command_status(runtime, env))
         .run_with_options(run_options)
 }
 

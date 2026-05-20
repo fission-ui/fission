@@ -5,6 +5,7 @@ mod help;
 mod logs;
 mod project;
 mod run_build_test;
+mod settings;
 mod site;
 
 use crate::ui::routes::UiRoute;
@@ -18,6 +19,7 @@ pub(crate) use help::HelpScreen;
 pub(crate) use logs::LogsScreen;
 pub(crate) use project::ProjectScreen;
 pub(crate) use run_build_test::{BuildScreen, RunScreen, TestScreen};
+pub(crate) use settings::SettingsScreen;
 pub(crate) use site::SiteScreen;
 
 #[derive(Clone)]
@@ -35,6 +37,7 @@ impl Widget<UiState> for ActiveScreen {
             UiRoute::Test => TestScreen.build(ctx, view),
             UiRoute::Site => SiteScreen.build(ctx, view),
             UiRoute::Logs => LogsScreen.build(ctx, view),
+            UiRoute::Settings => SettingsScreen.build(ctx, view),
             UiRoute::Help => HelpScreen.build(ctx, view),
         }
     }

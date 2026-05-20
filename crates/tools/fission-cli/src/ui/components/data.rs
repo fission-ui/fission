@@ -1,5 +1,6 @@
 use super::{ActionButton, ButtonTone};
 use crate::ui::actions::{select_device, select_target, SelectDevice, SelectTarget};
+use crate::ui::density::UiDensity;
 use crate::ui::state::{all_targets, target_label, UiDevice, UiState};
 use crate::ui::theme::UiPalette;
 use crate::Target;
@@ -61,7 +62,7 @@ impl Widget<UiState> for TargetPicker {
             rows.push(target_button(target, ctx, view));
         }
         Column {
-            gap: Some(1.0),
+            gap: Some(if view.state.compact_mode { 0.0 } else { 1.0 }),
             children: rows,
             ..Default::default()
         }
@@ -123,7 +124,7 @@ impl Widget<UiState> for DeviceTable {
             );
         }
         Column {
-            gap: Some(1.0),
+            gap: Some(if view.state.compact_mode { 0.0 } else { 1.0 }),
             children: rows,
             ..Default::default()
         }
@@ -169,10 +170,11 @@ fn device_row(
 
     if selectable && device.available {
         let action = with_reducer!(ctx, SelectDevice(device.id.clone()), select_device);
+        let density = UiDensity::new(view.state.compact_mode);
         Button {
             on_press: Some(action),
-            height: Some(3.0),
-            padding: Some([1.0, 1.0, 0.0, 0.0]),
+            height: Some(density.control_height()),
+            padding: Some(density.control_padding()),
             background_fill: Some(fission::ir::op::Fill::Solid(if selected {
                 palette.subtle
             } else {

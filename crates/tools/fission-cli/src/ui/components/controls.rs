@@ -1,3 +1,4 @@
+use crate::ui::density::UiDensity;
 use crate::ui::state::UiState;
 use crate::ui::theme::UiPalette;
 use fission::ir::op::Fill;
@@ -49,11 +50,12 @@ impl Widget<UiState> for ActionButton {
             ButtonTone::Success => (palette.success, palette.accent_text),
             ButtonTone::Warning => (palette.warning, palette.accent_text),
         };
+        let density = UiDensity::new(view.state.compact_mode);
         Button {
             on_press: Some(self.action.clone()),
             width: self.width,
-            height: Some(3.0),
-            padding: Some([1.0, 1.0, 0.0, 0.0]),
+            height: Some(density.control_height()),
+            padding: Some(density.control_padding()),
             background_fill: Some(Fill::Solid(background)),
             text_color: Some(text),
             child: Some(Box::new(
@@ -137,6 +139,7 @@ impl FormTextField {
 impl Widget<UiState> for FormTextField {
     fn build(&self, _ctx: &mut BuildCtx<UiState>, view: &View<UiState>) -> Node {
         let palette = UiPalette::for_mode(view.state.theme_mode);
+        let density = UiDensity::new(view.state.compact_mode);
         TextInput {
             id: Some(NodeId::explicit(self.id)),
             value: self.value.clone(),
@@ -144,8 +147,8 @@ impl Widget<UiState> for FormTextField {
             placeholder: Some(self.placeholder.clone().into()),
             on_change: Some(self.action.clone()),
             width: Some(self.width),
-            height: Some(5.0),
-            padding: Some([1.0, 1.0, 0.0, 0.0]),
+            height: Some(density.text_input_height()),
+            padding: Some(density.text_input_padding()),
             background_fill: Some(Fill::Solid(palette.surface)),
             border_color: Some(palette.border),
             focus_border_color: Some(palette.accent),

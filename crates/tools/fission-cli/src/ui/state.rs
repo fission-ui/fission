@@ -1,11 +1,16 @@
-use super::commands::{CommandRecord, CommandRuntime};
+use super::commands::{CommandRecord, CommandRuntime, DEFAULT_SCROLLBACK_LINES};
+use super::density::UiDensity;
 use super::routes::UiRoute;
 use super::theme::UiThemeMode;
 use crate::{read_project_config, workflow, Target};
+use fission::core::{Env, RuntimeState};
+use fission::ir::NodeId;
 use fission::prelude::AppState;
 use std::path::PathBuf;
 
-#[derive(Clone, Debug, Default, PartialEq)]
+pub(crate) const LOG_SCROLL_NODE_ID: &str = "cli_ui_log_scrollback";
+
+#[derive(Clone, Debug, PartialEq)]
 pub(crate) struct UiState {
     pub(crate) project_dir: PathBuf,
     pub(crate) project_name: String,
@@ -15,6 +20,7 @@ pub(crate) struct UiState {
     pub(crate) devices: Vec<UiDevice>,
     pub(crate) route: UiRoute,
     pub(crate) theme_mode: UiThemeMode,
+    pub(crate) compact_mode: bool,
     pub(crate) selected_target: Option<Target>,
     pub(crate) selected_device: Option<String>,
     pub(crate) init_name: String,
@@ -30,10 +36,50 @@ pub(crate) struct UiState {
     pub(crate) last_command: Option<CommandRecord>,
     pub(crate) command_runtime: CommandRuntime,
     pub(crate) last_command_generation: u64,
+    pub(crate) last_command_revision: u64,
+    pub(crate) last_log_line_count: usize,
     pub(crate) last_refreshed_command_generation: u64,
+    pub(crate) scrollback_limit: usize,
+    pub(crate) scrollback_limit_input: String,
 }
 
 impl AppState for UiState {}
+
+impl Default for UiState {
+    fn default() -> Self {
+        Self {
+            project_dir: PathBuf::new(),
+            project_name: String::new(),
+            app_id: String::new(),
+            project_status: String::new(),
+            targets: Vec::new(),
+            devices: Vec::new(),
+            route: UiRoute::default(),
+            theme_mode: UiThemeMode::default(),
+            compact_mode: true,
+            selected_target: None,
+            selected_device: None,
+            init_name: String::new(),
+            init_app_id: String::new(),
+            init_local_path: String::new(),
+            host: String::new(),
+            port: String::new(),
+            strict: false,
+            release: false,
+            detach: false,
+            no_open: false,
+            headless: false,
+            last_command: None,
+            command_runtime: CommandRuntime::default(),
+            last_command_generation: 0,
+            last_command_revision: 0,
+            last_log_line_count: 0,
+            last_refreshed_command_generation: 0,
+            scrollback_limit: DEFAULT_SCROLLBACK_LINES,
+            scrollback_limit_input: DEFAULT_SCROLLBACK_LINES.to_string(),
+        }
+    }
+}
 
 impl UiState {
     pub(crate) fn load(project_dir: PathBuf) -> Self {
@@ -43,6 +89,8 @@ impl UiState {
             theme_mode: UiThemeMode::Dark,
             host: "127.0.0.1".to_string(),
             port: "8123".to_string(),
+            scrollback_limit: DEFAULT_SCROLLBACK_LINES,
+            scrollback_limit_input: DEFAULT_SCROLLBACK_LINES.to_string(),
             detach: true,
             ..Default::default()
         };
@@ -127,16 +175,23 @@ impl UiState {
             .collect()
     }
 
-    pub(crate) fn poll_command_status(&mut self) -> bool {
+    pub(crate) fn poll_command_status(&mut self, runtime: &mut RuntimeState, env: &Env) -> bool {
         let Some(snapshot) = self.command_runtime.snapshot() else {
             return false;
         };
         let mut changed = false;
         if self.last_command_generation != snapshot.generation
-            || self.last_command.as_ref() != Some(&snapshot.record)
+            || self.last_command_revision != snapshot.revision
         {
+            let should_follow = should_follow_log_output(self, runtime, env, snapshot.generation);
+            let line_count = snapshot.record.output.display_line_count();
             self.last_command = Some(snapshot.record);
             self.last_command_generation = snapshot.generation;
+            self.last_command_revision = snapshot.revision;
+            self.last_log_line_count = line_count;
+            if should_follow {
+                stick_log_scroll_to_bottom(runtime, env, line_count, self.compact_mode);
+            }
             changed = true;
         }
         if snapshot.finished && self.last_refreshed_command_generation != snapshot.generation {
@@ -146,6 +201,53 @@ impl UiState {
         }
         changed
     }
+
+    pub(crate) fn set_scrollback_limit(&mut self, limit: usize) {
+        let limit = limit.max(1);
+        self.scrollback_limit = limit;
+        self.scrollback_limit_input = limit.to_string();
+        self.command_runtime.set_limit(limit);
+        if let Some(record) = self.last_command.as_mut() {
+            record.output.set_limit(limit);
+            self.last_log_line_count = record.output.display_line_count();
+        }
+    }
+}
+
+pub(crate) fn log_scroll_node_id() -> NodeId {
+    NodeId::explicit(LOG_SCROLL_NODE_ID)
+}
+
+pub(crate) fn log_visible_rows_for_height(height: f32, compact: bool) -> usize {
+    let density = UiDensity::new(compact);
+    let metrics = density.shell_metrics(height);
+    density.output_log_height(metrics.footer_h).floor().max(1.0) as usize
+}
+
+fn stick_log_scroll_to_bottom(
+    runtime: &mut RuntimeState,
+    env: &Env,
+    line_count: usize,
+    compact: bool,
+) {
+    let visible_rows = log_visible_rows_for_height(env.viewport_size.height, compact);
+    let max_offset = line_count.saturating_sub(visible_rows).max(0) as f32;
+    runtime.scroll.set_offset(log_scroll_node_id(), max_offset);
+}
+
+fn should_follow_log_output(
+    state: &UiState,
+    runtime: &RuntimeState,
+    env: &Env,
+    next_generation: u64,
+) -> bool {
+    if state.last_command_generation != next_generation {
+        return true;
+    }
+    let visible_rows = log_visible_rows_for_height(env.viewport_size.height, state.compact_mode);
+    let old_max = state.last_log_line_count.saturating_sub(visible_rows) as f32;
+    let current = runtime.scroll.get_offset(log_scroll_node_id());
+    current + 2.0 >= old_max
 }
 
 #[derive(Clone, Debug, PartialEq)]

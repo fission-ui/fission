@@ -12,11 +12,12 @@ pub(crate) enum UiRoute {
     Test,
     Site,
     Logs,
+    Settings,
     Help,
 }
 
 impl UiRoute {
-    pub(crate) const ALL: [Self; 10] = [
+    pub(crate) const ALL: [Self; 11] = [
         Self::Dashboard,
         Self::Project,
         Self::Doctor,
@@ -26,6 +27,7 @@ impl UiRoute {
         Self::Test,
         Self::Site,
         Self::Logs,
+        Self::Settings,
         Self::Help,
     ];
 
@@ -40,6 +42,7 @@ impl UiRoute {
             Self::Test => "Test",
             Self::Site => "Site",
             Self::Logs => "Logs",
+            Self::Settings => "Settings",
             Self::Help => "Help",
         }
     }

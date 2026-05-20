@@ -1,14 +1,17 @@
 use super::state::UiState;
 use crate::Target;
 use serde::{Deserialize, Serialize};
+use std::collections::VecDeque;
 use std::fs::{self, OpenOptions};
 use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
 use std::process::{Command, ExitStatus, Stdio};
 use std::sync::{Arc, Mutex};
 use std::thread;
-use std::time::Duration;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
+pub(crate) const DEFAULT_SCROLLBACK_LINES: usize = 100_000;
+const MAX_SCROLLBACK_LINE_CHARS: usize = 4096;
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub(crate) enum UiCommand {
@@ -32,7 +35,7 @@ pub(crate) enum UiCommand {
 pub(crate) struct CommandRecord {
     pub(crate) title: String,
     pub(crate) status: CommandStatus,
-    pub(crate) output: String,
+    pub(crate) output: ScrollbackBuffer,
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -43,6 +46,111 @@ pub(crate) enum CommandStatus {
     Ok,
     Failed,
     Started,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct ScrollbackBuffer {
+    inner: Arc<Mutex<ScrollbackBufferData>>,
+}
+
+#[derive(Debug, Eq, PartialEq)]
+struct ScrollbackBufferData {
+    limit: usize,
+    dropped_lines: usize,
+    lines: VecDeque<String>,
+}
+
+impl Default for ScrollbackBuffer {
+    fn default() -> Self {
+        Self::new(DEFAULT_SCROLLBACK_LINES)
+    }
+}
+
+impl ScrollbackBuffer {
+    pub(crate) fn new(limit: usize) -> Self {
+        Self {
+            inner: Arc::new(Mutex::new(ScrollbackBufferData {
+                limit: limit.max(1),
+                dropped_lines: 0,
+                lines: VecDeque::new(),
+            })),
+        }
+    }
+
+    pub(crate) fn from_text(limit: usize, text: impl AsRef<str>) -> Self {
+        let mut buffer = Self::new(limit);
+        for line in text.as_ref().lines() {
+            buffer.push_line(line);
+        }
+        if buffer.display_line_count() == 0 {
+            buffer.push_line("");
+        }
+        buffer
+    }
+
+    pub(crate) fn set_limit(&mut self, limit: usize) {
+        let mut data = self.inner.lock().expect("scrollback lock poisoned");
+        data.limit = limit.max(1);
+        data.trim_to_limit();
+    }
+
+    pub(crate) fn push_line(&mut self, line: &str) {
+        let mut data = self.inner.lock().expect("scrollback lock poisoned");
+        data.lines.push_back(truncate_line(line));
+        data.trim_to_limit();
+    }
+
+    pub(crate) fn display_line_count(&self) -> usize {
+        let data = self.inner.lock().expect("scrollback lock poisoned");
+        data.lines.len() + usize::from(data.dropped_lines > 0)
+    }
+
+    pub(crate) fn visible_lines(&self, start: usize, count: usize) -> Vec<String> {
+        let mut visible = Vec::new();
+        if count == 0 {
+            return visible;
+        }
+        let data = self.inner.lock().expect("scrollback lock poisoned");
+        let marker_lines = usize::from(data.dropped_lines > 0);
+        if data.dropped_lines > 0 && start == 0 {
+            visible.push(format!(
+                "... {} older lines discarded by scrollback limit ...",
+                data.dropped_lines
+            ));
+        }
+        let first_buffer_line = start.saturating_sub(marker_lines);
+        let remaining = count.saturating_sub(visible.len());
+        visible.extend(
+            data.lines
+                .iter()
+                .skip(first_buffer_line)
+                .take(remaining)
+                .cloned(),
+        );
+        visible
+    }
+}
+
+impl PartialEq for ScrollbackBuffer {
+    fn eq(&self, other: &Self) -> bool {
+        if Arc::ptr_eq(&self.inner, &other.inner) {
+            return true;
+        }
+        let data = self.inner.lock().expect("scrollback lock poisoned");
+        let other_data = other.inner.lock().expect("scrollback lock poisoned");
+        *data == *other_data
+    }
+}
+
+impl Eq for ScrollbackBuffer {}
+
+impl ScrollbackBufferData {
+    fn trim_to_limit(&mut self) {
+        while self.lines.len() > self.limit {
+            self.lines.pop_front();
+            self.dropped_lines = self.dropped_lines.saturating_add(1);
+        }
+    }
 }
 
 impl CommandStatus {
@@ -60,6 +168,7 @@ impl CommandStatus {
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct CommandSnapshot {
     pub(crate) generation: u64,
+    pub(crate) revision: u64,
     pub(crate) record: CommandRecord,
     pub(crate) finished: bool,
 }
@@ -88,12 +197,14 @@ struct CommandRuntimeState {
 }
 
 impl CommandRuntime {
-    fn begin(&self, record: CommandRecord) -> u64 {
+    fn begin(&self, mut record: CommandRecord, limit: usize) -> u64 {
         let mut state = self.inner.lock().expect("command runtime lock poisoned");
         state.next_generation = state.next_generation.saturating_add(1);
         let generation = state.next_generation;
+        record.output.set_limit(limit);
         state.snapshot = Some(CommandSnapshot {
             generation,
+            revision: 0,
             record,
             finished: false,
         });
@@ -109,6 +220,7 @@ impl CommandRuntime {
             return;
         }
         update(&mut snapshot.record, &mut snapshot.finished);
+        snapshot.revision = snapshot.revision.saturating_add(1);
     }
 
     pub(crate) fn snapshot(&self) -> Option<CommandSnapshot> {
@@ -117,6 +229,14 @@ impl CommandRuntime {
             .expect("command runtime lock poisoned")
             .snapshot
             .clone()
+    }
+
+    pub(crate) fn set_limit(&self, limit: usize) {
+        let mut state = self.inner.lock().expect("command runtime lock poisoned");
+        if let Some(snapshot) = state.snapshot.as_mut() {
+            snapshot.record.output.set_limit(limit);
+            snapshot.revision = snapshot.revision.saturating_add(1);
+        }
     }
 }
 
@@ -135,20 +255,30 @@ enum CommandMode {
 pub(crate) fn execute_ui_command(state: &mut UiState, command: UiCommand) {
     if matches!(command, UiCommand::Refresh) {
         state.refresh();
-        state.last_command = Some(CommandRecord {
+        let record = CommandRecord {
             title: "Refresh".to_string(),
             status: CommandStatus::Ok,
-            output: "Project, target, and device state refreshed.".to_string(),
-        });
+            output: ScrollbackBuffer::from_text(
+                state.scrollback_limit,
+                "Project, target, and device state refreshed.",
+            ),
+        };
+        state.last_log_line_count = record.output.display_line_count();
+        state.last_command = Some(record);
         return;
     }
 
     let Some(plan) = command_plan(state, command) else {
-        state.last_command = Some(CommandRecord {
+        let record = CommandRecord {
             title: "Action unavailable".to_string(),
             status: CommandStatus::Failed,
-            output: "Select a target or device before running this action.".to_string(),
-        });
+            output: ScrollbackBuffer::from_text(
+                state.scrollback_limit,
+                "Select a target or device before running this action.",
+            ),
+        };
+        state.last_log_line_count = record.output.display_line_count();
+        state.last_command = Some(record);
         return;
     };
 
@@ -156,6 +286,7 @@ pub(crate) fn execute_ui_command(state: &mut UiState, command: UiCommand) {
         CommandMode::Capture => start_capture_command(state, plan),
         CommandMode::Spawn { log_name } => spawn_command(state, &plan, log_name),
     };
+    state.last_log_line_count = record.output.display_line_count();
     state.last_command = Some(record);
 }
 
@@ -415,9 +546,14 @@ fn start_capture_command(state: &UiState, plan: CommandPlan) -> CommandRecord {
     let initial_record = CommandRecord {
         title: plan.title.clone(),
         status: CommandStatus::Running,
-        output: format!("Running `{command_line}`..."),
+        output: ScrollbackBuffer::from_text(
+            state.scrollback_limit,
+            format!("Running `{command_line}`..."),
+        ),
     };
-    let generation = state.command_runtime.begin(initial_record.clone());
+    let generation = state
+        .command_runtime
+        .begin(initial_record.clone(), state.scrollback_limit);
     let runtime = state.command_runtime.clone();
     let mut command = command_base(state);
     command
@@ -435,7 +571,9 @@ fn run_capture_command(runtime: CommandRuntime, generation: u64, mut command: Co
         Err(error) => {
             runtime.update(generation, |record, finished| {
                 record.status = CommandStatus::Failed;
-                record.output = format!("Failed to start command: {error}");
+                record
+                    .output
+                    .push_line(&format!("Failed to start command: {error}"));
                 *finished = true;
             });
             return;
@@ -443,7 +581,9 @@ fn run_capture_command(runtime: CommandRuntime, generation: u64, mut command: Co
     };
 
     runtime.update(generation, |record, _| {
-        record.output = format!("Started process {}.\n{}", child.id(), record.output);
+        record
+            .output
+            .push_line(&format!("Started process {}.", child.id()));
     });
 
     let (tx, rx) = std::sync::mpsc::channel::<String>();
@@ -463,7 +603,9 @@ fn run_capture_command(runtime: CommandRuntime, generation: u64, mut command: Co
             Err(error) => {
                 runtime.update(generation, |record, finished| {
                     record.status = CommandStatus::Failed;
-                    append_output(record, &format!("Failed to wait for command: {error}"));
+                    record
+                        .output
+                        .push_line(&format!("Failed to wait for command: {error}"));
                     *finished = true;
                 });
                 return;
@@ -505,7 +647,7 @@ fn drain_output(runtime: &CommandRuntime, generation: u64, rx: &std::sync::mpsc:
     }
     runtime.update(generation, |record, _| {
         for line in lines {
-            append_output(record, &line);
+            record.output.push_line(&line);
         }
     });
 }
@@ -517,16 +659,13 @@ fn finish_capture_command(runtime: &CommandRuntime, generation: u64, status: Exi
         } else {
             CommandStatus::Failed
         };
-        append_output(
-            record,
-            &format!(
-                "Command exited with {}.",
-                status
-                    .code()
-                    .map(|code| format!("status {code}"))
-                    .unwrap_or_else(|| "no status code".to_string())
-            ),
-        );
+        record.output.push_line(&format!(
+            "Command exited with {}.",
+            status
+                .code()
+                .map(|code| format!("status {code}"))
+                .unwrap_or_else(|| "no status code".to_string())
+        ));
         *finished = true;
     });
 }
@@ -542,7 +681,10 @@ fn spawn_command(state: &UiState, plan: &CommandPlan, log_name: &str) -> Command
         return CommandRecord {
             title: plan.title.clone(),
             status: CommandStatus::Failed,
-            output: format!("Failed to create log file {}", log_path.display()),
+            output: ScrollbackBuffer::from_text(
+                state.scrollback_limit,
+                format!("Failed to create log file {}", log_path.display()),
+            ),
         };
     };
     let err = match log.try_clone() {
@@ -551,7 +693,10 @@ fn spawn_command(state: &UiState, plan: &CommandPlan, log_name: &str) -> Command
             return CommandRecord {
                 title: plan.title.clone(),
                 status: CommandStatus::Failed,
-                output: format!("Failed to prepare log file: {error}"),
+                output: ScrollbackBuffer::from_text(
+                    state.scrollback_limit,
+                    format!("Failed to prepare log file: {error}"),
+                ),
             };
         }
     };
@@ -564,16 +709,22 @@ fn spawn_command(state: &UiState, plan: &CommandPlan, log_name: &str) -> Command
         Ok(child) => CommandRecord {
             title: plan.title.clone(),
             status: CommandStatus::Started,
-            output: format!(
-                "Started process {}. Output is being written to {}.",
-                child.id(),
-                log_path.display()
+            output: ScrollbackBuffer::from_text(
+                state.scrollback_limit,
+                format!(
+                    "Started process {}. Output is being written to {}.",
+                    child.id(),
+                    log_path.display()
+                ),
             ),
         },
         Err(error) => CommandRecord {
             title: plan.title.clone(),
             status: CommandStatus::Failed,
-            output: format!("Failed to start command: {error}"),
+            output: ScrollbackBuffer::from_text(
+                state.scrollback_limit,
+                format!("Failed to start command: {error}"),
+            ),
         },
     }
 }
@@ -599,32 +750,6 @@ fn ui_log_path(state: &UiState, name: &str) -> PathBuf {
     dir.join(format!("{name}-{stamp}.log"))
 }
 
-fn trim_output(mut output: String) -> String {
-    const MAX: usize = 7000;
-    while output.ends_with('\n') || output.ends_with('\r') {
-        output.pop();
-    }
-    if output.is_empty() {
-        return "Command completed without output.".to_string();
-    }
-    if output.len() > MAX {
-        let start = output.len().saturating_sub(MAX);
-        format!("... output truncated ...\n{}", &output[start..])
-    } else {
-        output
-    }
-}
-
-fn append_output(record: &mut CommandRecord, line: &str) {
-    if record.output.is_empty() {
-        record.output.push_str(line);
-    } else {
-        record.output.push('\n');
-        record.output.push_str(line);
-    }
-    record.output = trim_output(std::mem::take(&mut record.output));
-}
-
 fn format_command_line(args: &[String]) -> String {
     let exe = std::env::current_exe()
         .ok()
@@ -639,6 +764,18 @@ fn format_command_line(args: &[String]) -> String {
         .join(" ")
 }
 
+fn truncate_line(line: &str) -> String {
+    if line.chars().count() <= MAX_SCROLLBACK_LINE_CHARS {
+        return line.to_string();
+    }
+    let mut truncated = line
+        .chars()
+        .take(MAX_SCROLLBACK_LINE_CHARS)
+        .collect::<String>();
+    truncated.push_str(" ...");
+    truncated
+}
+
 fn shell_word(value: &str) -> String {
     if value
         .chars()
@@ -647,5 +784,48 @@ fn shell_word(value: &str) -> String {
         value.to_string()
     } else {
         format!("'{}'", value.replace('\'', "'\\''"))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn scrollback_buffer_discards_oldest_lines_at_limit() {
+        let mut buffer = ScrollbackBuffer::new(3);
+        for line in ["one", "two", "three", "four", "five"] {
+            buffer.push_line(line);
+        }
+
+        assert_eq!(buffer.display_line_count(), 4);
+        assert_eq!(
+            buffer.visible_lines(0, 4),
+            vec![
+                "... 2 older lines discarded by scrollback limit ...".to_string(),
+                "three".to_string(),
+                "four".to_string(),
+                "five".to_string()
+            ]
+        );
+    }
+
+    #[test]
+    fn scrollback_buffer_limit_can_be_reduced() {
+        let mut buffer = ScrollbackBuffer::new(5);
+        for line in ["one", "two", "three", "four"] {
+            buffer.push_line(line);
+        }
+
+        buffer.set_limit(2);
+
+        assert_eq!(
+            buffer.visible_lines(0, 3),
+            vec![
+                "... 2 older lines discarded by scrollback limit ...".to_string(),
+                "three".to_string(),
+                "four".to_string()
+            ]
+        );
     }
 }
