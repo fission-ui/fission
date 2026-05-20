@@ -241,7 +241,7 @@ impl<'a> MarkdownRenderer<'a> {
                 out.push_str(line.as_ref());
                 out
             });
-        let language = code.language_str(self.source).unwrap_or("").trim();
+        let language = markdown_code_language(code.language_str(self.source).unwrap_or(""));
         let mut children = Vec::new();
         if !language.is_empty() {
             children.push(
@@ -253,7 +253,7 @@ impl<'a> MarkdownRenderer<'a> {
             );
         }
         children.push(
-            Text::new(text)
+            Text::new(text.clone())
                 .size(13.0)
                 .line_height(18.0)
                 .family(self.code_family.clone())
@@ -261,7 +261,7 @@ impl<'a> MarkdownRenderer<'a> {
                 .into_node(),
         );
 
-        Container::new(
+        let code_content = Container::new(
             VStack {
                 spacing: Some(6.0),
                 children,
@@ -272,6 +272,13 @@ impl<'a> MarkdownRenderer<'a> {
         .border(self.palette.border.with_alpha(130), 1.0)
         .border_radius(8.0)
         .padding_all(12.0)
+        .into_node();
+
+        Column {
+            children: vec![code_content],
+            semantics: Some(markdown_code_semantics(language, text)),
+            ..Default::default()
+        }
         .into_node()
     }
 
@@ -683,6 +690,27 @@ fn markdown_semantics(identifier: impl Into<String>) -> Semantics {
         identifier: Some(identifier.into()),
         ..Semantics::default()
     }
+}
+
+fn markdown_code_semantics(language: &str, code: String) -> Semantics {
+    Semantics {
+        role: Role::Generic,
+        identifier: Some(format!("markdown-code-block:{language}")),
+        label: Some(if language.is_empty() {
+            "Code block".to_string()
+        } else {
+            format!("{language} code block")
+        }),
+        value: Some(code),
+        ..Semantics::default()
+    }
+}
+
+fn markdown_code_language(raw: &str) -> &str {
+    raw.trim()
+        .split(|ch: char| ch.is_whitespace() || ch == ',' || ch == ';')
+        .next()
+        .unwrap_or("")
 }
 
 fn markdown_anchor(value: &str) -> String {

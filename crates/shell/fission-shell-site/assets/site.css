@@ -24,6 +24,24 @@ img, svg { max-width: 100%; }
 
 .fission-site-theme-toggle { cursor: pointer; }
 
+.fission-site-code-block {
+  width: 100%;
+  max-width: 100%;
+  margin: 0;
+  padding: 0.9rem 1rem;
+  overflow-x: auto;
+  border: 1px solid color-mix(in srgb, var(--fs-color-border) 76%, transparent);
+  border-radius: 0.65rem;
+  background: var(--fs-color-surface-raised);
+}
+
+.fission-site-code-block code {
+  font-family: var(--fs-font-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
+  font-size: 0.875rem;
+  line-height: 1.6;
+  white-space: pre;
+}
+
 .fission-site-box,
 .fission-site-grid,
 .fission-site-scroll,

@@ -34,7 +34,7 @@ fn renders_common_markdown_blocks_to_fission_nodes() {
     };
     assert_eq!(column.children.len(), 6);
     assert!(matches!(column.children[0], Node::RichText(_)));
-    assert!(matches!(column.children[2], Node::Container(_)));
+    assert!(matches!(column.children[2], Node::Column(_)));
     assert!(matches!(column.children[3], Node::Column(_)));
     assert!(matches!(column.children[4], Node::Container(_)));
     assert!(matches!(column.children[5], Node::Container(_)));
@@ -50,6 +50,16 @@ fn renders_common_markdown_blocks_to_fission_nodes() {
         .runs
         .iter()
         .any(|run| run.text == "code" && run.style.font_family.is_some()));
+
+    let Node::Column(code) = &column.children[2] else {
+        panic!("expected code block to carry semantics");
+    };
+    let semantics = code.semantics.as_ref().expect("code block semantics");
+    assert_eq!(
+        semantics.identifier.as_deref(),
+        Some("markdown-code-block:rust")
+    );
+    assert_eq!(semantics.value.as_deref(), Some("let x = 1;\n"));
 }
 
 #[test]

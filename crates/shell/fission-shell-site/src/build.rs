@@ -3,8 +3,8 @@ use crate::document::{
 };
 use crate::front_matter::split_front_matter;
 use crate::html::{
-    render_ir_to_html_with_styles, theme_variables_css, CssVariableMap, HtmlRenderOptions,
-    StyleRegistry,
+    render_ir_to_html_with_styles, theme_variables_css, CodeHighlightingOptions, CssVariableMap,
+    HtmlRenderOptions, StyleRegistry,
 };
 use crate::site::{normalize_site_path, ContentTransform, FissionSite, SiteRenderContext};
 use anyhow::{bail, Context, Result};
@@ -34,6 +34,7 @@ pub struct SiteBuildOptions {
     pub asset_dirs: Vec<PathBuf>,
     pub generate_sitemap: bool,
     pub generate_robots: bool,
+    pub code_highlighting: CodeHighlightingOptions,
     pub clean: bool,
 }
 
@@ -67,6 +68,7 @@ impl SiteBuildOptions {
             asset_dirs: Vec::new(),
             generate_sitemap: false,
             generate_robots: false,
+            code_highlighting: CodeHighlightingOptions::default(),
             clean: true,
         }
     }
@@ -143,6 +145,10 @@ impl SiteBuildOptions {
             .collect();
         let generate_sitemap = site.generate_sitemap.unwrap_or(false);
         let generate_robots = site.generate_robots.unwrap_or(false);
+        let code_highlighting = site
+            .code_highlighting
+            .map(CodeHighlightingOptions::from)
+            .unwrap_or_default();
         Ok(Self {
             project_dir,
             output_dir,
@@ -157,6 +163,7 @@ impl SiteBuildOptions {
             asset_dirs,
             generate_sitemap,
             generate_robots,
+            code_highlighting,
             clean: true,
         })
     }
@@ -675,6 +682,7 @@ fn render_node_to_html(
         css_variables: CssVariableMap::from_theme(&site.theme),
         default_theme_mode: site.default_theme_mode,
         theme_switching: site.theme_switching,
+        code_highlighting: options.code_highlighting.clone(),
         structured_data: structured_data_for_route(
             options,
             title,
@@ -1117,6 +1125,26 @@ struct ProjectSite {
     generate_sitemap: Option<bool>,
     #[serde(default)]
     generate_robots: Option<bool>,
+    #[serde(default)]
+    code_highlighting: Option<ProjectCodeHighlighting>,
+}
+
+#[derive(Debug, Deserialize, Default)]
+struct ProjectCodeHighlighting {
+    enabled: Option<bool>,
+    stylesheet_href: Option<String>,
+    script_src: Option<String>,
+}
+
+impl From<ProjectCodeHighlighting> for CodeHighlightingOptions {
+    fn from(value: ProjectCodeHighlighting) -> Self {
+        let defaults = CodeHighlightingOptions::default();
+        Self {
+            enabled: value.enabled.unwrap_or(false),
+            stylesheet_href: value.stylesheet_href.unwrap_or(defaults.stylesheet_href),
+            script_src: value.script_src.unwrap_or(defaults.script_src),
+        }
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -1187,7 +1215,7 @@ mod tests {
         fs::create_dir_all(temp.join("content")).unwrap();
         fs::write(
             temp.join("content/getting-started.md"),
-            "---\ntitle: Getting started\ndescription: First page\n---\n# Getting started\n\nThis is rendered by Fission.",
+            "---\ntitle: Getting started\ndescription: First page\n---\n# Getting started\n\nThis is rendered by Fission.\n\n```rust\nlet answer = 42;\n```",
         )
         .unwrap();
         let mut options = SiteBuildOptions::for_project(&temp, "Test site");
@@ -1195,6 +1223,7 @@ mod tests {
         options.default_locale = "en-GB".to_string();
         options.generate_sitemap = true;
         options.generate_robots = true;
+        options.code_highlighting.enabled = true;
         let report = build_content_site(&options).unwrap();
         let output = temp.join("target/fission/site/content/getting-started/index.html");
         assert_eq!(report.routes.len(), 1);
@@ -1206,6 +1235,9 @@ mod tests {
         assert!(html.contains("rel=\"canonical\""));
         assert!(html.contains("property=\"og:locale\" content=\"en_GB\""));
         assert!(html.contains("application/ld+json"));
+        assert!(html.contains("<pre class=\"fission-site-code-block\""));
+        assert!(html.contains("class=\"language-rust\""));
+        assert!(html.contains("highlight.js/11.11.1/highlight.min.js"));
         let css = fs::read_to_string(temp.join("target/fission/site/site.css")).unwrap();
         assert!(css.contains(":root"));
         assert!(css.contains(".fs_"));

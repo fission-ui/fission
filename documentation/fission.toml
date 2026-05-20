@@ -18,6 +18,9 @@ description = "Build production desktop, web, Android, and iOS apps with Fission
 logo = "/img/fission-mark.svg"
 asset_dirs = ["../website/static"]
 
+[site.code_highlighting]
+enabled = true
+
 [[site.nav]]
 title = "Learn"
 href = "/docs/learn/overview/"

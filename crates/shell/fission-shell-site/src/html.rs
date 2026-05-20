@@ -21,6 +21,7 @@ pub struct HtmlRenderOptions {
     pub css_variables: CssVariableMap,
     pub default_theme_mode: Option<DesignMode>,
     pub theme_switching: bool,
+    pub code_highlighting: CodeHighlightingOptions,
     pub structured_data: Vec<String>,
 }
 
@@ -38,7 +39,29 @@ impl Default for HtmlRenderOptions {
             css_variables: CssVariableMap::default(),
             default_theme_mode: None,
             theme_switching: false,
+            code_highlighting: CodeHighlightingOptions::default(),
             structured_data: Vec::new(),
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CodeHighlightingOptions {
+    pub enabled: bool,
+    pub stylesheet_href: String,
+    pub script_src: String,
+}
+
+impl Default for CodeHighlightingOptions {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            stylesheet_href:
+                "https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.11.1/styles/github-dark.min.css"
+                    .to_string(),
+            script_src:
+                "https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.11.1/highlight.min.js"
+                    .to_string(),
         }
     }
 }
@@ -68,13 +91,15 @@ pub fn render_ir_to_html_with_styles(
         ir,
         options,
         styles,
+        has_code_blocks: false,
     };
     let body = renderer.render_node(root)?;
+    let has_code_blocks = renderer.has_code_blocks;
     let body_html = format!(
         "<div class=\"{}\">{body}</div>",
         escape_attr(&options.root_class)
     );
-    let html = render_document(&body_html, options);
+    let html = render_document(&body_html, options, has_code_blocks);
     Ok(RenderedHtml {
         html,
         body_html,
@@ -82,7 +107,7 @@ pub fn render_ir_to_html_with_styles(
     })
 }
 
-fn render_document(body_html: &str, options: &HtmlRenderOptions) -> String {
+fn render_document(body_html: &str, options: &HtmlRenderOptions, has_code_blocks: bool) -> String {
     let mut metadata = String::new();
     if let Some(value) = options.description.as_ref() {
         metadata.push_str(&format!(
@@ -156,12 +181,24 @@ fn render_document(body_html: &str, options: &HtmlRenderOptions) -> String {
             format!(" data-theme=\"{mode}\"")
         })
         .unwrap_or_default();
+    let code_highlighting_assets = code_highlighting_assets(options, has_code_blocks);
     let enhancement_script = site_enhancement_script(options.theme_switching);
     format!(
-        "<!doctype html>\n<html lang=\"{}\"{theme_attr}>\n  <head>\n    <meta charset=\"utf-8\">\n    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">{metadata}\n    <title>{}</title>\n    <link rel=\"stylesheet\" href=\"{}\">{enhancement_script}\n  </head>\n  <body>\n    {body_html}\n  </body>\n</html>\n",
+        "<!doctype html>\n<html lang=\"{}\"{theme_attr}>\n  <head>\n    <meta charset=\"utf-8\">\n    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">{metadata}\n    <title>{}</title>\n    <link rel=\"stylesheet\" href=\"{}\">{code_highlighting_assets}{enhancement_script}\n  </head>\n  <body>\n    {body_html}\n  </body>\n</html>\n",
         escape_attr(&options.lang),
         escape_text(&options.document_title),
         escape_attr(&options.stylesheet_href)
+    )
+}
+
+fn code_highlighting_assets(options: &HtmlRenderOptions, has_code_blocks: bool) -> String {
+    if !has_code_blocks || !options.code_highlighting.enabled {
+        return String::new();
+    }
+    format!(
+        "\n    <link rel=\"stylesheet\" href=\"{}\">\n    <script defer src=\"{}\"></script>\n    <script>document.addEventListener('DOMContentLoaded',function(){{if(window.hljs){{window.hljs.highlightAll();}}}});</script>",
+        escape_attr(&options.code_highlighting.stylesheet_href),
+        escape_attr(&options.code_highlighting.script_src),
     )
 }
 
@@ -394,6 +431,7 @@ struct HtmlRenderer<'a> {
     ir: &'a CoreIR,
     options: &'a HtmlRenderOptions,
     styles: &'a mut StyleRegistry,
+    has_code_blocks: bool,
 }
 
 impl HtmlRenderer<'_> {
@@ -781,6 +819,9 @@ impl HtmlRenderer<'_> {
             if let Some(cell_kind) = identifier.strip_prefix("markdown-table-cell:") {
                 return self.render_markdown_table_cell(node, cell_kind);
             }
+            if let Some(language) = identifier.strip_prefix("markdown-code-block:") {
+                return self.render_markdown_code_block(node, language, semantics.value.as_deref());
+            }
             if identifier.starts_with("site-") {
                 return self.render_site_semantic_wrapper(
                     node,
@@ -864,6 +905,32 @@ impl HtmlRenderer<'_> {
         Ok(format!(
             "<{tag} class=\"fission-site-markdown-table-cell{align_class}\" data-fission-node=\"{}\">{children}</{tag}>",
             node.id
+        ))
+    }
+
+    fn render_markdown_code_block(
+        &mut self,
+        node: &CoreNode,
+        language: &str,
+        code: Option<&str>,
+    ) -> Result<String> {
+        self.has_code_blocks = true;
+        let Some(code) = code else {
+            return self.render_site_semantic_wrapper(node, "markdown-code-block", None);
+        };
+        let language = code_language_class(language);
+        let class_attr = language
+            .as_ref()
+            .map(|language| format!(" class=\"language-{}\"", escape_attr(language)))
+            .unwrap_or_default();
+        let data_language = language
+            .as_ref()
+            .map(|language| format!(" data-fission-code-language=\"{}\"", escape_attr(language)))
+            .unwrap_or_default();
+        Ok(format!(
+            "<pre class=\"fission-site-code-block\"{data_language} data-fission-node=\"{}\"><code{class_attr}>{}</code></pre>",
+            node.id,
+            escape_text(code)
         ))
     }
 
@@ -1155,6 +1222,16 @@ fn markdown_heading_anchor(identifier: &str) -> Option<&str> {
         .split_once(':')
         .map(|(_, anchor)| anchor)
         .filter(|anchor| !anchor.is_empty())
+}
+
+fn code_language_class(language: &str) -> Option<String> {
+    let mut class = String::new();
+    for ch in language.trim().chars() {
+        if ch.is_ascii_alphanumeric() || ch == '-' || ch == '_' {
+            class.push(ch.to_ascii_lowercase());
+        }
+    }
+    (!class.is_empty()).then_some(class)
 }
 
 fn relative_href_for_route(current_route_path: &str, target: &str) -> String {
