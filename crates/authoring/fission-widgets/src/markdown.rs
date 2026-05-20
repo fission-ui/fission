@@ -1,7 +1,7 @@
 use crate::stack::VStack;
 use fission_core::op::Color;
 use fission_core::ui::{
-    Column, Container, Image, Node, RichText, RichTextRun, Row, Scroll, Text, TextFontStyle,
+    Container, Image, Node, RichText, RichTextRun, Row, Scroll, Text, TextFontStyle,
 };
 use fission_core::{BuildCtx, FlexDirection, View, Widget};
 use fission_ir::op::{AlignItems, ImageFit};
@@ -92,6 +92,11 @@ struct MarkdownRenderer<'a> {
     palette: MarkdownPalette,
     body_size: f32,
     line_height: f32,
+    heading_family: String,
+    heading_sizes: [f32; 6],
+    heading_line_height: f32,
+    image_width: f32,
+    image_height: f32,
     code_family: String,
 }
 
@@ -112,6 +117,18 @@ impl<'a> MarkdownRenderer<'a> {
             },
             body_size: tokens.typography.body_medium_size,
             line_height: tokens.typography.body_medium_size * tokens.typography.line_height_normal,
+            heading_family: tokens.typography.font_family_serif.clone(),
+            heading_sizes: [
+                tokens.typography.heading1_size,
+                tokens.typography.heading2_size,
+                tokens.typography.heading_size,
+                tokens.typography.font_size_xl,
+                tokens.typography.font_size_lg,
+                tokens.typography.font_size_base,
+            ],
+            heading_line_height: tokens.typography.line_height_heading,
+            image_width: tokens.spacing.xxxxl * 8.0,
+            image_height: tokens.spacing.xxxxl * 6.0,
             code_family: tokens.typography.font_family_mono.clone(),
         }
     }
@@ -160,19 +177,14 @@ impl<'a> MarkdownRenderer<'a> {
 
     fn heading(&self, node_ref: NodeRef, heading: &Heading) -> Node {
         let level = heading.level().clamp(1, 6);
-        let size = match level {
-            1 => 32.0,
-            2 => 26.0,
-            3 => 22.0,
-            4 => 19.0,
-            5 => 17.0,
-            _ => 15.0,
-        };
+        let size = self.heading_sizes[(level - 1) as usize];
 
         let mut style = self.inline_style(size);
         style.font_weight = Some(700);
+        style.font_family = Some(self.heading_family.clone());
 
         RichText::new(self.inline_runs(node_ref, style))
+            .strut_line_height(size * self.heading_line_height)
             .semantics_identifier(format!(
                 "markdown-heading-{level}:{}",
                 markdown_anchor(&self.plain_text(node_ref))
@@ -208,37 +220,15 @@ impl<'a> MarkdownRenderer<'a> {
         }
     }
 
-    fn image_block(&self, node_ref: NodeRef, image: &MarkdownImage) -> Node {
-        let alt = self.plain_text(node_ref);
+    fn image_block(&self, _node_ref: NodeRef, image: &MarkdownImage) -> Node {
         let source = image.destination_str(self.source).to_string();
-        Container::new(
-            Column {
-                children: vec![
-                    Image {
-                        source,
-                        height: Some(280.0),
-                        fit: Some(ImageFit::Contain),
-                        ..Default::default()
-                    }
-                    .into_node(),
-                    if alt.trim().is_empty() {
-                        Text::new("").size(0.0).into_node()
-                    } else {
-                        Text::new(alt)
-                            .size(12.0)
-                            .color(self.palette.text_secondary)
-                            .into_node()
-                    },
-                ],
-                gap: Some(8.0),
-                ..Default::default()
-            }
-            .into_node(),
-        )
-        .bg(self.palette.surface)
-        .border(self.palette.border.with_alpha(140), 1.0)
-        .border_radius(12.0)
-        .padding_all(10.0)
+        Image {
+            source,
+            width: Some(self.image_width),
+            height: Some(self.image_height),
+            fit: Some(ImageFit::Contain),
+            ..Default::default()
+        }
         .into_node()
     }
 
