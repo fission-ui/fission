@@ -103,6 +103,8 @@ pub mod shell {
     pub use fission_shell_mobile::*;
     #[cfg(feature = "site")]
     pub use fission_shell_site::*;
+    #[cfg(feature = "terminal-shell")]
+    pub use fission_shell_terminal::*;
     #[cfg(all(
         any(feature = "web", feature = "platform-shells"),
         target_arch = "wasm32"
@@ -114,6 +116,12 @@ pub mod shell {
 #[cfg(feature = "site")]
 pub mod site {
     pub use fission_shell_site::*;
+}
+
+/// Terminal shell APIs.
+#[cfg(feature = "terminal-shell")]
+pub mod terminal {
+    pub use fission_shell_terminal::*;
 }
 
 /// Rendering primitives — DisplayList, DisplayOp, TextStyle, Color.
@@ -180,6 +188,8 @@ pub use fission_shell_desktop::DesktopApp;
     any(target_os = "android", target_os = "ios")
 ))]
 pub use fission_shell_mobile::MobileApp;
+#[cfg(feature = "terminal-shell")]
+pub use fission_shell_terminal::TerminalApp;
 #[cfg(all(
     any(feature = "web", feature = "platform-shells"),
     target_arch = "wasm32"
@@ -247,6 +257,8 @@ pub mod prelude {
     pub use fission_shell_mobile::MobileApp;
     #[cfg(feature = "site")]
     pub use fission_shell_site::*;
+    #[cfg(feature = "terminal-shell")]
+    pub use fission_shell_terminal::TerminalApp;
     #[cfg(all(
         any(feature = "web", feature = "platform-shells"),
         target_arch = "wasm32"
