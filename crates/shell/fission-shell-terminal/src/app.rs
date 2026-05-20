@@ -6,7 +6,8 @@ use crate::verify::verify_terminal_ir;
 use anyhow::{Context, Result};
 use crossterm::cursor::{Hide, MoveTo, Show};
 use crossterm::event::{
-    self, Event, KeyCode as CtKeyCode, KeyEventKind, KeyModifiers, MouseButton, MouseEventKind,
+    self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode as CtKeyCode, KeyEventKind,
+    KeyModifiers, MouseButton, MouseEventKind,
 };
 use crossterm::style::{
     Color as CtColor, Print, ResetColor, SetBackgroundColor, SetForegroundColor,
@@ -58,6 +59,7 @@ where
     layout_engine: LayoutEngine,
     env: Env,
     sync_env: Option<Box<dyn Fn(&S, &mut Env)>>,
+    state_update: Option<Box<dyn FnMut(&mut S) -> bool>>,
     measurer: Arc<dyn TextMeasurer>,
     last_ir: Option<CoreIR>,
     last_snapshot: Option<LayoutSnapshot>,
@@ -93,6 +95,7 @@ where
             layout_engine: LayoutEngine::new().with_measurer(measurer.clone()),
             env,
             sync_env: None,
+            state_update: None,
             measurer,
             last_ir: None,
             last_snapshot: None,
@@ -115,6 +118,14 @@ where
         F: Fn(&S, &mut Env) + 'static,
     {
         self.sync_env = Some(Box::new(sync));
+        self
+    }
+
+    pub fn with_state_update<F>(mut self, update: F) -> Self
+    where
+        F: FnMut(&mut S) -> bool + 'static,
+    {
+        self.state_update = Some(Box::new(update));
         self
     }
 
@@ -190,10 +201,17 @@ where
 
         loop {
             if !event::poll(options.poll_interval)? {
+                if self.update_state()? {
+                    let next_size = terminal_size_or_options(&options)?;
+                    let clear = next_size != current_size;
+                    current_size = next_size;
+                    frame = self.render_frame(next_size.0, next_size.1)?;
+                    render_to_terminal(&mut stdout, &frame, clear)?;
+                }
                 continue;
             }
 
-            let mut dirty = false;
+            let mut dirty = self.update_state()?;
             let mut clear = false;
             match event::read()? {
                 Event::Key(key) if should_exit(key.code, key.modifiers) => break,
@@ -232,6 +250,17 @@ where
             }
         }
         Ok(())
+    }
+
+    fn update_state(&mut self) -> Result<bool> {
+        let Some(update) = &mut self.state_update else {
+            return Ok(false);
+        };
+        let state = self
+            .runtime
+            .get_app_state_mut::<S>()
+            .context("terminal app state is missing")?;
+        Ok(update(state))
     }
 
     fn build_node_tree(&mut self, viewport: LayoutSize) -> Result<Node> {
@@ -464,7 +493,7 @@ struct TerminalGuard;
 impl TerminalGuard {
     fn enter(stdout: &mut Stdout) -> Result<Self> {
         terminal::enable_raw_mode()?;
-        execute!(stdout, EnterAlternateScreen, Hide)?;
+        execute!(stdout, EnterAlternateScreen, EnableMouseCapture, Hide)?;
         Ok(Self)
     }
 }
@@ -472,7 +501,13 @@ impl TerminalGuard {
 impl Drop for TerminalGuard {
     fn drop(&mut self) {
         let mut stdout = stdout();
-        let _ = execute!(stdout, Show, ResetColor, LeaveAlternateScreen);
+        let _ = execute!(
+            stdout,
+            Show,
+            ResetColor,
+            DisableMouseCapture,
+            LeaveAlternateScreen
+        );
         let _ = terminal::disable_raw_mode();
     }
 }

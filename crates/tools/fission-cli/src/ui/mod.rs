@@ -44,6 +44,7 @@ pub(crate) fn run_ui(options: UiOptions) -> Result<()> {
                 UiThemeMode::Light => fission::theme::Theme::default(),
             };
         })
+        .with_state_update(|state| state.poll_command_status())
         .run_with_options(run_options)
 }
 

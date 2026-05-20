@@ -1,4 +1,4 @@
-use super::commands::CommandRecord;
+use super::commands::{CommandRecord, CommandRuntime};
 use super::routes::UiRoute;
 use super::theme::UiThemeMode;
 use crate::{read_project_config, workflow, Target};
@@ -28,6 +28,9 @@ pub(crate) struct UiState {
     pub(crate) no_open: bool,
     pub(crate) headless: bool,
     pub(crate) last_command: Option<CommandRecord>,
+    pub(crate) command_runtime: CommandRuntime,
+    pub(crate) last_command_generation: u64,
+    pub(crate) last_refreshed_command_generation: u64,
 }
 
 impl AppState for UiState {}
@@ -122,6 +125,26 @@ impl UiState {
                     .unwrap_or(true)
             })
             .collect()
+    }
+
+    pub(crate) fn poll_command_status(&mut self) -> bool {
+        let Some(snapshot) = self.command_runtime.snapshot() else {
+            return false;
+        };
+        let mut changed = false;
+        if self.last_command_generation != snapshot.generation
+            || self.last_command.as_ref() != Some(&snapshot.record)
+        {
+            self.last_command = Some(snapshot.record);
+            self.last_command_generation = snapshot.generation;
+            changed = true;
+        }
+        if snapshot.finished && self.last_refreshed_command_generation != snapshot.generation {
+            self.last_refreshed_command_generation = snapshot.generation;
+            self.refresh();
+            changed = true;
+        }
+        changed
     }
 }
 

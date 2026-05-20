@@ -16,7 +16,7 @@ impl Widget<UiState> for OutputPanel {
             Some(record) => (
                 record.title.clone(),
                 record.status,
-                first_lines(&record.output, (self.height as usize).saturating_sub(3)),
+                last_lines(&record.output, (self.height as usize).saturating_sub(3)),
             ),
             None => (
                 "Ready".to_string(),
@@ -26,6 +26,7 @@ impl Widget<UiState> for OutputPanel {
         };
         let status_color = match status {
             CommandStatus::Ready => palette.muted,
+            CommandStatus::Running => palette.warning,
             CommandStatus::Ok => palette.success,
             CommandStatus::Failed => palette.error,
             CommandStatus::Started => palette.warning,
@@ -58,7 +59,9 @@ impl Widget<UiState> for OutputPanel {
     }
 }
 
-fn first_lines(value: &str, max_lines: usize) -> String {
+fn last_lines(value: &str, max_lines: usize) -> String {
     let max_lines = max_lines.max(1);
-    value.lines().take(max_lines).collect::<Vec<_>>().join("\n")
+    let lines = value.lines().collect::<Vec<_>>();
+    let start = lines.len().saturating_sub(max_lines);
+    lines[start..].join("\n")
 }

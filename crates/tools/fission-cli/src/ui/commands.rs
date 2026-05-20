@@ -2,8 +2,12 @@ use super::state::UiState;
 use crate::Target;
 use serde::{Deserialize, Serialize};
 use std::fs::{self, OpenOptions};
+use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
-use std::process::{Command, Stdio};
+use std::process::{Command, ExitStatus, Stdio};
+use std::sync::{Arc, Mutex};
+use std::thread;
+use std::time::Duration;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -35,6 +39,7 @@ pub(crate) struct CommandRecord {
 pub(crate) enum CommandStatus {
     #[default]
     Ready,
+    Running,
     Ok,
     Failed,
     Started,
@@ -44,10 +49,74 @@ impl CommandStatus {
     pub(crate) fn label(self) -> &'static str {
         match self {
             Self::Ready => "Ready",
+            Self::Running => "Running",
             Self::Ok => "OK",
             Self::Failed => "Failed",
             Self::Started => "Started",
         }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct CommandSnapshot {
+    pub(crate) generation: u64,
+    pub(crate) record: CommandRecord,
+    pub(crate) finished: bool,
+}
+
+#[derive(Clone, Default)]
+pub(crate) struct CommandRuntime {
+    inner: Arc<Mutex<CommandRuntimeState>>,
+}
+
+impl std::fmt::Debug for CommandRuntime {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CommandRuntime").finish_non_exhaustive()
+    }
+}
+
+impl PartialEq for CommandRuntime {
+    fn eq(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.inner, &other.inner)
+    }
+}
+
+#[derive(Default)]
+struct CommandRuntimeState {
+    next_generation: u64,
+    snapshot: Option<CommandSnapshot>,
+}
+
+impl CommandRuntime {
+    fn begin(&self, record: CommandRecord) -> u64 {
+        let mut state = self.inner.lock().expect("command runtime lock poisoned");
+        state.next_generation = state.next_generation.saturating_add(1);
+        let generation = state.next_generation;
+        state.snapshot = Some(CommandSnapshot {
+            generation,
+            record,
+            finished: false,
+        });
+        generation
+    }
+
+    fn update(&self, generation: u64, update: impl FnOnce(&mut CommandRecord, &mut bool)) {
+        let mut state = self.inner.lock().expect("command runtime lock poisoned");
+        let Some(snapshot) = state.snapshot.as_mut() else {
+            return;
+        };
+        if snapshot.generation != generation {
+            return;
+        }
+        update(&mut snapshot.record, &mut snapshot.finished);
+    }
+
+    pub(crate) fn snapshot(&self) -> Option<CommandSnapshot> {
+        self.inner
+            .lock()
+            .expect("command runtime lock poisoned")
+            .snapshot
+            .clone()
     }
 }
 
@@ -84,11 +153,10 @@ pub(crate) fn execute_ui_command(state: &mut UiState, command: UiCommand) {
     };
 
     let record = match plan.mode {
-        CommandMode::Capture => capture_command(state, &plan),
+        CommandMode::Capture => start_capture_command(state, plan),
         CommandMode::Spawn { log_name } => spawn_command(state, &plan, log_name),
     };
     state.last_command = Some(record);
-    state.refresh();
 }
 
 fn command_plan(state: &UiState, command: UiCommand) -> Option<CommandPlan> {
@@ -342,30 +410,125 @@ fn selected_device_arg(state: &UiState) -> Option<String> {
     }
 }
 
-fn capture_command(state: &UiState, plan: &CommandPlan) -> CommandRecord {
-    match command_base(state).args(&plan.args).output() {
-        Ok(output) => {
-            let status = if output.status.success() {
-                CommandStatus::Ok
-            } else {
-                CommandStatus::Failed
-            };
-            CommandRecord {
-                title: plan.title.clone(),
-                status,
-                output: trim_output(format!(
-                    "{}\n{}",
-                    String::from_utf8_lossy(&output.stdout),
-                    String::from_utf8_lossy(&output.stderr)
-                )),
+fn start_capture_command(state: &UiState, plan: CommandPlan) -> CommandRecord {
+    let command_line = format_command_line(&plan.args);
+    let initial_record = CommandRecord {
+        title: plan.title.clone(),
+        status: CommandStatus::Running,
+        output: format!("Running `{command_line}`..."),
+    };
+    let generation = state.command_runtime.begin(initial_record.clone());
+    let runtime = state.command_runtime.clone();
+    let mut command = command_base(state);
+    command
+        .args(&plan.args)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+
+    thread::spawn(move || run_capture_command(runtime, generation, command));
+    initial_record
+}
+
+fn run_capture_command(runtime: CommandRuntime, generation: u64, mut command: Command) {
+    let mut child = match command.spawn() {
+        Ok(child) => child,
+        Err(error) => {
+            runtime.update(generation, |record, finished| {
+                record.status = CommandStatus::Failed;
+                record.output = format!("Failed to start command: {error}");
+                *finished = true;
+            });
+            return;
+        }
+    };
+
+    runtime.update(generation, |record, _| {
+        record.output = format!("Started process {}.\n{}", child.id(), record.output);
+    });
+
+    let (tx, rx) = std::sync::mpsc::channel::<String>();
+    if let Some(stdout) = child.stdout.take() {
+        pipe_lines(stdout, tx.clone());
+    }
+    if let Some(stderr) = child.stderr.take() {
+        pipe_lines(stderr, tx.clone());
+    }
+    drop(tx);
+
+    let status = loop {
+        drain_output(&runtime, generation, &rx);
+        match child.try_wait() {
+            Ok(Some(status)) => break status,
+            Ok(None) => thread::sleep(Duration::from_millis(50)),
+            Err(error) => {
+                runtime.update(generation, |record, finished| {
+                    record.status = CommandStatus::Failed;
+                    append_output(record, &format!("Failed to wait for command: {error}"));
+                    *finished = true;
+                });
+                return;
             }
         }
-        Err(error) => CommandRecord {
-            title: plan.title.clone(),
-            status: CommandStatus::Failed,
-            output: format!("Failed to start command: {error}"),
-        },
+    };
+    drain_output(&runtime, generation, &rx);
+    finish_capture_command(&runtime, generation, status);
+}
+
+fn pipe_lines<R>(reader: R, tx: std::sync::mpsc::Sender<String>)
+where
+    R: std::io::Read + Send + 'static,
+{
+    thread::spawn(move || {
+        for line in BufReader::new(reader).lines() {
+            match line {
+                Ok(line) => {
+                    if tx.send(line).is_err() {
+                        break;
+                    }
+                }
+                Err(error) => {
+                    let _ = tx.send(format!("Failed to read command output: {error}"));
+                    break;
+                }
+            }
+        }
+    });
+}
+
+fn drain_output(runtime: &CommandRuntime, generation: u64, rx: &std::sync::mpsc::Receiver<String>) {
+    let mut lines = Vec::new();
+    while let Ok(line) = rx.try_recv() {
+        lines.push(line);
     }
+    if lines.is_empty() {
+        return;
+    }
+    runtime.update(generation, |record, _| {
+        for line in lines {
+            append_output(record, &line);
+        }
+    });
+}
+
+fn finish_capture_command(runtime: &CommandRuntime, generation: u64, status: ExitStatus) {
+    runtime.update(generation, |record, finished| {
+        record.status = if status.success() {
+            CommandStatus::Ok
+        } else {
+            CommandStatus::Failed
+        };
+        append_output(
+            record,
+            &format!(
+                "Command exited with {}.",
+                status
+                    .code()
+                    .map(|code| format!("status {code}"))
+                    .unwrap_or_else(|| "no status code".to_string())
+            ),
+        );
+        *finished = true;
+    });
 }
 
 fn spawn_command(state: &UiState, plan: &CommandPlan, log_name: &str) -> CommandRecord {
@@ -449,5 +612,40 @@ fn trim_output(mut output: String) -> String {
         format!("... output truncated ...\n{}", &output[start..])
     } else {
         output
+    }
+}
+
+fn append_output(record: &mut CommandRecord, line: &str) {
+    if record.output.is_empty() {
+        record.output.push_str(line);
+    } else {
+        record.output.push('\n');
+        record.output.push_str(line);
+    }
+    record.output = trim_output(std::mem::take(&mut record.output));
+}
+
+fn format_command_line(args: &[String]) -> String {
+    let exe = std::env::current_exe()
+        .ok()
+        .and_then(|path| {
+            path.file_name()
+                .map(|name| name.to_string_lossy().into_owned())
+        })
+        .unwrap_or_else(|| "fission".to_string());
+    std::iter::once(exe)
+        .chain(args.iter().map(|arg| shell_word(arg)))
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+fn shell_word(value: &str) -> String {
+    if value
+        .chars()
+        .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | '.' | '/' | ':' | '='))
+    {
+        value.to_string()
+    } else {
+        format!("'{}'", value.replace('\'', "'\\''"))
     }
 }
