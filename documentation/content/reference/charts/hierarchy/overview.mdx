@@ -1,0 +1,41 @@
+---
+title: Hierarchy
+sidebar_label: Overview
+description: Fission Charts reference for the Hierarchy family.
+---
+
+# Hierarchy
+
+The Hierarchy family contains 19 renderer-backed chart variants. Use this page as the entry point for choosing the right variant, then open the variant page for the screenshot, data shape, Rust API notes, and example code.
+
+The chart family is still ordinary Fission UI. Each variant is constructed from typed Rust data, participates in layout and theme decisions, and can be driven by app state, reducers, resources, jobs, or services just like any other widget.
+
+![Alert correlation graph screenshot](/img/charts/graph-alert-correlation.png)
+
+## Variants
+
+| Chart | Data shape | Use when |
+| --- | --- | --- |
+| [Alert correlation graph](./graph-alert-correlation) | Related alert nodes and links. | Use it for incident analysis. |
+| [Budget allocation treemap](./treemap-budget-allocation) | Nested budget values sized by area. | Use it for budget share exploration. |
+| [Channel mix river](./theme-river-channel-mix) | Channel values over time. | Use it to show mix changes without losing continuity. |
+| [Cost center treemap](./treemap-cost-centers) | Hierarchical values sized by area. | Use it for part-to-whole hierarchy analysis. |
+| [Customer journey graph](./graph-customer-journey) | Relationship nodes and edges. | Use it when paths and relationships matter more than axes. |
+| [Customer segment sunburst](./sunburst-customer-segments) | Nested customer groups by value. | Use it for segment hierarchy and share. |
+| [Energy balance sankey](./sankey-energy-balance) | Flow nodes and links. | Use it for transfer and loss diagrams. |
+| [Feature area sunburst](./sunburst-feature-areas) | Nested values in radial layers. | Use it for hierarchical composition with depth. |
+| [File ownership tree](./tree-file-ownership) | Nested file or team ownership nodes. | Use it for repository and ownership views. |
+| [Lead flow sankey](./sankey-lead-flow) | Nodes and directed weighted links. | Use it when movement between stages is the question. |
+| [Org revenue sunburst](./sunburst-org-revenue) | Hierarchy values as radial rings. | Use it when hierarchy and whole composition both matter. |
+| [Platform module tree](./tree-platform-modules) | Nested named nodes with values. | Use it for ownership and dependency hierarchy. |
+| [Platform topology graph](./graph-platform-topology) | Platform nodes and dependency edges. | Use it for system overview screens. |
+| [Product taxonomy tree](./tree-product-taxonomy) | Nested product categories. | Use it when users browse hierarchical structure. |
+| [Radial service tree](./tree-radial-services) | Nested nodes arranged radially. | Use it when a compact hierarchy is needed. |
+| [Resolution path sankey](./sankey-resolution-path) | Support stages as flow links. | Use it to analyze process movement. |
+| [Service dependencies](./graph-service-dependencies) | Nodes and links with values. | Use it to explain relationship topology. |
+| [Storage class treemap](./treemap-storage-classes) | Nested values by storage class. | Use it when area should communicate magnitude. |
+| [Support theme river](./theme-river-support) | Stacked stream values by time and category. | Use it for shifting composition over time. |
+
+## Choosing within this family
+
+Start with the user's question, not the visual effect. Pick the simplest variant that makes the answer clear, add interaction only when it reduces work for the user, and keep animation purposeful enough that it explains a change rather than decorating the page.

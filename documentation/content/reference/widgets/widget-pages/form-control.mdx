@@ -1,0 +1,60 @@
+---
+title: FormControl
+description: Wrap a form field with a label, helper text, and error message in one consistent layout.
+slug: /widgets/form-control
+---
+# FormControl
+
+`FormControl` is the wrapper you use to make form fields feel consistent.
+
+Instead of rebuilding label text, helper copy, required markers, and validation placement around every field by hand, `FormControl` gives those pieces one predictable vertical layout. This is helpful for text fields, selects, comboboxes, and any other control that belongs in a form.
+
+## Example
+
+```rust
+use fission::prelude::*;
+
+let node = FormControl {
+id: None,
+label: Some("Email address".into()),
+required: true,
+error: view.state.email_error.clone(),
+helper: Some("We use this for receipts and login alerts.".into()),
+child: Box::new(
+    TextInput {
+        value: view.state.email.clone(),
+        label: Some("Email address".into()),
+        on_change: Some(email_change_action),
+        ..Default::default()
+    }
+    .into_node(),
+),
+}
+.build(ctx, view);
+```
+
+The wrapper controls layout and presentation. The child still owns the actual input event flow.
+
+## Field table
+
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `id` | `Option<WidgetNodeId>` | Optional stable identity for the wrapper. | Defaults to `None`. |
+| `label` | `Option<String>` | Visible label shown above the child. | Defaults to `None`. |
+| `child` | `Box<Node>` | The field or control being wrapped. | Required. |
+| `error` | `Option<String>` | Validation message shown below the child. | If present, it takes precedence over `helper`. |
+| `helper` | `Option<String>` | Supporting copy shown below the child when there is no error. | Defaults to `None`. |
+| `required` | `bool` | Whether the label should show a required marker. | Defaults to `false`. |
+
+## What it does and what it does not do
+
+`FormControl` solves visual consistency. It does not validate values, run reducers, or automatically connect label semantics to the child. That last point matters: the checked-in implementation renders the label as text above the child, but it does not inject that label into the child's accessibility semantics for you. If the child needs a semantic label, set it on the child widget too.
+
+## Specific advice
+
+Use `FormControl` when the child is part of a larger form with validation or supporting copy. Skip it for controls that already come with their own integrated label and meaning, such as many simple [`Checkbox`](/reference/widgets/checkbox) rows.
+
+## Related
+
+[`TextInput`](/reference/widgets/text-input), [`Select`](/reference/widgets/select), [`Combobox`](/reference/widgets/combobox), and [`Checkbox`](/reference/widgets/checkbox).
+

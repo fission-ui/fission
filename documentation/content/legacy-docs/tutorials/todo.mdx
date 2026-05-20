@@ -1,0 +1,175 @@
+---
+title: Todo application tutorial
+description: Add list state, persistence intent, and async paths with commands, services, and jobs.
+---
+
+# Todo application tutorial
+
+This builds the state model further and introduces async scaffolding.
+
+You will implement:
+
+- list CRUD in reducers,
+- completion events,
+- async persistence hooks (job pattern),
+- semantics for interactive controls,
+- and tests at reducer, input, and interaction levels.
+
+## Full starter implementation
+
+Replace your `src/app.rs` with:
+
+```rust
+use fission::prelude::*;
+use serde::{Deserialize, Serialize};
+
+#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+struct TodoState {
+    next_id: u32,
+    input: String,
+    items: Vec<TodoItem>,
+    loading: bool,
+    error: Option<String>,
+}
+
+#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+struct TodoItem {
+    id: u32,
+    title: String,
+    done: bool,
+}
+
+impl AppState for TodoState {}
+
+#[fission_action]
+struct UpdateDraft(String);
+#[fission_action]
+struct AddTodo;
+#[fission_action]
+struct ToggleTodo(u32);
+#[fission_action]
+struct LoadTodosDone;
+
+fn on_update_draft(
+    state: &mut TodoState,
+    action: UpdateDraft,
+    _ctx: &mut ReducerContext<TodoState>,
+) {
+    state.input = action.0;
+}
+
+fn on_add_todo(
+    state: &mut TodoState,
+    _action: AddTodo,
+    ctx: &mut ReducerContext<TodoState>,
+) {
+    if state.input.trim().is_empty() {
+        return;
+    }
+
+    let id = state.next_id;
+    state.next_id += 1;
+    state.items.push(TodoItem {
+        id,
+        title: state.input.clone(),
+        done: false,
+    });
+    state.input.clear();
+
+    let on_ok = ctx.effects.bind(LoadTodosDone, reduce_with!(on_load_todos_done));
+    let _ = on_ok;
+    ctx.effects.app("todo_load_job", state.input.clone()).on_ok(on_ok);
+}
+
+fn on_toggle_todo(
+    state: &mut TodoState,
+    action: ToggleTodo,
+    _ctx: &mut ReducerContext<TodoState>,
+) {
+    if let Some(item) = state.items.iter_mut().find(|item| item.id == action.0) {
+        item.done = !item.done;
+    }
+}
+
+fn on_load_todos_done(
+    state: &mut TodoState,
+    _action: LoadTodosDone,
+    ctx: &mut ReducerContext<TodoState>,
+) {
+    state.loading = false;
+    if let Ok(data) = ctx.input.app_result::<String>("todo_load_job") {
+        state.input = data;
+    }
+}
+
+struct TodoApp;
+
+impl Widget<TodoState> for TodoApp {
+    fn build(&self, ctx: &mut BuildCtx<TodoState>, view: &View<TodoState>) -> Node {
+        let update = with_reducer!(ctx, UpdateDraft, on_update_draft);
+        let add = with_reducer!(ctx, AddTodo, on_add_todo);
+
+        let mut rows = Vec::new();
+        for item in &view.state.items {
+            let toggle = with_reducer!(ctx, ToggleTodo(item.id), on_toggle_todo);
+            rows.push(
+                Row {
+                    children: vec![
+                        Text::new(if item.done { "✓" } else { "○" }.to_string()).into_node(),
+                        Text::new(item.title.clone()).into_node(),
+                        Button {
+                            child: Some(Box::new(Text::new("toggle").into_node())),
+                            semantics: Some(Semantics {
+                                role: Role::Button,
+                                label: Some("Toggle todo".into()),
+                                focusable: true,
+                                ..Default::default()
+                            }),
+                            on_press: Some(toggle),
+                            ..Default::default()
+                        }
+                        .into_node(),
+                    ],
+                    ..Default::default()
+                }
+                .into_node(),
+            );
+        }
+
+        Scroll {
+            child: Some(Box::new(
+                Column {
+                    gap: Some(12.0),
+                    children: rows,
+                    ..Default::default()
+                }
+                .into_node(),
+            )),
+            ..Default::default()
+        }
+        .into_node()
+    }
+}
+```
+
+## Why this shape works
+
+- list updates are local and reducer-driven,
+- command pattern is set up for async hydration,
+- toggle checks remain deterministic because payloads are explicit,
+- text content and semantics are tested with roles.
+
+## Verification sequence
+
+1. `cargo run`
+2. add two todos
+3. toggle each todo
+4. verify persistence message area updates only from reducer actions
+
+## Suggested tests
+
+- reducer tests for `on_add_todo` and `on_toggle_todo`
+- input tests for completion flow (`LoadTodosDone`)
+- headless role query for buttons
+
+This completes the foundation for production-level behavior, and prepares you for production diagnostics + target smoke.

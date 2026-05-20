@@ -1,0 +1,107 @@
+---
+title: Widget trait
+description: The core build contract for Fission widgets, including the roles of BuildCtx and View.
+---
+
+# Widget trait
+
+The `Widget` trait is the fundamental authoring contract in Fission.
+
+A widget is a reusable piece of user interface that reads current inputs and returns a description of what should appear on screen right now. A whole app screen can be a widget. A toolbar can be a widget. A modal dialog, a status badge, or a small field wrapper can also be widgets.
+
+In Fission, widgets do not own your product state. They read it.
+
+That design is the reason the trait is centered on `build()`.
+
+## Trait signature
+
+```rust
+pub trait Widget<S: AppState> {
+    fn build(&self, ctx: &mut BuildCtx<S>, view: &View<S>) -> Node;
+}
+```
+
+This signature is small, but each parameter has a distinct job.
+
+| Part | What it is | Why it exists |
+| --- | --- | --- |
+| `S: AppState` | The concrete application state type for the widget tree | Keeps widgets tied to a typed shared app model |
+| `ctx: &mut BuildCtx<S>` | The build-time registration and wiring context | Lets widgets bind actions and declare runtime-managed behavior |
+| `view: &View<S>` | The read-only input bundle for the current build | Lets widgets read state, runtime-owned values, environment values, and prior layout data |
+| `Node` | The authored user interface description returned by `build()` | Gives the runtime a deterministic tree to lower, lay out, and render |
+
+## What a widget means in Fission
+
+A Fission widget is a description layer, not a small state container with hidden callbacks.
+
+That is an important distinction for beginners and for teams coming from callback-heavy user interface systems. A widget should describe what the interface looks like for the current inputs. It should not quietly become the source of truth for product state or a side-effect escape hatch.
+
+This is why Fission keeps state in `AppState`, updates it through reducers, and passes the current values into widgets through `View`.
+
+## Why `build()` exists
+
+`build()` exists so the runtime can ask a widget the same clear question every frame: given the current inputs, what user interface should exist now?
+
+That question may be asked after user input, after a reducer update, after a viewport change, after a timer tick, or during a test harness pump. The answer should still be a fresh user interface description derived from current inputs, not from hidden history stored inside the widget.
+
+This model keeps rebuilding normal and safe. It also keeps the widget tree compatible with deterministic testing and cross-platform hosting.
+
+## What it means for `build()` to be pure
+
+In Fission, `build()` must be pure.
+
+That means it reads its inputs, records runtime wiring through `BuildCtx`, and returns a `Node` tree. It does not perform unrelated outside work while it is deciding what to render.
+
+In practice, a pure `build()` method:
+
+- reads app state through `view.state`,
+- reads environment or runtime values through `view`,
+- binds actions or declares resources through `ctx`,
+- returns user interface description,
+- and avoids direct side effects such as file writes, network requests, or hidden global mutation.
+
+Why does this rule exist? Because `build()` may run often. If rendering a screen also triggered I/O or background work implicitly, the user interface would become difficult to predict and hard to test. Purity keeps rebuilds safe and replayable.
+
+## What `BuildCtx` is for
+
+`BuildCtx` is the write-only runtime wiring helper for the build phase.
+
+Use it when the widget needs to tell the runtime about behavior that should outlive this one function call. The most common examples are:
+
+- binding a widget event to an action and reducer handler with `ctx.bind(...)`,
+- registering actions up front,
+- declaring runtime-managed resources through `ctx.resources`,
+- requesting animations,
+- registering portals, video nodes, or web views.
+
+`BuildCtx` is not the place to read product data. It is not a substitute for `View`. It is also not a direct side-effect runner. Declaring a resource or animation request through `BuildCtx` is still descriptive. The runtime performs the actual work later.
+
+## What `View` is for
+
+`View` is the read-only input bundle for `build()`.
+
+It gives a widget access to the current `AppState`, runtime-owned values, `Env`, and the previous layout snapshot when available. Public helpers include theme access, internationalization access, viewport size, prior geometry lookup, selectors, animation values, and video state lookup.
+
+Use `View` when the question is "what does the app currently know?" or "what context is active for this build?"
+
+That makes it the right source for decisions such as these:
+
+- which branch of the user interface should render,
+- which text should appear,
+- whether the viewport is wide enough for a split layout,
+- where an anchored overlay should position itself based on previous geometry,
+- what translated or themed values should be displayed.
+
+## Common implementation mistakes to avoid
+
+The most common mistake is putting side effects directly in `build()`. If a widget starts a network request, writes a file, or mutates a global during build, the user interface becomes unpredictable fast.
+
+Another common mistake is storing durable product truth inside the widget instead of in `AppState`. Widgets should describe the user interface from state, not compete with it.
+
+Another mistake is blurring `BuildCtx` and `View`. Read through `View`. Register through `BuildCtx`.
+
+Finally, avoid reaching for custom lowering too early. `Node::Custom(...)` and `LowerDyn` are real extension points, but most screens should stay in ordinary widget composition until there is a clear need for lower-level control.
+
+## Related reference pages
+
+If the question has moved from widgets to state flow, open [State system](/reference/core/state-system). If the question is really about what happens after `build()`, continue to [Rendering pipeline](/reference/core/rendering-pipeline). For the slower teaching version of this model, return to [Runtime model](/docs/learn/runtime-model).

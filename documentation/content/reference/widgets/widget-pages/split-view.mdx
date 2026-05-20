@@ -1,0 +1,56 @@
+---
+title: SplitView
+description: Divide space between two panes using a split ratio and a visual divider.
+slug: /widgets/split-view
+---
+# SplitView
+
+`SplitView` divides one region into two panes.
+
+It is a good fit for desktop-style layouts such as sidebar plus content, editor plus inspector, or top pane plus bottom pane. The widget keeps the code honest about the fact that the screen has two coordinated regions rather than one long flow of content.
+
+Use `SplitView` when the product really has two panes that share space. Do not use it as a substitute for general responsiveness. If the layout sometimes wants two panes and sometimes wants one vertical flow, make that breakpoint choice outside `SplitView`, often with [`LayoutBuilder`](/reference/widgets/layout-builder).
+
+## Example
+
+```rust
+use fission::core::ui::Text;
+use fission::prelude::*;
+
+let node = SplitView {
+    id: fission::core::WidgetNodeId::explicit("mail_shell"),
+    direction: SplitDirection::Horizontal,
+    first: Box::new(Text::new("Folders").into_node()),
+    second: Box::new(Text::new("Message list").into_node()),
+    split_ratio: 0.28,
+    on_resize: None,
+}
+.build(ctx, view);
+```
+
+## Field table
+
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `id` | `WidgetNodeId` | Stable identity for the split surface. | Required. |
+| `direction` | `SplitDirection` | Whether the panes are left/right or top/bottom. | Required. |
+| `first` | `Box<Node>` | Content of the first pane. | Required. |
+| `second` | `Box<Node>` | Content of the second pane. | Required. |
+| `split_ratio` | `f32` | Share of space given to the first pane. | Clamped by the current implementation to `0.1..=0.9`. |
+| `on_resize` | `Option<ActionEnvelope>` | Reserved callback field for resize interaction. | Present in the public type, but the current checked-in implementation does not wire live dragging through this field yet. |
+
+## Current behavior
+
+The checked-in implementation renders the panes using `flex_grow` values derived from `split_ratio` and inserts a thin visual divider between them. `Horizontal` mode uses a `Row`; `Vertical` mode uses a `Column`.
+
+The important implementation detail today is that the divider is visual rather than fully interactive. The `on_resize` field exists on the type, but the current public implementation does not dispatch resize actions from drag input yet.
+
+## Specific advice
+
+`SplitView` is already useful for stable two-pane composition, especially on desktop-width layouts. Just do not document or design around live divider dragging unless you also control an implementation layer that adds it.
+
+If the app needs real responsive adaptation between one-pane and two-pane layouts, keep that structural branch outside this widget and let `SplitView` stay focused on the two-pane case.
+
+## Related
+
+[`SplitDirection`](/reference/widgets/split-direction), [`LayoutBuilder`](/reference/widgets/layout-builder), [`Row`](/reference/widgets/row), and [`Column`](/reference/widgets/column).

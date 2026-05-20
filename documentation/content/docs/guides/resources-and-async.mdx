@@ -1,0 +1,367 @@
+---
+title: Resources and async
+description: Learn how jobs, services, commands, resources, capabilities, and reducer effects work together without putting side effects inside reducers.
+---
+
+# Resources and async
+
+This is one of the most important parts of Fission to understand well.
+
+A production app always needs outside work. It saves files. It talks to the network. It starts background processes. It asks the host to open native pickers or URLs. It wakes up on timers. The question is not whether those things happen. The question is where they happen, and whether the architecture still stays predictable when they do.
+
+Fission's answer is strict by design.
+
+Reducers update state. They do not directly perform outside work.
+
+Outside work is requested explicitly through runtime effects or declared as a runtime-managed resource. That is what keeps the reducer model replayable, testable, and understandable.
+
+This page uses one running example: imagine a workspace-style editor. The app can save the current file, ask the host to open a file picker, keep a language service running, send commands to that service, and poll for background changes while a panel is visible.
+
+## Start with `ReducerContext` and `ctx.effects`
+
+When a reducer only needs to update state, it may ignore its third parameter. But when it needs to request outside work or inspect additional input, it uses `ReducerContext`.
+
+`ReducerContext` gives you two important things.
+
+First, `ctx.effects`, which is the builder for explicit runtime effects. This is where reducers request jobs, services, commands, and capabilities.
+
+Second, `ctx.input`, which holds the input that arrived with this reducer call. That input may contain a job result, a timer tick payload, a capability result, pointer coordinates, dropped files, or a service event. In other words, reducers do not need hidden globals to find out what came back from the runtime. The data arrives explicitly.
+
+That is the framing for everything else on this page.
+
+## Jobs: one request, one result
+
+A job is the simplest async shape in Fission.
+
+A job is for one-shot work: you ask for something once, and you expect one success or one failure back. Saving a file, loading a document, parsing an import, or fetching one payload are all good job-shaped tasks.
+
+Why keep jobs separate from reducers? Because the reducer should be able to say "saving has started" without becoming the file system itself. The reducer decides when the work should begin. The runtime performs the work after the reducer returns. The result then comes back as another action.
+
+That usually looks like this:
+
+```rust
+fn on_save_requested(
+    state: &mut EditorState,
+    _action: SaveRequested,
+    ctx: &mut ReducerContext<EditorState>,
+) {
+    if state.saving {
+        return;
+    }
+
+    state.saving = true;
+    state.error_message = None;
+
+    ctx.effects
+        .app(
+            SAVE_FILE_JOB,
+            SaveFileRequest {
+                path: state.current_path.clone(),
+                contents: state.buffer.clone(),
+            },
+        )
+        .on_ok(ctx.effects.bind(
+            SaveSucceeded,
+            reduce_with!(on_save_succeeded),
+        ))
+        .on_err(ctx.effects.bind(
+            SaveFailed,
+            reduce_with!(on_save_failed),
+        ));
+}
+```
+
+The job definition itself lives elsewhere, usually in a shared async registration setup. The important part here is the flow shape.
+
+Use a job when the work is finite and request-shaped.
+
+Do not use a job for a long-lived connection, a continuously running process, or something that should stay mounted while a widget subtree exists. Those cases belong to services or resources.
+
+A common mistake is starting the same job repeatedly from `build()`. If the work should happen because a user acted, start it from a reducer through `ctx.effects`. If the work should stay alive while a screen is mounted, declare it as a resource instead.
+
+## Capabilities: one-shot work owned by the host
+
+A capability looks similar to a job from the reducer's point of view, but it has a different purpose.
+
+A capability is for host or device work that belongs to the shell side of the app boundary. Opening a web address or showing a native file picker are good examples. Fission currently ships typed built-in capabilities such as `OPEN_URL` and `PICK_OPEN_FILES`. Product-specific host work, such as authentication, payments, or device integrations, should be modeled as custom capabilities registered by the shell.
+
+Use a capability when the question is not "run my app logic in the background" but "ask the host to do something that only the host can do."
+
+A file picker request is a good example:
+
+```rust
+fn on_pick_file(
+    _state: &mut EditorState,
+    _action: PickFileRequested,
+    ctx: &mut ReducerContext<EditorState>,
+) {
+    ctx.effects
+        .capability(
+            PICK_OPEN_FILES,
+            PickOpenFilesRequest {
+                allow_multiple: false,
+                mime_types: vec!["text/plain".into()],
+                extensions: vec!["txt".into(), "md".into()],
+            },
+        )
+        .on_ok(ctx.effects.bind(
+            FilePicked,
+            reduce_with!(on_file_picked),
+        ))
+        .on_err(ctx.effects.bind(
+            FilePickFailed,
+            reduce_with!(on_file_pick_failed),
+        ));
+}
+```
+
+Why keep capabilities separate from reducers? For the same reason as jobs: reducers stay pure and replayable. They decide that a picker should open. They do not open it themselves.
+
+Do not use a capability for ordinary application background work that could run as a job or service. If the work does not need the host boundary, a capability is usually the wrong abstraction.
+
+A common mistake is treating capabilities as a generic escape hatch for anything asynchronous. Resist that temptation. Use them for host-owned actions specifically. If the user interface should show an alert inside your app, build it with Fission UI. Reach for a capability only when the host itself must own the operation.
+
+## Services: long-lived external conversations
+
+A service is for long-lived work that stays alive across time and may emit multiple events.
+
+Think about a language server, a file watcher, a background sync connection, or some other external process that stays running after it starts. That is not a one-shot job. It is a conversation.
+
+Fission models that conversation through `ServiceSpec`, `ServiceType`, and `ServiceSlot`. A service can be started, can emit events while it runs, can receive commands, and can be stopped.
+
+This is why services are separated from reducers. A reducer can say "start the language service for this workspace" without becoming responsible for maintaining the process itself.
+
+An event-driven service start looks like this:
+
+```rust
+let slot = ServiceSlot::singleton(LANGUAGE_SERVICE);
+
+ctx.effects
+    .start_service(slot, LanguageConfig {
+        root_path: state.workspace_root.clone(),
+    })
+    .on_started(ctx.effects.bind(
+        LanguageServiceStarted,
+        reduce_with!(on_language_started),
+    ))
+    .on_event(ctx.effects.bind(
+        LanguageServiceEvent,
+        reduce_with!(on_language_event),
+    ))
+    .on_start_failed(ctx.effects.bind(
+        LanguageServiceStartFailed,
+        reduce_with!(on_language_start_failed),
+    ));
+```
+
+Use a service when the work has identity over time.
+
+Do not use a service when you only need one answer and no long-lived relationship. That is a job.
+
+A common mistake is starting a service in response to every button press without deciding who owns its lifetime. If the service should exist only while a particular screen or subtree is mounted, a `ServiceResource` is often the better tool.
+
+## Commands: messages sent to a running service
+
+A command is not a separate lifetime model. It is the way you talk to an already running service.
+
+If the service is the conversation, a command is one message inside that conversation.
+
+For example, once a language service is already running, a reducer may want to ask it for completion items or tell it that the current document changed. That is command-shaped work.
+
+```rust
+let slot = ServiceSlot::singleton(LANGUAGE_SERVICE);
+
+ctx.effects
+    .command(
+        slot,
+        LanguageCommand::RequestCompletions {
+            path: state.current_path.clone(),
+            cursor: state.cursor_position,
+        },
+    )
+    .on_ok(ctx.effects.bind(
+        CompletionsLoaded,
+        reduce_with!(on_completions_loaded),
+    ))
+    .on_err(ctx.effects.bind(
+        CompletionRequestFailed,
+        reduce_with!(on_completion_request_failed),
+    ));
+```
+
+Use a command when the service already exists and you want a response to one request inside that long-lived session.
+
+Do not use a command before the service has started, and do not use a command to create a service implicitly. Start the service explicitly first or declare it as a resource.
+
+A common mistake is using a service plus command pair for work that never actually needs to persist. If every interaction just spins something up and tears it back down, the work is probably job-shaped instead.
+
+## Resources: work that should exist while a widget subtree exists
+
+So far, the examples have all been reducer-driven. A user action happened, so the reducer requested work.
+
+Resources solve a different problem.
+
+A resource is work that should stay mounted while a widget subtree exists. It is declared during `build()` through `BuildCtx.resources`, and the runtime reconciles it over time by key and dependency payload.
+
+That distinction matters. Some work is not best described as "the user clicked a button." A polling timer may need to exist while a panel is visible. A background job may need to restart when a dependency changes. A long-lived service may need to stay alive for as long as a screen is mounted.
+
+Those are resource-shaped problems.
+
+Fission currently exposes three public resource types:
+
+- `JobResource`,
+- `ServiceResource`,
+- `TimerResource`.
+
+### `JobResource`
+
+A `JobResource` is a one-shot job whose lifetime is owned by the widget tree instead of a direct reducer event.
+
+Use it when the user interface should declare "while this screen is present and these dependencies have these values, this job should exist." The editor example uses this pattern for tree scans and git status refresh work.
+
+That looks like this in practice:
+
+```rust
+if view.state.tree_scan_pending() {
+    ctx.resources.job(
+        JobResource::new(
+            ResourceKey::new("editor-tree-scan"),
+            TREE_SCAN_JOB,
+            TreeScanRequest {
+                root_path: view.state.root_path.clone(),
+                generation: view.state.tree_scan_generation,
+            },
+        )
+        .deps((
+            view.state.root_path.clone(),
+            view.state.tree_scan_generation,
+        ))
+        .on_ok(tree_scan_loaded)
+        .on_err(tree_scan_failed),
+    );
+}
+```
+
+Use a `JobResource` when the work is still one-shot but should be declared from current user interface state instead of a single user event.
+
+Do not use it for permanently running background conversations. That is what `ServiceResource` is for.
+
+A common mistake is forgetting to make the resource key stable or forgetting to include meaningful dependencies. If the key or dependency story is wrong, the runtime cannot reconcile the resource the way you intended.
+
+### `ServiceResource`
+
+A `ServiceResource` is the resource-owned version of a long-lived service.
+
+Use it when a service should exist while a subtree exists. For example, a screen showing live workspace activity may want a watcher or sync stream to stay mounted as long as that screen remains active.
+
+This keeps lifetime aligned with the widget tree instead of forcing reducers to manually remember when to start and stop the service.
+
+Do not use `ServiceResource` if the service lifetime is truly independent of user interface presence and should instead be started by explicit product actions.
+
+A common mistake is starting the same long-lived service both through reducer effects and as a resource. Pick one ownership model.
+
+### `TimerResource`
+
+A `TimerResource` is for periodic wakeups owned by the widget tree.
+
+This is the right tool for work such as polling a terminal session while the terminal panel is visible or refreshing background data at a regular interval while a screen is mounted.
+
+The terminal example uses exactly this pattern.
+
+```rust
+let poll_terminal = ctx.bind(
+    PollTerminal,
+    reduce_with!(poll_terminal),
+);
+
+ctx.resources.timer(
+    TimerResource::new(
+        ResourceKey::new("terminal-session-poll"),
+        Duration::from_millis(16),
+        PollTerminalTick,
+    )
+    .on_tick(poll_terminal),
+);
+```
+
+Use a timer resource when the app should wake up periodically because the current user interface needs it.
+
+Do not use a timer resource as a substitute for real event-driven modeling when no periodic work is actually needed. Also avoid keeping timers mounted for screens that are not visible anymore.
+
+A common mistake is placing polling logic in `build()` itself instead of declaring a timer resource that the runtime can manage cleanly.
+
+## Why resources are separated from reducers
+
+This is the heart of the design.
+
+Reducers answer "what should happen because this action occurred?" Resources answer "what work should stay mounted because this user interface state currently exists?"
+
+That separation keeps both halves simpler.
+
+Reducers remain deterministic state transitions with explicit effect requests.
+
+`build()` remains pure description, but it is still allowed to declare runtime-managed resources because those declarations are data, not immediate side effects.
+
+The runtime then compares resource declarations over time and starts, preserves, restarts, or stops them according to keys, dependencies, and policies.
+
+## Resource keys and restart policy matter
+
+Every resource has a key, and many resources also have dependency data.
+
+The key identifies which resource the runtime should reconcile across frames. Dependencies tell the runtime when the meaningful inputs changed.
+
+Fission also exposes resource policies such as `RestartOnChange` and `PreserveOnChange`.
+
+Use restart-on-change when the work should restart if its dependencies change. Use preserve-on-change when the resource should stay alive even if some tracked values changed.
+
+This is not decoration. It is the contract that keeps mounted async work predictable.
+
+A common mistake is choosing unstable or overly broad dependencies and then being surprised when resources restart too often.
+
+## Reading results back through `ctx.input`
+
+Reducers request work through `ctx.effects` or react to resource callbacks, and then they inspect results through `ctx.input`.
+
+This is the other half of the explicit model.
+
+For jobs, reducers can read `ctx.input.job_ok(...)`, `ctx.input.job_err(...)`, or `ctx.input.job_error_message(...)`.
+
+For capabilities, reducers can read `ctx.input.capability_ok(...)`, `ctx.input.capability_error(...)`, or `ctx.input.capability_error_message(...)`.
+
+For services, reducers can read `ctx.input.service_event(...)`, `ctx.input.service_start_err(...)`, `ctx.input.service_start_error_message(...)`, `ctx.input.service_command_ok(...)`, and `ctx.input.service_command_err(...)`.
+
+For timers, reducers can read `ctx.input.timer_tick::<T>()`.
+
+This keeps all returned data explicit. If a job failed, the reducer can record the error message in app state. If a timer tick arrived, the reducer can update only the state that genuinely depends on that tick.
+
+## Choosing the right tool
+
+Here is the practical summary.
+
+Use a job when you need one request and one result.
+
+Use a capability when the host must perform the work.
+
+Use a service when the work is a long-lived external conversation.
+
+Use a command when you need to send one message to a service that is already running.
+
+Use a resource when the lifetime of the work should follow the widget tree instead of a single reducer event.
+
+If you are unsure between a job and a service, ask whether the work has identity after it starts. If it does, it is probably service-shaped. If you are unsure between a reducer effect and a resource, ask whether the work happens because of one action or because a subtree should stay mounted.
+
+## Common mistakes to avoid
+
+The first mistake is putting side effects directly inside `build()`. A rebuild is not a user intent. If `build()` starts network work, writes a file, or opens a picker, the app becomes unpredictable quickly.
+
+The second mistake is using reducers to manually manage long-lived background work that really belongs to a resource. That often creates start-stop logic spread across unrelated actions.
+
+The third mistake is using capabilities for non-host work. Capabilities are for host-owned actions, not a generic async bucket.
+
+The fourth mistake is using services when a job would be simpler. Long-lived abstractions carry real lifetime complexity, so do not introduce them without a long-lived need.
+
+The fifth mistake is choosing unstable resource keys or dependency payloads. Reconciliation only works when the runtime can tell what resource is supposed to persist.
+
+## Where to go next
+
+If you want the app-model foundation behind reducers and pure `build()` methods, revisit [Runtime model](/docs/learn/runtime-model). If you want to see responsive user interface and state-driven composition before adding async work, read [Layout and widgets](/docs/guides/layout-and-widgets). For a checked-in product example that uses job resources and timers heavily, inspect Fission Editor from the public [Examples](/examples) page after reading this guide.

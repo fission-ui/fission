@@ -1,0 +1,53 @@
+---
+title: Wrap
+description: Flow children across lines or columns when they exceed available space.
+slug: /widgets/wrap
+---
+# Wrap
+
+`Wrap` is the flow-layout helper for content that should continue onto another line or column when space runs out.
+
+This is a strong fit for chips, tag clouds, compact action sets, filter pills, or other repeated items that should flow naturally rather than force a strict grid or one long row.
+
+Use `Wrap` when wrapping behavior is the important part of the layout. Do not use it when you need exact track definitions or predictable card columns. For those cases, use [`Grid`](/reference/widgets/grid) or [`SimpleGrid`](/reference/widgets/simple-grid).
+
+## Example
+
+```rust
+use fission::core::ui::Text;
+use fission_ir::op::FlexDirection;
+use fission::prelude::*;
+
+let node = Wrap {
+    direction: FlexDirection::Row,
+    spacing: Some(8.0),
+    children: vec![
+        Text::new("Design").into_node(),
+        Text::new("Performance").into_node(),
+        Text::new("Accessibility").into_node(),
+    ],
+}
+.build(ctx, view);
+```
+
+## Field table
+
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `direction` | `FlexDirection` | Whether the flow starts as a row or a column. | Defaults to `FlexDirection::Row`. |
+| `spacing` | `Option<f32>` | Gap between items. | Defaults to `None`. |
+| `children` | `Vec<Node>` | Items that participate in the flow layout. | Defaults to an empty list. |
+
+## Layout behavior
+
+`Wrap` is implemented by building either a wrapping `Row` or a wrapping `Column`. That means it inherits the flex-style behavior of those primitives while forcing `FlexWrap::Wrap`.
+
+In practice, `FlexDirection::Row` is the common case. `FlexDirection::Column` is available for less common layouts where items should flow downward and then into another column.
+
+## Specific advice
+
+`Wrap` is best when items are relatively self-sized and the layout can stay visually loose. If you need every tile to respect a minimum width and create a more card-like responsive grid, prefer [`SimpleGrid`](/reference/widgets/simple-grid).
+
+## Related
+
+[`Row`](/reference/widgets/row), [`Column`](/reference/widgets/column), [`SimpleGrid`](/reference/widgets/simple-grid), and [`Grid`](/reference/widgets/grid).

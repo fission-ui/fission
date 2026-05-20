@@ -1,0 +1,36 @@
+---
+title: Scatter and statistical
+sidebar_label: Overview
+description: Fission Charts reference for the Scatter and statistical family.
+---
+
+# Scatter and statistical
+
+The Scatter and statistical family contains 14 renderer-backed chart variants. Use this page as the entry point for choosing the right variant, then open the variant page for the screenshot, data shape, Rust API notes, and example code.
+
+The chart family is still ordinary Fission UI. Each variant is constructed from typed Rust data, participates in layout and theme decisions, and can be driven by app state, reducers, resources, jobs, or services just like any other widget.
+
+![Candlestick with movement screenshot](/img/charts/candlestick-volume.png)
+
+## Variants
+
+| Chart | Data shape | Use when |
+| --- | --- | --- |
+| [Candlestick with movement](./candlestick-volume) | Rows of open, close, low, high values. | Use it for market and range-over-time data. |
+| [Conversion funnel](./funnel-conversion) | Ordered label/value pairs. | Use it for sales or onboarding funnels. |
+| [Distribution single axis](./single-axis-distribution) | Vec&lt;(value, size)&gt;. | Use it when a second axis adds noise. |
+| [Event single axis](./single-axis-events) | Vec&lt;(value, size)&gt;. | Use it for event density and distributions. |
+| [Intraday candlestick](./candlestick-intraday) | OHLC rows. | Use it for intraday or short-range market views. |
+| [Latency boxplot](./boxplot-latency) | Five-number summary rows. | Use it when distribution matters more than averages. |
+| [Market bubble chart](./scatter-bubble-market) | Vec&lt;(x, y, size)&gt;. | Use it for three-dimensional business comparisons. |
+| [Product parallel coordinates](./parallel-products) | Vec&lt;Vec&lt;f32&gt;&gt; observations. | Use it for multidimensional comparison. |
+| [Quality boxplot](./boxplot-quality) | Five-number summary rows. | Use it for process quality and batch comparisons. |
+| [Quality parallel coordinates](./parallel-quality) | Vec&lt;Vec&lt;f32&gt;&gt; observations. | Use it for filtering and comparing profiles. |
+| [Recruiting funnel](./funnel-recruiting) | Ordered label/value pairs. | Use it when stage drop-off matters. |
+| [Risk return scatter](./scatter-risk-return) | Vec&lt;(risk, return, exposure)&gt;. | Use it for portfolio-style comparisons. |
+| [Scatter clusters](./scatter-clusters) | Vec&lt;(f32, f32)&gt;. | Use it for correlation and clustering. |
+| [Scatter outliers](./scatter-outliers) | Vec&lt;(f32, f32)&gt; plus effect scatter styling. | Use it to make exceptions visible. |
+
+## Choosing within this family
+
+Start with the user's question, not the visual effect. Pick the simplest variant that makes the answer clear, add interaction only when it reduces work for the user, and keep animation purposeful enough that it explains a change rather than decorating the page.

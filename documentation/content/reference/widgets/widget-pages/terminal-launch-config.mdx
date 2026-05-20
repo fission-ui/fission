@@ -1,0 +1,80 @@
+---
+title: TerminalLaunchConfig
+description: Configure how TerminalSession::spawn starts a local terminal process.
+slug: /widgets/terminal-launch-config
+---
+# TerminalLaunchConfig
+
+`TerminalLaunchConfig` is the small configuration object you pass to [`TerminalSession`](/reference/widgets/terminal-session) when you want your app to start a local terminal program.
+
+In plain language, this is the launch recipe for an embedded terminal. It answers questions such as:
+
+- which program should run
+- which folder should it start in
+- which command-line arguments should it receive
+- which extra environment variables should be set before it starts
+
+It is not a widget. It does not draw anything on screen by itself. Instead, it tells `TerminalSession::spawn(...)` how to create the terminal-side process that [`TerminalView`](/reference/widgets/terminal-view) can later render.
+
+## Why this exists
+
+An embedded terminal surface sits close to the host operating system.
+
+When Fission starts a terminal session, it is not just rendering text. It is launching a real process and connecting it to a _pseudo-terminal_ (PTY). A pseudo-terminal is an operating-system feature that makes a normal program think it is running inside a regular terminal window.
+
+`TerminalLaunchConfig` is the typed way to describe how that process should start.
+
+You do not need deep terminal knowledge to use it. The practical idea is simply: if your app wants to open a shell or run a command inside a terminal panel, this struct describes the startup settings.
+
+## Example
+
+```rust
+use std::path::PathBuf;
+use fission::prelude::*;
+
+let session = TerminalSession::spawn(TerminalLaunchConfig {
+    cwd: Some(PathBuf::from("/Users/me/projects/my-app")),
+    program: Some("git".into()),
+    args: vec!["status".into()],
+    env: vec![("RUST_LOG".into(), "debug".into())],
+})?;
+```
+
+This example launches the `git status` command in a specific working directory.
+
+Two Rust details are worth translating into plain English.
+
+`cwd: Some(...)` means "use this working directory." `Some` is Rust's way of saying "a value is present." If you used `None` there instead, it would mean "do not set an explicit working directory here."
+
+The `?` at the end of the example means "if starting the terminal session fails, return that error." You can treat it as normal Rust error-handling scaffolding.
+
+If you omit `program`, the implementation asks the host for the default shell or default terminal program instead.
+
+## Field reference
+
+| Field | Type | Meaning | Notes and default behavior |
+| --- | --- | --- | --- |
+| `cwd` | `Option<PathBuf>` | The working directory for the new process. | Defaults to `None`, which means no explicit directory is requested and the host default is used. |
+| `program` | `Option<String>` | The program to launch inside the terminal session. | Defaults to `None`, which means the implementation asks for the default shell or default terminal program. |
+| `args` | `Vec<String>` | Command-line arguments passed to `program`. | Defaults to an empty list. These are mainly useful when `program` names a specific command such as `git` or `python`. |
+| `env` | `Vec<(String, String)>` | Extra environment variables to add before the process starts. | Defaults to an empty list. The runtime also sets `TERM=xterm-256color` and `COLORTERM=truecolor` for terminal behavior and color support. |
+
+## What belongs here and what does not
+
+Put startup choices here.
+
+That includes things like the initial folder, the program name, a fixed command to run, or extra environment variables the process needs at launch.
+
+Do not treat this struct as long-lived terminal state. Once the terminal session is running, the session itself owns the live process, terminal buffer, selection, and scrollback history. `TerminalLaunchConfig` is only the startup description.
+
+## Specific guidance
+
+Create terminal sessions from a reducer, startup action, or another explicit application event. Do not call `TerminalSession::spawn(...)` from `build()`. Starting a terminal process is long-lived host work, not a pure user interface description.
+
+If the user can choose the starting folder or program, keep those choices in app state and build the `TerminalLaunchConfig` from that state when it is time to launch the session.
+
+Also remember that this is a host capability centered on local process execution. It is a strong fit for desktop-style products, but it is not the right starting point for browser-only work.
+
+## Related
+
+[`TerminalSession`](/reference/widgets/terminal-session), [`TerminalView`](/reference/widgets/terminal-view), and [`Resources and async`](/docs/guides/resources-and-async).

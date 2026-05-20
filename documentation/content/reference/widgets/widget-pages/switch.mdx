@@ -1,0 +1,53 @@
+---
+title: Switch
+description: Toggle an immediate on or off setting with switch semantics.
+slug: /widgets/switch
+---
+# Switch
+
+`Switch` is the boolean control for immediate settings.
+
+Use it when the user is turning a behavior on or off right now, such as enabling notifications or muting audio. That is the main difference from a [`Checkbox`](/reference/widgets/checkbox): a switch usually implies an immediate setting, while a checkbox often implies inclusion in a later submit or selection set.
+
+## Example
+
+```rust
+use fission::core::ui::Switch;
+
+let node = Switch {
+checked: view.state.notifications_enabled,
+on_toggle: Some(ctx.bind(
+    ToggleNotifications,
+    reduce_with!((|state: &mut SettingsState, _action: ToggleNotifications, _| {
+        state.notifications_enabled = !state.notifications_enabled;
+    })),
+)),
+..Default::default()
+}
+.into_node();
+```
+
+As with other controlled widgets, the switch only reflects `checked`. The reducer owns the state transition.
+
+## Field table
+
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `id` | `Option<NodeId>` | Stable node identity. | Defaults to `None`. |
+| `checked` | `bool` | Whether the switch is currently on. | Defaults to `false`. |
+| `on_toggle` | `Option<ActionEnvelope>` | Action dispatched when the switch is pressed. | Defaults to `None`. |
+
+## Semantics and state flow
+
+`Switch` lowers a semantic switch role with the current checked state. That makes it a better accessibility match than styling a generic button to look like a switch.
+
+The action flow is straightforward: press the switch, dispatch `on_toggle`, update the boolean in the reducer, rebuild with the new `checked` value.
+
+## Specific advice
+
+Pair a switch with clear nearby text so the user knows what is being turned on or off. If the choice is part of a multi-select form or agreement checklist rather than an immediate setting, a checkbox is usually clearer.
+
+## Related
+
+[`Checkbox`](/reference/widgets/checkbox), [`Radio`](/reference/widgets/radio), [`Button`](/reference/widgets/button), and [`FormControl`](/reference/widgets/form-control).
+

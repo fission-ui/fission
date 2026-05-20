@@ -1,0 +1,46 @@
+---
+title: TreeView
+description: Render a hierarchical set of items with explicit expanded and selected state.
+slug: /widgets/tree-view
+---
+# TreeView
+
+`TreeView` is the hierarchy widget for folder-like or outline-like structures.
+
+Use it when the product needs parent-child relationships to stay visible, such as file trees, navigation trees, nested categories, or expandable sidebars. A tree is about structure first and selection second.
+
+## Example
+
+```rust
+use fission::prelude::*;
+use std::collections::HashSet;
+
+let node = TreeView {
+    items: view.state.sidebar_tree.clone(),
+    expanded_ids: view.state.expanded_tree_ids.clone(),
+    selected_id: view.state.selected_tree_id.clone(),
+}
+.build(ctx, view);
+```
+
+## Field table
+
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `items` | `Vec<TreeItem>` | Root items in the hierarchy. | Required. |
+| `expanded_ids` | `HashSet<String>` | Item ids whose children should currently be shown. | Controlled by app state. |
+| `selected_id` | `Option<String>` | Currently selected item id. | Controlled by app state. |
+
+## State ownership and current behavior
+
+`TreeView` is another explicitly controlled widget. It does not own expansion state, selection state, or navigation rules. It simply reads `expanded_ids` and `selected_id` and renders the tree accordingly.
+
+The checked-in renderer is strongest today as a hierarchical selection view: it indents children, highlights the selected row, and can show nested structure clearly. One important limitation is that while `TreeItem` has an `on_toggle` field, the current renderer does not provide a built-in expansion toggle control that dispatches it. If you need full interactive expand-collapse behavior today, validate the exact user experience carefully and be prepared to compose around that limitation.
+
+## Specific advice
+
+Trees can become deep quickly. If the hierarchy is only one or two levels deep, a simpler list or grouped navigation often reads better. Use a tree when the structure itself is important for orientation.
+
+## Related
+
+[`TreeItem`](/reference/widgets/tree-item), [`Breadcrumb`](/reference/widgets/breadcrumb), [`Accordion`](/reference/widgets/accordion), and [`Scroll`](/reference/widgets/scroll).

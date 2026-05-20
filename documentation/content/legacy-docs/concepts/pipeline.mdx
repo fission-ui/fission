@@ -1,0 +1,25 @@
+---
+title: Rendering pipeline
+description: What happens after a widget tree is built.
+---
+
+# Rendering pipeline
+
+Every frame in Fission moves through these stages:
+
+1. Widget build from `state` -> `Node`.
+2. Node lowering to `CoreIR`.
+3. `LayoutSnapshot` with constraints and tree sizing.
+4. Display list/scene construction.
+5. Backend render.
+
+## How this helps diagnosis
+
+- if state changes but text stays wrong, inspect reducer and build first,
+- if layout jumps, inspect constraints and layout stage,
+- if visuals are wrong but layout is correct, inspect paint and styling stages,
+- if performance stutters, inspect frame-time and platform logs.
+
+Use diagnostics categories (for example `input`, `layout`, `frame`) to confirm which stage changed per input sequence.
+
+Then read [Testing and observability](/docs/concepts/testing-and-observability) for the full check process.

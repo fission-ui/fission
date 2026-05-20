@@ -1,0 +1,60 @@
+---
+title: Bar with background
+sidebar_label: Bar with background
+description: Fission Charts reference for Bar with background.
+---
+
+# Bar with background
+
+![Bar with background screenshot](/img/charts/bar-background.png)
+
+Rounded bars drawn over a full-range background track. Use it for progress-like category comparisons where the maximum should remain visible. The screenshot is captured from the native Fission chart gallery.
+
+## What the chart is for
+
+Bar with background belongs to the **Cartesian** family. Its job is to make this data shape readable: `BarSeries values plus background and border-radius styling.` In a production interface, choose this chart when the visual form makes the user's question faster to answer than a table or a simpler chart would.
+
+Avoid it when the visual form makes the user estimate more than necessary; choose the simplest chart that answers the product question.
+
+## Data model
+
+`BarSeries values plus background and border-radius styling.` Keep the data close to the type that describes it. Fission Charts is typed Rust, so a line uses `LineSeries`, a calendar heatmap uses `CalendarHeatmapSeries`, and chart components such as zoom, marks, and graphics are explicit fields on `Chart` rather than hidden string configuration.
+
+## Rust API
+
+| Field | Type | Notes |
+| --- | --- | --- |
+| `title` | `&str` | Names the chart for the screen, accessibility tree, and test output. |
+| `x_axis / y_axis` | `Axis` | Vertical bars use category x/value y; horizontal bars use value x/category y. |
+| `series` | `BarSeries` | Holds values plus stack, orientation, radius, background, and color styling. |
+| `width / height` | `f32` | Optional fixed size; omit them when the chart should flex inside Fission layout. |
+
+## Example
+
+```rust
+use fission_charts::{Axis, BarSeries, Chart};
+use fission_core::op::Color;
+
+let chart = Chart::new()
+    .title("Rounded bar with background")
+    .x_axis(Axis::category(vec!["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]))
+    .y_axis(Axis::value().max(260.0))
+    .series(vec![BarSeries::new("Traffic")
+        .border_radius(10.0)
+        .background(Color { r: 226, g: 232, b: 240, a: 150 })
+        .data(vec![120.0, 200.0, 150.0, 80.0, 70.0, 110.0, 130.0])
+        .into()]);
+```
+
+## Interaction and animation
+
+Charts can emit typed `ChartInteractionEvent` values when interaction is enabled. Handle those events in a reducer when the app needs hover, press, release, scroll, selection, or brush behavior. `ChartAnimation` stores duration, delay, stagger, easing, and reduced-motion behavior as deterministic chart data, so animation timing can be tested instead of being hidden in ad-hoc timers.
+
+## Testing guidance
+
+For this chart, test the data mapping first, then test lowering, then capture a live screenshot when visual output changes. The screenshot for this page is refreshed with `npm run charts:generate` from the website package.
+
+Tags: `bar`, `background`.
+
+
+[Cartesian family overview](./overview)

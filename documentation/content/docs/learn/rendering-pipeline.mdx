@@ -1,0 +1,113 @@
+---
+title: Rendering pipeline
+description: Follow how Fission turns a widget tree into layout, semantics, rendering commands, and a presented frame.
+---
+
+# Rendering pipeline
+
+A beginner does not need to memorize the full rendering pipeline on day one, but you should care about it early for one practical reason: when a user interface bug appears, the pipeline tells you where to look.
+
+If a button shows the wrong text, that is usually a state or `build()` problem. If the text is correct but the button is too narrow, that is usually a layout problem. If the size is correct but the pixels are wrong, that is usually a rendering problem. If everything inside the runtime looks right but the app still behaves differently on one host, that points to the shell boundary.
+
+Fission makes those layers explicit on purpose. The framework is easier to debug, easier to test, and more consistent across desktop, web, Android, and iOS because it does not treat "draw the screen" as one opaque step.
+
+This page follows one frame from start to finish. The exact internal data structures matter less than the job each stage performs.
+
+```text
+Widget::build()
+  -> widget tree
+  -> lowering
+  -> Core intermediate representation
+  -> layout snapshot
+  -> semantics tree
+  -> display list
+  -> renderer
+  -> shell presentation
+```
+
+## Start with the widget tree
+
+The first stage is the widget tree. This is the user interface description returned by `build()`. In day-to-day code, you write widgets such as rows, columns, text inputs, cards, modals, or custom nodes. When `build()` runs, those widgets return a tree of `Node` values that says what should exist on screen right now.
+
+That tree is still an authoring structure. It is meant to be comfortable for you to write and read. It can contain higher-level widgets and convenience composition that would be awkward for a renderer or layout engine to interpret directly.
+
+Imagine a small note editor screen with a title, a multiline text input, and a Save button. The widget tree is the first complete description of that screen. At this point, the important thing is that the description came only from the current inputs: app state, runtime state, and environment values exposed through `View`.
+
+## Lowering turns authored user interface into a smaller internal form
+
+The next stage is lowering. Lowering means translating the widget tree into a smaller and more standardized internal form that the runtime can analyze consistently.
+
+Fission calls that internal form the Core intermediate representation, often shortened to Core IR. An intermediate representation is just a framework's internal language for describing user interface after the author-friendly layer has been translated away. The reason it exists is simple: many different widgets can mean the same underlying thing, and the runtime needs one stable place to reason about that meaning.
+
+In practice, lowering does several useful jobs.
+
+It removes authoring-layer variety. A convenience widget and a hand-written composition can lower to the same internal structure if they mean the same thing. It also gives custom widgets a controlled escape hatch. If a widget needs to emit custom behavior, it can do that during lowering without changing the rest of the runtime model.
+
+This is also where Fission gathers runtime-owned registrations such as portals, media nodes, web views, and animation requests. That matters because overlays and embeds still need to join the same deterministic pipeline as the rest of the user interface. They are not secret side systems.
+
+## The Core intermediate representation becomes the contract for later stages
+
+Once lowering finishes, the runtime has a smaller, closed description of the screen. That is the Core intermediate representation. You do not usually author it directly, but it matters because layout, semantics, testing, and rendering all depend on it.
+
+This is one of the biggest architectural choices in Fission. The framework does not ask later stages to understand every authoring convenience widget. Instead, it gives them one shared contract.
+
+Why does that help a beginner? Because it keeps the app model stable as the framework grows. New authoring widgets can appear without rewriting the meaning of layout or semantics. Tests can inspect a stable internal shape instead of guessing from the original widget code. Cross-platform work becomes easier because the shell and renderer consume the results of the same core contract.
+
+## Layout computes the actual sizes and positions
+
+After lowering, the layout engine decides where everything goes and how large it should be.
+
+Layout answers questions such as these:
+
+- How wide is the Save button after padding, text measurement, and available space are considered?
+- How much vertical space does the multiline editor get?
+- If the viewport gets narrower, which containers shrink, wrap, scroll, or stack differently?
+- Where does a modal or tooltip anchor land in absolute coordinates?
+
+The output of this stage is a layout snapshot. A layout snapshot is an immutable record of geometry for the frame: rectangles, sizes, and related layout data for each node.
+
+That explicit snapshot is extremely useful. Tests can inspect geometry directly. Widgets that need previous-frame geometry, such as anchored overlays, can read it through `View`. And when something looks wrong, you can inspect positions and constraints without jumping straight to screenshots.
+
+## Semantics capture meaning for accessibility and testing
+
+Pixels are not enough to describe a user interface. A screen reader, a keyboard navigation system, and a semantic test all need meaning, not just rectangles.
+
+That is why Fission also derives a semantics tree. A semantics tree describes what interactive and meaningful elements are present: buttons, text fields, labels, values, focusable items, and other accessibility-relevant structure.
+
+Semantics matter for at least three reasons.
+
+First, accessibility is not added later as a shell-only guess. The core runtime defines the meaning. Second, tests can ask questions like "is there a button labeled Save?" instead of depending only on pixels. Third, shells can translate the same core meaning into desktop, browser, Android, or iOS accessibility interfaces without inventing different behavior on each platform.
+
+If your button paints correctly but does not show up to a screen reader, the semantics stage gives you a place to investigate that problem directly.
+
+## Rendering turns structure into ordered drawing commands
+
+Once layout and semantics are known, the runtime can prepare the visual output. It compiles visible content into a display list. A display list is an ordered list of drawing commands such as drawing text, rectangles, images, borders, or embedded surfaces.
+
+The important idea is that rendering is downstream from state, build, lowering, and layout. The renderer is not deciding your product logic. It is consuming an explicit visual description that has already been shaped by the earlier stages.
+
+On desktop, Fission uses a graphics processing unit (GPU)-backed rendering path built around Vello and `wgpu`. That gives the framework a modern rendering backend without moving app logic into rendering code. On web and mobile, the same shared runtime still determines the app model and frame output, while the host environment presents that output through its own shell path.
+
+This separation is a big reason rendering stays testable. Many tests can assert geometry, semantics, and paint order before you ever need a screenshot. When you do need pixel checks, they sit on top of a clearer pipeline.
+
+## The shell presents the frame on a real host
+
+The last stage is shell presentation. A shell is the thin platform-specific layer that connects the shared runtime to a real host.
+
+On desktop, that means creating a native window, forwarding raw input, and presenting rendered pixels. On the web, it means attaching the app to a browser surface. On Android and iOS, it means integrating with the mobile app host, lifecycle, and surface management.
+
+The shell is important, but it is intentionally not the place where your app meaning changes. It should not decide layout rules, invent accessibility labels, or mutate product state independently. Its job is to host the frame the runtime already defined.
+
+## Why this pipeline makes debugging and testing better
+
+A predictable pipeline makes the question "what went wrong?" much smaller.
+
+If the wrong branch renders, inspect state and `build()`. If the right elements exist but their positions are wrong, inspect layout. If the geometry is correct but the wrong thing is being announced to accessibility tools, inspect semantics. If the frame description is correct but the host still misbehaves, inspect the shell boundary.
+
+The same structure helps testing.
+
+Reducer tests can stop before any of these stages. Headless harness tests can inspect layout and semantics without a real window. Live tests can drive a running shell. Diagnostics can tell you which frame stage first diverged. That layered testing strategy only works because the pipeline is explicit.
+
+## Where to go next
+
+If this page gave you the outline but you still want the mental model for app code itself, read [Runtime model](/docs/learn/runtime-model) next. If you want to understand how examples and generated hosts fit into desktop, web, Android, and iOS work, continue to [Examples and targets](/docs/learn/examples-and-targets).

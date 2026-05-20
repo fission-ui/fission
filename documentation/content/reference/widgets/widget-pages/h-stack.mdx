@@ -1,0 +1,45 @@
+---
+title: HStack
+description: Convenience wrapper for a horizontal row with optional spacing.
+slug: /widgets/h-stack
+---
+# HStack
+
+`HStack` is the convenience version of [`Row`](/reference/widgets/row).
+
+It gives you a shorter surface for the common case where you simply want children laid out left to right with optional spacing. It is useful when the defaults of `Row` already match your needs and extra alignment or semantics configuration would only add noise.
+
+Use `HStack` for simple local composition. Do not use it when you need the fuller `Row` configuration surface, such as custom cross-axis alignment, wrapping, or semantics.
+
+## Example
+
+```rust
+use fission::core::ui::Text;
+use fission::prelude::*;
+
+let node = HStack {
+    spacing: Some(8.0),
+    children: vec![
+        Text::new("Name").into_node(),
+        Text::new("Required").into_node(),
+    ],
+}
+.into_node();
+```
+
+## Field table
+
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `children` | `Vec<Node>` | Child nodes laid out horizontally. | Defaults to an empty list. |
+| `spacing` | `Option<f32>` | Gap between children. | Defaults to `None`. Maps to `Row.gap`. |
+
+## Behavior and advice
+
+`HStack` simply builds a `Row` with the provided `children` and `spacing`. That means it inherits `Row` defaults, including centered cross-axis alignment and no wrapping.
+
+The convenience is helpful when that is exactly what you want. If you catch yourself wishing you could tweak `align_items`, `justify_content`, `wrap`, or semantics, switch to `Row` rather than trying to bend `HStack` beyond its purpose.
+
+## Related
+
+[`Row`](/reference/widgets/row), [`VStack`](/reference/widgets/v-stack), and [`Spacer`](/reference/widgets/spacer).

@@ -1,0 +1,63 @@
+---
+title: Playground-driven workflow
+description: Fast local validation for desktop, web, and mobile targets.
+---
+
+# Playground-driven workflow
+
+Your playground loop should stay close to user behavior:
+
+1. change one line,
+2. run,
+3. observe one visible outcome,
+4. only then move forward.
+
+## Local-first iteration
+
+Use the generated default app for most feature work:
+
+```bash
+cargo run
+```
+
+A good loop after every change:
+
+- confirm the changed action fires once,
+- confirm reducer output in UI,
+- confirm focus and labels still match interaction intent.
+
+## Validate generated targets when stable
+
+Add targets from the same project and run the generated scripts.
+
+```bash
+cargo fission add-target web ios android
+```
+
+Then run:
+
+- `./platforms/web/run-browser.sh`
+- `./platforms/ios/run-sim.sh`
+- `./platforms/android/run-emulator.sh`
+
+Each target has prerequisites in `platforms/<target>/README.md`; keep that flow in your loop.
+
+### Why this is reliable
+
+The same action-reducer loop should pass unchanged in each target before you add target-specific visuals. If behavior drifts, debug against:
+
+- action dispatch order,
+- reducer output,
+- diagnostics stage (`FISSION_DIAG`),
+- and target interaction checks.
+
+## What to verify per target
+
+- action path and reducer outputs match,
+- loading/error text for async paths is visible,
+- semantics/labels/roles are still discoverable,
+- layout remains coherent on the target screen class.
+
+Use this loop before feature handoff so each runtime gets its own quality gate before marketing launch.
+
+Continue to [Platform and deployment](/docs/guide/platform-deployment).

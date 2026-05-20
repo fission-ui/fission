@@ -1,0 +1,40 @@
+---
+title: TableColumn
+description: Describe one column inside a DataTable.
+slug: /widgets/table-column
+---
+# TableColumn
+
+`TableColumn` is the column-definition record used by [`DataTable`](/reference/widgets/data-table).
+
+A good column definition answers three things: what the column represents, how wide it should be, and whether the interface should visually hint that the column can be sorted.
+
+## Example
+
+```rust
+use fission::prelude::*;
+
+let column = TableColumn {
+    id: "updated_at".into(),
+    title: "Updated".into(),
+    width: 140.0,
+    sortable: true,
+};
+```
+
+## Field table
+
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `id` | `String` | Stable application-level column identifier. | Required. Useful for your own sort and visibility logic. |
+| `title` | `String` | Header label shown at the top of the column. | Required. |
+| `width` | `f32` | Display width for the column. | Required. Choose widths deliberately for the data shape. |
+| `sortable` | `bool` | Whether the header should show a sort affordance. | The checked-in table uses this only as a visual indicator. |
+
+## Specific advice
+
+Keep ids stable even if titles are localized or renamed. Product logic should usually sort or hide columns by id, not by user-facing text.
+
+## Related
+
+[`DataTable`](/reference/widgets/data-table), [`TableRow`](/reference/widgets/table-row), [`Text`](/reference/widgets/text), and [`Pagination`](/reference/widgets/pagination).

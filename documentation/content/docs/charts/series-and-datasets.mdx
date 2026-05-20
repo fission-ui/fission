@@ -1,0 +1,190 @@
+---
+title: Series & DataSets
+sidebar_label: Series & DataSets
+description: Understand how Fission Charts models chart data, series, real-time streams, and very large history.
+---
+
+# Series & DataSets
+
+A chart is useful only when the data model is clear. Fission Charts separates two related ideas so the renderer, the application state, and your tests all have a simple job.
+
+A **series** is one visual layer in a chart. A line series draws one line, a bar series draws one set of bars, a heatmap series draws one matrix, and a sankey series draws one flow graph. The series decides how values become marks on the screen: line points, bars, bubbles, calendar cells, graph nodes, or 3D primitives.
+
+A **DataSet** is a reusable typed table of values. It is useful when more than one series reads from the same rows, when the data has named dimensions, or when you want the chart to say "use the `month` column for x and the `revenue` column for y" instead of copying the same vectors into several series.
+
+Most small charts should start with direct series data. Move to a DataSet when the data is shared, tabular, filtered, sorted, transformed, or reused by several visual layers.
+
+## Start with direct series data
+
+Direct series data is the easiest model to read and test. The chart owns the values it draws, and the Rust type tells you what kind of chart you are building.
+
+```rust
+use fission_charts::{Axis, Chart, LineSeries};
+
+let chart = Chart::new()
+    .title("Requests")
+    .x_axis(Axis::category(vec!["Mon", "Tue", "Wed", "Thu", "Fri"]))
+    .y_axis(Axis::value())
+    .series(vec![
+        LineSeries::new("API")
+            .data(vec![120.0, 135.0, 128.0, 160.0, 172.0])
+            .into(),
+    ]);
+```
+
+Use this approach when each series can be described with one or two small vectors. It is the right default for counters, simple dashboards, settings screens, compact status panels, and examples that teach one chart at a time.
+
+Do not force a DataSet into a chart just because the source data originally came from a database row. If only one line needs five numbers, a `LineSeries` with direct data is clearer.
+
+## Use DataSets for shared tabular data
+
+A DataSet is a chart-ready table. Rows hold the values, dimensions name what each column means, and series use an encoding to say which dimensions they consume.
+
+This is useful for product dashboards because the same rows often drive several charts or several visual layers in one chart. Revenue can be a bar, profit can be a line, region can be a color, and the same row can still be used for tooltips and tests.
+
+```rust
+use fission_charts::{Axis, BarSeries, Chart, Dataset, Encode, LineSeries};
+
+let sales = Dataset::new()
+    .dimensions(vec!["month", "orders", "revenue"])
+    .rows(vec![
+        vec!["Jan".into(), 120.0.into(), 310.0.into()],
+        vec!["Feb".into(), 132.0.into(), 340.0.into()],
+        vec!["Mar".into(), 141.0.into(), 390.0.into()],
+    ]);
+
+let chart = Chart::new()
+    .title("Sales")
+    .dataset(sales)
+    .x_axis(Axis::category_dimension("month"))
+    .y_axis(Axis::value())
+    .series(vec![
+        BarSeries::new("Orders")
+            .encode(Encode::xy("month", "orders"))
+            .into(),
+        LineSeries::new("Revenue")
+            .encode(Encode::xy("month", "revenue"))
+            .into(),
+    ]);
+```
+
+The important point is ownership. The DataSet is the snapshot the chart should render right now. It is not a database connection, a stream subscription, or an async loader hidden inside the renderer.
+
+## Choosing between series and DataSets
+
+| Use direct series data when | Use a DataSet when |
+| --- | --- |
+| One chart owns one small vector of values. | Several series read the same rows. |
+| The data shape is obvious from the series type. | Columns need stable names such as `time`, `region`, or `latency_ms`. |
+| You are building a compact widget, example, or card. | You need filtering, sorting, transforms, or field-based encoding. |
+| The chart is easier to test by comparing one vector. | The data should be tested as a table before the chart renders it. |
+| Copying values would be simpler than explaining a table. | Copying values would create duplicated state and bugs. |
+
+Both approaches are valid production code. The right choice is the one that makes the chart state easiest to understand.
+
+## Real-time data is app state, not renderer state
+
+The current chart API is deliberately synchronous at the render boundary. That means the chart receives a complete model for the current frame and renders it. It should not block while it fetches data, open sockets from inside the renderer, or mutate hidden state while layout is running.
+
+For live data, use the normal Fission app model:
+
+1. A service, job, resource, or platform integration receives new values.
+2. A reducer updates your application state.
+3. The widget build function creates a new chart snapshot from that state.
+4. The chart renderer draws the snapshot.
+
+That model keeps rendering deterministic. If a test gives the chart the same state twice, it gets the same chart twice. Network timing and storage paging stay outside the renderer where they can be retried, cancelled, throttled, tested, and logged.
+
+```rust
+use fission::prelude::*;
+use fission_charts::{Axis, Chart, LineSeries};
+
+#[derive(Clone, Default)]
+struct TelemetryState {
+    visible_window: TimeRange,
+    live_tail: Vec<TelemetryPoint>,
+    loaded_pages: Vec<TelemetryPage>,
+}
+
+impl TelemetryState {
+    fn visible_points(&self) -> Vec<f32> {
+        self.loaded_pages
+            .iter()
+            .flat_map(|page| page.points.iter())
+            .chain(self.live_tail.iter())
+            .filter(|point| self.visible_window.contains(point.timestamp))
+            .map(|point| point.value)
+            .collect()
+    }
+}
+
+fn telemetry_chart(state: &TelemetryState) -> Chart {
+    Chart::new()
+        .title("Device temperature")
+        .x_axis(Axis::time())
+        .y_axis(Axis::value())
+        .series(vec![
+            LineSeries::new("temperature")
+                .data(state.visible_points())
+                .into(),
+        ])
+}
+```
+
+The example keeps the chart synchronous. The service or resource owns the live feed and the historical page requests. The chart owns only the current visible data.
+
+## Infinite history and terabyte data
+
+An "infinite" DataSet should not mean one DataSet instance contains decades of samples. It should mean the application can keep presenting a moving window while it loads, unloads, and summarizes older data behind the scenes.
+
+For an IoT history view with decades of readings, keep three layers separate:
+
+- **Storage layer:** database, object store, local cache, or remote API that can answer time-range queries.
+- **State layer:** Fission state that records the visible time range, loaded pages, pending requests, aggregation level, live tail, and error state.
+- **Chart layer:** a direct series or DataSet snapshot containing only the visible points or the visible aggregate buckets.
+
+When the user scrolls or zooms backward, the chart should emit an interaction event or the surrounding controls should dispatch an action such as `SetTelemetryWindow(range)`. The reducer updates the requested window. A resource/job/service fetches missing pages. When the pages arrive, the reducer inserts them into the cache and the chart rebuilds with the new snapshot.
+
+For large histories, avoid sending raw points when the screen cannot show them. Query or compute buckets that match the zoom level: one point per pixel, percentile bands, min/max envelopes, or hourly/daily/monthly summaries. As the user zooms in, fetch finer pages. As the user zooms out, fetch coarser summaries. This keeps memory bounded and preserves meaningful visual shape.
+
+```rust
+#[derive(Clone)]
+struct TelemetryWindow {
+    range: TimeRange,
+    bucket: BucketSize,
+}
+
+#[derive(Clone)]
+struct TelemetryPageRequest {
+    device_id: DeviceId,
+    window: TelemetryWindow,
+}
+
+#[fission_action]
+struct SetTelemetryWindow(TelemetryWindow);
+
+#[fission_reducer(SetTelemetryWindow)]
+fn on_set_telemetry_window(state: &mut TelemetryState, action: SetTelemetryWindow) {
+    state.visible_window = action.0.range;
+    state.request_missing_pages(action.0);
+}
+```
+
+That is the model to use today. A future paged data-source helper can make the pattern shorter, but it should not change the rule that rendering receives a synchronous chart snapshot.
+
+## Series guide
+
+| Family | Use it for | Typical data |
+| --- | --- | --- |
+| Line and area | Change over time, trends, forecasts, bands. | Ordered numeric values, often time based. |
+| Bar | Category comparison, rankings, progress, stacks. | Category labels plus numeric values. |
+| Scatter and bubble | Correlation, outliers, clusters, size encoding. | `x`, `y`, optional radius, optional category. |
+| Heatmap and calendar | Density, schedules, risk grids, daily activity. | Two-dimensional buckets or date buckets. |
+| Pie, donut, rose, gauge, radar | Share, score, radial comparison, status. | Bounded values or small category sets. |
+| Tree, treemap, sunburst, graph, sankey | Hierarchy, dependency, flow, ownership. | Nodes, edges, parent-child rows, or flow links. |
+| Map and route | Regions, routes, coverage, geospatial overlays. | GeoJSON features, coordinates, route segments. |
+| 3D and GL | Spatial shape, point clouds, terrain, dense scenes. | Scene primitives, mesh vertices, 3D points. |
+
+## Best practices
+
+Keep charts fed by plain app state. Keep fetching, streaming, retries, caching, and paging in resources, jobs, services, or platform integrations. Test transformations before rendering. Use DataSets when named dimensions make the chart easier to reason about, and use direct series data when a small vector says everything the chart needs to say.

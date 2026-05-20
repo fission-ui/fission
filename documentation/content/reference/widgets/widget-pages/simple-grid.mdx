@@ -1,0 +1,54 @@
+---
+title: SimpleGrid
+description: Build a responsive wrapping grid by giving each child a minimum width.
+slug: /widgets/simple-grid
+---
+# SimpleGrid
+
+`SimpleGrid` is the lightweight responsive grid helper.
+
+Instead of making you define explicit tracks like [`Grid`](/reference/widgets/grid), it wraps children and gives each child a minimum width. That makes it a good fit for galleries, settings cards, attachment previews, or dashboard tiles that should flow naturally as the viewport changes.
+
+Use `SimpleGrid` when the goal is responsive card wrapping. Do not use it when you need named rows and columns or explicit placement rules. That is what `Grid` and [`GridItem`](/reference/widgets/grid-item) are for.
+
+## Example
+
+```rust
+use fission::core::ui::Text;
+use fission::prelude::*;
+
+let node = SimpleGrid {
+    min_child_width: 220.0,
+    gap: Some(16.0),
+    children: vec![
+        Text::new("Card A").into_node(),
+        Text::new("Card B").into_node(),
+        Text::new("Card C").into_node(),
+    ],
+}
+.build(ctx, view);
+```
+
+## Field table
+
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `min_child_width` | `f32` | Minimum width each child should try to keep. | Required. Each child is wrapped in a container with this minimum width. |
+| `gap` | `Option<f32>` | Spacing between children. | Defaults to `None`. |
+| `children` | `Vec<Node>` | Items to place in the wrapping grid. | Defaults to an empty list. |
+
+## Layout behavior
+
+`SimpleGrid` is implemented as a wrapping `Row`. Each child is wrapped in a [`Container`](/reference/widgets/container) with `flex_grow: 1.0` and `min_width(min_child_width)`. That is why it feels grid-like without requiring explicit track definitions.
+
+This also means `SimpleGrid` is intentionally opinionated and approximate. It is about responsive card flow, not strict spreadsheet-style layout.
+
+## Specific advice
+
+`SimpleGrid` works especially well when child cards already know how to size themselves vertically. If you also want the media inside those cards to keep consistent proportions, combine it with [`AspectRatio`](/reference/widgets/aspect-ratio).
+
+When exact placement matters more than natural wrapping, stop using `SimpleGrid` and switch to `Grid`.
+
+## Related
+
+[`Grid`](/reference/widgets/grid), [`Wrap`](/reference/widgets/wrap), [`Container`](/reference/widgets/container), and [`AspectRatio`](/reference/widgets/aspect-ratio).

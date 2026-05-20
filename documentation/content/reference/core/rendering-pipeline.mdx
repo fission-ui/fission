@@ -1,0 +1,92 @@
+---
+title: Rendering pipeline
+description: The staged path from Widget build output to layout, semantics, rendering commands, and platform presentation.
+---
+
+# Rendering pipeline
+
+This page describes the runtime pipeline that turns authored widgets into a presented frame.
+
+Use it when you need to confirm what each stage consumes, what it produces, and where a bug likely belongs.
+
+## Pipeline stages
+
+| Stage | Input | Output | Why it exists |
+| --- | --- | --- | --- |
+| `build()` | `Widget`, `BuildCtx`, `View` | authored `Node` tree | Gives the runtime a deterministic user interface description for the current inputs |
+| lowering | authored `Node` tree | Core intermediate representation | Converts author-friendly structure into a smaller, stable internal contract |
+| layout | Core intermediate representation plus viewport constraints | `LayoutSnapshot` | Computes sizes, positions, and related geometry |
+| semantics derivation | runtime structure plus layout meaning | semantics tree | Exposes roles, labels, values, focus structure, and accessibility meaning |
+| paint compilation | visible structure plus layout | display list | Produces ordered drawing commands for the renderer |
+| shell presentation | render output plus host surface | presented frame | Connects the shared runtime to a real desktop, browser, or mobile host |
+
+## Authored build output
+
+The pipeline begins when `Widget::build()` returns a `Node` tree.
+
+This tree is the authoring-layer description of the user interface. It is where ordinary widget composition, branching, action binding, resource declaration, portal registration, and runtime wiring are expressed.
+
+The authored tree is not yet the runtime's final internal form. It is optimized for authoring clarity, not for downstream processing.
+
+## Lowering and the Core intermediate representation
+
+Lowering is the step that translates the authored `Node` tree into the smaller internal contract used by later runtime stages.
+
+That contract is commonly described as the Core intermediate representation, or Core IR.
+
+The purpose of Core IR is architectural stability. Layout, semantics, testing, and rendering should not have to understand every authoring convenience widget directly. They consume a more stable internal representation instead.
+
+Custom lowerers such as `LowerDyn` fit into this stage when a widget needs direct control over what internal structure it emits.
+
+## Layout and `LayoutSnapshot`
+
+The layout stage resolves constraints and computes geometry.
+
+The public geometry result is `LayoutSnapshot`, which records the computed rectangles and related layout data for the frame. `LayoutRect`, `LayoutSize`, and constraint-related helpers are part of this surface.
+
+This explicit geometry stage is why layout can be inspected directly in tests and diagnostics. It is also why widgets can read prior-frame geometry through `View` when they need anchor information.
+
+## Semantics output
+
+Semantics are the runtime's description of interface meaning rather than pixels.
+
+That includes roles, labels, values, focus-relevant structure, and other accessibility-oriented meaning derived from the shared runtime. The shell then adapts that meaning to platform accessibility APIs.
+
+Semantics are part of the pipeline because they are a first-class runtime output, not an afterthought layered on top of pixels.
+
+## Paint compilation and display list output
+
+Once structure and geometry are known, the runtime compiles visible content into a display list.
+
+A display list is the ordered sequence of drawing operations consumed by the renderer. Keeping this stage explicit is important for performance, determinism, and debugging. Paint order can be inspected, compared, and validated without collapsing all rendering questions into final pixels alone.
+
+## Shell presentation
+
+The renderer and shell host consume the frame output and present it on a real surface.
+
+This is the last step in the pipeline. The shell is responsible for surface creation and presentation, but it should not redefine the meaning already established by earlier stages.
+
+## Public types worth knowing
+
+The most commonly referenced public types in this area are:
+
+- `Node`, `CustomNode`, and `LowerDyn` for authoring and custom lowering,
+- `LoweringContext` and `NodeBuilder` for lower-level custom emission,
+- `NodeId` and `WidgetNodeId` for runtime identity,
+- `LayoutSnapshot`, `LayoutRect`, and `LayoutSize` for geometry.
+
+## Debugging guidance
+
+This page is often most useful when you ask which stage first became wrong.
+
+If the wrong branch or text is present, inspect state or `build()`.
+
+If the structure is right but the geometry is wrong, inspect layout.
+
+If layout is right but the visual output is wrong, inspect paint, theme, or media behavior.
+
+If the shared runtime output looks correct but one host still behaves differently, inspect the shell boundary.
+
+## Related reference pages
+
+For the widget contract that starts this pipeline, see [Widget trait](/reference/core/widget-trait). For the teaching version of the same staged model, see [Rendering pipeline](/docs/learn/rendering-pipeline). For stage-level investigation tools, continue to [Testing and diagnostics](/reference/core/testing-and-diagnostics).

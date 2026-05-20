@@ -1,0 +1,64 @@
+---
+title: Accessibility and internationalization
+description: The platform-facing reference for accessibility semantics, locale-aware text, and how both concerns connect to host adapters and testing.
+---
+
+# Accessibility and internationalization
+
+This page covers two concerns that often meet at the platform boundary.
+
+Accessibility is how the user interface exposes meaning to assistive technologies such as screen readers and other accessibility tools.
+
+Internationalization, often shortened to i18n, is how the user interface supports multiple languages and locale-sensitive text selection.
+
+These systems are not identical, but they interact in important ways once the shared runtime meets a real platform host.
+
+## Accessibility at the platform boundary
+
+In Fission, semantic meaning originates in the shared runtime, not in per-platform shell guesswork.
+
+The runtime produces a semantics tree that describes roles, labels, values, actions, focus-relevant structure, and other accessibility meaning. Platform adapters then translate that shared meaning into native accessibility APIs.
+
+That boundary matters for three reasons.
+
+First, it keeps accessibility behavior more consistent across desktop, web, Android, and iOS.
+
+Second, it makes semantics testable before platform adapters even enter the picture.
+
+Third, it prevents shells from inventing roles or labels that were never present in the core model.
+
+## Internationalization at the platform boundary
+
+Translated text is resolved through the shared environment model before shells expose the results to host accessibility systems.
+
+The active locale and internationalization registry live in `Env`. Widgets read those values through `View`, and translated labels become part of the built user interface structure the runtime reasons about.
+
+This matters because locale-sensitive text can affect more than just visible strings. It can also affect semantic labels, widths, wrapping, and the overall accessibility surface seen by the host.
+
+## How the two concerns connect
+
+Accessibility and internationalization often ship together because accessible names and values should reflect the language the user actually selected.
+
+If the locale changes, visible text changes, and semantic labels should change with it. That can also change layout and focus-relevant structure indirectly if translated content grows or shrinks.
+
+In other words, the platform accessibility adapter should be receiving already-resolved meaning from the shared runtime, not trying to localize strings on its own.
+
+## Testing implications
+
+Headless tests can inspect semantic output before any platform adapter is involved. This is often the fastest way to catch missing roles, labels, or other meaning-level regressions.
+
+Live shell tests and target-level validation then confirm that the host boundary is presenting the expected semantics in a real environment.
+
+Locale changes are also worth testing at both levels: first in the shared runtime to confirm visible and semantic output, then at the host level where platform accessibility tools are in play.
+
+## Practical guidance
+
+Keep semantic meaning in the shared app model.
+
+Keep locale selection explicit in `Env` rather than relying on implicit platform locale reads deep in widget code.
+
+Validate translated labels not only visually but semantically, because assistive technologies depend on the same resolved meaning.
+
+## Related reference pages
+
+For the core-side theme and locale model, see [Theming and internationalization](/reference/core/theming-and-i18n). For the input and environment boundary, see [Environment, input, and input method editor](/reference/core/environment-input-and-ime). For host-level verification strategy, continue to [Platform testing](/reference/platform/testing).

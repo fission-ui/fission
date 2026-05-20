@@ -1,0 +1,39 @@
+---
+title: Stat
+description: Present one labeled value as a compact metric block.
+slug: /widgets/stat
+---
+# Stat
+
+`Stat` is the metric-summary widget.
+
+Use it when one value deserves emphasis but still needs a label and possibly a short explanation. It works well in dashboards, sidebars, billing summaries, and health indicators.
+
+## Example
+
+```rust
+use fission::prelude::*;
+
+let node = Stat {
+    label: "Open issues".into(),
+    value: view.state.open_issue_count.to_string(),
+    help_text: Some("Updated 2 minutes ago".into()),
+}
+.build(ctx, view);
+```
+
+## Field table
+
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `label` | `String` | Small explanatory label above the value. | Required. |
+| `value` | `String` | Main emphasized value. | Required. Format numbers, currency, or percentages upstream. |
+| `help_text` | `Option<String>` | Extra context below the value. | Defaults to `None`. |
+
+## Specific advice
+
+Keep the value itself clean and short. If the user must parse a whole sentence to understand the metric, a stat is probably the wrong presentation.
+
+## Related
+
+[`Badge`](/reference/widgets/badge), [`Card`](/reference/widgets/card), [`Text`](/reference/widgets/text), and [`CircularProgress`](/reference/widgets/circular-progress).

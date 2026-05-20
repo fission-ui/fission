@@ -1,0 +1,58 @@
+---
+title: ModalAction
+description: Configure one footer action button inside a Modal.
+slug: /widgets/modal-action
+---
+# ModalAction
+
+`ModalAction` is the small configuration struct that describes one button in a [`Modal`](/reference/widgets/modal) footer.
+
+It exists so modal buttons stay explicit and state-driven. Instead of letting the dialog close itself implicitly, each action carries an `ActionEnvelope` that re-enters your normal reducer loop. That means "Cancel," "Delete," and "Save" are all just named application intents. The reducer decides what each one really does, including whether the modal should close.
+
+## Example
+
+```rust
+use fission::prelude::*;
+
+let dialog = Modal {
+    id: WidgetNodeId::explicit("delete_confirm"),
+    title: "Delete draft?".into(),
+    content: Box::new(Text::new("This action cannot be undone.").into_node()),
+    is_open: view.state.show_delete_dialog,
+    on_dismiss: Some(close_dialog),
+    actions: vec![
+        ModalAction {
+            label: "Cancel".into(),
+            on_press: Some(close_dialog),
+            is_primary: false,
+        },
+        ModalAction {
+            label: "Delete".into(),
+            on_press: Some(confirm_delete),
+            is_primary: true,
+        },
+    ],
+    width: None,
+};
+```
+
+In that example, the modal does not close itself. Your reducers decide whether `close_dialog` or `confirm_delete` should change the state.
+
+## Field table
+
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `label` | `String` | Visible button text. | Keep it short and action-oriented. |
+| `on_press` | `Option<ActionEnvelope>` | Action dispatched when the footer button is pressed. | Defaults to `None`. A button without an action is visible but inert. |
+| `is_primary` | `bool` | Whether this is the main action in the footer. | `true` uses the filled button style. `false` uses the outline style. |
+
+## Specific advice
+
+Keep the footer focused. Most modals should have one primary action and, at most, one secondary escape action. If you find yourself adding many buttons, the problem is usually bigger than a footer can explain and the interaction probably wants a full screen or routed page instead.
+
+Also remember that `is_primary` is a visual emphasis choice, not business logic. The reducer should still treat every action explicitly.
+
+## Related
+
+[`Modal`](/reference/widgets/modal), [`Button`](/reference/widgets/button), and [`ButtonVariant`](/reference/widgets/button-variant).
+

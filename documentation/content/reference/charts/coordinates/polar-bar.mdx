@@ -1,0 +1,55 @@
+---
+title: Polar bar
+sidebar_label: Polar bar
+description: Fission Charts reference for Polar bar.
+---
+
+# Polar bar
+
+![Polar bar screenshot](/img/charts/polar-bar.png)
+
+Radial bars placed around a polar coordinate system. Use it when cyclical comparison benefits from circular layout. The screenshot is captured from the native Fission chart gallery.
+
+## What the chart is for
+
+Polar bar belongs to the **Coordinates** family. Its job is to make this data shape readable: `Label/value pairs rendered as radial bar segments.` In a production interface, choose this chart when the visual form makes the user's question faster to answer than a table or a simpler chart would.
+
+Avoid it when readers need exact linear comparison; coordinate charts work best when the coordinate system carries meaning.
+
+## Data model
+
+`Label/value pairs rendered as radial bar segments.` Keep the data close to the type that describes it. Fission Charts is typed Rust, so a line uses `LineSeries`, a calendar heatmap uses `CalendarHeatmapSeries`, and chart components such as zoom, marks, and graphics are explicit fields on `Chart` rather than hidden string configuration.
+
+## Rust API
+
+| Field | Type | Notes |
+| --- | --- | --- |
+| `title` | `&str` | Names the chart for the screen, accessibility tree, and test output. |
+| `series` | `PolarBarSeries / PolarLineSeries` | Stores radial label/value bars or angle/radius line samples. |
+| `width / height` | `f32` | Optional fixed size; omit them when the chart should flex inside Fission layout. |
+
+## Example
+
+```rust
+use fission_charts::{Chart, PolarBarSeries};
+
+let chart = Chart::new()
+    .title("Polar bar")
+    .series(vec![PolarBarSeries::new("Radial spend")
+        .data(vec![("Search", 82.0), ("Direct", 67.0), ("Email", 43.0), ("Ads", 58.0)])
+        .inner_radius(34.0)
+        .into()]);
+```
+
+## Interaction and animation
+
+Charts can emit typed `ChartInteractionEvent` values when interaction is enabled. Handle those events in a reducer when the app needs hover, press, release, scroll, selection, or brush behavior. `ChartAnimation` stores duration, delay, stagger, easing, and reduced-motion behavior as deterministic chart data, so animation timing can be tested instead of being hidden in ad-hoc timers.
+
+## Testing guidance
+
+For this chart, test the data mapping first, then test lowering, then capture a live screenshot when visual output changes. The screenshot for this page is refreshed with `npm run charts:generate` from the website package.
+
+Tags: `polar`, `bar`.
+
+
+[Coordinates family overview](./overview)

@@ -1,0 +1,43 @@
+---
+title: What is Fission
+description: A practical intro for first-time users.
+---
+
+# What is Fission
+
+Fission is a Rust-first UI framework for teams building product surfaces that need one consistent behavior model across desktop, web, iOS, and Android.
+
+You define:
+
+- an `AppState` that owns runtime state,
+- typed `Action`s for user intent,
+- pure reducers that update state,
+- a `Widget` build function that turns state into a UI tree.
+
+That model is then rendered for desktop, web, iOS, and Android through generated output targets.
+
+## Why this architecture exists
+
+Most teams do not need to start by optimising for every platform at once. They need a stable center:
+
+- **Consistency of behavior**: one state transition path gives predictable UI updates.
+- **Single place for core logic**: business behavior lives with your state model.
+- **Clear async boundaries**: long-running work is explicit and testable.
+- **Reusable runtime contracts**: platform runtime differences stay in generated host scaffolding.
+
+This design supports practical shipping where teams can validate one behavior deeply before expanding scope.
+
+## Who this fits
+
+Choose this approach if you want:
+
+- a typed, deterministic UI loop for interactive products,
+- one shared source of truth for all inputs and outputs,
+- a path that makes testing and debugging less guess-heavy,
+- explicit escalation from desktop/web local validation to broader runtime targets.
+
+If you need richer platform integration later, keep this model and add host-specific details in generated targets and platform glue without re-architecting your application logic.
+
+## Next step
+
+Continue to [Install and setup](/docs/getting-started/install).

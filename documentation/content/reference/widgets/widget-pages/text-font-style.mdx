@@ -1,0 +1,36 @@
+---
+title: TextFontStyle
+description: Choose whether text uses the normal or italic font posture.
+slug: /widgets/text-font-style
+---
+# TextFontStyle
+
+`TextFontStyle` is the simple font-posture enum used by [`Text`](/reference/widgets/text), [`RichTextRun`](/reference/widgets/rich-text-run), and related text styling APIs.
+
+## Example
+
+```rust
+use fission::core::ui::{Text, TextFontStyle};
+
+let node = Text {
+    content: "Draft".into(),
+    font_style: TextFontStyle::Italic,
+    ..Default::default()
+}
+.into_node();
+```
+
+## Choice table
+
+| Choice | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `Normal` | `TextFontStyle` | Regular upright text. | Default. |
+| `Italic` | `TextFontStyle` | Italic text. | Use for emphasis or special notation, not for large amounts of body copy. |
+
+## Specific advice
+
+Prefer semantic emphasis through content and layout first. Italic text is useful, but easy to overuse in user interface where clarity matters more than stylistic flourish.
+
+## Related
+
+[`Text`](/reference/widgets/text), [`RichTextRun`](/reference/widgets/rich-text-run), [`TextRunStyle`](/reference/widgets/text-run-style), and [`RichText`](/reference/widgets/rich-text).

@@ -1,0 +1,56 @@
+---
+title: EmptyState
+description: Explain a blank area and guide the user toward the next useful action.
+slug: /widgets/empty-state
+---
+# EmptyState
+
+`EmptyState` is the guided placeholder for screens or panels with no content yet.
+
+In a real app, an empty region should answer three questions quickly: what is missing, why it is missing, and what the user can do next. This widget packages those ideas into one centered block.
+
+## Example
+
+```rust
+use fission::prelude::*;
+
+let node = EmptyState {
+    icon: None,
+    title: "No drafts yet".into(),
+    description: Some("Create your first draft to start writing.".into()),
+    action: Some(Box::new(
+        Button {
+            child: Some(Box::new(Text::new("New draft").into_node())),
+            on_press: Some(create_draft_action),
+            ..Default::default()
+        }
+        .into_node(),
+    )),
+}
+.build(ctx, view);
+```
+
+This is much more helpful than leaving a large blank panel with no explanation.
+
+## Field table
+
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `icon` | `Option<Box<Node>>` | Optional decorative or explanatory visual. | Defaults to `None`. |
+| `title` | `String` | Main message for the empty state. | Required. |
+| `description` | `Option<String>` | Supporting explanation below the title. | Defaults to `None`. |
+| `action` | `Option<Box<Node>>` | Optional primary action, often a button. | Defaults to `None`. Can be any node. |
+
+## user experience intent
+
+An empty state should teach, not apologize. The best ones describe the missing content in product language and offer a next step when one exists.
+
+The checked-in widget centers its content, which makes it work best for empty screens, side panels, and major content regions. If you need an inline "no results" hint inside a dense list, a smaller custom message often fits better.
+
+## Specific advice
+
+Avoid vague titles like "Nothing here". A user usually wants to know *what* is missing and what they can do about it.
+
+## Related
+
+[`Alert`](/reference/widgets/alert), [`Card`](/reference/widgets/card), [`Button`](/reference/widgets/button), and [`Spinner`](/reference/widgets/spinner).

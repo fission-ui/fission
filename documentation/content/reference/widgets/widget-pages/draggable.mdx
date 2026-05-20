@@ -1,0 +1,57 @@
+---
+title: Draggable
+description: Wrap a child so it can start an internal drag with an explicit byte payload.
+slug: /widgets/draggable
+---
+# Draggable
+
+`Draggable` is the high-level drag source helper.
+
+It takes a visible child and a payload of bytes. When the user begins dragging, the runtime carries those bytes until the drag is dropped onto a [`DragTarget`](/reference/widgets/drag-target) or [`Dropzone`](/reference/widgets/dropzone). That payload is not your source of truth. It is only the message that travels during the drag.
+
+## Example
+
+```rust
+use fission::prelude::*;
+
+let node = Draggable {
+payload: view.state.card_id.as_bytes().to_vec(),
+on_drag_start: Some(start_drag_action),
+on_drag_end: Some(end_drag_action),
+child: Box::new(
+    Button {
+        child: Some(Box::new(Text::new("Release checklist").into_node())),
+        on_press: Some(open_card_action),
+        ..Default::default()
+    }
+    .into_node(),
+),
+}
+.build(ctx, view);
+```
+
+The payload carries just enough information for the eventual drop target to know what moved. The actual board order, selection state, and persistence rules still belong in `AppState` and reducers.
+
+## Field table
+
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `payload` | `Vec<u8>` | Bytes attached to the drag. | Required. The reducer on the drop target decodes them from `ctx.input.as_internal_drop()`. |
+| `child` | `Box<Node>` | Visible content that the user drags. | Required. |
+| `on_drag_start` | `Option<ActionEnvelope>` | Action fired when dragging begins. | Defaults to `None`. Useful for visual state such as highlighting the source item. |
+| `on_drag_end` | `Option<ActionEnvelope>` | Action fired when dragging ends. | Defaults to `None`, regardless of whether a target accepted the drop. |
+
+## What belongs in app state and what belongs in the payload
+
+The payload should identify the thing being dragged. The app state should continue to own everything else: the actual collection order, which target is active, whether a drop is allowed, and what happens after acceptance.
+
+This separation matters because it keeps drag-and-drop deterministic. Rebuilding the tree does not lose the product state, and tests can assert the reducer result without simulating hidden mutable widget internals.
+
+## Specific advice
+
+If you only need reordering inside one list, use a small stable id in the payload and let the reducer interpret it. If the dragged data is too large or too fragile to serialize to bytes comfortably, that is usually a sign that the payload is carrying too much product logic.
+
+## Related
+
+[`DragTarget`](/reference/widgets/drag-target), [`Dropzone`](/reference/widgets/dropzone), [`GestureDetector`](/reference/widgets/gesture-detector), and [`Button`](/reference/widgets/button).
+

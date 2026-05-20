@@ -1,0 +1,148 @@
+[[items]]
+title = "Docs"
+href = "/docs/intro/"
+level = 0
+
+[[items]]
+title = "Learn"
+href = "/docs/learn/overview/"
+level = 0
+group = true
+
+[[items]]
+title = "Quickstart"
+href = "/docs/learn/quickstart/"
+level = 1
+
+[[items]]
+title = "Runtime model"
+href = "/docs/learn/runtime-model/"
+level = 1
+
+[[items]]
+title = "Rendering pipeline"
+href = "/docs/learn/rendering-pipeline/"
+level = 1
+
+[[items]]
+title = "Examples and targets"
+href = "/docs/learn/examples-and-targets/"
+level = 1
+
+[[items]]
+title = "Guides"
+href = "/docs/guides/app-structure/"
+level = 0
+group = true
+
+[[items]]
+title = "Resources and async"
+href = "/docs/guides/resources-and-async/"
+level = 1
+
+[[items]]
+title = "Input, events, text, and environment"
+href = "/docs/guides/input-events-text-and-env/"
+level = 1
+
+[[items]]
+title = "Layout and widgets"
+href = "/docs/guides/layout-and-widgets/"
+level = 1
+
+[[items]]
+title = "Theming and internationalisation"
+href = "/docs/guides/theming-and-i18n/"
+level = 1
+
+[[items]]
+title = "Design system"
+href = "/docs/guides/design-system/"
+level = 1
+
+[[items]]
+title = "Media, animation, portals, and 3D"
+href = "/docs/guides/media-animation-portals-and-3d/"
+level = 1
+
+[[items]]
+title = "Platform shells, CLI, and testing"
+href = "/docs/guides/platform-shells-cli-and-testing/"
+level = 1
+
+[[items]]
+title = "Testing and diagnostics"
+href = "/docs/guides/testing-and-diagnostics/"
+level = 1
+
+[[items]]
+title = "Charts"
+href = "/docs/charts/overview/"
+level = 0
+group = true
+
+[[items]]
+title = "Catalog"
+href = "/docs/charts/catalog/"
+level = 1
+
+[[items]]
+title = "Series and datasets"
+href = "/docs/charts/series-and-datasets/"
+level = 1
+
+[[items]]
+title = "Data and interaction"
+href = "/docs/charts/data-and-interaction/"
+level = 1
+
+[[items]]
+title = "Three-dimensional and GL"
+href = "/docs/charts/three-dimensional-and-gl/"
+level = 1
+
+[[items]]
+title = "Cookbook"
+href = "/docs/cookbook/build-a-counter/"
+level = 0
+group = true
+
+[[items]]
+title = "Build a counter"
+href = "/docs/cookbook/build-a-counter/"
+level = 1
+
+[[items]]
+title = "Run typed host work"
+href = "/docs/cookbook/run-typed-host-work/"
+level = 1
+
+[[items]]
+title = "Keep a timer or service alive"
+href = "/docs/cookbook/keep-a-timer-or-service-alive/"
+level = 1
+
+[[items]]
+title = "Theme and locale toggle"
+href = "/docs/cookbook/theme-and-locale-toggle/"
+level = 1
+
+[[items]]
+title = "Modal text flow"
+href = "/docs/cookbook/modal-text-flow/"
+level = 1
+
+[[items]]
+title = "Add platform targets"
+href = "/docs/cookbook/add-platform-targets/"
+level = 1
+
+[[items]]
+title = "Write a live UI test"
+href = "/docs/cookbook/write-a-live-ui-test/"
+level = 1
+
+[[items]]
+title = "Reference overview"
+href = "/reference/overview/overview/"
+level = 0

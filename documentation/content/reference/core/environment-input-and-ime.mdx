@@ -1,0 +1,107 @@
+---
+title: Environment, input, and input method editor
+description: The reference contract for Env, InputEvent, clipboard support, and input method editor handling.
+---
+
+# Environment, input, and input method editor
+
+This page covers the public contracts that connect the shared runtime to user input and host-provided context.
+
+The two main ideas are simple.
+
+`Env` carries explicit environment values that widgets may need while building.
+
+`InputEvent` carries normalized user and lifecycle input that the runtime can process consistently across platforms.
+
+The clipboard and input method editor contracts sit beside those two types because they are part of the same shell-to-runtime boundary.
+
+## `Env`
+
+`Env` is the read-only environment bundle exposed to widgets through `View`.
+
+Today, the public fields include:
+
+| Field | Meaning | Typical use |
+| --- | --- | --- |
+| `theme` | The active visual theme | Component styling and token lookup |
+| `i18n` | The loaded internationalization registry | Translated text lookup |
+| `locale` | The currently active locale | Translation and locale-sensitive presentation |
+| `window_insets` | Host-reported insets such as safe-area style boundaries | Mobile-safe layout and edge-aware content |
+| `viewport_size` | The current logical viewport size | Responsive layout decisions |
+| `measurer` | Optional text measurement backend | Text layout and shaping support |
+
+Use `Env` for shared presentation and host-context values, not for durable product state.
+
+A widget should read environment through `View`, for example with `view.viewport_size()`, `view.theme()`, or `view.env.locale`.
+
+## How `Env` reaches the app
+
+Desktop currently exposes public `with_env(...)` and `with_sync_env(...)` builders. Mobile and web expose public `with_sync_env(...)`.
+
+Use `with_env(...)` when you want to seed a prepared environment, such as an environment that already contains translation bundles.
+
+Use `with_sync_env(...)` when values in `AppState` should be mirrored into `Env`, such as a user-selected locale or theme mode.
+
+The important contract is that environment remains explicit and shell-managed, not hidden behind global process state.
+
+## `InputEvent`
+
+`InputEvent` is the top-level normalized input type consumed by the runtime.
+
+It exists so the shared core can reason about input consistently even though each shell starts from different native APIs.
+
+The public variants are:
+
+| Variant | Meaning |
+| --- | --- |
+| `Pointer(PointerEvent)` | Mouse, touch, or stylus input |
+| `Keyboard(KeyEvent)` | Key presses and releases |
+| `Ime(ImeEvent)` | Composed-text events from an input method editor |
+| `Gesture(GestureEvent)` | Higher-level gestures such as taps or pans |
+| `Lifecycle(LifecycleEvent)` | App or surface lifecycle events such as init or resize |
+
+This normalization is a major reason cross-platform behavior stays consistent and testable.
+
+## Pointer and keyboard details
+
+`PointerEvent` covers pointer down, up, move, and scroll. Pointer buttons are represented by `PointerButton`.
+
+`KeyEvent` covers key down and key up. Key identity is represented by `KeyCode`, and modifier bits use constants such as `MOD_SHIFT`, `MOD_ALT`, `MOD_CTRL`, and `MOD_SUPER`.
+
+Use these contracts when you are building custom input-aware widgets or investigating runtime input flow. Most ordinary app code benefits from them indirectly through built-in widgets.
+
+## Input method editor, in reference terms
+
+An input method editor is the system used for composed text entry. This is essential for many writing systems and also matters for accents, emoji, and other non-trivial text entry flows.
+
+The public input method editor event type is `ImeEvent`, with these variants:
+
+| Variant | Meaning |
+| --- | --- |
+| `Preedit { text }` | Temporary composed text that is still being edited |
+| `Commit { text }` | Final text confirmed by the user |
+
+This contract exists so text-heavy widgets can handle real composition instead of pretending every character arrives as final committed text immediately.
+
+## Clipboard and input method editor shell traits
+
+Fission does not hide clipboard and input method editor support inside one desktop-only implementation detail. The core runtime exposes public shell-facing traits for both.
+
+| Trait | Purpose |
+| --- | --- |
+| `Clipboard` | Text clipboard access through `get_text()` and `set_text()` |
+| `ImeHandler` | Shell control over input method editor allowed state and cursor-area updates |
+
+Shells provide the real platform implementations. Tests can provide mocks.
+
+That separation matters because clipboard and input method editor behavior are part of the host boundary, but they still need to plug into the shared runtime model explicitly.
+
+## Related runtime-owned text state
+
+This page is about the public boundary types, but it helps to remember that the runtime also owns text-edit state internally. That includes caret and selection state, undo history, preedit state, and other editing affordances.
+
+That ownership is why built-in `TextInput` and more advanced text surfaces can share the same underlying model instead of each inventing their own text pipeline.
+
+## Related reference pages
+
+For theme and locale flow specifically, continue to [Theming and internationalization](/reference/core/theming-and-i18n). For the higher-level teaching guide that explains how these contracts feel in real app code, see [Input, text, and environment](/docs/guides/input-events-text-and-env).

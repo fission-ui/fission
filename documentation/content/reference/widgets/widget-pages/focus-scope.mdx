@@ -1,0 +1,58 @@
+---
+title: FocusScope
+description: Mark a subtree as its own focus region, optionally as a focus barrier.
+slug: /widgets/focus-scope
+---
+# FocusScope
+
+`FocusScope` marks a subtree as its own focus region.
+
+In practical terms, it tells the runtime that keyboard focus inside this part of the interface should be treated as one grouped area. When `is_barrier` is `true`, it also acts as a barrier that stops focus traversal from leaking through to surrounding content.
+
+This is most useful for dialogs, popovers, menus, and embedded editing surfaces. It is not a general-purpose layout widget. If the only problem is spacing or stacking, use normal layout primitives instead.
+
+## Example
+
+```rust
+use fission::core::ui::{FocusScope, TextInput};
+
+let node = FocusScope {
+    is_barrier: true,
+    children: vec![
+        TextInput {
+            value: String::new(),
+            placeholder: Some("To".into()),
+            ..Default::default()
+        }
+        .into_node(),
+    ],
+    ..Default::default()
+}
+.into_node();
+```
+
+This is the kind of structure you want inside a modal, where keyboard users should stay inside the dialog while it is open.
+
+## Field table
+
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `id` | `Option<NodeId>` | Stable node identity. | Defaults to `None`. |
+| `children` | `Vec<Node>` | The subtree inside the focus scope. | Defaults to an empty list. |
+| `is_barrier` | `bool` | Whether focus traversal should be contained by this scope. | Defaults to `false`. Set `true` for modal-style focus containment. |
+
+## Focus and semantics behavior
+
+`FocusScope` lowers its children under a semantics node marked as a focus scope. It is primarily about focus behavior and accessibility structure, not about visuals. The children are wrapped together so the runtime can treat them as one focus region.
+
+When `is_barrier` is `true`, this becomes the right tool for modal flows where tabbing or keyboard focus should not fall through to controls behind the overlay.
+
+## Specific advice
+
+Use `FocusScope` deliberately. Overusing focus barriers can make keyboard navigation feel trapped in the wrong places. The barrier mode is excellent for real dialogs and overlays, but it is usually wrong for ordinary in-page sections.
+
+Pair `FocusScope` with clear visible structure, such as a titled modal or panel, so the accessibility structure matches what the user sees.
+
+## Related
+
+[`Overlay`](/reference/widgets/overlay), [`Positioned`](/reference/widgets/positioned), [`SafeArea`](/reference/widgets/safe-area), and [`TextInput`](/reference/widgets/text-input).

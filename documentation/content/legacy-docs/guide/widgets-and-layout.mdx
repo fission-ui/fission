@@ -1,0 +1,84 @@
+---
+title: Widgets and layout
+description: Compose your first screens with reusable widgets.
+---
+
+# Widgets and layout
+
+State drives structure before style. This avoids spending time rearranging after business logic is settled.
+
+A practical pattern is:
+
+1. define your container shell (`SafeArea`, `Container`, `Column`, `Row`),
+2. choose spacing and behavior boundaries (`gap`, `padding`, `flex_grow`),
+3. add helpers only when structure is stable.
+
+```rust
+use fission::prelude::*;
+
+#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+struct DashboardState {
+    counter: u32,
+}
+
+impl AppState for DashboardState {}
+
+#[fission_action]
+struct Increment;
+
+fn on_increment(
+    state: &mut DashboardState,
+    _action: Increment,
+    _ctx: &mut ReducerContext<DashboardState>,
+) {
+    state.counter += 1;
+}
+
+struct Dashboard;
+
+impl Widget<DashboardState> for Dashboard {
+    fn build(&self, ctx: &mut BuildCtx<DashboardState>, view: &View<DashboardState>) -> Node {
+        let increment = with_reducer!(ctx, Increment, on_increment);
+
+        Container {
+            child: Some(Box::new(
+                Column {
+                    gap: Some(12.0),
+                    children: vec![
+                        Text::new(format!("Projects: {}", view.state.counter)).into_node(),
+                        Button {
+                            on_press: Some(increment),
+                            child: Some(Box::new(Text::new("Add").into_node())),
+                            ..Default::default()
+                        }
+                        .into_node(),
+                    ],
+                    ..Default::default()
+                }
+                .into_node(),
+            )),
+            ..Default::default()
+        }
+        .into_node()
+    }
+}
+```
+
+## Why start this way
+
+When layout is settled first, you can:
+
+- spot interaction bugs faster,
+- reuse containers across screens,
+- keep semantics and accessibility checks anchored to stable structure.
+
+## Practical checklist
+
+- build your tree with explicit containers first,
+- extract repeating sections into helper builders,
+- bind actions only after visible structure is understandable,
+- test each screen as a sequence of state transitions.
+
+## Next
+
+Once layout is stable, define your action flow in [State and actions](/docs/guide/state-and-actions).

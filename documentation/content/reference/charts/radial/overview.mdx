@@ -1,0 +1,42 @@
+---
+title: Radial
+sidebar_label: Overview
+description: Fission Charts reference for the Radial family.
+---
+
+# Radial
+
+The Radial family contains 20 renderer-backed chart variants. Use this page as the entry point for choosing the right variant, then open the variant page for the screenshot, data shape, Rust API notes, and example code.
+
+The chart family is still ordinary Fission UI. Each variant is constructed from typed Rust data, participates in layout and theme decisions, and can be driven by app state, reducers, resources, jobs, or services just like any other widget.
+
+![Availability gauge screenshot](/img/charts/gauge-availability.png)
+
+## Variants
+
+| Chart | Data shape | Use when |
+| --- | --- | --- |
+| [Availability gauge](./gauge-availability) | One bounded value mapped to an arc. | Use it when a single current status dominates the screen. |
+| [Build confidence gauge](./gauge-build-confidence) | One confidence score on a gauge arc. | Use it when a status panel needs a primary quality number. |
+| [Capacity headroom gauge](./gauge-capacity-headroom) | Single capacity value in a bounded range. | Use it when headroom is the only number that matters. |
+| [Cycle polar line](./polar-cycle-line) | Angle/radius samples around a cycle. | Use it for circular process metrics. |
+| [Deploy health gauge](./gauge-deploy-health) | Single score value in a bounded range. | Use it for health and readiness summaries. |
+| [Device donut](./pie-device-donut) | Label/value pairs with an open center. | Use it when the center can carry a total or primary label. |
+| [Expense donut](./pie-expense-donut) | Expense categories as a small whole. | Use it for budget composition. |
+| [Exposure area rose](./pie-exposure-rose) | Label/value pairs with area-oriented rose layout. | Use it when relative shape is more important than a precise angle. |
+| [Hourly load polar bars](./polar-hourly-load) | Label/value pairs around a circle. | Use it when cyclic position is meaningful. |
+| [Market rose](./pie-market-rose) | Label/value pairs with radius emphasis. | Use it when presentation value is high and categories are few. |
+| [Plan share pie](./pie-plan-share) | Label/value pairs for a small whole. | Use it when part-to-whole reading is the main task. |
+| [Platform readiness radar](./radar-platform-readiness) | Platform dimensions as comparable vectors. | Use it to summarize readiness across product areas. |
+| [Product fit radar](./radar-product-fit) | Several same-length dimensional vectors. | Use it to compare shapes across a few dimensions. |
+| [Revenue mix donut](./pie-revenue-mix) | Revenue categories as label/value pairs. | Use it when contribution to total revenue matters. |
+| [Risk rose](./pie-risk-rose) | Risk category values in radial form. | Use it for executive risk snapshots where visual emphasis helps. |
+| [Seasonality polar bars](./polar-seasonality-bars) | Cyclic label/value pairs. | Use it when the shape wraps around a repeated cycle. |
+| [Service health radar](./radar-service-health) | Health dimensions on a radial profile. | Use it for compact status summaries. |
+| [Source mix pie](./pie-source-mix) | Traffic or source categories with values. | Use it for small source distributions. |
+| [Team balance radar](./radar-team-balance) | Team capability vectors. | Use it when balance across dimensions is the main reading. |
+| [Wind speed polar line](./polar-wind-speed) | Angle/radius samples. | Use it for directional or cyclic measures. |
+
+## Choosing within this family
+
+Start with the user's question, not the visual effect. Pick the simplest variant that makes the answer clear, add interaction only when it reduces work for the user, and keep animation purposeful enough that it explains a change rather than decorating the page.

@@ -1,0 +1,38 @@
+---
+title: TabItem
+description: Describe one tab label, one content panel, and the action that selects it.
+slug: /widgets/tab-item
+---
+# TabItem
+
+`TabItem` is the data record used by [`Tabs`](/reference/widgets/tabs).
+
+Each item defines one labeled tab and the content that should appear when that tab is active. The parent `Tabs` widget chooses which item's content is actually rendered by comparing its index to `active_index`.
+
+## Example
+
+```rust
+use fission::prelude::*;
+
+let item = TabItem {
+    title: "Security".into(),
+    content: security_panel_node,
+    on_press: Some(select_security_tab_action),
+};
+```
+
+## Field table
+
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `title` | `String` | Visible label for the tab button. | Required. |
+| `content` | `Node` | Panel content for this tab. | Required. Only the active tab's content is shown. |
+| `on_press` | `Option<ActionEnvelope>` | Action fired when the tab is chosen. | Defaults to `None`. Usually sets the active index in state. |
+
+## Specific advice
+
+Keep tab titles short and parallel. Tabs work best when users can compare section names at a glance.
+
+## Related
+
+[`Tabs`](/reference/widgets/tabs), [`Accordion`](/reference/widgets/accordion), [`Button`](/reference/widgets/button), and [`Text`](/reference/widgets/text).

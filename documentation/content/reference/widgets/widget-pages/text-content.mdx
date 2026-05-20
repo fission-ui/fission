@@ -1,0 +1,34 @@
+---
+title: TextContent
+description: Choose whether text comes from a literal string or an internationalized lookup key.
+slug: /widgets/text-content
+---
+# TextContent
+
+`TextContent` is the content-source enum used by [`Text`](/reference/widgets/text).
+
+You encounter it when a text widget should either render a literal string directly or look up a translated string from the environment.
+
+## Example
+
+```rust
+use fission::core::ui::{Text, TextContent};
+
+let title = Text::new(TextContent::Key("settings.title".into())).into_node();
+let caption = Text::new(TextContent::Literal("Version 1.2.0".into())).into_node();
+```
+
+## Choice table
+
+| Choice | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `Literal(String)` | `TextContent` | Render this exact string. | Good for dynamic values, ids, or already-translated text. |
+| `Key(String)` | `TextContent` | Look up the string through the current locale in `Env.i18n`. | Missing keys render as `MISSING:key` in the checked-in implementation. |
+
+## Specific advice
+
+Use `Key` for product copy that should participate in internationalization. Use `Literal` for values that are already data, such as file names, counts, or user input.
+
+## Related
+
+[`Text`](/reference/widgets/text), [`RichText`](/reference/widgets/rich-text), [`Theming and internationalization`](/docs/guides/theming-and-i18n), and [`Env`](/reference/core/environment-input-and-ime).

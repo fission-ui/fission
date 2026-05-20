@@ -1,0 +1,153 @@
+---
+title: Resources and capabilities
+description: The reference contract for build-time resources and reducer-triggered capabilities.
+---
+
+# Resources and capabilities
+
+Resources and capabilities are both explicit runtime surfaces, but they solve different problems.
+
+A capability is a typed request for host-owned work, usually emitted from a reducer.
+
+A resource is a build-time declaration that tells the runtime some work should stay mounted while a widget subtree exists.
+
+That difference is the most important thing to keep clear when using this page.
+
+## Capabilities
+
+A capability is the public contract for asking the host to perform an operation the shared app should not perform directly.
+
+Examples include opening a web address or opening a user-granted file picker. Fission currently ships built-in capability IDs for `OPEN_URL` and `PICK_OPEN_FILES`.
+
+The public types behind this surface include `OperationCapability`, `CapabilityType<C>`, and `CapabilityCtx`.
+
+Authentication flows and native operating-system alerts are deliberately not built in right now. If you need an in-app alert, use normal Fission UI such as `Modal`, `Drawer`, `Toast`, or your own overlay. If you need a true host-owned prompt or a product-specific authentication flow, define a custom capability and register a shell provider for the hosts that support it.
+
+A capability invocation is the act of requesting one of these operations through `ctx.effects.capability(...)` with a typed request payload. The reducer chooses that operation explicitly, and the runtime routes the eventual success or error back through follow-up actions.
+
+Use a capability when the host boundary is the reason the work exists.
+
+Do not use a capability as a generic async escape hatch for ordinary app-owned background work. If the host does not need to do it, it is probably better modeled as a job or service.
+
+### Defining your own operation capability
+
+Application and library authors can add capabilities without changing `fission-core`. A capability is just a typed contract plus a shell-side provider.
+
+```rust
+use fission::prelude::*;
+use serde::{Deserialize, Serialize};
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct StartPaymentRequest {
+    pub checkout_id: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct StartPaymentOk {
+    pub receipt_id: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct StartPaymentErr {
+    pub message: String,
+}
+
+pub struct StartPaymentCapability;
+
+impl OperationCapability for StartPaymentCapability {
+    type Request = StartPaymentRequest;
+    type Ok = StartPaymentOk;
+    type Err = StartPaymentErr;
+}
+
+pub const START_PAYMENT: CapabilityType<StartPaymentCapability> =
+    CapabilityType::new("com.example.payment.start");
+```
+
+Reducers invoke it the same way they invoke built-ins:
+
+```rust
+ctx.effects
+    .capability(
+        START_PAYMENT,
+        StartPaymentRequest {
+            checkout_id: state.checkout_id.clone(),
+        },
+    )
+    .on_ok(ctx.effects.bind(PaymentFinished, reduce_with!(on_payment_finished)))
+    .on_err(ctx.effects.bind(PaymentFailed, reduce_with!(on_payment_failed)));
+```
+
+The host shell chooses whether to support that capability and registers the provider:
+
+```rust
+app.with_async(|asyncs| {
+    asyncs.register_operation_capability(
+        START_PAYMENT,
+        |request: StartPaymentRequest, _ctx| async move {
+            let receipt_id = run_host_payment_flow(request.checkout_id).await?;
+            Ok(StartPaymentOk { receipt_id })
+        },
+    );
+});
+```
+
+Use reverse-DNS names such as `com.example.payment.start` for application-specific capabilities. That avoids collisions with framework-owned names such as `fission.ui.open_url`.
+
+## Resources
+
+A resource is a runtime-managed declaration collected during `build()` through `BuildCtx.resources`.
+
+Instead of saying "start this work right now because one reducer fired," a resource says "this work should exist while the current widget tree says it should exist."
+
+That difference is what makes resources such a good fit for timers, mounted polling, tree-owned jobs, or tree-owned long-lived services.
+
+The public types in this area include `ResourceRegistry`, `ResourceKey`, `ResourcePolicy`, `RuntimeResourceDeclaration`, `JobResource`, `ServiceResource`, and `TimerResource`.
+
+## Resource kinds
+
+`JobResource` is the build-owned version of one-shot work. Use it when a job should be mounted because the current user interface state requires it, not because one user action happened at one moment.
+
+`ServiceResource` is the build-owned version of a long-lived service. Use it when the service lifetime should follow the widget tree.
+
+`TimerResource` is the periodic wakeup resource. Use it when a subtree needs deterministic ticks while it is mounted.
+
+## Resource keys
+
+Every resource has a key, represented by `ResourceKey`.
+
+The key is how the runtime knows whether a resource declaration on this frame is the same logical resource as one from the previous frame. If the key is unstable or poorly chosen, reconciliation becomes noisy and the runtime cannot preserve or restart work the way you intended.
+
+Stable keys are part of the public contract for correct resource usage.
+
+## Resource policy
+
+A resource policy is the rule that tells the runtime how to behave when a resource declaration changes.
+
+Today, the public policy values are `RestartOnChange` and `PreserveOnChange`.
+
+`RestartOnChange` means a meaningful declaration change should restart the resource. This is the default and is usually the right choice when dependency changes mean the work itself must refresh.
+
+`PreserveOnChange` means keep the live instance even though the declaration changed. Use it carefully when continuity matters more than immediate restart.
+
+These names are short, but the intent matters. Policy is not decoration. It is how you describe lifetime behavior to the runtime.
+
+## Resource reconciliation
+
+The runtime reconciles resources by comparing the key, declaration kind, dependency payload, and policy.
+
+That is why resource declarations are safe to make during a pure `build()` method. Declaring a resource does not perform the work immediately. It gives the runtime the information it needs to start, preserve, restart, or stop the resource after the build phase.
+
+## Choosing between capabilities and resources
+
+Use a capability when the question is "ask the host to do this operation."
+
+Use a resource when the question is "this work should stay mounted while this part of the user interface exists."
+
+If you are deciding between a capability and a job, ask whether the work is host-owned. If yes, capability. If not, job.
+
+If you are deciding between a reducer effect and a resource, ask whether the work should happen because one action occurred or because a subtree should stay alive. If the widget tree should own the lifetime, use a resource.
+
+## Related reference pages
+
+For reducer-side jobs, services, and commands, continue to [Commands, services, and jobs](/reference/core/commands-services-jobs). For the build-side contract that declares resources, pair this page with [Widget trait](/reference/core/widget-trait). For the broader async teaching guide, see [Resources and async](/docs/guides/resources-and-async).

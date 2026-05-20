@@ -1,0 +1,45 @@
+---
+title: Hero
+description: Mark the same logical element across navigation states so the runtime can animate it between screens.
+slug: /widgets/hero
+---
+# Hero
+
+`Hero` is the shared-element transition marker.
+
+From a product perspective, a hero animation says "this thing here became that thing there." It helps users keep continuity when moving from a list into a detail view, from a message card into a full thread, or from a thumbnail into a focused surface.
+
+## Example
+
+```rust
+use fission::prelude::*;
+
+let node = Hero {
+    tag: format!("email_subject_{}", email.id),
+    child: Box::new(Text::new(email.subject.clone()).into_node()),
+}
+.build(ctx, view);
+```
+
+To get a real transition, the corresponding destination view must wrap the matching element with the same `tag`.
+
+## Field table
+
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `tag` | `String` | Stable identity for the shared element across navigation frames. | Required. Matching tags are what make the runtime treat two elements as the same thing. |
+| `child` | `Box<Node>` | Visual content that should participate in the transition. | Required. |
+
+## Product guidance
+
+A hero is best when it reinforces a user's mental model, not when it decorates random elements. Good candidates are thumbnails, titles, avatars, and cards that clearly represent the same object before and after navigation.
+
+The checked-in widget does not expose timing or easing knobs. It only marks the element with a `hero_tag` semantic annotation. The runtime decides whether and how to animate between matching tags.
+
+## Specific advice
+
+Tags must be stable and specific. If two unrelated elements accidentally share a tag, the transition can feel wrong or jumpy. Use domain ids rather than positional indexes when possible.
+
+## Related
+
+[`Transition`](/reference/widgets/transition), [`Card`](/reference/widgets/card), [`Image`](/reference/widgets/image), and [`Text`](/reference/widgets/text).

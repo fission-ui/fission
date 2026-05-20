@@ -1,0 +1,76 @@
+---
+title: Layout widgets
+description: The reference overview for layout and structure widgets, including how to choose among rows, columns, grids, stacks, and constraint helpers.
+---
+
+# Layout widgets
+
+Layout widgets answer one question before anything else in the user interface does: how should space be divided, constrained, layered, and protected?
+
+That makes them different from display widgets, which mostly show information, and input widgets, which mostly collect intent. Layout widgets decide the structure the rest of the user interface lives inside.
+
+## How to choose among layout widgets
+
+Start with the simplest structure that matches the reading order.
+
+Use a vertical flow first when the screen reads top to bottom. Use a horizontal flow when side-by-side comparison matters. Move to grids when repeated content benefits from a matrix. Use stacks and positioned layouts when layering is the point, not just ordinary arrangement.
+
+Once the overall structure is clear, add helpers for centering, safe areas, ratio preservation, wrapping, or split panes where those patterns are genuinely needed.
+
+## Core linear and constraint widgets
+
+These are the first widgets to reach for on most screens.
+
+| Widget | Dedicated page | When to choose it |
+| --- | --- | --- |
+| `Container` | [Container](/reference/widgets/container) | You need one child plus padding, sizing, background, or constraint control |
+| `Row` | [Row](/reference/widgets/row) | Children should stay in a horizontal sequence |
+| `Column` | [Column](/reference/widgets/column) | Children should stay in a vertical sequence |
+| `Spacer` | [Spacer](/reference/widgets/spacer) | You need fixed or flexible empty space |
+| `Scroll` | [Scroll](/reference/widgets/scroll) | Content may legitimately exceed the viewport |
+| `Align` | [Align](/reference/widgets/align) | A child needs alignment inside available bounds |
+| `Center` | [Center](/reference/widgets/center) | You only need centered placement |
+
+## Higher-level stack and flow helpers
+
+These widgets express layout patterns that are already common enough to deserve named helpers.
+
+| Widget | Dedicated page | When to choose it |
+| --- | --- | --- |
+| `HStack` | [HStack](/reference/widgets/h-stack) | You want a higher-level horizontal stack helper |
+| `VStack` | [VStack](/reference/widgets/v-stack) | You want a higher-level vertical stack helper |
+| `Wrap` | [Wrap](/reference/widgets/wrap) | Repeated items should flow onto new lines as width changes |
+| `SimpleGrid` | [SimpleGrid](/reference/widgets/simple-grid) | You want a simpler grid authoring surface |
+| `SplitView` | [SplitView](/reference/widgets/split-view) | The screen is naturally a split-pane layout |
+| `SplitDirection` | [SplitDirection](/reference/widgets/split-direction) | You need the supporting split orientation type |
+
+## Grid and layered layouts
+
+Use these when a purely linear layout is no longer the right shape.
+
+| Widget | Dedicated page | When to choose it |
+| --- | --- | --- |
+| `Grid` | [Grid](/reference/widgets/grid) | Repeated content belongs in rows and columns |
+| `GridItem` | [GridItem](/reference/widgets/grid-item) | A child needs span or placement rules inside a grid |
+| `ZStack` | [ZStack](/reference/widgets/z-stack) | Children should share the same visual area in layers |
+| `Positioned` | [Positioned](/reference/widgets/positioned) | A layered child needs explicit placement |
+| `Overlay` | [Overlay](/reference/widgets/overlay) | Content and overlay content share the same region deliberately |
+
+## Edge protection, ratios, and adaptive helpers
+
+These widgets become important when a layout needs to react to host conditions or special constraints.
+
+| Widget | Dedicated page | When to choose it |
+| --- | --- | --- |
+| `SafeArea` | [SafeArea](/reference/widgets/safe-area) | Content should avoid host insets such as mobile safe areas |
+| `AspectRatio` | [AspectRatio](/reference/widgets/aspect-ratio) | A child should preserve a specific width-to-height ratio |
+| `LayoutBuilder` | [LayoutBuilder](/reference/widgets/layout-builder) | The build output depends directly on current constraints |
+| `absolute_fill(...)` | [absolute_fill](/reference/widgets/absolute-fill) | A child should fill the stacked bounds |
+| `Clip` | [Clip](/reference/widgets/clip) | A child must be clipped to a region |
+| `Transform` | [Transform](/reference/widgets/transform) | A child needs visual transformation |
+| `Composite` | [Composite](/reference/widgets/composite) | You need composition or repaint-boundary control |
+| `FocusScope` | [FocusScope](/reference/widgets/focus-scope) | Focus traversal should stay within a layout region |
+
+## Practical cross-reference
+
+If the next question is really about themed or responsive screen composition, pair this page with the guide on [Layout and widgets](/docs/guides/layout-and-widgets). If the next question is about a particular widget family rather than structure, return to the [Widget catalog](/reference/widgets/catalog).

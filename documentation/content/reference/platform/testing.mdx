@@ -1,0 +1,89 @@
+---
+title: Testing
+description: The target-level testing reference for desktop, web, Android, and iOS hosts and how that differs from headless runtime testing.
+---
+
+# Testing
+
+This page covers target-level testing: the point where you stop asking only "does the shared app logic work?" and start asking "does this host actually launch, present, and behave correctly on this platform?"
+
+That distinction matters because Fission gives you two different testing surfaces.
+
+The first surface is the shared runtime. It can be tested headlessly and deterministically without opening a real browser, window, or mobile host.
+
+The second surface is the platform shell. That is where packaging, launch, presentation, host input, screenshots, accessibility bridges, browser integration, and mobile lifecycle details need to be validated on a real target.
+
+A strong test strategy uses both.
+
+## What can be tested without a real host
+
+Use `fission-test` for the shared runtime whenever the question is about app behavior rather than shell behavior.
+
+That is the right place to validate reducer logic, selectors, widget output, layout intent, semantics, many interaction paths, and deterministic frame behavior. Those tests apply equally to desktop, browser, Android, and iOS because they are proving the shared app model itself.
+
+For many browser-facing features, this is already a large part of the confidence story. If the behavior is truly shared, headless runtime tests are still a first-class answer even when the final shipped product runs in a browser.
+
+## What needs a real target host
+
+Use a real target host when the platform boundary is part of the question.
+
+That includes launcher correctness, browser serving and presentation, Android emulator installation, iOS simulator launch, host screenshots, viewport behavior, accessibility bridging, clipboard behavior, drag-and-drop integration, and other shell-managed details.
+
+This is where smoke scripts, live-driver tests, and platform-specific manual checks each have a role.
+
+## Desktop
+
+Desktop currently offers the broadest public live-shell testing surface.
+
+`DesktopApp` exposes `with_test_control_port(...)`, and the desktop shell can also be launched with `FISSION_TEST_CONTROL_PORT` so `LiveTestClient` can drive a running app. That makes desktop a strong host for automated end-to-end interaction, semantic-tree inspection, screenshots, and visible-text assertions.
+
+This is a tooling advantage, not a statement that desktop is the only serious target. It simply means the current desktop shell exposes the richest live-control hook.
+
+## Web
+
+The browser target is real and runnable today, with checked-in smoke coverage and generated browser host output. The current difference is the testing surface, not the target's legitimacy.
+
+Today the browser wrapper does not expose a public live-control endpoint equivalent to the desktop and mobile shells. That means browser automation is not yet using the same first-party `LiveTestClient` path.
+
+What you can still test reliably on browser targets today is substantial:
+
+- shared app behavior through headless deterministic tests
+- browser build and serve paths through the checked-in and generated launcher scripts
+- real browser presentation, layout, and interaction checks in the actual browser host
+- browser-specific validation for viewport sizing, packaging, rendering, and integration details that only the browser can prove
+
+So the practical browser strategy is not "wait until browser tooling catches up." It is "prove shared behavior headlessly, then validate browser-specific behavior in the real browser host." The missing live-control hook is a testing-tooling gap, not evidence that browser apps are not production-capable.
+
+## Android
+
+Android currently has a verified emulator host path plus generated target output.
+
+Use headless tests first for shared runtime behavior. Then use the Android host path to validate packaging, installation, launch, presentation, and platform-facing mobile behavior. The public mobile shell also exposes `with_test_control_port(...)`, which matters for live-driver scenarios where that host path is part of the question.
+
+## iOS
+
+The checked-in iOS target path is currently the simulator host path.
+
+As with Android, shared runtime behavior belongs in headless tests first. Then the iOS simulator host validates launch, presentation, and shell integration through the documented simulator route. If the product depends on iOS-specific host behavior, direct validation there still matters because simulator success and shared-runtime correctness are not the same claim.
+
+## Smoke scripts and live-driver tests answer different questions
+
+A smoke script answers, "can this target build and launch correctly?"
+
+A live-driver test answers, "can I drive this running shell and assert on real interactive behavior?"
+
+You often want both. They are complementary rather than competing tools.
+
+## Practical target workflow
+
+Start with headless tests for shared behavior.
+
+Add live-driver tests where the current shell exposes that surface and the interaction really needs a running host.
+
+Use browser, Android, and iOS host paths to validate the platform-specific behavior only those hosts can prove.
+
+That approach keeps the browser target in the same serious testing story as every other target while still being honest about the current difference in first-party live-control tooling.
+
+## Related reference pages
+
+For the shared testing stack and diagnostics model, see [Testing and diagnostics](/reference/core/testing-and-diagnostics). For generated host output and target expectations, continue to [Targets](/reference/platform/targets).

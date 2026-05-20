@@ -1,0 +1,60 @@
+---
+title: App structure
+description: Organize a Fission app around typed state, explicit reducers, and a shared entry model.
+---
+
+# App structure
+
+The generated command-line interface app and the checked-in examples follow the same broad structure.
+
+## Common files
+
+A scaffolded app gives you:
+
+- `src/app.rs` for the shared root widget and core product logic,
+- `src/main.rs` for the desktop entrypoint,
+- `src/lib.rs` for shared helpers used by mobile or web hosts,
+- `fission.toml` for target metadata,
+- `platforms/<target>/` for host packaging and launch scripts.
+
+The examples keep a similar split even when they stay in a single crate.
+
+## Keep state and reducers close
+
+A good first pass is:
+
+1. define `AppState`,
+2. define typed actions next to the state they change,
+3. bind reducers in `build()` or through an `ActionRegistry`,
+4. use selectors for view-specific derived data.
+
+This keeps code review focused on state transitions instead of callback wiring.
+
+## Inline binding vs central registration
+
+Use `ctx.bind(...)` when the action is local to the widget tree.
+
+Use `ActionRegistry` plus `absorb_registry(...)` when you want startup-time registration for global actions, like the inbox example does for capability-backed links.
+
+## Stable IDs are for runtime-owned behavior
+
+Reach for explicit `WidgetNodeId`s when the runtime needs a durable identity across frames:
+
+- animations,
+- portal anchors,
+- hero transitions,
+- media/embed bookkeeping.
+
+Do not assign IDs everywhere by default.
+
+## Prefer pure view models over build-time work
+
+If a widget needs formatted text, booleans, or small derived slices of state, use a selector or helper struct instead of mutating state during build.
+
+The `counter` example's selector-based `CounterVM` is the right level of indirection for many screens.
+
+## Related guides
+
+- [Resources and async](/docs/guides/resources-and-async)
+- [Layout and widgets](/docs/guides/layout-and-widgets)
+- [Reference: state system](/reference/core/state-system)

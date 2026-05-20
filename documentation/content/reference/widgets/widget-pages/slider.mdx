@@ -1,0 +1,55 @@
+---
+title: Slider
+description: Adjust one continuous numeric value by dragging a thumb along a track.
+slug: /widgets/slider
+---
+# Slider
+
+`Slider` is the single-value continuous range control.
+
+It is a good fit for volumes, percentages, zoom levels, opacity, and other values that feel natural on a continuum. The current value is read from state, and dragging emits a new numeric value back into the reducer loop.
+
+## Example
+
+```rust
+use fission::core::ui::Slider;
+
+let node = Slider {
+value: view.state.volume,
+min: 0.0,
+max: 1.0,
+on_change: Some(ctx.bind(
+    SetVolume(0.0),
+    reduce_with!((|state: &mut PlayerState, action: SetVolume, _| state.volume = action.0)),
+)),
+..Default::default()
+}
+.into_node();
+```
+
+The `0.0` in `SetVolume(0.0)` is just a shape placeholder. When the user drags, the runtime replaces that payload with the real `f32` value under the pointer.
+
+## Field table
+
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `id` | `Option<NodeId>` | Stable node identity. | Defaults to `None`. |
+| `value` | `f32` | Current slider value. | Defaults to `0.0`. Values are rendered relative to `min` and `max`. |
+| `min` | `f32` | Minimum value in the domain. | Defaults to `0.0`. |
+| `max` | `f32` | Maximum value in the domain. | Defaults to `1.0`. |
+| `on_change` | `Option<ActionEnvelope>` | Action dispatched while the user drags. | The runtime serializes the new `f32` value into the action payload. |
+
+## Interaction and semantics behavior
+
+`Slider` lowers slider semantics with a current value, minimum, and maximum, so keyboard focus, assistive technology, and test tools can treat it as a real range control. The current implementation dispatches a fresh numeric payload on pointer down and pointer move while the slider is active.
+
+Because the reducer receives the final value directly, it is easy to clamp, snap, or quantize there if your product needs stepped behavior.
+
+## Specific advice
+
+Use a slider only when approximate dragging feels natural. If the user must enter an exact invoice number, postal code, or integer count, a slider is usually the wrong control. Also validate `min < max` in your own code path; the visual widget guards against a zero-width range, but meaningful product ranges still belong to you.
+
+## Related
+
+[`RangeSlider`](/reference/widgets/range-slider), [`NumberInput`](/reference/widgets/number-input), [`Switch`](/reference/widgets/switch), and [`SegmentedControl`](/reference/widgets/segmented-control).
+

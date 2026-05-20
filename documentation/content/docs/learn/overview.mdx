@@ -1,0 +1,72 @@
+---
+title: Learn overview
+description: Understand what Fission is, why its architecture matters, and how one app model reaches desktop, web, Android, and iOS.
+---
+
+# Learn overview
+
+Most user interface problems are not really about drawing buttons. They are about keeping an app understandable as it grows. A screen works at first, then more features arrive. State starts living in several places. Background work begins at surprising times. A bug only appears after a particular sequence of clicks. The desktop version behaves one way, the web version another, and the mobile version adds its own edge cases. Teams spend more time explaining the app to each other than changing it.
+
+Fission exists to solve that kind of problem. It is a production-ready user interface framework written in Rust for building real desktop, web, Android, and iOS apps today. Its main promise is not just that you can draw an interface in Rust. Its main promise is that the app follows a structure that stays predictable under real product pressure, while the same shared app model can run through multiple real platform hosts.
+
+That structure matters most when the app is no longer small. If you can tell where data lives, how user intent moves through the system, where outside work happens, and which layer touches the operating system, you can debug faster, test with more confidence, and carry the same app model across platforms without rewriting everything around it.
+
+## Why someone chooses Fission
+
+A team usually chooses Fission because it wants fewer hidden rules.
+
+Fission is built around deterministic behavior. In practical product-development terms, deterministic means this: if the app starts from the same state, receives the same user input in the same order, and time advances the same way, the result should match. The same button press should update the same data. The same screen should produce the same layout. The same animation step should land in the same place. The same bug should be reproducible instead of disappearing when you try to inspect it.
+
+That sounds technical, but the benefit is very human. Predictable behavior makes bugs easier to explain. It makes automated tests worth trusting. It makes refactors safer because you can compare the new behavior to the old behavior with something stronger than guesswork. It also makes cross-platform work more realistic, because the framework is not asking desktop, web, Android, and iOS to invent separate versions of the app's logic.
+
+Fission also emphasizes explicit state, explicit side effects, and pure rendering. Those phrases describe a simple discipline.
+
+Explicit state means the important data for your product lives in plain Rust data structures instead of being hidden inside interface elements. Explicit side effects mean work such as opening a file picker, starting background sync, or waiting for a timer is requested through a clear runtime path instead of happening invisibly during rendering. Pure rendering means the part of the app that describes what should appear on screen reads the current data and returns a user interface description without quietly mutating state or reaching into platform APIs.
+
+This is why Fission fits production work. The framework asks for a little more structure up front so the app becomes easier to reason about later.
+
+## How a Fission app works
+
+You do not need much Rust knowledge to understand the overall flow.
+
+First, app state holds the data your product cares about. That might include the current route, the selected message, whether a dialog is open, the text in a search box, or the progress of a task. Fission keeps that state outside the widget tree so the data model stays clear and durable.
+
+Second, actions describe user intent. An action is a named event such as "increment the counter", "select this message", "submit the form", or "save the file". This is important because it turns raw input into something meaningful at the application level. Instead of saying "a pointer event happened somewhere," the app can say "the user asked to archive this message."
+
+Third, reducers change state. A reducer is a function that receives an action and updates the state in response. Reducers are where business rules live. If a save should be blocked when the form is invalid, that rule belongs here. If clicking a checkbox should change a setting, that change belongs here. Keeping state changes in reducers gives the app one predictable path for updates instead of many scattered ones.
+
+Fourth, widgets render from state. A widget is a reusable piece of user interface. When widgets run, they read the current state and describe what should be visible now: text, buttons, lists, layout containers, and other interface elements arranged as a tree. The key idea is that widgets describe the user interface from data. They do not secretly own the product state, and they should not perform random outside work while deciding what to show.
+
+Fifth, shells run the app on each platform. A shell is the thin platform-specific layer that connects the shared app to a real environment such as a desktop window, a browser surface, an Android app, or an iOS app. The shell gathers raw input, forwards lifecycle events, presents rendered output, and bridges platform accessibility APIs. It does not redefine your product logic. It is the adapter around the app, not the place where the app's meaning changes.
+
+This is also where platform details vary without changing the framework's core promise. Browser setup, mobile packaging, emulator or simulator flows, and some testing hooks differ by host, because real platforms differ. But those differences live at the shell boundary. They do not change the shared state model, reducer flow, widget structure, or rendering model that your app is built around.
+
+If you are coming from web development, you can think of this as a strict and explicit version of one-way data flow. Data lives in one clear model. User intent is named. State changes happen in a controlled step. The user interface is rebuilt from the current state. Platform integration stays at the edge.
+
+## Why this architecture helps production teams
+
+This structure helps because each layer has a job.
+
+When a screen is wrong, you can ask focused questions. Is the underlying data wrong? Then inspect state and reducers. Is the data right but the screen layout wrong? Then inspect the layout and rendering path. Did the operating system deliver unusual input? Then inspect the shell boundary. This separation reduces the amount of code you have to mentally load before you can explain a bug.
+
+It also helps with testing. Fission is designed so the runtime can expose structured information about the interface, such as layout geometry, accessibility semantics, paint order, and action traces. That is what observability means here: the framework does not treat the user interface as an opaque black box. It lets tools and tests inspect what the app meant to do. Because of that, many tests can assert real behavior directly instead of relying only on screenshots.
+
+The architecture also helps with cross-platform parity. Desktop, web, Android, and iOS can share the same app model in Fission because the shared core decides the important behavior: state flow, layout meaning, semantics, event routing, and rendering inputs. The shells stay thin. They connect the app to each operating system, but they do not own the app's business rules. That is what allows one product to stay conceptually unified across targets while still shipping through real production hosts on each platform.
+
+Finally, Fission is Rust-first. The framework is designed to feel like Rust rather than a thin wrapper over a different language's assumptions. For a beginner, that mostly means the structure aims to be explicit and type-safe. For a team, it means the APIs are built around Rust's strengths instead of treating Rust as a transport layer for looser patterns.
+
+## A concrete mental picture
+
+Imagine a mail app. The state holds the current mailbox, selected conversation, search query, and whether the compose sheet is open. Clicking a message sends an action that says the user selected that message. A reducer updates the selected conversation in state. Widgets read the new state and rebuild the visible layout so the message list and detail pane match. If the app needs to load more messages from the network, that outside work is requested explicitly through the runtime and the result comes back as another action. The desktop shell shows all of this in a window. The web shell shows the same app in the browser. The Android and iOS shells host the same shared model inside mobile app wrappers. The packaging and validation steps differ by host, but the product logic stays the same.
+
+That is the core promise of Fission in one example: the product logic stays in one understandable flow, and the platform-specific code stays thin.
+
+## Read next
+
+Open [Quickstart](/docs/learn/quickstart) next if you want to run something immediately and make the model concrete.
+
+Then read [Runtime model](/docs/learn/runtime-model) to learn what your app owns, what the runtime owns, and why Fission separates long-lived product state from cross-frame interaction state.
+
+After that, read [Rendering pipeline](/docs/learn/rendering-pipeline) to see how widgets become layout, accessibility information, and painted output.
+
+When you want to connect the model to real targets, continue to [Examples and targets](/docs/learn/examples-and-targets). The checked-in examples there are useful confirmation that the architecture is not only theoretical, but they are meant to support the explanation rather than replace it.

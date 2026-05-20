@@ -1,0 +1,42 @@
+---
+title: Heatmap
+sidebar_label: Overview
+description: Fission Charts reference for the Heatmap family.
+---
+
+# Heatmap
+
+The Heatmap family contains 20 renderer-backed chart variants. Use this page as the entry point for choosing the right variant, then open the variant page for the screenshot, data shape, Rust API notes, and example code.
+
+The chart family is still ordinary Fission UI. Each variant is constructed from typed Rust data, participates in layout and theme decisions, and can be driven by app state, reducers, resources, jobs, or services just like any other widget.
+
+![Access matrix screenshot](/img/charts/heatmap-access-matrix.png)
+
+## Variants
+
+| Chart | Data shape | Use when |
+| --- | --- | --- |
+| [Access matrix](./heatmap-access-matrix) | Permission-like matrix values. | Use it for dense access and security matrices. |
+| [Availability window](./heatmap-availability-window) | Grid values representing availability. | Use it to compare uptime windows. |
+| [Commit activity calendar](./calendar-commit-activity) | Date/value pairs over a calendar range. | Use it to show daily activity patterns. |
+| [Correlation grid](./heatmap-correlation-grid) | Grid of pairwise values. | Use it for correlation-like analysis. |
+| [Daily retention calendar](./calendar-retention-daily) | Date/value pairs for retention events. | Use it to scan day-level consistency. |
+| [Daily sales calendar](./calendar-sales-daily) | Daily sales values over a date range. | Use it when weekday and date position matter. |
+| [Density visual map](./visual-map-density-grid) | Dense grid with continuous color scale. | Use it for density and occupancy surfaces. |
+| [Deployment hour heatmap](./heatmap-deployment-hours) | Grid coordinates with numeric intensity. | Use it to find concentration by hour and day. |
+| [Feature usage heatmap](./heatmap-feature-usage) | Feature/category values on a two-dimensional grid. | Use it to find usage hotspots. |
+| [Incident volume calendar](./calendar-incident-volume) | Daily incident counts over a date range. | Use it when the calendar shape carries meaning. |
+| [Load grid visual map](./visual-map-load-grid) | Numeric grid values mapped to color. | Use it when color should explain intensity. |
+| [Quality gates calendar](./calendar-quality-gates) | Daily quality values. | Use it for quality gate consistency over time. |
+| [Queue depth matrix](./heatmap-queue-depth) | Queue depth by queue and time bucket. | Use it for operational queues. |
+| [Regression risk matrix](./heatmap-regression-risk) | Risk values by component and area. | Use it before releases to focus attention. |
+| [Release burndown calendar](./calendar-release-burndown) | Daily values across a release period. | Use it for calendar-driven delivery views. |
+| [Resource saturation](./heatmap-resource-saturation) | Resource and time values on a matrix. | Use it for infrastructure saturation. |
+| [Service risk matrix](./heatmap-service-risk) | Larger matrix of risk values. | Use it when dense matrix comparison matters. |
+| [Support load heatmap](./heatmap-support-load) | Two-dimensional grid cells with values. | Use it for workload concentration. |
+| [User activity calendar](./calendar-user-activity) | Date/value activity pairs. | Use it to show consistency and spikes over time. |
+| [Visual map build calendar](./visual-map-calendar-builds) | Daily build values with a color scale. | Use it when calendar and intensity both matter. |
+
+## Choosing within this family
+
+Start with the user's question, not the visual effect. Pick the simplest variant that makes the answer clear, add interaction only when it reduces work for the user, and keep animation purposeful enough that it explains a change rather than decorating the page.

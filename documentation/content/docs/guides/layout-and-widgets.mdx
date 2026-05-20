@@ -1,0 +1,186 @@
+---
+title: Layout and widgets
+description: Learn how to compose screens in Fission, including responsive layout, viewport decisions, and when to use each container.
+---
+
+# Layout and widgets
+
+It is tempting to approach a user interface framework by scanning the widget catalog first. In Fission, that usually leads to the wrong mental model.
+
+The better starting point is this question: what information needs to be visible, and how should that information react when the viewport changes?
+
+Once you answer that, the container choices become much easier. Most Fission screens are built from a small set of layout ideas: rows, columns, grids, stacking layers, and scroll regions. Higher-level widgets help, but they work best after the screen structure is already clear.
+
+This guide explains how to think about screen composition in Fission, including responsive and adaptive layout for phone, tablet, desktop, and web-sized surfaces.
+
+## Start with the screen's reading order
+
+Fission widgets do not own your product state. They read it and return a user interface description. That means the screen structure should follow user meaning first.
+
+Ask these questions before you choose containers:
+
+- What should the user read first?
+- What should stay visible while they work?
+- Which parts can scroll?
+- Which parts should disappear, collapse, or move on narrower viewports?
+- Which changes come from app state, and which come from the viewport itself?
+
+That is the foundation of responsive design in Fission. You are not only placing boxes. You are deciding how one state-driven screen should adapt across several hosts.
+
+## `View` is where layout decisions read their inputs
+
+When a widget decides between phone, tablet, or desktop structure, it reads those inputs through `View`.
+
+The most common inputs are:
+
+- `view.viewport_size()` for current viewport width and height,
+- `view.env.window_insets` for safe-area style insets,
+- `view.state` for product-driven decisions such as whether a detail panel is open,
+- `view.get_rect(...)` when a later frame needs previous geometry, such as a popover anchor.
+
+`BuildCtx` has a different job. It is for wiring actions, resources, portals, animations, and other runtime-managed behavior. Do not use `BuildCtx` as a place to discover layout facts. Read layout inputs from `View`, then use `BuildCtx` only when the runtime needs registration or wiring information.
+
+## A concrete responsive example
+
+Imagine a mail screen. On a phone, you usually want one column: either the thread list or the selected thread, because both side by side would be cramped. On a larger desktop or web viewport, you usually want a list on the left and a detail panel on the right.
+
+That decision belongs in `build()` because it is just a pure description choice based on the current viewport and app state.
+
+```rust
+use fission::prelude::*;
+
+pub struct MailScreen;
+
+impl Widget<MailState> for MailScreen {
+    fn build(&self, ctx: &mut BuildCtx<MailState>, view: &View<MailState>) -> Node {
+        let viewport = view.viewport_size();
+        let is_phone = viewport.width < 900.0;
+
+        let list = ThreadList.build(ctx, view);
+        let detail = if let Some(thread_id) = view.state.selected_thread {
+            ThreadDetail { thread_id }.build(ctx, view)
+        } else {
+            EmptyThreadState.build(ctx, view)
+        };
+
+        let body = if is_phone {
+            let content = if view.state.selected_thread.is_some() {
+                detail
+            } else {
+                list
+            };
+
+            Scroll {
+                child: Box::new(content),
+                ..Default::default()
+            }
+            .into_node()
+        } else {
+            Row {
+                gap: Some(16.0),
+                children: vec![
+                    Container::new(list)
+                        .width((viewport.width * 0.32).clamp(280.0, 360.0))
+                        .flex_shrink(0.0)
+                        .into_node(),
+                    Container::new(detail).flex_grow(1.0).into_node(),
+                ],
+                ..Default::default()
+            }
+            .into_node()
+        };
+
+        SafeArea {
+            id: None,
+            child: Box::new(body),
+        }
+        .into_node()
+    }
+}
+```
+
+The important part is not the exact breakpoint number. The important part is why the layout changes.
+
+The viewport width decides whether side-by-side work is realistic. App state decides whether there is a selected thread at all. `SafeArea` protects the content from notches, system bars, and other platform insets. `Scroll` is only used for the part that may exceed the viewport.
+
+This is the usual Fission pattern for responsive user interface: read from `View`, choose a structure, and return that structure with no side effects.
+
+## What changes between phone, tablet, desktop, and web layouts
+
+A responsive Fission app is usually not four separate screens. It is one screen that changes how much can fit comfortably at once.
+
+On a phone, space is narrow and vertical scrolling is normal. Single-column layouts, modal flows, drawers, and full-width controls are common. This is also the place where safe areas matter most visibly.
+
+On a tablet, you often gain room for split layouts, but not always enough room for permanently visible sidebars and dense tool chrome. Tablet layouts are often transitional: they may show a list and detail view together, but still simplify spacing and panel counts compared with desktop.
+
+On desktop and larger web surfaces, you usually have room for persistent navigation, inspectors, sidebars, or wider data views. That does not mean everything should spread forever. Good desktop and web layouts still use width constraints so text blocks, forms, and tables remain readable.
+
+The shared rule is simple: more space should reveal more useful context, not just create longer lines and emptier containers.
+
+## When to use rows, columns, grids, stacks, and scroll regions
+
+Rows and columns are the default tools because most screens are still linear in one direction.
+
+Use a row when items should stay side by side and horizontal comparison matters. Toolbars, split panes, label-value pairs, and desktop navigation chrome often begin as rows. Avoid rows on narrow phone layouts unless you are sure the content will still fit or you already have a fallback branch.
+
+Use a column when content has a natural reading order from top to bottom. Forms, article-like screens, mobile settings pages, and stacked control groups usually fit here. Columns are often the most stable starting point for a new screen because they degrade well on narrow viewports.
+
+Use grids when you have repeated content that benefits from a matrix instead of a list. Dashboards, card galleries, calendars, and dense option sets are typical cases. Do not use a grid just because it looks visually balanced. If the content is really a form or a linear reading flow, a column is usually easier to adapt.
+
+Use stacking layers such as `ZStack`, `Overlay`, or higher-level widgets built on portals when content needs to occupy the same visual area. Modals, popovers, tooltips, temporary banners, and floating action surfaces belong here. Do not build a whole page out of stacked layers when a row or column would express the structure more clearly.
+
+Use scroll regions when content can legitimately exceed the viewport. A mail list, long settings screen, or document area should scroll. A small form that only overflows because of poor spacing or fixed widths usually needs better layout, not immediate scrolling.
+
+## Core primitives first, then higher-level widgets
+
+Fission gives you both low-level primitives and higher-level authoring widgets.
+
+The low-level primitives from the core user interface layer, such as `Row`, `Column`, `Container`, `Grid`, `Scroll`, `Spacer`, `Overlay`, and `SafeArea`, are the best place to begin because they map directly to the layout engine.
+
+Higher-level widgets from `fission-widgets`, such as `HStack`, `VStack`, `SimpleGrid`, `SplitView`, `Modal`, `Drawer`, `Popover`, `Tooltip`, `Tabs`, and `DataTable`, become useful once the layout intention is already clear. They save time when the pattern is stable. They are not a replacement for understanding how the screen is composed.
+
+A good rule is this: if you are still discovering the page structure, start with primitives. If the pattern is already obvious and repeated, use a higher-level widget that expresses that pattern directly.
+
+## Width constraints matter more than people expect
+
+Responsive layout is not only about breakpoints. It is also about restraint.
+
+Very wide containers can make forms awkward, body text tiring to read, and side panels visually weak. Very narrow fixed widths can cause text clipping and cramped controls. In Fission, it is common to combine flexible containers with clamps or explicit widths for the parts that should not grow forever.
+
+You saw that in the mail example when the list pane width was clamped. The pane was allowed to respond to viewport size, but only inside a reasonable range.
+
+That pattern scales well across targets. Let the overall shell breathe, but cap the pieces that need stable readability.
+
+## Safe areas and viewport size are different things
+
+`view.viewport_size()` tells you how much total surface the app currently has. Safe-area insets tell you which parts of that surface should not be treated as ordinary content space because a notch, home indicator, or system bar occupies them.
+
+On desktop, safe areas may not matter much. On mobile, they often matter a lot. `SafeArea` exists so you can keep content readable without manually subtracting inset values everywhere.
+
+Best practice is to use `SafeArea` near the screen boundary for major content regions, then use ordinary layout containers inside it. Do not scatter manual inset math through every child widget unless you are building a very specialized surface.
+
+## Common responsive mistakes
+
+One common mistake is deciding layout only from viewport size and forgetting app state. A mail screen with no selected thread does not need the same detail region as one with an active thread.
+
+Another common mistake is forcing desktop layouts onto phones. A three-column screen may look impressive in a static mockup and unusable in practice.
+
+A third mistake is using fixed sizes everywhere. Fixed widths and heights are sometimes necessary, but a layout made entirely of hard-coded dimensions usually breaks early across target sizes.
+
+Another frequent issue is nesting scroll regions without a clear reason. That can make touch, wheel, and keyboard navigation confusing. Try to keep the scroll story obvious.
+
+Finally, avoid putting layout side effects into `build()`. Do not fetch data because the viewport changed. Do not write files or mutate global state because a branch rebuilt. Keep layout choices pure, and let reducers or explicit runtime resources handle outside work.
+
+## A practical workflow for new screens
+
+Start with a single-column version of the screen. Make the state flow and reading order correct first.
+
+Then decide which additional context is worth revealing on wider surfaces. Add rows, side panels, or grids only where they improve the job the user is doing.
+
+After that, validate the screen on a desktop-sized viewport and a narrow mobile-sized viewport. If the feature is headed for web or mobile, test the real host path after the shared behavior is stable.
+
+This workflow matches the architecture of Fission itself. The app model stays shared. The layout adapts through pure decisions in `build()`. Platform-specific validation happens when platform-specific questions are actually present.
+
+## Where to go next
+
+If you want to understand how input, viewport data, locale, and theme reach widgets, read [Input, text, and environment](/docs/guides/input-events-text-and-env). If you want the beginner explanation of `View`, `BuildCtx`, and selectors first, go back to [Runtime model](/docs/learn/runtime-model). For a live tour of built-in widgets, open the public [Examples](/examples) page and start with Widget Gallery.

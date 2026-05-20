@@ -1,0 +1,101 @@
+---
+title: Counter tutorial
+description: Extend the first app to add decrement and verify reducer-driven behavior.
+---
+
+# Counter tutorial
+
+This tutorial extends the starter counter from [Build your first app](/docs/getting-started/first-app).
+
+If your scaffold already has a decrement action, skip directly to verification.
+
+## Step 1 — add the second action
+
+Open `src/app.rs` and add:
+
+```rust
+#[fission_action]
+struct Decrement;
+
+fn on_decrement(
+    state: &mut CounterState,
+    _action: Decrement,
+    _ctx: &mut ReducerContext<CounterState>,
+) {
+    state.count -= 1;
+}
+```
+
+## Step 2 — bind the action in `build()`
+
+Bind both actions and render a second button.
+
+```rust
+let increment = with_reducer!(ctx, Increment, on_increment);
+let decrement = with_reducer!(ctx, Decrement, on_decrement);
+
+Column {
+    gap: Some(16.0),
+    children: vec![
+        Text::new(format!("Count: {}", view.state.count)).into_node(),
+        Button {
+            on_press: Some(increment),
+            child: Some(Box::new(Text::new("Increment").into_node())),
+            ..Default::default()
+        }
+        .into_node(),
+        Button {
+            on_press: Some(decrement),
+            child: Some(Box::new(Text::new("Decrement").into_node())),
+            ..Default::default()
+        }
+        .into_node(),
+    ],
+    ..Default::default()
+}
+```
+
+What changed: actions are still explicit and reducers are still tiny.
+
+## Step 3 — verify by behavior
+
+```bash
+cargo run
+```
+
+Expected flow:
+
+- starts at `Count: 0`
+- increment moves `0 -> 1`
+- decrement moves `1 -> 0`
+
+## Step 4 — add reducer test coverage
+
+Keep reducer tests focused:
+
+```rust
+#[cfg(test)]
+mod reducer_tests {
+    use super::{CounterState, Decrement, Increment, on_decrement, on_increment};
+    use fission::core::effect::ActionInput;
+    use fission::prelude::{Effects, ReducerContext};
+
+    #[test]
+    fn count_is_bidi() {
+        let mut state = CounterState::default();
+        let input = ActionInput::None;
+        let mut effects = Effects::new_headless(0);
+        let mut ctx = ReducerContext { effects: &mut effects, input: &input };
+
+        on_increment(&mut state, Increment, &mut ctx);
+        on_increment(&mut state, Increment, &mut ctx);
+        on_decrement(&mut state, Decrement, &mut ctx);
+
+        assert_eq!(state.count, 1);
+    }
+}
+```
+
+You now have two actions, two reducers, one deterministic loop.
+
+Next, move to the todo tutorial for list state and async preparation.

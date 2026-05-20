@@ -1,0 +1,39 @@
+---
+title: Tag
+description: Show a labeled chip, optionally with a close action for removing it.
+slug: /widgets/tag
+---
+# Tag
+
+`Tag` is the removable or static chip for short labels.
+
+Use it for active filters, selected categories, recipients, or other compact labels that the user may need to scan quickly and optionally dismiss.
+
+## Example
+
+```rust
+use fission::prelude::*;
+
+let node = Tag {
+    label: "Unread only".into(),
+    on_close: Some(clear_unread_filter_action),
+}
+.build(ctx, view);
+```
+
+When `on_close` is absent, the same widget becomes a simple non-removable label chip.
+
+## Field table
+
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `label` | `String` | Text shown inside the chip. | Required. |
+| `on_close` | `Option<ActionEnvelope>` | Action fired by the small close button. | Defaults to `None`. When present, the widget renders a close affordance. |
+
+## Usage guidance
+
+A removable tag should remove something real from app state, such as a filter or recipient. If pressing the close icon does not clearly map to a user-visible change, the control can feel confusing.
+
+## Related
+
+[`Badge`](/reference/widgets/badge), [`Breadcrumb`](/reference/widgets/breadcrumb), [`Button`](/reference/widgets/button), and [`Wrap`](/reference/widgets/wrap).

@@ -1,0 +1,50 @@
+---
+title: Builder
+description: Define a small inline widget from a pure build closure.
+slug: /widgets/builder
+---
+# Builder
+
+`Builder` is a convenience widget for the case where you want to build a small piece of user interface inline without creating a named struct.
+
+It receives the same `&mut BuildCtx<S>` and `&View<S>` inputs as any other widget and returns a `Node`. In other words, it is still part of the normal Fission build model. The closure is only an authoring convenience.
+
+Use `Builder` for short, local composition helpers. Do not use it as a place to hide side effects, and do not let it grow into a large anonymous screen with lots of product logic. When the user interface becomes reusable or conceptually important, move it into a named widget type.
+
+## Example
+
+```rust
+use fission::prelude::*;
+use fission::core::ui::Text;
+use fission::core::ui::widgets::builder::Builder;
+
+let greeting = Builder::new(|_ctx, view: &View<MyState>| {
+    let label = if view.state.is_signed_in {
+        "Welcome back"
+    } else {
+        "Please sign in"
+    };
+
+    Text::new(label).into_node()
+});
+```
+
+This is a good `Builder` use case because the closure is small, reads from `View`, and returns a simple node tree.
+
+## Field table
+
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `Builder::new(...)` | `Fn(&mut BuildCtx<S>, &View<S>) -> Node` | Creates the inline widget from a pure build closure. | This is the main public entry point. The closure must be `Send + Sync + 'static`. |
+
+## When to use it and when not to
+
+`Builder` is helpful when a small fragment would otherwise force a one-off named widget that adds more ceremony than clarity. It keeps local composition readable.
+
+It becomes a code smell when you start putting large branching product logic, async decisions, or many nested layout helpers into one anonymous closure. In those situations, use a named widget or a [`Selector`](/reference/core/state-system) plus a normal widget implementation so the code stays understandable.
+
+Most importantly, `Builder` does not change the purity rule of `build()`. The closure should read its inputs and return a user interface description. It should not fetch data, mutate global state, or perform outside work.
+
+## Related
+
+[`LayoutBuilder`](/reference/widgets/layout-builder), [`Widget`](/reference/core/widget-trait), and [`Node`](/reference/widgets/node).

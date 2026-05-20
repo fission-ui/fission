@@ -1,0 +1,98 @@
+---
+title: State and actions
+description: Move from UI events to explicit state transitions.
+---
+
+# State and actions
+
+Every interaction should map to domain intent, not generic view logic.
+
+For each user event define one action type, then let one reducer own that mutation.
+That keeps the behavior loop transparent:
+
+- action arrives,
+- reducer applies one deterministic change,
+- UI is rebuilt from the updated state.
+
+```rust
+use fission::prelude::*;
+
+#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+struct TodoState {
+    next_id: u32,
+    items: Vec<(u32, String)>,
+}
+
+impl AppState for TodoState {}
+
+#[fission_action]
+struct AddTodo;
+
+fn on_add_todo(
+    state: &mut TodoState,
+    _action: AddTodo,
+    _ctx: &mut ReducerContext<TodoState>,
+) {
+    let item = format!("Todo {}", state.next_id);
+    state.items.push((state.next_id, item));
+    state.next_id += 1;
+}
+
+#[fission_action]
+struct Noop;
+```
+
+Keep reducers narrow:
+
+- one reducer updates one conceptual slice,
+- no network/file access,
+- no service calls,
+- no long-running loops.
+
+## The state/action contract
+
+Treat actions as the product language, not just UI events.
+If the action is unclear, the behavior will be unclear:
+
+- `Increment` instead of `Press` in a specific context,
+- `LoadFeed` instead of `Tap`,
+- `LocaleChanged` instead of `PickerInput`.
+
+Pair each action with one reducer path, and avoid mixing unrelated business decisions in one reducer.
+
+## Why this helps debugging
+
+If you hit a bad UI state, reducers make the path explicit:
+
+- action came in,
+- reducer touched known fields,
+- `build()` renders from that updated state.
+
+## Test actions before adding UI complexity
+
+Write reducer tests first:
+
+```rust
+#[cfg(test)]
+mod reducer_tests {
+    use super::{AddTodo, TodoState, on_add_todo};
+    use fission::core::{Effects, ReducerContext};
+    use fission::core::effect::ActionInput;
+
+    #[test]
+    fn add_todo_is_predictable() {
+        let mut state = TodoState::default();
+        let mut effects = Effects::new_headless(0);
+        let input = ActionInput::None;
+        let mut ctx = ReducerContext { effects: &mut effects, input: &input };
+
+        on_add_todo(&mut state, AddTodo, &mut ctx);
+
+        assert_eq!(state.items.len(), 1);
+        assert_eq!(state.items[0].0, 0);
+        assert!(effects.out.is_empty());
+    }
+}
+```
+
+When reducer behavior is stable, move to async boundaries in [Commands, services, and jobs](/docs/guide/commands-services-jobs).

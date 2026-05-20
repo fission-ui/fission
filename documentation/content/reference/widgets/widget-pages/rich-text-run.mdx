@@ -1,0 +1,44 @@
+---
+title: RichTextRun
+description: Represent one continuous segment of text that shares a single style.
+slug: /widgets/rich-text-run
+---
+# RichTextRun
+
+`RichTextRun` is the building block for [`RichText`](/reference/widgets/rich-text).
+
+A run is one continuous piece of text with one style. If a sentence has a bold product name inside otherwise normal prose, that sentence naturally becomes multiple runs.
+
+## Example
+
+```rust
+use fission::core::ui::{RichText, RichTextRun};
+
+let node = RichText::new(vec![
+    RichTextRun::new("Status: "),
+    RichTextRun::new("Failed")
+        .weight(700)
+        .color(view.env.theme.tokens.colors.error),
+])
+.into_node();
+```
+
+This keeps the style change local to the important word without forcing the entire line to share the same emphasis.
+
+## Field table
+
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `text` | `String` | Text for this run. | Required. |
+| `style` | `TextRunStyle` | Fully resolved style for the run. | Defaults to `TextRunStyle::default()`. Builder helpers usually feel nicer than editing this directly. |
+| `semantics_label` | `Option<String>` | Accessibility label override for this run. | Defaults to `None`. |
+| `semantics_identifier` | `Option<String>` | Semantic identifier override for this run. | Defaults to `None`. |
+| `spell_out` | `Option<bool>` | Whether assistive technology should spell out the run. | Defaults to `None`. |
+
+## When to use runs and when not to
+
+Use flat runs when you only need straightforward styling differences across one paragraph. If you need nested semantics, hover or tap actions on subranges, or inline widgets inside the text flow, move up to the span-based `RichText::from_spans(...)` model instead.
+
+## Related
+
+[`RichText`](/reference/widgets/rich-text), [`TextRunStyle`](/reference/widgets/text-run-style), [`Text`](/reference/widgets/text), and [`TextFontStyle`](/reference/widgets/text-font-style).

@@ -1,0 +1,58 @@
+---
+title: Editable
+description: Switch between read mode and text-edit mode for inline renaming or quick editing.
+slug: /widgets/editable
+---
+# Editable
+
+`Editable` is a small inline-edit helper.
+
+In read mode it renders a low-emphasis button showing the current value. In edit mode it swaps that out for a [`TextInput`](/reference/widgets/text-input). This is useful for rename-in-place flows such as editable titles, tags, or list item names.
+
+## Example
+
+```rust
+use fission::prelude::*;
+
+let node = Editable {
+id: Some(WidgetNodeId::explicit("rename_project")),
+value: view.state.project_name_draft.clone(),
+placeholder: "Untitled project".into(),
+is_editing: view.state.renaming_project,
+on_change: Some(with_reducer!(ctx, SetProjectNameDraft(String::new()), on_set_project_name_draft)),
+on_edit: Some(with_reducer!(ctx, BeginProjectRename, on_begin_project_rename)),
+on_submit: Some(finish_project_rename_action),
+on_cancel: Some(cancel_project_rename_action),
+}
+.build(ctx, view);
+```
+
+The usual reducer flow is to keep both the committed value and the draft in state, start editing with `on_edit`, update the draft with `on_change`, and only commit when the product decides the edit is complete.
+
+## Field table
+
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `id` | `Option<WidgetNodeId>` | Stable identity for the editing field. | Defaults to `None`. |
+| `value` | `String` | Current displayed or edited text. | Controlled by app state. |
+| `placeholder` | `String` | Text shown when `value` is empty. | Required for a good empty-state experience. |
+| `is_editing` | `bool` | Whether the widget is currently in edit mode. | Controlled by app state. |
+| `on_change` | `Option<ActionEnvelope>` | Action fired when the text changes in edit mode. | Like `TextInput`, the runtime replaces the payload with the current `String`. |
+| `on_submit` | `Option<ActionEnvelope>` | Intended submit action. | Present in the struct, but not currently wired by the checked-in implementation. |
+| `on_edit` | `Option<ActionEnvelope>` | Action fired when the read-mode button is pressed. | Usually flips `is_editing` to `true`. |
+| `on_cancel` | `Option<ActionEnvelope>` | Intended cancel action. | Present in the struct, but not currently wired by the checked-in implementation. |
+
+## Current behavior
+
+The important implementation detail is that only `on_edit` and `on_change` are active today. `on_submit` and `on_cancel` exist in the public struct, but the checked-in widget does not yet connect them to Enter, Escape, or blur behavior.
+
+That means `Editable` is best for simple inline editing where your app can commit changes another way, or where changing the text live is enough.
+
+## Specific advice
+
+If you need reliable submit-on-Enter or cancel-on-Escape right now, compose a [`TextInput`](/reference/widgets/text-input) and a read-mode [`Button`](/reference/widgets/button) directly so you can wire the exact behavior yourself.
+
+## Related
+
+[`TextInput`](/reference/widgets/text-input), [`Button`](/reference/widgets/button), [`FormControl`](/reference/widgets/form-control), and [`FocusScope`](/reference/widgets/focus-scope).
+

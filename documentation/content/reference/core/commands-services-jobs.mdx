@@ -1,0 +1,91 @@
+---
+title: Commands, services, and jobs
+description: The reducer-side async effect contracts for one-shot work, long-lived work, and service commands.
+---
+
+# Commands, services, and jobs
+
+These three concepts belong together because they are all reducer-side effect tools exposed through `ReducerContext::effects`. They solve different lifetime problems, and choosing the right one keeps app behavior much easier to reason about.
+
+## Where they live in the runtime model
+
+Reducers update state immediately and explicitly. When a reducer needs outside work, it requests that work through `ctx.effects` instead of performing it directly.
+
+Jobs, services, and commands are the main public shapes in that reducer-time application programming interface.
+
+## Jobs
+
+A job is the one-shot async unit.
+
+Use `ctx.effects.app(job, request)` when you need one request and one eventual success or failure result. This is the right tool for tasks such as saving a file, loading a document, scanning a directory once, or performing another finite unit of app-owned work.
+
+Public types in this area include `JobSpec`, `JobRef<J>`, and `JobCtx`.
+
+Why does the distinction matter? Because a job has no long-lived identity after it completes. If your work should stay alive, stream events, or accept later commands, it is not job-shaped anymore.
+
+## Services
+
+A service is the long-lived async unit.
+
+Use `ctx.effects.start_service(slot, config)` when the work should remain alive after it starts and may emit multiple events over time. Examples include a language server, a background sync channel, or another continuing external conversation.
+
+Public types in this area include `ServiceSpec`, `ServiceType<Svc>`, `ServiceSlot<Svc>`, `ServiceCtx<Svc>`, and `ServiceBindings`.
+
+The slot concept matters because a service needs identity over time. A slot tells the runtime which logical service instance you mean, such as a singleton background service or a keyed per-document service.
+
+## Commands
+
+A command is how you talk to a running service.
+
+Use `ctx.effects.command(slot, command)` when the service already exists and you want to send it one message, usually expecting a typed success or error response.
+
+A command is not a way to start a service implicitly. If the service lifetime has not begun yet, start it first. Once it exists, commands become the per-request messages inside that long-lived session.
+
+## Stopping services
+
+Use `ctx.effects.stop_service(slot)` when the service lifetime should end explicitly through reducer logic.
+
+This is the manual lifetime path. In other cases, a service may instead be owned by a `ServiceResource` and stop when the runtime reconciles that resource away.
+
+## Common callback bindings
+
+The effect builders let you attach typed follow-up actions so the result flows back through ordinary reducers.
+
+For jobs and commands, the common hooks are `on_ok(...)` and `on_err(...)`.
+
+For service start and service lifetime events, the public bindings include:
+
+- `on_started(...)`,
+- `on_start_failed(...)`,
+- `on_event(...)`,
+- `on_stopped(...)`,
+- `on_command_ok(...)`,
+- `on_command_err(...)`.
+
+Those bindings matter because they keep the whole async story inside the same action and reducer model. The runtime performs the outside work, then routes the result back as explicit input.
+
+## How they connect to `ReducerContext` and `ctx.input`
+
+When a reducer uses `ctx.effects`, it is only requesting the work. Later, when the runtime routes results back, reducers can read them from `ctx.input`.
+
+That is how the model stays explicit from both directions.
+
+Reducers can read job success or failure payloads, service events, service command results, and other returned data through the typed input helpers. This keeps async result handling out of global state and out of hidden shell callbacks.
+
+## Choosing the right tool
+
+Choose a job when the work is finite.
+
+Choose a service when the work is long-lived and conversational.
+
+Choose a command when you need to send one message to a service that is already alive.
+
+If you are not sure whether the work is a job or a service, ask whether it still has identity after the first response. If it does, it is probably service-shaped.
+
+## Registration and host setup
+
+Jobs and services are registered through shell-side `with_async(...)` configuration. That keeps async providers centralized at app startup instead of scattering registration logic across random widgets or reducers.
+
+## Related reference pages
+
+If the lifetime should follow the widget tree instead of one reducer event, the next page is [Resources and capabilities](/reference/core/resources-and-capabilities). For the broader reducer-side contract, pair this page with [State system](/reference/core/state-system).

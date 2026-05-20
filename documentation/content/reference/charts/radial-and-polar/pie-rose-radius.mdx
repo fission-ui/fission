@@ -1,0 +1,54 @@
+---
+title: Rose by radius
+sidebar_label: Rose by radius
+description: Fission Charts reference for Rose by radius.
+---
+
+# Rose by radius
+
+![Rose by radius screenshot](/img/charts/pie-rose-radius.png)
+
+Slices use radius to make category differences more expressive. Use it for presentation-heavy part-to-whole views. The screenshot is captured from the native Fission chart gallery.
+
+## What the chart is for
+
+Rose by radius belongs to the **Radial and polar** family. Its job is to make this data shape readable: `Label/value pairs plus radius rose mode.` In a production interface, choose this chart when the visual form makes the user's question faster to answer than a table or a simpler chart would.
+
+Avoid it for many categories or when small differences need precise comparison; a bar chart is usually clearer for ranking.
+
+## Data model
+
+`Label/value pairs plus radius rose mode.` Keep the data close to the type that describes it. Fission Charts is typed Rust, so a line uses `LineSeries`, a calendar heatmap uses `CalendarHeatmapSeries`, and chart components such as zoom, marks, and graphics are explicit fields on `Chart` rather than hidden string configuration.
+
+## Rust API
+
+| Field | Type | Notes |
+| --- | --- | --- |
+| `title` | `&str` | Names the chart for the screen, accessibility tree, and test output. |
+| `series` | `PieSeries` | Holds label/value pairs plus donut and rose settings. |
+| `width / height` | `f32` | Optional fixed size; omit them when the chart should flex inside Fission layout. |
+
+## Example
+
+```rust
+use fission_charts::{Chart, PieSeries};
+
+let chart = Chart::new()
+    .title("Share")
+    .series(vec![PieSeries::new("Share")
+        .data(vec![("Search", 1048.0), ("Direct", 735.0), ("Email", 580.0), ("Ads", 484.0)])
+        .into()]);
+```
+
+## Interaction and animation
+
+Charts can emit typed `ChartInteractionEvent` values when interaction is enabled. Handle those events in a reducer when the app needs hover, press, release, scroll, selection, or brush behavior. `ChartAnimation` stores duration, delay, stagger, easing, and reduced-motion behavior as deterministic chart data, so animation timing can be tested instead of being hidden in ad-hoc timers.
+
+## Testing guidance
+
+For this chart, test the data mapping first, then test lowering, then capture a live screenshot when visual output changes. The screenshot for this page is refreshed with `npm run charts:generate` from the website package.
+
+Tags: `pie`, `rose`.
+
+
+[Radial and polar family overview](./overview)

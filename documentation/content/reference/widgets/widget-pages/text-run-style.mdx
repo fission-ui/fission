@@ -1,0 +1,60 @@
+---
+title: TextRunStyle
+description: Define the fully resolved style for one rich-text run.
+slug: /widgets/text-run-style
+---
+# TextRunStyle
+
+`TextRunStyle` is the low-level style object behind [`RichTextRun`](/reference/widgets/rich-text-run).
+
+Most app authors do not need to construct it directly because builder methods like `.size(...)`, `.color(...)`, and `.weight(...)` on `RichTextRun` are easier to read. You reach for `TextRunStyle` directly when you want to prepare or reuse a text style value as data.
+
+## Example
+
+```rust
+use fission::core::ui::{RichTextRun, TextFontStyle, TextRunStyle};
+
+let run = RichTextRun {
+    text: "Important".into(),
+    style: TextRunStyle {
+        font_size: Some(16.0),
+        color: Some(view.env.theme.tokens.colors.primary),
+        underline: false,
+        font_family: None,
+        locale: None,
+        font_weight: Some(700),
+        font_style: TextFontStyle::Normal,
+        line_height: None,
+        letter_spacing: None,
+        text_scale: None,
+        background_color: None,
+    },
+    semantics_label: None,
+    semantics_identifier: None,
+    spell_out: None,
+};
+```
+
+## Field table
+
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `font_size` | `Option<f32>` | Font size in layout points. | Falls back to theme body size when absent. |
+| `color` | `Option<IrColor>` | Text color override. | Falls back to the theme's primary text color when absent. |
+| `underline` | `bool` | Whether the run is underlined. | Defaults to `false`. |
+| `font_family` | `Option<String>` | Font family override. | Defaults to `None`. |
+| `locale` | `Option<String>` | Locale override used during shaping. | Defaults to `None`. |
+| `font_weight` | `Option<u16>` | Font weight override. | Falls back to `400` when absent. |
+| `font_style` | `TextFontStyle` | Normal or italic posture. | Defaults to `Normal`. |
+| `line_height` | `Option<f32>` | Explicit line height. | Defaults to `None`. |
+| `letter_spacing` | `Option<f32>` | Additional letter spacing. | Defaults to `None`. |
+| `text_scale` | `Option<f32>` | Scale multiplier for the run. | Defaults to `None`, which behaves like `1.0`. |
+| `background_color` | `Option<IrColor>` | Background color behind the run. | Defaults to `None`. |
+
+## Specific advice
+
+`TextRunStyle` is a fully specified run style, not the cascading span style used inside nested rich-text trees. If you need inheritance-like behavior, build with rich-text spans instead of copying whole run styles around by hand.
+
+## Related
+
+[`RichTextRun`](/reference/widgets/rich-text-run), [`RichText`](/reference/widgets/rich-text), [`TextFontStyle`](/reference/widgets/text-font-style), and [`Text`](/reference/widgets/text).

@@ -1,0 +1,54 @@
+---
+title: GridItem
+description: Place one child at a specific row and column inside a Grid.
+slug: /widgets/grid-item
+---
+# GridItem
+
+`GridItem` is the placement wrapper for one child inside a [`Grid`](/reference/widgets/grid).
+
+It tells the grid where that child starts and, optionally, how many tracks it spans. Use it when the layout has named or explicit rows and columns and placement matters.
+
+Use `GridItem` together with `Grid`. Do not use it for simple wrapping galleries or equal-width card layouts. Those are often better handled by [`SimpleGrid`](/reference/widgets/simple-grid) or [`Wrap`](/reference/widgets/wrap).
+
+## Example
+
+```rust
+use fission::core::ui::{GridItem, Text};
+
+let card = GridItem::new(Text::new("Revenue").into_node())
+    .cell(1, 1)
+    .span(1, 2)
+    .into_node();
+```
+
+This places the item at row 1, column 1, and spans two columns.
+
+## Field table
+
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `id` | `Option<NodeId>` | Stable node identity. | Defaults to `None`. |
+| `child` | `Box<Node>` | The content placed inside the grid. | Required. |
+| `row_start` | `GridPlacement` | Starting row placement. | Defaults to `GridPlacement::Auto`. |
+| `row_end` | `GridPlacement` | Ending row placement or row span. | Defaults to `GridPlacement::Auto`. |
+| `col_start` | `GridPlacement` | Starting column placement. | Defaults to `GridPlacement::Auto`. |
+| `col_end` | `GridPlacement` | Ending column placement or column span. | Defaults to `GridPlacement::Auto`. |
+
+## Placement behavior
+
+The convenience helpers are the easiest way to use this type.
+
+`cell(row, col)` sets the starting row and column using 1-indexed grid lines.
+
+`span(row_span, col_span)` sets the ending placement as a span value.
+
+If you omit placement, the grid can auto-place the item. That is convenient for simple cases, but explicit placement is usually clearer when you chose `Grid` in the first place.
+
+## Specific advice
+
+Reach for `GridItem` when placement is part of the design, not just part of implementation detail. If you find yourself assigning every item a row and column only to simulate a simple responsive gallery, the layout probably wants [`SimpleGrid`](/reference/widgets/simple-grid) instead.
+
+## Related
+
+[`Grid`](/reference/widgets/grid), [`SimpleGrid`](/reference/widgets/simple-grid), and [`Wrap`](/reference/widgets/wrap).

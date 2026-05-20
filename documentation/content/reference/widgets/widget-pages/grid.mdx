@@ -1,0 +1,69 @@
+---
+title: Grid
+description: Lay out children on explicit rows and columns with cascading style sheets (CSS)-grid-style tracks.
+slug: /widgets/grid
+---
+# Grid
+
+`Grid` is the explicit two-dimensional layout primitive in Fission.
+
+It lets you define row and column tracks and then place children into those tracks, usually by wrapping them in [`GridItem`](/reference/widgets/grid-item). This is the right tool when both axes matter at the same time, such as dashboards, inspector panels, data-heavy cards, or editorial layouts.
+
+Use `Grid` when track definitions are meaningful. Do not use it when you only need a vertical stack, a horizontal row, or a responsive card wrap. Those cases are usually easier with [`Column`](/reference/widgets/column), [`Row`](/reference/widgets/row), or [`SimpleGrid`](/reference/widgets/simple-grid).
+
+## Example
+
+```rust
+use fission::core::ui::{Grid, GridItem, Text};
+use fission_ir::op::GridTrack;
+
+let node = Grid {
+    columns: vec![GridTrack::Fr(2.0), GridTrack::Fr(1.0)],
+    rows: vec![GridTrack::Points(48.0), GridTrack::Auto],
+    column_gap: Some(12.0),
+    row_gap: Some(12.0),
+    children: vec![
+        GridItem::new(Text::new("Primary panel").into_node())
+            .cell(1, 1)
+            .span(2, 1)
+            .into_node(),
+        GridItem::new(Text::new("Inspector").into_node())
+            .cell(1, 2)
+            .into_node(),
+    ],
+    ..Default::default()
+}
+.into_node();
+```
+
+## Field table
+
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `id` | `Option<NodeId>` | Stable node identity. | Defaults to `None`. |
+| `children` | `Vec<Node>` | Grid children, usually `GridItem` nodes. | Defaults to an empty list. |
+| `columns` | `Vec<GridTrack>` | Column track definitions. | Defaults to an empty list, so define these explicitly in real layouts. |
+| `rows` | `Vec<GridTrack>` | Row track definitions. | Defaults to an empty list. |
+| `column_gap` | `Option<f32>` | Horizontal gap between columns. | Defaults to `None`. |
+| `row_gap` | `Option<f32>` | Vertical gap between rows. | Defaults to `None`. |
+| `padding` | `[f32; 4]` | Inner padding in `[left, right, top, bottom]` order. | Defaults to `[0.0; 4]`. |
+
+## Track types you will encounter
+
+| Track type | Meaning | When to use it |
+| --- | --- | --- |
+| `GridTrack::Points(x)` | Fixed track size in layout points. | Use for known fixed rails such as headers or side gutters. |
+| `GridTrack::Percent(x)` | Track as a percentage. | Use when the design is explicitly percentage-based. |
+| `GridTrack::Fr(x)` | Fractional remaining space. | Use for most flexible dashboard-style layouts. |
+| `GridTrack::Auto` | Size from content and constraints. | Good for content-driven tracks. |
+| `GridTrack::MinContent` / `MaxContent` | Content-based intrinsic sizing. | Use only when you intentionally want intrinsic track behavior. |
+
+## Specific advice
+
+Choose `Grid` because it matches the structure of the problem, not because it feels more powerful. If the layout is really one-dimensional, using `Grid` often makes the code harder to read.
+
+When you do use it, define tracks intentionally. A grid with clear `Fr`, `Points`, or `Auto` choices is easier to maintain than a grid that tries to guess everything.
+
+## Related
+
+[`GridItem`](/reference/widgets/grid-item), [`SimpleGrid`](/reference/widgets/simple-grid), [`Row`](/reference/widgets/row), and [`Column`](/reference/widgets/column).

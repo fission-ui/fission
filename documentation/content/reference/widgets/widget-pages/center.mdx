@@ -1,0 +1,40 @@
+---
+title: Center
+description: Convenience widget for centering one child.
+slug: /widgets/center
+---
+# Center
+
+`Center` is a thin convenience wrapper around [`Align`](/reference/widgets/align).
+
+It exists for readability. When you want to center one child and nothing more, `Center` makes that intent obvious without exposing the lower-level struct directly.
+
+Use it for empty states, spinners, single cards, or onboarding messages. Do not use it when you need multiple children or when you need more explicit positioning behavior.
+
+## Example
+
+```rust
+use fission::core::ui::Text;
+use fission::prelude::*;
+
+let node = Center {
+    child: Box::new(Text::new("Loading...").into_node()),
+}
+.build(ctx, view);
+```
+
+## Field table
+
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `child` | `Box<Node>` | The node to center in the available space. | Required. `Center` has no extra alignment fields of its own. |
+
+## Behavior and advice
+
+Because `Center` simply builds an `Align`, it shares the same layout behavior: it fills bounded parent space and centers the child inside that space, while falling back to the child's size on unbounded axes.
+
+Choose `Center` when you want the most direct way to say "put this in the middle." Choose [`Container`](/reference/widgets/container) when styling is also part of the job, and choose [`Row`](/reference/widgets/row) or [`Column`](/reference/widgets/column) when sibling layout matters.
+
+## Related
+
+[`Align`](/reference/widgets/align), [`Container`](/reference/widgets/container), and [`Spacer`](/reference/widgets/spacer).

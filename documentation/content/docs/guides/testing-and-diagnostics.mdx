@@ -1,0 +1,187 @@
+---
+title: Testing and diagnostics
+description: Learn how reducer tests, headless harness tests, live shell tests, and diagnostics fit together in a deterministic Fission app.
+---
+
+# Testing and diagnostics
+
+User interface code needs testing for a simple reason: user interface bugs are rarely only about one pure function returning the wrong value.
+
+A real user interface bug can involve state transitions, focus order, layout, scrolling, overlays, timing, rendering, or platform hosting. That is exactly why Fission puts so much emphasis on determinism and inspectable runtime stages. The framework is trying to make user interface behavior testable at the layer where the bug actually lives.
+
+This guide walks through the testing layers in the order that usually pays off best:
+
+1. reducer tests,
+2. headless harness tests,
+3. live shell tests,
+4. diagnostics and stage-level investigation.
+
+That order matters. You should not open a real window to test a pure state transition, and you should not reach for screenshots when a geometry assertion would say more with less noise.
+
+## Why determinism changes the testing story
+
+In Fission, the same inputs are supposed to produce the same results.
+
+That is not only a rendering claim. It includes state evolution, layout, semantics, paint order, and action flow. Because the runtime owns those stages explicitly, tests can inspect them directly instead of treating the whole user interface as a pile of opaque pixels.
+
+This is what makes the layered testing strategy work. You can choose the cheapest test that still matches the question you are asking.
+
+## Start with reducer tests
+
+Reducer tests are the smallest and cheapest tests in a Fission app.
+
+A reducer test answers one focused question: given this starting state and this action, did the state change correctly?
+
+That is the right layer for business rules, validation logic, toggles, counters, workflow flags, and many error-handling branches. If the question does not require layout, semantics, or rendering, keep it at the reducer level.
+
+The benefit is speed and clarity. A reducer test fails close to the logic that caused the bug.
+
+A typical reducer test is straightforward:
+
+```rust
+#[test]
+fn save_request_marks_state_as_saving() {
+    let mut state = EditorState::default();
+    let mut registry = ActionRegistry::new();
+    let mut effects = Effects::new(1, &mut registry);
+    let input = ActionInput::None;
+    let mut ctx = ReducerContext {
+        effects: &mut effects,
+        input: &input,
+    };
+
+    on_save_requested(&mut state, SaveRequested, &mut ctx);
+
+    assert!(state.saving);
+    assert_eq!(effects.out.len(), 1);
+}
+```
+
+Use reducer tests when you care about state transitions and emitted effects.
+
+Do not use reducer tests when the question is really about layout, visibility, semantics, or text input behavior. A reducer test cannot tell you whether a modal was actually placed correctly on screen.
+
+A common mistake is trying to re-create too much runtime behavior inside a reducer test. Keep these tests narrow.
+
+## Move to headless harness tests when structure matters
+
+Once the question becomes "what did the user interface build, lay out, or expose semantically?" you are in harness-test territory.
+
+The `fission-test` crate gives you a headless runtime environment. It can build widgets, run layout, pump frames, drive interactions, and inspect output without opening a real window or graphics processing unit (GPU) surface.
+
+That is the right layer for questions such as:
+
+- Is this button visible after a reducer change?
+- Did the layout place the drawer where we expect?
+- Does the semantic tree contain the right label and role?
+- After typing text, does the rebuilt user interface show the expected result?
+
+Why is this layer so valuable? Because it exercises the real runtime model while staying much faster and more controllable than a live shell test.
+
+`fission-test` provides tools such as `TestHarness`, `HeadlessApp`, and `TestDriver`. They give you predictable build, lower, layout, pump, and query flows. The driver can tap, type, scroll, and inspect visible text or semantics in process.
+
+Use harness tests when structure, geometry, semantics, or headless interaction behavior matters.
+
+Do not use them when you need to validate the behavior of a real host window, a platform launcher, or a shell-specific integration boundary.
+
+A common mistake is falling back to screenshots too early. If the real question is whether the button is visible, focusable, or left of another label, ask the harness directly.
+
+## Use live shell tests when a real host matters
+
+Live shell tests are for the cases where the headless harness is no longer enough.
+
+Sometimes you need a real shell. Maybe you care about overlay behavior in a real presented window. Maybe you want screenshots from the live host. Maybe you are validating shell-managed input flow or a target launch path.
+
+That is where `fission-test-driver::LiveTestClient` fits. It talks to a running app over the shell's Hypertext Transfer Protocol test-control server.
+
+In practice, the app is launched with `FISSION_TEST_CONTROL_PORT=<port>`, and the live client sends commands such as tap, type, scroll, screenshot, get visible text, get the semantic tree, pump, or simulate a resize.
+
+This is the right layer for end-to-end interaction flows and real-window validation.
+
+Use live tests when you need confidence that the app behaves correctly in a running shell.
+
+Do not use live tests for logic that a reducer or harness test can already prove. Real shells are slower, more operationally involved, and more expensive to maintain.
+
+Also remember the current platform boundary: desktop and mobile public shells expose the test-control hook today, while the current web shell documentation still calls out browser-side live control as missing.
+
+A common mistake is using live tests as the first answer to every user interface question. They should sit above simpler layers, not replace them.
+
+## Target smoke tests are not the same thing as live behavior tests
+
+The repo also includes target smoke scripts and generated host launchers. These matter, but they answer a narrower question.
+
+A target smoke test proves that a browser, Android, or iOS host path builds and launches correctly through the documented wrapper. It does not replace reducer tests, harness tests, or structured live interaction tests.
+
+Think of smoke scripts as host validation. Think of harness and live tests as behavior validation.
+
+You need both, but they solve different problems.
+
+## Diagnostics help when you need stage-level evidence
+
+Diagnostics are what you reach for when you already know the bug is not just "the user interface looks wrong." You need to know which runtime stage first diverged.
+
+The `fission-diagnostics` crate emits structured events for the major parts of the frame lifecycle. Instead of only logging arbitrary strings, it gives the runtime a vocabulary for what happened during a frame.
+
+The category names are easiest to understand if you group them by purpose.
+
+Some categories describe pipeline stages: `Frame`, `Diff`, `Layout`, `Paint`, and `Raster`. These tell you how the frame moved through the internal pipeline and where work changed.
+
+Some categories describe interaction and motion: `Input` and `Animation` tell you what the runtime heard and how motion evolved.
+
+Some categories describe special runtime surfaces or correctness boundaries: `Media` tracks embed-related activity, `Semantics` is reserved for accessibility-oriented events, `Invariants` reports consistency violations, and `Test` is reserved for harness or testing events.
+
+That structure matters because it turns diagnostics into a guided investigation instead of a single undifferentiated log stream.
+
+## How to turn diagnostics on
+
+Diagnostics are configured through environment variables.
+
+The most important ones are:
+
+- `FISSION_DIAG` to choose categories,
+- `FISSION_DIAG_LEVEL` to choose severity,
+- `FISSION_DIAG_SINK` to choose where events go,
+- `FISSION_DIAG_SAMPLING` to control sampling.
+
+A practical example looks like this:
+
+```bash
+FISSION_DIAG=layout,paint,frame \
+FISSION_DIAG_LEVEL=debug \
+FISSION_DIAG_SINK=file:/tmp/fission.jsonl \
+cargo run -p counter
+```
+
+Use diagnostics when you need evidence such as these:
+
+- did layout rebuild more than expected,
+- did paint order change,
+- did input arrive in the expected order,
+- did animation state advance the way you thought,
+- did an invariant failure reveal the first real problem.
+
+Do not turn diagnostics into a substitute for clear tests. Diagnostics help you investigate and explain failures. Tests are still the main way you lock behavior down.
+
+## A practical testing workflow
+
+For most features, a healthy sequence looks like this.
+
+Write reducer tests for the important state transitions first. Add harness tests for layout, semantics, and interaction behavior that needs the runtime. Add live tests for critical real-shell flows, overlays, or screenshots. Use target smoke scripts when a browser or mobile host path itself needs validation. Turn on diagnostics when a failure needs stage-level evidence.
+
+This workflow keeps tests cheap for as long as possible while still letting you go deep when necessary.
+
+## Common mistakes to avoid
+
+One common mistake is skipping straight to screenshots. Pixel comparisons have a place, but they are usually not the clearest first proof.
+
+Another mistake is testing reducer logic through full live-shell flows. That creates slow tests that fail far from the real bug.
+
+Another frequent issue is sleeping in tests instead of using harness pumping, timer payloads, or live-driver commands that align with the runtime model.
+
+A fourth mistake is treating target smoke scripts as complete behavior coverage. They only prove host launch, not the full app behavior inside the host.
+
+Finally, avoid diagnostics spam without a question. Enable the categories that match the investigation you are actually running.
+
+## Where to go next
+
+If you want the shell-side picture for target generation, host launchers, and public shell builders, read [Platform shells, command-line interface, and testing](/docs/guides/platform-shells-cli-and-testing). If you want the async model behind many live app behaviors, continue to [Resources and async](/docs/guides/resources-and-async). For live examples backed by checked-in tests, browse the public [Examples](/examples) page and inspect the `live_e2e.rs` tests linked there.

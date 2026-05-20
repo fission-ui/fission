@@ -1,0 +1,163 @@
+---
+title: Quickstart
+description: Install Rust, scaffold a first Fission app, run it on desktop, and learn what the generated project contains.
+---
+
+# Quickstart
+
+By the end of this page, you will have a small Fission app running on your desktop, you will know which file to edit first, and you will understand how to add web, Android, or iOS support when you are ready.
+
+The app created here is intentionally simple. It starts as a small counter so you can focus on the workflow before you take on more of the framework.
+
+## 1. Install Rust first
+
+If Rust is not installed on your machine yet, start with the official installer at [rustup.rs](https://rustup.rs/).
+
+`rustup` is the standard way to install Rust. It gives you the Rust compiler and `cargo`, which is Rust's build and package tool. Fission uses `cargo` for both installing the Fission command-line interface and running your app.
+
+After the installer finishes, open a fresh terminal and make sure Rust is available:
+
+```bash
+rustc --version
+cargo --version
+```
+
+If both commands print version numbers, you are ready for the next step.
+
+## 2. Install the Fission command-line interface
+
+Fission includes a first-party command-line interface, usually shortened to command-line interface. A command-line interface is just a tool you run from the terminal.
+
+In Fission, the command-line interface does two important jobs for beginners. First, it creates the starting project structure for you so you do not have to assemble the files by hand. Second, later on, it can generate the platform-specific wrappers for web, Android, and iOS.
+
+Install it once with:
+
+```bash
+cargo install fission-cli
+```
+
+This command asks `cargo` to download, build, and install the Fission command-line interface on your machine. After it completes, you will have the `fission` command for creating projects, and the `cargo fission` command for adding more targets later.
+
+## 3. Create your first app
+
+Now scaffold a new project:
+
+```bash
+fission init my-app
+cd my-app
+```
+
+`fission init my-app` creates a new folder named `my-app` and fills it with a working starter project. The starter app is a small counter, which is useful because it already shows the basic Fission loop: state, an action, a reducer, and a widget tree.
+
+`cd my-app` moves your terminal into that new project so the next commands run against it.
+
+## 4. Look around the generated project
+
+Before you run anything, it helps to know what the important files are for.
+
+| Path | What it is for |
+|---|---|
+| `src/main.rs` | The default desktop entrypoint. When you run `cargo run` on Windows, macOS, or Linux, this is the file that starts the app. |
+| `src/app.rs` | The shared app itself. This is the most important file to open first. The starter project keeps the counter state, the increment action, the reducer, and the widget tree here. |
+| `fission.toml` | The Fission project manifest. It records project information such as the app identifier and which extra targets you have generated. The command-line interface updates this file when you add more platforms. |
+| `platforms/<target>/...` | Generated platform-specific wrapper files. These are created when you add a target such as web, Android, or iOS. They include small helper files, platform notes, and host scripts for building and launching on that target. |
+
+You will also see `src/lib.rs`. It contains shared entry helpers so the same app can be wired into desktop, web, and mobile hosts without copying the app logic into several places.
+
+## 5. Run the app on desktop
+
+From the project directory, run:
+
+```bash
+cargo run
+```
+
+On the first run, Cargo may take a little while because it needs to download and compile dependencies. That is normal.
+
+When the build finishes, a desktop window should open. You should see a very small app with a count label and an `Increment` button. Clicking the button should increase the number. That tells you the starter project is working end to end: the app state exists, the button sends an action, the reducer updates the state, and the user interface rebuilds from the new value.
+
+Close the window or stop the process in your terminal when you are done.
+
+## 6. If you want to stay on desktop for a while, that is a good idea
+
+Desktop is the best starting point for most beginners because it has the fewest extra prerequisites and the fastest edit-and-run loop. You can learn the Fission model there without also learning browser packaging, Android toolchains, or iOS simulator setup on the same day.
+
+If you want to keep working only on desktop for now, spend your time in `src/app.rs` and rerun:
+
+```bash
+cargo run
+```
+
+That is already enough to learn the core framework. The same shared app model you practice on desktop is the model you carry to web, Android, and iOS later.
+
+## 7. Add more targets only when you have a reason to test them
+
+Fission can scaffold web, Android, and iOS wrappers around the same shared app, but it is worth adding them one at a time.
+
+A target in Fission means a specific host environment for your app. The web target gives your app a browser host. The Android target gives it an Android app wrapper. The iOS target gives it an iPhone simulator wrapper. These targets do not replace your shared app code. They surround it with the files needed for that platform.
+
+When you add one of these targets, the command-line interface creates platform files and a host script. A host script is a small generated command file that wraps the repetitive build-and-launch steps for a platform so you do not have to memorize them yet.
+
+### Add the web target when you want to try the app in a browser
+
+Web is usually the easiest next step after desktop.
+
+```bash
+cargo fission add-target web --project-dir my-app
+```
+
+This updates `fission.toml`, creates `platforms/web/`, and adds files such as a browser host page plus the `platforms/web/run-browser.sh` host script. That script builds the WebAssembly package and serves it locally. Before running it, read `platforms/web/README.md` for the exact prerequisites, including `wasm-pack`.
+
+After the target is added, the normal command is:
+
+```bash
+cargo fission run --target web --project-dir my-app
+```
+
+That builds the browser package, serves it locally, and keeps the terminal attached to the local server so you can see what is happening.
+
+### Add the Android target when you are ready for emulator setup
+
+Android needs the Android Software Development Kit and Native Development Kit installed first, so it is usually a second-day step rather than a first-day step.
+
+```bash
+cargo fission add-target android --project-dir my-app
+```
+
+This creates `platforms/android/`, including files such as the Android manifest and `platforms/android/run-emulator.sh`. That host script builds the app, packages it, installs it into an emulator, and launches it. Read `platforms/android/README.md` first so you know which environment variables and Android tools are required on your machine.
+
+Once your Android setup is healthy, ask Fission what devices it can see and then run the app:
+
+```bash
+cargo fission devices --project-dir my-app
+cargo fission run --target android --project-dir my-app
+```
+
+If more than one Android device or emulator is available, pass `--device <id>` using the id printed by the devices command.
+
+### Add the iOS target when you have Xcode and simulator tools available
+
+iOS also has extra prerequisites, including Xcode and simulator tooling.
+
+```bash
+cargo fission add-target ios --project-dir my-app
+```
+
+This creates `platforms/ios/`, including bundle files and `platforms/ios/run-sim.sh`. That host script builds the app and launches it in an iPhone simulator. Read `platforms/ios/README.md` before you rely on it, because the generated notes are the right place to check the current prerequisites and status for the simulator path.
+
+When the simulator tools are installed, use the same device-and-run flow:
+
+```bash
+cargo fission devices --project-dir my-app
+cargo fission run --target ios --project-dir my-app
+```
+
+The run command attaches to simulator logs by default. That makes it the main development entrypoint instead of something you only use after a separate launch step.
+
+## What to do next
+
+If you want to understand the structure you just ran, read [Runtime model](/docs/learn/runtime-model) next. That page explains the difference between your product state and the runtime-owned behavior around it.
+
+If you want to understand how the user interface becomes layout and pixels, continue to [Rendering pipeline](/docs/learn/rendering-pipeline).
+
+If you want to start shaping the project into a real app, go to [App structure](/docs/guides/app-structure).

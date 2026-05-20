@@ -1,0 +1,60 @@
+---
+title: Bubble scatter
+sidebar_label: Bubble scatter
+description: Fission Charts reference for Bubble scatter.
+---
+
+# Bubble scatter
+
+![Bubble scatter screenshot](/img/charts/scatter-bubble.png)
+
+Scatter points where bubble size carries a third numeric dimension. Use it when two axes are not enough and size can encode importance or volume. The screenshot is captured from the native Fission chart gallery.
+
+## What the chart is for
+
+Bubble scatter belongs to the **Statistical and finance** family. Its job is to make this data shape readable: `Vec<(x, y, size)>.` In a production interface, choose this chart when the visual form makes the user's question faster to answer than a table or a simpler chart would.
+
+Avoid it when the visual form makes the user estimate more than necessary; choose the simplest chart that answers the product question.
+
+## Data model
+
+`Vec<(x, y, size)>.` Keep the data close to the type that describes it. Fission Charts is typed Rust, so a line uses `LineSeries`, a calendar heatmap uses `CalendarHeatmapSeries`, and chart components such as zoom, marks, and graphics are explicit fields on `Chart` rather than hidden string configuration.
+
+## Rust API
+
+| Field | Type | Notes |
+| --- | --- | --- |
+| `title` | `&str` | Names the chart for the screen, accessibility tree, and test output. |
+| `x_axis` | `Axis::value()` | Maps the first point dimension. |
+| `y_axis` | `Axis::value()` | Maps the second point dimension. |
+| `series` | `ScatterSeries / BubbleSeries / EffectScatterSeries` | Chooses fixed points, sized bubbles, or emphasized points. |
+| `width / height` | `f32` | Optional fixed size; omit them when the chart should flex inside Fission layout. |
+
+## Example
+
+```rust
+use fission_charts::{Axis, BubbleSeries, Chart, VisualMap};
+
+let chart = Chart::new()
+    .title("Bubble scatter")
+    .x_axis(Axis::value())
+    .y_axis(Axis::value())
+    .visual_map(VisualMap::new().min(10.0).max(80.0))
+    .series(vec![BubbleSeries::new("Markets")
+        .data(vec![(10.0, 8.0, 22.0), (18.0, 12.0, 46.0), (32.0, 22.0, 74.0)])
+        .radius_range(6.0, 24.0)
+        .into()]);
+```
+
+## Interaction and animation
+
+Charts can emit typed `ChartInteractionEvent` values when interaction is enabled. Handle those events in a reducer when the app needs hover, press, release, scroll, selection, or brush behavior. `ChartAnimation` stores duration, delay, stagger, easing, and reduced-motion behavior as deterministic chart data, so animation timing can be tested instead of being hidden in ad-hoc timers.
+
+## Testing guidance
+
+For this chart, test the data mapping first, then test lowering, then capture a live screenshot when visual output changes. The screenshot for this page is refreshed with `npm run charts:generate` from the website package.
+
+Tags: `scatter`, `bubble`.
+
+
+[Statistical and finance family overview](./overview)

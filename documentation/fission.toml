@@ -1,0 +1,45 @@
+targets = ["site"]
+
+[app]
+name = "fission-documentation"
+app_id = "com.fission.documentation"
+
+[site]
+entry = "crate::site_app"
+base_url = "https://fission.example.com"
+out_dir = "dist/site"
+default_locale = "en-US"
+locales = ["en-US"]
+pretty_urls = true
+generate_sitemap = true
+generate_robots = true
+title = "Fission"
+description = "Build production desktop, web, Android, and iOS apps with Fission."
+asset_dirs = ["../website/static"]
+
+[[site.routes]]
+kind = "content"
+path = "/docs"
+source = "content/docs"
+template = "fission::site::DocumentationTemplate"
+sidebar = "site/docs-sidebar.toml"
+
+[[site.routes]]
+kind = "content"
+path = "/reference"
+source = "content/reference"
+template = "fission::site::DocumentationTemplate"
+sidebar = "site/reference-sidebar.toml"
+
+[[site.routes]]
+kind = "content"
+path = "/blog"
+source = "content/blog"
+template = "fission::site::DocumentationTemplate"
+sidebar = "site/blog-sidebar.toml"
+
+[[site.routes]]
+kind = "content"
+path = "/legacy-docs"
+source = "content/legacy-docs"
+template = "fission::site::DocumentationTemplate"

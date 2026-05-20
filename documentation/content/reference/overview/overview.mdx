@@ -1,0 +1,75 @@
+---
+title: Reference overview
+description: The technical map of Fission's runtime, shells, command-line interface, and widget surface.
+slug: /overview/overview
+---
+
+# Reference overview
+
+The Learn section teaches the framework in a guided order. The Reference section is the place you come back to when you already know roughly what you are building and need to confirm a contract, a type, a lifecycle rule, or the right subsystem for a problem.
+
+That difference matters.
+
+A learning page is designed to introduce ideas slowly. A reference page is designed to answer questions precisely. Good reference documentation should still be readable, especially for a newer user, but its main job is to help you look something up quickly without losing the architectural meaning behind the public contract.
+
+Use this section when you are asking questions such as these:
+
+- What exactly belongs in `build()`?
+- When should I use a job instead of a service?
+- What does `Env` hold today?
+- Which shell wrappers expose which builder methods?
+- Which widget family should I browse for this screen?
+
+## How to use the reference effectively
+
+The fastest way to use this reference well is to identify the layer your question belongs to before you start clicking.
+
+If your question is about app behavior, start in the core runtime pages. That is where the shared contracts live: widgets, state, reducers, effects, resources, environment, input, the rendering pipeline, testing, and diagnostics.
+
+If your question is about how the app reaches desktop, web, Android, or iOS, move to the platform pages. Those pages explain shells, targets, target-level testing, and where platform responsibility begins and ends.
+
+If your question is about scaffolding or day-to-day project setup, go to the command-line interface page. If your question is about authoring user interface, go to the widget catalog and then into the relevant widget family.
+
+In other words, treat the reference as a subsystem map. Do not search for type names alone. Start from the job the code needs to do.
+
+## Core runtime reference
+
+The core runtime is the heart of Fission. These pages describe the shared model that stays consistent across desktop, web, Android, and iOS.
+
+Start with [Widget trait](/reference/core/widget-trait) when you need to confirm what a widget is, what `build()` is allowed to do, or how `BuildCtx` and `View` divide responsibility.
+
+Open [State system](/reference/core/state-system) when your question is about `AppState`, typed `Action` values, reducers, `ReducerContext`, or selectors.
+
+Move to [Commands, services, and jobs](/reference/core/commands-services-jobs) and [Resources and capabilities](/reference/core/resources-and-capabilities) when the question is about async work, host integration, timers, or long-lived background behavior.
+
+Use [Environment, input, and input method editor](/reference/core/environment-input-and-ime) for the public input and environment contracts, [Animations, portals, and media](/reference/core/animations-portals-media) for runtime-owned motion and overlay/embed behavior, and [Rendering pipeline](/reference/core/rendering-pipeline) when you need the staged view from `build()` to presentation.
+
+Round that out with [Platform runtime](/reference/core/platform-runtime), [Testing and diagnostics](/reference/core/testing-and-diagnostics), and [Theming and internationalization](/reference/core/theming-and-i18n) when your question crosses into shells, verification, or global presentation inputs.
+
+## Platform reference
+
+The platform pages explain what happens after the shared runtime reaches a real host.
+
+[Targets](/reference/platform/targets) is the page to open when you need to understand generated host output, target folders, and the practical expectations for desktop, web, Android, and iOS.
+
+[Accessibility and internationalization](/reference/platform/accessibility-and-i18n) focuses on how semantic meaning and locale-sensitive behavior connect to platform adapters and testing.
+
+[Testing](/reference/platform/testing) explains target-level validation: what can be proved headlessly, what needs a live shell, and what the current host-level test surfaces look like.
+
+## command-line interface reference
+
+The command-line interface is intentionally small, but it is part of the public workflow.
+
+Open [command-line interface overview](/reference/cli/overview) when you want the exact scaffold and target-management commands, the meaning of their major flags, and the files they generate.
+
+## Widget reference
+
+The widget reference is organized by family because most user interface work begins with a job, not with a complete alphabetical scan.
+
+Start with [Widget catalog](/reference/widgets/catalog) for the full map, then go to the family page that matches your task: [Layout](/reference/widgets/layout), [Inputs](/reference/widgets/inputs), [Display and data](/reference/widgets/display-and-data), [Overlays and navigation](/reference/widgets/overlays-and-navigation), or [Media](/reference/widgets/media).
+
+Each family page points to the dedicated widget pages, and those dedicated pages are where you confirm individual fields and usage details.
+
+## A good working pattern
+
+When you are learning a subsystem for the first time, begin with the Learn or Guides pages. Once you are implementing the real feature, keep the matching reference page open beside your code. That combination usually gives the best result: explanation first, then precise lookup.

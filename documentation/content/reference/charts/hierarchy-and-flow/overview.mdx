@@ -1,0 +1,36 @@
+---
+title: Hierarchy and flow
+sidebar_label: Overview
+description: Fission Charts reference for the Hierarchy and flow family.
+---
+
+# Hierarchy and flow
+
+The Hierarchy and flow family contains 14 renderer-backed chart variants. Use this page as the entry point for choosing the right variant, then open the variant page for the screenshot, data shape, Rust API notes, and example code.
+
+The chart family is still ordinary Fission UI. Each variant is constructed from typed Rust data, participates in layout and theme decisions, and can be driven by app state, reducers, resources, jobs, or services just like any other widget.
+
+![Budget treemap screenshot](/img/charts/treemap-budget.png)
+
+## Variants
+
+| Chart | Data shape | Use when |
+| --- | --- | --- |
+| [Budget treemap](./treemap-budget) | Nested value nodes. | Use it for budget or storage breakdowns. |
+| [Circular-like graph](./graph-circular-like) | Graph nodes plus edges. | Use it for relationship overview surfaces. |
+| [Demand theme river](./theme-river-demand) | Time/value/category tuples. | Use it for campaign or demand mix. |
+| [Dependency graph](./graph-dependencies) | Graph nodes plus edges. | Use it for dependency and topology diagrams. |
+| [Energy sankey](./sankey-energy) | Node list plus edges. | Use it for material, energy, or revenue flow. |
+| [File-system tree](./tree-file-system) | Nested nodes with values. | Use it for product and resource hierarchies. |
+| [Org tree](./tree-org) | Nested nodes. | Use it for organization and ownership charts. |
+| [Product sunburst](./sunburst-product) | Nested value nodes. | Use it for hierarchy depth and composition. |
+| [Radial taxonomy](./tree-radial-taxonomy) | Nested nodes. | Use it when hierarchy symmetry matters. |
+| [Revenue sunburst](./sunburst-revenue) | Nested value nodes. | Use it for nested part-to-whole data. |
+| [Service graph](./graph-services) | Graph nodes plus edges. | Use it for systems maps and service graphs. |
+| [Storage treemap](./treemap-storage) | Nested value nodes. | Use it for disk and memory allocation. |
+| [Traffic theme river](./theme-river-traffic) | Time/value/category tuples. | Use it for composition changing over time. |
+| [User-flow sankey](./sankey-user-flow) | Node list plus edges. | Use it for conversion path analysis. |
+
+## Choosing within this family
+
+Start with the user's question, not the visual effect. Pick the simplest variant that makes the answer clear, add interaction only when it reduces work for the user, and keep animation purposeful enough that it explains a change rather than decorating the page.

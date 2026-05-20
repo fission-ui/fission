@@ -1,0 +1,24 @@
+---
+title: 3D and GL charts
+sidebar_label: 3D and GL
+sidebar_position: 4
+description: The Fission Charts direction for 3D, globe, surface, and GPU-accelerated chart families.
+---
+
+# 3D and GL charts
+
+Fission has a native 3D scene path through `Scene3D`. Fission Charts builds on that path instead of treating advanced charts as a web-only exception. The catalog includes real gallery screenshots for 3D bar, 3D scatter, 3D line, point cloud, globe, 3D graph, terrain, mesh, volume-style point field, and 3D surface examples, each lowered into native `Scene3D` primitives and rendered by the Fission shell.
+
+The broader target remains the same: line trajectories, globes, 3D maps, graph layouts, point clouds, volume rendering, vector fields, and GPU-accelerated large scatter should live inside the same Fission application model as ordinary widgets.
+
+That does not mean every chart should become 3D. Most product charts are clearer in two dimensions. Use 3D when depth is part of the data, when geographic context requires a globe or terrain surface, or when the chart needs GPU-scale point and mesh rendering. Avoid 3D when it only makes comparison harder.
+
+## Runtime shape
+
+The runtime shape is a typed chart model lowered into Fission render and 3D primitives. The app still owns state through reducers. The host still owns platform-specific graphics integration. Chart code does not introduce a second event model, hidden browser runtime, or untyped callback registry.
+
+For large datasets, the renderer will need retained GPU buffers, stable identifiers, decimation where appropriate, and hit-testing structures that are built once and reused across frames. Those are chart-engine features, not app-level workarounds.
+
+## Website demos
+
+The current catalog shows only 3D entries that are backed by real Fission gallery output. The WebAssembly demo work should compile and run the same Fission chart examples in the browser, then preserve the same source examples for desktop and mobile hosts.

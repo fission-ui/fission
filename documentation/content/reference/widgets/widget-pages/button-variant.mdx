@@ -1,0 +1,55 @@
+---
+title: ButtonVariant
+description: Choose the visual emphasis level for a Button.
+slug: /widgets/button-variant
+---
+# ButtonVariant
+
+`ButtonVariant` is the visual emphasis setting for [`Button`](/reference/widgets/button).
+
+It answers a simple design question: how loudly should this action speak? In a real app, not every button should look equally important. The variant lets you express primary, secondary, and low-emphasis actions without changing the underlying action flow.
+
+## Example
+
+```rust
+use fission::core::ui::{Button, ButtonVariant, Text};
+
+let primary = Button {
+variant: ButtonVariant::Filled,
+child: Some(Box::new(Text::new("Save").into_node())),
+on_press: Some(save_action),
+..Default::default()
+};
+
+let secondary = Button {
+variant: ButtonVariant::Outline,
+child: Some(Box::new(Text::new("Preview").into_node())),
+on_press: Some(preview_action),
+..Default::default()
+};
+```
+
+The two buttons do the same kind of work in the runtime: both dispatch actions. The variant only changes how much visual emphasis the user sees.
+
+## Choice table
+
+| Choice | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `Filled` | `ButtonVariant` | High-emphasis button with a filled surface. | Default. Good for the main action in a section or dialog. |
+| `Outline` | `ButtonVariant` | Medium-emphasis button with a bordered surface. | Good for secondary actions that should still look clearly interactive. |
+| `Ghost` | `ButtonVariant` | Low-emphasis button that relies mostly on content and hover/press feedback. | Good for toolbars, menus, inline controls, and dense chrome. |
+
+## How to choose
+
+Use `Filled` for the action you most want the user to notice right now. Use `Outline` when the action is important but not dominant. Use `Ghost` when the action should stay available without pulling visual focus away from the main task.
+
+Do not treat variants as random styling choices. If every action on a screen is filled, nothing feels primary. If every action is ghost, important flows can disappear into the interface.
+
+## Specific advice
+
+Keep the meaning of each variant stable across your product. If `Filled` means "commit the main action" on one screen but "tiny utility action" on another, users have to relearn the hierarchy every time.
+
+## Related
+
+[`Button`](/reference/widgets/button), [`ButtonContentAlign`](/reference/widgets/button-content-align), [`MenuButton`](/reference/widgets/menu-button), and [`SegmentedControl`](/reference/widgets/segmented-control).
+

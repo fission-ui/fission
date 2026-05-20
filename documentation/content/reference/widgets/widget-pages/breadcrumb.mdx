@@ -1,0 +1,56 @@
+---
+title: Breadcrumb
+description: Show the current location inside a hierarchy and let people move back up the path.
+slug: /widgets/breadcrumb
+---
+# Breadcrumb
+
+`Breadcrumb` is the path trail for hierarchical navigation.
+
+Use it when users move through folders, nested collections, settings sections, or other tree-like structures and need a clear answer to "where am I right now?" A breadcrumb is not a global site navigation bar. It is a location summary with optional step-back navigation.
+
+## Example
+
+```rust
+use fission::prelude::*;
+
+let node = Breadcrumb {
+    items: vec![
+        BreadcrumbItem {
+            label: "Workspace".into(),
+            on_click: Some(open_workspace_action),
+        },
+        BreadcrumbItem {
+            label: "Docs".into(),
+            on_click: Some(open_docs_folder_action),
+        },
+        BreadcrumbItem {
+            label: "Architecture.md".into(),
+            on_click: None,
+        },
+    ],
+}
+.build(ctx, view);
+```
+
+In this pattern the last item marks the current location, while earlier items let the user move upward.
+
+## Field table
+
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `items` | `Vec<BreadcrumbItem>` | Path steps shown from left to right. | Defaults to an empty list. |
+
+## Layout and behavior
+
+The checked-in renderer inserts chevrons between items, renders clickable steps as ghost buttons, and shows the last step as primary text. Non-final items without `on_click` are shown as secondary text.
+
+Because the underlying layout is a single row, long breadcrumb trails can become cramped on narrow screens. On mobile or very dense headers, it is often better to shorten the path or move part of the hierarchy into a separate back action.
+
+## Specific advice
+
+Breadcrumbs should move upward in a hierarchy, not trigger unrelated actions. If an item does something surprising, the trail stops feeling trustworthy.
+
+## Related
+
+[`BreadcrumbItem`](/reference/widgets/breadcrumb-item), [`Link`](/reference/widgets/link), [`TreeView`](/reference/widgets/tree-view), and [`Tabs`](/reference/widgets/tabs).

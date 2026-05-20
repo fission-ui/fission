@@ -1,0 +1,53 @@
+---
+title: Why Fission
+description: The practical architecture choices behind Fission.
+---
+
+# Why Fission
+
+Many frameworks ask you to distribute your architecture across too many concepts before you can ship. Fission keeps the first iteration short.
+
+## Core design choices
+
+### 1) Deterministic update flow
+
+Everything that changes UI state travels through typed actions and pure reducers. In practice this gives:
+
+- predictable replay,
+- easy reducer tests,
+- fewer accidental side effects in `build()`.
+
+### 2) Structured async model
+
+Work that can take time is explicit:
+
+- **jobs** for one-shot operations,
+- **services** for long-lived background behavior,
+- **commands** to direct already-running services.
+
+Keeping this split explicit reduces accidental complexity.
+
+### 3) State-first product model
+
+The same app state and action surface can be validated locally, then shared for generated platform targets.
+
+### 4) Integrated testing and observability
+
+Fission includes test harness support and diagnostics. You can validate:
+
+- reducer transitions,
+- action/input lifecycle,
+- semantics/roles,
+- rendering diagnostics by stage.
+
+### 5) Product language support and semantics awareness
+
+From the start you can use `TextContent::Key` for language-ready text and attach semantic roles and labels where interaction matters.
+
+## What this means for your team
+
+- start with real behavior quickly,
+- stabilize one interaction before adding more surface,
+- expand targets only once behavior and UX checks are trustworthy.
+
+Continue to [Build your first app](/docs/getting-started/first-app).

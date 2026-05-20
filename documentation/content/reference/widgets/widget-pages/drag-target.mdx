@@ -1,0 +1,51 @@
+---
+title: DragTarget
+description: Accept a drop without also taking on full drag-over surface behavior.
+slug: /widgets/drag-target
+---
+# DragTarget
+
+`DragTarget` is the small, direct drop target helper in the widget set.
+
+It wraps a child and dispatches one action when something is dropped on it. Use it when the important event is the completed drop itself and you do not need separate drag-enter or drag-leave handling. If you do need hover feedback or file-drop styling, use [`Dropzone`](/reference/widgets/dropzone) instead.
+
+## Example
+
+```rust
+use fission::prelude::*;
+
+let node = DragTarget {
+child: Box::new(Text::new("Drop here to move").into_node()),
+on_drop: Some(ctx.bind(
+    MoveCardHere,
+    reduce_with!((|state: &mut BoardState, _action: MoveCardHere, ctx| {
+        if let Some(bytes) = ctx.input.as_internal_drop() {
+            state.pending_drop_card_id = Some(String::from_utf8(bytes.to_vec()).unwrap());
+        }
+    })),
+)),
+}
+.build(ctx, view);
+```
+
+The dropped payload travels through `ctx.input`, not through the action type itself. That keeps the drag payload explicit and lets the reducer decide how to decode it.
+
+## Field table
+
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `child` | `Box<Node>` | The visible drop target surface. | Required. |
+| `on_drop` | `Option<ActionEnvelope>` | Action dispatched when the runtime delivers a drop to this target. | Defaults to `None`. Read payloads from `ReducerContext::input`. |
+
+## How drop data reaches your reducer
+
+Internal drags started by [`Draggable`](/reference/widgets/draggable) arrive as opaque bytes that you read with `ctx.input.as_internal_drop()`. External file drops can arrive as file paths, which you read with `ctx.input.as_drop_paths()`. In both cases the action itself is just the trigger; the extra drop data lives alongside it in `ActionInput`.
+
+## Specific advice
+
+Keep the drag payload small and stable. A database id, path, or serialized enum is usually enough. Do not serialize half your app state into the payload just because it is available.
+
+## Related
+
+[`Draggable`](/reference/widgets/draggable), [`Dropzone`](/reference/widgets/dropzone), [`GestureDetector`](/reference/widgets/gesture-detector), and [`Overlay`](/reference/widgets/overlay).
+

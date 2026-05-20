@@ -1,0 +1,74 @@
+---
+title: Data and interaction
+sidebar_label: Data and interaction
+description: Understand datasets, axes, visual maps, zoom, tooltips, and typed interaction paths in Fission Charts.
+---
+
+# Data and interaction
+
+Fission Charts has two ways to feed data into a chart. The direct path puts values on the series itself. The dataset path gives the chart named dimensions and lets each series choose which fields it uses. Start with direct series data when the chart is small and local to one screen. Move to datasets when several series read from the same table or when field names make the code easier to review.
+
+```rust
+use fission_charts::{Axis, BarSeries, Chart, DataValue, Dataset, Encode, LineSeries};
+
+let chart = Chart::new()
+    .title("Product sales")
+    .dataset(
+        Dataset::new()
+            .dimensions(vec!["product".into(), "2025".into(), "2026".into()])
+            .source(vec![
+                vec![DataValue::String("Coffee".into()), DataValue::Number(43.3), DataValue::Number(85.8)],
+                vec![DataValue::String("Tea".into()), DataValue::Number(83.1), DataValue::Number(73.4)],
+            ]),
+    )
+    .x_axis(Axis::category(vec!["Coffee", "Tea"]))
+    .y_axis(Axis::value())
+    .series(vec![
+        BarSeries::new("2025").encode(Encode::new().x("product").y("2025")).into(),
+        LineSeries::new("2026").encode(Encode::new().x("product").y("2026")).into(),
+    ]);
+```
+
+## Axes
+
+An axis tells the chart how to interpret position. A category axis places named buckets such as weekdays or product names. A value axis places numeric values. Time and logarithmic axes are part of the chart model and are the next scaling work after the current category/value path.
+
+Keep axis labels short. If the labels are long, prefer a horizontal bar chart or rotate the labels only when that still leaves the chart readable. When a chart needs multiple units, avoid forcing them onto one axis unless the relationship is genuinely meaningful.
+
+## Visual maps
+
+A visual map turns a number into a color. Heatmaps and scatter charts use this to show intensity without adding another axis. The important rule is consistency: if two charts sit near each other, their color scales should mean the same thing unless the UI clearly says otherwise.
+
+```rust
+use fission_charts::VisualMap;
+use fission_core::op::Color;
+
+let visual_map = VisualMap::new()
+    .min(0.0)
+    .max(100.0)
+    .in_range_colors(vec![
+        Color { r: 219, g: 234, b: 254, a: 255 },
+        Color { r: 96, g: 165, b: 250, a: 255 },
+        Color { r: 30, g: 64, b: 175, a: 255 },
+    ]);
+```
+
+## Tooltips, axis pointers, brush, and zoom
+
+Tooltips and axis pointers are interactive readout tools. They should answer "what exact value is under the pointer?" without forcing the user to estimate from grid lines. Data zoom lets the user inspect part of an ordered series without losing the overall context. Brush selection lets the user draw attention to a region of points or values, and toolbox actions keep common chart commands next to the chart they affect.
+
+The chart renderer stores tooltip, axis pointer, brush, toolbox, and data zoom configuration in the typed chart model. Data zoom filters ordered series before domain resolution, so the visible chart and its axes agree. When event emission is enabled, chart hit testing dispatches `ChartInteractionEvent` values with the resolved series index, data index, and values. Your reducer can then update app state in the same explicit path used by buttons, forms, and other Fission widgets.
+
+```rust
+use fission_charts::{ChartBrush, ChartInteraction, ChartTooltipTrigger};
+
+let interaction = ChartInteraction::tooltips(ChartTooltipTrigger::Axis)
+    .brush(ChartBrush::rect())
+    .emit_events(true);
+```
+
+## Testing chart behavior
+
+Treat chart tests as product tests, not only renderer tests. Unit tests should verify domain extraction, stacking, dataset encoding, and layout. Lowering tests should assert the chart emits real Fission IR. Live smoke tests should open the gallery and capture chart-only screenshots when visual behavior changes.
+
+That split matters because a chart can be wrong in several ways. The data can be mapped to the wrong dimension, the layout can scale values incorrectly, the renderer can draw the wrong mark, or interaction can dispatch the wrong action. Good chart tests isolate those failures instead of checking only that something appeared on screen.

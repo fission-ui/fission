@@ -1,0 +1,9 @@
+announcement:
+  label: Announcement
+  permalink: /announcement
+  description: Product and documentation announcements
+
+docs:
+  label: Docs
+  permalink: /docs
+  description: Documentation and developer experience updates

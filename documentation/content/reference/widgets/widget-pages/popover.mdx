@@ -1,0 +1,80 @@
+---
+title: Popover
+description: Anchor interactive overlay content to an inline trigger while keeping open state explicit.
+slug: /widgets/popover
+---
+# Popover
+
+`Popover` is an anchored overlay widget. It renders a trigger in the normal layout tree and, when open, renders popup content in the flyout portal layer next to that trigger.
+
+Use it for contextual controls such as filter menus, formatting pickers, account menus, or compact inspectors. A popover is larger and more interactive than a tooltip, but less disruptive than a modal dialog.
+
+The important state rule is that the popover does not decide when it is open. Your app state owns `is_open`. The widget's job is to keep the trigger in the normal layout flow, give it a stable anchor id, and position the popup content relative to that anchor when the state says it should be visible.
+
+## Example
+
+```rust
+use fission::core::{Handler, WidgetNodeId};
+use fission::core::ui::{Button, Text};
+use fission::prelude::*;
+
+let popover = Popover {
+    id: WidgetNodeId::explicit("sort_popover"),
+    is_open: view.state.show_sort_menu,
+    on_toggle: None,
+    on_close: Some(ctx.bind(
+        ToggleSortMenu(false),
+        reduce_with!((|state: &mut AppState, action: ToggleSortMenu, _| {
+            state.show_sort_menu = action.0;
+        })),
+    )),
+    trigger: Box::new(
+        Button {
+            child: Some(Box::new(Text::new("Sort").into_node())),
+            on_press: Some(toggle_sort_menu),
+            ..Default::default()
+        }
+        .build(ctx, view),
+    ),
+    content: Box::new(
+        Menu {
+            items: vec![
+                MenuItem::action("Newest", choose_newest),
+                MenuItem::action("Oldest", choose_oldest),
+            ],
+            ..Default::default()
+        }
+        .build(ctx, view),
+    ),
+}
+.build(ctx, view);
+```
+
+Notice that the trigger's own button handles the open and close action. That keeps the event flow explicit.
+
+## Field table
+
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `id` | `WidgetNodeId` | Stable identity for the anchor and portal entry. | Required. The widget derives an internal anchor id from this value. |
+| `is_open` | `bool` | Whether the popup content should be visible. | When `false`, only the trigger is rendered. |
+| `on_toggle` | `Option<ActionEnvelope>` | Intended toggle action for the trigger. | Present on the public struct, but the current implementation does not invoke it for you. Wire trigger presses on the `trigger` node itself. |
+| `on_close` | `Option<ActionEnvelope>` | Action dispatched when the optional backdrop is tapped. | If set, the widget adds a transparent full-screen backdrop behind the popup. |
+| `trigger` | `Box<Node>` | Inline trigger content. | Always rendered in normal layout. |
+| `content` | `Box<Node>` | Popup body shown in the flyout layer when open. | Positioned relative to the trigger and clamped within the viewport. |
+
+## Overlay behavior
+
+`Popover` uses the same `flyout` layout machinery as menus and tooltips. That means the popup is measured normally, then positioned next to the trigger after layout. Because the popup is portaled, it is not clipped by parent scroll containers or stacking contexts in the way an inline child would be.
+
+This is why popovers are a good fit for controls inside toolbars, tables, and dense panels. The trigger stays exactly where the layout puts it, while the overlay content gets room to escape.
+
+## Specific advice
+
+Keep a popover focused on one local task. If it grows into a long workflow, a modal or routed page is usually clearer. Also do not hide essential instructions inside a popover that only appears after an extra click.
+
+The current implementation assumes the trigger already knows how to open the popover. In practice, that means using a button or gesture-aware widget inside `trigger` and dispatching your own toggle action from there.
+
+## Related
+
+[`flyout`](/reference/widgets/flyout), [`Tooltip`](/reference/widgets/tooltip), [`MenuButton`](/reference/widgets/menu-button), [`Select`](/reference/widgets/select), and [`Combobox`](/reference/widgets/combobox).

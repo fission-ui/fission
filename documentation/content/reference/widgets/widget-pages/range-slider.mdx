@@ -1,0 +1,52 @@
+---
+title: RangeSlider
+description: Show a lower and upper bound on one track, with two visible thumbs.
+slug: /widgets/range-slider
+---
+# RangeSlider
+
+`RangeSlider` is the dual-thumb range control in the authoring widget set.
+
+Conceptually it represents a range between `start` and `end` inside a `[min, max]` domain. This is useful for things like filter ranges, budget bands, or size windows. The important current reality, though, is that the checked-in implementation is visual first: it draws the track and two thumbs, but it does not yet wire interactive dragging back to reducers.
+
+## Example
+
+```rust
+use fission::prelude::*;
+
+let node = RangeSlider {
+start: 10.0,
+end: 40.0,
+min: 0.0,
+max: 100.0,
+on_change: None,
+id: None,
+}
+.build(ctx, view);
+```
+
+This is a good way to show a selected range today, especially inside filter summaries or mockups of a richer future control.
+
+## Field table
+
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `id` | `Option<NodeId>` | Stable node identity for the custom lowerer. | Defaults to `None`. |
+| `start` | `f32` | Lower bound of the displayed range. | Required. Expected to be within `[min, max]`. |
+| `end` | `f32` | Upper bound of the displayed range. | Required. Expected to be within `[min, max]`. |
+| `min` | `f32` | Minimum domain value. | Required. |
+| `max` | `f32` | Maximum domain value. | Required. |
+| `on_change` | `Option<ActionEnvelope>` | Intended change action. | Present in the public struct, but not currently wired by the checked-in implementation. |
+
+## Current behavior
+
+`RangeSlider` lowers to a custom visual node. It does not currently expose slider semantics, drag handling, or reducer callbacks the way [`Slider`](/reference/widgets/slider) does. In other words, it looks like a range slider, but it is not yet a finished interactive range editor.
+
+## Specific advice
+
+Treat `RangeSlider` as a visual indicator unless you are extending the implementation yourself. If you need a production-ready editable control today, compose other widgets around two numeric inputs or two single sliders rather than assuming `on_change` is already live.
+
+## Related
+
+[`Slider`](/reference/widgets/slider), [`NumberInput`](/reference/widgets/number-input), [`DateRangePicker`](/reference/widgets/date-range-picker), and [`CustomNode`](/reference/widgets/custom-node).
+

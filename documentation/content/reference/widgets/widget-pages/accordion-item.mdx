@@ -1,0 +1,42 @@
+---
+title: AccordionItem
+description: Describe one collapsible section inside an Accordion.
+slug: /widgets/accordion-item
+---
+# AccordionItem
+
+`AccordionItem` is the data record for one section inside an [`Accordion`](/reference/widgets/accordion).
+
+It is not a standalone widget. You build one item for each section you want to show, then hand the whole list to `Accordion`. The important state lives outside the item: your app decides whether the section is expanded and what action should run when the header is toggled.
+
+## Example
+
+```rust
+use fission::prelude::*;
+
+let item = AccordionItem {
+    title: "Advanced filters".into(),
+    content: Text::new("Extra search controls go here").into_node(),
+    is_expanded: view.state.advanced_filters_open,
+    on_toggle: Some(toggle_advanced_filters_action),
+};
+```
+
+This keeps the item definition easy to read. The actual reducer still decides whether the section opens and closes.
+
+## Field table
+
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `title` | `String` | Text shown in the accordion header. | Required. Keep titles short and scannable. |
+| `content` | `Node` | Body content shown when the item is expanded. | Required. This can be any node tree. |
+| `is_expanded` | `bool` | Whether the content is currently visible. | Controlled by app state. |
+| `on_toggle` | `Option<ActionEnvelope>` | Action fired when the header is pressed. | Defaults to `None`. Usually flips `is_expanded` in the reducer. |
+
+## Specific advice
+
+Keep `content` focused on one section's job. If the body becomes a whole screen or a deeply stateful workflow, it is usually clearer to move that work into a dedicated widget and use the accordion only as the disclosure shell.
+
+## Related
+
+[`Accordion`](/reference/widgets/accordion), [`Button`](/reference/widgets/button), [`Card`](/reference/widgets/card), and [`Tabs`](/reference/widgets/tabs).

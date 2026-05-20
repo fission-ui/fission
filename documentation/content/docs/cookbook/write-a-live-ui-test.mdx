@@ -1,0 +1,241 @@
+---
+title: Write a live interface test
+description: Launch a real Fission host, drive it through LiveTestClient, and validate behavior that reducer tests cannot prove by themselves.
+---
+
+# Write a live interface test
+
+Reducer tests are excellent for proving state transitions.
+
+They are not enough to prove that a real window opened, a modal stayed focusable, a button was actually tappable, or a browser or desktop shell delivered input all the way through to the runtime.
+
+That is where live interface tests come in.
+
+A live interface test launches a real Fission host and drives it through the built-in test control server. The test sends actions such as taps, typing, scrolling, and screenshots over Hypertext Transfer Protocol requests. The app runs normally in its host process. The driver observes real rendered output and semantic tree data.
+
+This recipe builds a small end-to-end test around the counter example so you can see the whole flow.
+
+## The problem we are solving
+
+Imagine you already wrote reducer tests for a counter screen. Those tests prove that `Increment` adds one to the state and that `ToggleModal` changes a boolean.
+
+That is useful, but it still leaves important questions unanswered.
+
+Does the host create a real window and become ready?
+
+Does tapping the visible **Increment** button dispatch the action correctly?
+
+Does the modal really appear on screen when the user presses **Show Modal**?
+
+A live interface test answers those questions because it exercises the host plus runtime plus widget tree together.
+
+## Step 1: understand what part is host-level and what part is deterministic
+
+The test itself runs at the host level because it launches a real app process and talks to the host test server.
+
+The app logic inside that process is still the same deterministic Fission logic you use everywhere else. When the test taps a button, the host turns that into input, the runtime dispatches the bound action, reducers update state, and `build()` re-renders from the new state.
+
+That combination is why live tests are powerful. They verify the real integration surface without abandoning the deterministic architecture underneath.
+
+## Step 2: enable the test control server when launching the app
+
+The public live driver talks to a running app over `FISSION_TEST_CONTROL_PORT`.
+
+A practical test usually reserves an open local port, launches the binary with that environment variable, and then connects a `LiveTestClient`.
+
+```rust
+use fission_test_driver::LiveTestClient;
+use std::net::TcpListener;
+use std::process::{Child, Command};
+
+fn reserve_control_port() -> u16 {
+    TcpListener::bind(("127.0.0.1", 0))
+        .expect("bind ephemeral port")
+        .local_addr()
+        .expect("read local addr")
+        .port()
+}
+
+fn launch_counter(control_port: u16) -> Child {
+    let bin = std::env::var("CARGO_BIN_EXE_counter")
+        .unwrap_or_else(|_| "target/debug/counter".into());
+
+    Command::new(bin)
+        .env("FISSION_TEST_CONTROL_PORT", control_port.to_string())
+        .env("FISSION_BACKGROUND_TEST", "1")
+        .spawn()
+        .expect("launch counter app")
+}
+```
+
+This setup is intentionally explicit.
+
+The test process is separate from the app process.
+
+The environment variable turns on the host-side control server.
+
+The extra `FISSION_BACKGROUND_TEST` flag is useful in the checked-in examples to keep the launched app test-friendly in unattended runs.
+
+## Step 3: wait for the real app to become ready
+
+Once the process starts, connect the driver and wait for readiness.
+
+```rust
+let control_port = reserve_control_port();
+let mut child = launch_counter(control_port);
+let client = LiveTestClient::connect(control_port);
+
+client
+    .wait_for_ready(15_000)
+    .expect("counter did not start in time");
+```
+
+This step matters because a live test is talking to a real host, not an in-memory mock. The app needs time to create its window, initialize the runtime, and start responding.
+
+## Step 4: drive the interface like a user would
+
+Now write the actual interaction.
+
+For a first test, use visible text because it keeps the intent readable.
+
+```rust
+client.tap_text("Increment").expect("tap increment");
+client.assert_text_visible("Count: 1").expect("count updated");
+```
+
+This proves more than a reducer test alone.
+
+It proves the button rendered, the semantic text lookup found it, the host delivered the tap, the runtime dispatched the bound action, the reducer updated state, and the screen rebuilt with the new value.
+
+That is the full stack.
+
+## Step 5: add a modal assertion to cover overlay behavior
+
+Live tests are especially valuable when the behavior depends on real layout, focus, semantics, or overlays.
+
+The counter example already has a modal path, so extend the test to cover it.
+
+```rust
+client.tap_text("Show Modal").expect("open modal");
+client
+    .assert_text_visible("Hide Modal")
+    .expect("button label changed after modal toggle");
+```
+
+This verifies that a visible interface transition really happened. That is much stronger than only asserting `show_modal == true` in a reducer test.
+
+## Step 6: capture a screenshot or semantic tree when it helps
+
+One of the most useful parts of the live driver is that it can inspect what was actually rendered.
+
+If a test needs proof of pixels, take a screenshot.
+
+```rust
+let screenshot_path = "/tmp/counter-modal.png";
+client
+    .screenshot(screenshot_path)
+    .expect("capture screenshot");
+```
+
+If you need proof of structure rather than appearance, query the semantic tree.
+
+```rust
+let tree = client.get_tree().expect("read semantic tree");
+assert!(
+    tree.nodes.iter().any(|node| node.label.as_deref() == Some("Increment")),
+    "expected the semantic tree to expose the increment button",
+);
+```
+
+Screenshots are useful for rendered appearance. The semantic tree is useful for accessibility-facing structure, focusable controls, and test-friendly lookup.
+
+## Step 7: shut down cleanly
+
+When the assertions finish, tell the app to exit and wait for the child process.
+
+```rust
+client.quit().expect("quit app");
+let _ = child.wait();
+```
+
+This keeps the test environment tidy and makes repeated runs more reliable.
+
+## Step 8: see the full test together
+
+Once the pieces are clear, here is a compact example that you could place in a test file.
+
+```rust
+use fission_test_driver::LiveTestClient;
+use std::net::TcpListener;
+use std::process::{Child, Command};
+
+fn reserve_control_port() -> u16 {
+    TcpListener::bind(("127.0.0.1", 0))
+        .expect("bind ephemeral port")
+        .local_addr()
+        .expect("read local addr")
+        .port()
+}
+
+fn launch_counter(control_port: u16) -> Child {
+    let bin = std::env::var("CARGO_BIN_EXE_counter")
+        .unwrap_or_else(|_| "target/debug/counter".into());
+
+    Command::new(bin)
+        .env("FISSION_TEST_CONTROL_PORT", control_port.to_string())
+        .env("FISSION_BACKGROUND_TEST", "1")
+        .spawn()
+        .expect("launch counter app")
+}
+
+#[test]
+#[ignore]
+fn counter_button_and_modal_work_in_a_real_window() {
+    let control_port = reserve_control_port();
+    let mut child = launch_counter(control_port);
+    let client = LiveTestClient::connect(control_port);
+
+    client.wait_for_ready(15_000).expect("app ready");
+    client.tap_text("Increment").expect("tap increment");
+    client
+        .assert_text_visible("Count: 1")
+        .expect("count updated");
+
+    client.tap_text("Show Modal").expect("open modal");
+    client
+        .assert_text_visible("Hide Modal")
+        .expect("modal state reflected in interface");
+
+    client.screenshot("/tmp/counter-modal.png").expect("screenshot");
+    client.quit().expect("quit app");
+    let _ = child.wait();
+}
+```
+
+The `#[ignore]` attribute is a practical choice for many live tests because they launch a real host process and may need an appropriate environment to run.
+
+## When to write a live test instead of only reducer tests
+
+Write reducer tests whenever you want to prove state logic in the smallest and fastest way.
+
+Write a live interface test when you need proof that real host input, real rendering, real layout, modal reachability, text entry, scrolling, semantics, or screenshots behave correctly.
+
+You usually want both layers, not one or the other.
+
+Reducer tests catch logic regressions quickly.
+
+Live tests prove that the real app still behaves correctly when everything is connected.
+
+## What to avoid
+
+Do not use live tests for every tiny state rule. That makes the suite slower and harder to maintain than necessary.
+
+Do not rely only on screenshots when a semantic assertion would explain the intent more clearly.
+
+Do not forget to wait for readiness before interacting with the app.
+
+Do not hide important setup. Keep the launch path explicit so future readers understand which real host they are exercising.
+
+## Where to go next
+
+For the broader testing strategy, read [Testing and diagnostics](/docs/guides/testing-and-diagnostics). If you want a dialog-focused follow-up after this, the checked-in `text-lab` example provides a strong model for live modal and text-input tests.

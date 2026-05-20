@@ -1,0 +1,102 @@
+---
+title: Video
+description: Embed a host-managed video surface into layout while the runtime tracks playback state.
+slug: /widgets/video
+---
+# Video
+
+`Video` is Fission's embedded video surface widget.
+
+Use it when your app needs to present real video playback inside the app's own layout: a tutorial clip, a product demo, a lesson player, or another media surface that should live alongside ordinary Fission widgets.
+
+This is a specialized runtime surface. It does not mean Fission suddenly renders video frames with the same path it uses for text, shapes, and layout widgets. Instead, your app declares where the video should appear, the runtime tracks the playback state in a structured way, and the shell host provides the actual player backend that renders the media.
+
+That separation is the most important thing to understand. It is also specific to this widget. Backend differences on an embedded video surface are implementation details of this media path, not a statement about the readiness of Fission's broader shared runtime.
+
+## What `Video` provides at the app-model level
+
+At the app-model level, `Video` gives you an explicit, structured way to describe video playback in a Fission app.
+
+Your widget tree chooses the source, size, autoplay behavior, and loop behavior. The runtime keeps explicit playback state such as playing or paused status, current position, duration, mute state, volume, and pending seek requests. Your controls dispatch typed actions such as play, pause, stop, and seek.
+
+That means the product logic stays understandable. A play button does not talk to an opaque media object hidden somewhere in the view layer. It dispatches an explicit runtime action. The runtime updates explicit playback state. Then the host backend tries to make the actual player surface match that state.
+
+## When to use it
+
+Use `Video` when the product really needs embedded media playback inside the app.
+
+Do not use it for decorative motion or lightweight transitions. For those cases, ordinary animation primitives are usually a better fit. Also do not assume an embedded video surface behaves like an ordinary `Image` or `Container`. Video is a host-backed media feature with its own constraints around codecs, file paths, autoplay policy, and platform backend support.
+
+## Example
+
+This example shows a help video with an explicit play control.
+
+```rust
+use fission::core::WidgetNodeId;
+use fission::core::ui::{Button, Text, Video};
+
+let video_id = WidgetNodeId::explicit("welcome_video");
+let controls = ctx.video_controls(video_id);
+
+let player = Video {
+    id: Some(video_id),
+    source: "assets/welcome.mp4".into(),
+    width: Some(640.0),
+    height: Some(360.0),
+    autoplay: false,
+    loop_playback: false,
+}
+.build(ctx, view);
+
+let play_button = Button {
+    child: Some(Box::new(Text::new("Play video").into_node())),
+    on_press: Some(controls.play()),
+    ..Default::default()
+}
+.into_node();
+```
+
+The useful part here is the separation of responsibilities.
+
+`ctx.video_controls(video_id)` returns typed control actions for this specific video surface. The button does not directly manipulate a backend player object. It dispatches a normal Fission action envelope for that video id. That keeps the interaction explicit and consistent with the rest of the framework's state-driven model.
+
+## Field reference
+
+| Field | Type | Meaning | Notes and default behavior |
+| --- | --- | --- | --- |
+| `id` | `Option<WidgetNodeId>` | Stable identity for this video surface and its control actions. | Defaults to an id derived from `source`. Provide an explicit id when you need predictable controls or multiple instances of the same source. |
+| `source` | `String` | Video media source path or web address string. | Required. The backend ultimately decides how that source is resolved. The checked-in winit video backend currently expects local filesystem media paths. |
+| `width` | `Option<f32>` | Requested layout width. | Defaults to `None`. |
+| `height` | `Option<f32>` | Requested layout height. | Defaults to `None`. |
+| `autoplay` | `bool` | Whether playback should begin automatically when possible. | Defaults to `false`. On initial registration, the runtime marks the video as playing when autoplay is requested. |
+| `loop_playback` | `bool` | Whether playback should restart after ending. | Defaults to `false`. |
+
+## Runtime behavior
+
+During `build()`, `Video` registers a `VideoRegistration` through `BuildCtx`. The runtime then synchronizes that registration into `runtime.video.states`, where it tracks playback status, current position, duration, playback rate, volume, mute state, looping preference, and pending seeks.
+
+Control actions such as play, pause, stop, seek, set rate, set volume, and set muted are handled in the runtime rather than in your own reducer.
+
+That is a good trade for this kind of surface. It means media playback still participates in an explicit state model, even though the actual pixels come from a host-managed player backend.
+
+## Host backend differences today
+
+What varies today is the backend implementation for this particular media surface.
+
+In the checked-in winit shell path, macOS uses a real AVFoundation-backed player layer. Other current targets use the mock backend path that preserves the runtime contract and playback-state flow without providing the same native media implementation.
+
+The right way to read that difference is very narrow: it tells you how far the current checked-in `Video` backend is implemented on each host. It does not say that Fission's overall desktop, web, Android, or iOS app model is not ready. It says that embedded video playback, like any specialized media surface, must be evaluated on the exact host backend you plan to ship.
+
+## Specific guidance
+
+Give production-critical videos explicit ids and build controls around `ctx.video_controls(...)`. That keeps your commands stable even if the surrounding layout changes.
+
+Treat playback user interface as ordinary app user interface. Buttons, labels, progress displays, and surrounding layout still belong to your widget tree and app state, even though the media surface itself is host-managed.
+
+Validate the exact target and media source strategy you plan to ship. Codec support, local-file expectations, autoplay behavior, and embedded-player behavior are all backend-level concerns for this widget.
+
+If video is only a nice-to-have on a screen, keep the surrounding experience resilient so the product still makes sense when the media backend on a given host is more limited than your primary target.
+
+## Related
+
+[`Image`](/reference/widgets/image), [`WebView`](/reference/widgets/web-view), [`Platform runtime`](/reference/core/platform-runtime), and [`Media, animation, portals, and 3D`](/docs/guides/media-animation-portals-and-3d).

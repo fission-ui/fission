@@ -1,0 +1,37 @@
+---
+title: Stepper
+description: Show where the user is inside a multi-step process without making the steps interactive.
+slug: /widgets/stepper
+---
+# Stepper
+
+`Stepper` is the visual progress guide for staged flows.
+
+Use it when the user moves through a known sequence such as onboarding, checkout, or setup. The important thing to understand is that the checked-in `Stepper` is informational. It shows step state, but it does not handle clicks or navigation on its own.
+
+## Example
+
+```rust
+use fission::prelude::*;
+
+let node = Stepper {
+    steps: vec!["Account".into(), "Profile".into(), "Confirm".into()],
+    active_index: view.state.current_step,
+}
+.build(ctx, view);
+```
+
+## Field table
+
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `steps` | `Vec<String>` | Labels for each step in order. | Required. Empty input renders a spacer. |
+| `active_index` | `usize` | Current step position. | Steps before this index render as completed. |
+
+## State ownership
+
+`Stepper` reads step state from `active_index` every build. It does not decide when the user is allowed to advance, go backward, or skip steps. Those rules belong in your reducers and surrounding controls.
+
+## Related
+
+[`Tabs`](/reference/widgets/tabs), [`Pagination`](/reference/widgets/pagination), [`Alert`](/reference/widgets/alert), and [`ProgressBar`](/reference/widgets/progress-bar).

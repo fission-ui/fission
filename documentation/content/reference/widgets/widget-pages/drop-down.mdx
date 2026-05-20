@@ -1,0 +1,48 @@
+---
+title: DropDown
+description: Use a simplified dropdown trigger button when you only need the button surface.
+slug: /widgets/drop-down
+---
+# DropDown
+
+`DropDown` is a simplified dropdown-style trigger button.
+
+It looks like a dropdown control, showing the current selection and a chevron, but the checked-in implementation is intentionally small: it only renders the trigger. It does not render the list of options for you. If you need a complete selection control, use [`Select`](/reference/widgets/select).
+
+## Example
+
+```rust
+use fission::prelude::*;
+
+let node = DropDown {
+selected: Some(view.state.sort_label.clone()),
+on_toggle: Some(toggle_sort_panel_action),
+options: vec!["Newest".into(), "Oldest".into()],
+on_select: None,
+}
+.build(ctx, view);
+```
+
+This is a good fit when some other part of your user interface owns the actual popup or sheet, and you only want a trigger with dropdown styling.
+
+## Field table
+
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `on_toggle` | `Option<ActionEnvelope>` | Action dispatched when the trigger is pressed. | Defaults to `None`. Usually opens or closes some surrounding surface. |
+| `options` | `Vec<String>` | Option labels associated with the control. | Present in the struct, but not currently rendered by the widget itself. |
+| `on_select` | `Option<ActionEnvelope>` | Selection action placeholder. | Present in the struct, but not currently used by the widget itself. |
+| `selected` | `Option<String>` | Currently displayed label. | If `None`, the trigger shows "Select an option". |
+
+## Current behavior
+
+In the checked-in implementation, `selected` changes the label and `on_toggle` drives the press behavior. `options` and `on_select` do not affect rendering yet. That makes `DropDown` best understood as a stylized trigger, not a finished dropdown system.
+
+## Specific advice
+
+Reach for `DropDown` only when that limitation is exactly what you want. If the user expects the widget itself to own option presentation and choice handling, use [`Select`](/reference/widgets/select) or [`MenuButton`](/reference/widgets/menu-button) instead.
+
+## Related
+
+[`Select`](/reference/widgets/select), [`MenuButton`](/reference/widgets/menu-button), [`Button`](/reference/widgets/button), and [`Combobox`](/reference/widgets/combobox).
+

@@ -1,0 +1,151 @@
+---
+title: Input, text, and environment
+description: Learn how Fission normalizes input through InputEvent, exposes shared environment data through Env, and synchronizes app-driven values with with_sync_env.
+---
+
+# Input, text, and environment
+
+A user interface is not only what it draws. It is also what it hears and what context it reads while deciding what to show.
+
+In Fission, those two concerns are handled explicitly.
+
+Input arrives through a shared event model instead of raw platform callbacks. Environment data such as theme, locale, viewport size, and safe-area style insets live in `Env` instead of hiding in globals. Widgets read that environment through `View`, and shells can synchronize app-driven environment values through `.with_sync_env(...)`.
+
+This page introduces those pieces slowly, because they are part of what makes the framework portable and testable.
+
+## `InputEvent` is the shared language for user input
+
+`InputEvent` is the platform-independent event type consumed by the runtime.
+
+Instead of making every widget or reducer understand native browser events, desktop window events, Android events, and iOS events separately, Fission normalizes them into one shared model. That model includes:
+
+- pointer events for mouse, touch, or stylus movement and presses,
+- keyboard events,
+- input method editor events,
+- gesture events such as taps and pans,
+- lifecycle events such as startup, resize, pause, and resume.
+
+Why does this exist? Because cross-platform user interface becomes much easier to reason about when the core runtime hears one consistent event language. A custom widget can respond to pointer or keyboard input without being rewritten for each host. Tests can inject events deterministically. Reducers and diagnostics can inspect event flow without touching operating-system APIs.
+
+In practical terms, this means a tap on mobile and a click on desktop can both end up in the same shared input pipeline. The shell still does the platform-specific translation work, but the app model above that point stays stable.
+
+## Input normalization is especially important for text-heavy screens
+
+Text input is where platform differences become especially sharp. A text field is not just a box that accepts characters. It needs caret management, selection, undo history, clipboard integration, and composed text input.
+
+That is why Fission owns text editing behavior inside the runtime instead of leaving each screen to assemble it ad hoc.
+
+Built-in text widgets already depend on this shared input model, and custom text-heavy widgets can do the same. The `text-lab` example is useful because it isolates the parts of user interface work that usually become fragile first: multiline editing, comboboxes, menus, focus changes, and modal text flows.
+
+## Input method editor support, in beginner terms
+
+An input method editor is the system tool that lets a user compose text before it is committed. This is essential for many writing systems, including Japanese, Chinese, and Korean, and it also matters for accents, emoji pickers, and other composed-text workflows.
+
+In practice, an input method editor often shows a temporary preedit string before the final text is committed. Fission models that explicitly through `ImeEvent::Preedit { text }` and `ImeEvent::Commit { text }`.
+
+Why does that matter? Because a serious text input system cannot treat every key press as immediately final text. The runtime needs to understand composition state, and widgets need to react correctly without breaking the editing experience.
+
+If you are not building a custom text surface yourself, you usually benefit from this without handling the events directly. If you are building a custom editor, terminal-like widget, or drawing surface with text entry, you need to know that input method editor composition is a first-class part of the input model.
+
+## Clipboard support is explicit too
+
+Clipboard behavior is another place where operating systems differ, so Fission keeps it behind an explicit shell contract.
+
+The core environment defines a `Clipboard` trait with `get_text()` and `set_text()` methods. Shells implement that trait and provide the real platform clipboard backend. This makes copy and paste predictable to test and easier to isolate when something goes wrong.
+
+As with input method editor support, most application code does not call the clipboard backend directly. The point is that the capability exists in a named contract instead of hiding in widget-local platform code.
+
+## `Env` is the shared read-only context for widgets
+
+`Env` holds environment values that many widgets need but that are not the same thing as your product state.
+
+Today, the public `Env` type includes these important values:
+
+- `theme`,
+- `i18n`, the internationalization registry,
+- `locale`,
+- `window_insets`,
+- `viewport_size`,
+- and an optional text measurer.
+
+A useful rule is this: if the value describes the current host or app-wide presentation context, it probably belongs in `Env`. If the value describes the product's durable business data, it probably belongs in `AppState` instead.
+
+Widgets do not reach into process-wide globals to read these values. They read them through `View`, which is why you see methods such as `view.viewport_size()` and direct environment access such as `view.env.theme`.
+
+That design matters because it keeps dependencies visible. A widget can say, in code, "I need the viewport width" or "I need the current locale." Tests can then provide that same context explicitly.
+
+## Why widgets read environment through `View`
+
+`View` exists so `build()` can stay a pure function of its inputs.
+
+When a widget reads from `View`, the reader can see where the information came from: app state, runtime state, or environment data. That makes responsive layout, theme-aware styling, and translated text much easier to reason about.
+
+It also prevents a class of subtle bugs. If widgets were free to look up viewport information or locale from arbitrary globals, tests would become harder to control and platform differences would leak into random parts of the app.
+
+## `.with_sync_env(...)` keeps app-driven environment values in sync
+
+Sometimes the environment is not only host-driven. The app itself may decide parts of it.
+
+A user may toggle dark mode. They may choose a locale from a settings screen. You may want a compact-density mode stored in state and reflected in theming or layout decisions. Those values still belong in the environment seen by widgets, but the source of truth may live in `AppState` because the user can change it.
+
+That is what `.with_sync_env(...)` is for.
+
+The public `DesktopApp`, `MobileApp`, and `WebApp` builders all expose `.with_sync_env(...)`. The hook receives the current app state and a mutable `Env`, and it runs as part of the shell-managed app setup so the environment can reflect the latest state before widgets build.
+
+A typical example looks like this:
+
+```rust
+DesktopApp::new(MyApp)
+    .with_sync_env(|state: &MyState, env: &mut Env| {
+        env.locale = state.locale.clone();
+        env.theme = if state.dark_mode {
+            Theme::dark()
+        } else {
+            Theme::default()
+        };
+    })
+    .run()?;
+```
+
+This is the right tool when an environment value should mirror app state in a predictable, frame-friendly way.
+
+## What belongs in environment sync, and what does not
+
+Good values for `.with_sync_env(...)` are values that shape presentation or interpretation across the user interface.
+
+Theme choice belongs there. Locale belongs there. A compact or comfortable density mode may belong there if the whole user interface needs to react to it consistently. In some apps, a small set of global feature flags that affect presentation can also belong there.
+
+What does not belong there is ordinary product data. Do not mirror your inbox messages, shopping cart items, editor buffers, or save-in-progress flags into `Env`. Those are application state and should stay in `AppState`.
+
+Also avoid using `.with_sync_env(...)` as a hidden side-effect hook. It is for synchronizing environment values, not for starting network work, writing files, or mutating unrelated global state.
+
+## `BuildCtx` is not a replacement for `Env`
+
+Because `BuildCtx` and `Env` both show up during `build()`, beginners sometimes blur their roles.
+
+`Env`, accessed through `View`, answers questions like these:
+
+- What is the viewport size?
+- What locale is active?
+- What theme should this widget style against?
+- What safe-area style insets does the host report?
+
+`BuildCtx` answers different questions:
+
+- How do I bind this button to an action?
+- How do I register a portal, animation, web view, or resource?
+- How do I tell the runtime about behavior that should persist beyond this one call to `build()`?
+
+When you keep those roles separate, layout and input code stay much easier to read.
+
+## A practical way to think about all of this together
+
+Suppose you are building a message composer.
+
+The text inputs rely on the shared input system for keyboard events, selection, clipboard support, and input method editor composition. The widget tree reads `view.viewport_size()` to choose between a narrow phone layout and a wider desktop layout. The current locale and theme come from `Env`, so the same widgets can render translated labels and theme-correct colors. If the user changes locale in settings, `.with_sync_env(...)` mirrors that state into `Env` before the next build.
+
+Nothing about that flow requires the widgets to reach into native browser or mobile APIs directly. That is the payoff of the shared input and environment model.
+
+## Where to go next
+
+If you want the full explanation of locale, translation bundles, and theme loading, continue to [Theming and internationalization](/docs/guides/theming-and-i18n). If you want the deeper explanation of resources, jobs, services, and reducer-side effects, read [Resources and async](/docs/guides/resources-and-async). For a live proof of text-heavy interaction, open `text-lab` from the public [Examples](/examples) page.

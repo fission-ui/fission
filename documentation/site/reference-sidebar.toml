@@ -1,0 +1,3267 @@
+[[items]]
+title = "Charts"
+href = "/reference/charts/overview/"
+level = 0
+group = true
+
+[[items]]
+title = "3d And Gl"
+href = "/reference/charts/3d-and-gl/overview/"
+level = 1
+group = true
+
+[[items]]
+title = "Bar3d Basic"
+href = "/reference/charts/3d-and-gl/bar3d-basic/"
+level = 2
+
+[[items]]
+title = "Bar3d Capacity"
+href = "/reference/charts/3d-and-gl/bar3d-capacity/"
+level = 2
+
+[[items]]
+title = "Bar3d Grid"
+href = "/reference/charts/3d-and-gl/bar3d-grid/"
+level = 2
+
+[[items]]
+title = "Globe Basic"
+href = "/reference/charts/3d-and-gl/globe-basic/"
+level = 2
+
+[[items]]
+title = "Globe Coverage"
+href = "/reference/charts/3d-and-gl/globe-coverage/"
+level = 2
+
+[[items]]
+title = "Globe Markers"
+href = "/reference/charts/3d-and-gl/globe-markers/"
+level = 2
+
+[[items]]
+title = "Graph3d Basic"
+href = "/reference/charts/3d-and-gl/graph3d-basic/"
+level = 2
+
+[[items]]
+title = "Graph3d Network"
+href = "/reference/charts/3d-and-gl/graph3d-network/"
+level = 2
+
+[[items]]
+title = "Graph3d Topology"
+href = "/reference/charts/3d-and-gl/graph3d-topology/"
+level = 2
+
+[[items]]
+title = "Line3d Basic"
+href = "/reference/charts/3d-and-gl/line3d-basic/"
+level = 2
+
+[[items]]
+title = "Line3d Spiral"
+href = "/reference/charts/3d-and-gl/line3d-spiral/"
+level = 2
+
+[[items]]
+title = "Line3d Trajectory"
+href = "/reference/charts/3d-and-gl/line3d-trajectory/"
+level = 2
+
+[[items]]
+title = "Mesh Surface"
+href = "/reference/charts/3d-and-gl/mesh-surface/"
+level = 2
+
+[[items]]
+title = "Overview"
+href = "/reference/charts/3d-and-gl/overview/"
+level = 2
+
+[[items]]
+title = "Point Cloud Dense"
+href = "/reference/charts/3d-and-gl/point-cloud-dense/"
+level = 2
+
+[[items]]
+title = "Point Cloud Sparse"
+href = "/reference/charts/3d-and-gl/point-cloud-sparse/"
+level = 2
+
+[[items]]
+title = "Point Cloud"
+href = "/reference/charts/3d-and-gl/point-cloud/"
+level = 2
+
+[[items]]
+title = "Scatter3d Basic"
+href = "/reference/charts/3d-and-gl/scatter3d-basic/"
+level = 2
+
+[[items]]
+title = "Scatter3d Cluster"
+href = "/reference/charts/3d-and-gl/scatter3d-cluster/"
+level = 2
+
+[[items]]
+title = "Scatter3d Outliers"
+href = "/reference/charts/3d-and-gl/scatter3d-outliers/"
+level = 2
+
+[[items]]
+title = "Scene3d Bar Capacity"
+href = "/reference/charts/3d-and-gl/scene3d-bar-capacity/"
+level = 2
+
+[[items]]
+title = "Scene3d Bar Grid"
+href = "/reference/charts/3d-and-gl/scene3d-bar-grid/"
+level = 2
+
+[[items]]
+title = "Scene3d Globe Coverage"
+href = "/reference/charts/3d-and-gl/scene3d-globe-coverage/"
+level = 2
+
+[[items]]
+title = "Scene3d Globe Status"
+href = "/reference/charts/3d-and-gl/scene3d-globe-status/"
+level = 2
+
+[[items]]
+title = "Scene3d Line Path"
+href = "/reference/charts/3d-and-gl/scene3d-line-path/"
+level = 2
+
+[[items]]
+title = "Scene3d Line Spiral"
+href = "/reference/charts/3d-and-gl/scene3d-line-spiral/"
+level = 2
+
+[[items]]
+title = "Scene3d Mesh Field"
+href = "/reference/charts/3d-and-gl/scene3d-mesh-field/"
+level = 2
+
+[[items]]
+title = "Scene3d Network"
+href = "/reference/charts/3d-and-gl/scene3d-network/"
+level = 2
+
+[[items]]
+title = "Scene3d Operations Bars"
+href = "/reference/charts/3d-and-gl/scene3d-operations-bars/"
+level = 2
+
+[[items]]
+title = "Scene3d Point Cloud Dense"
+href = "/reference/charts/3d-and-gl/scene3d-point-cloud-dense/"
+level = 2
+
+[[items]]
+title = "Scene3d Point Cloud Sparse"
+href = "/reference/charts/3d-and-gl/scene3d-point-cloud-sparse/"
+level = 2
+
+[[items]]
+title = "Scene3d Scatter Clusters"
+href = "/reference/charts/3d-and-gl/scene3d-scatter-clusters/"
+level = 2
+
+[[items]]
+title = "Scene3d Scatter Outliers"
+href = "/reference/charts/3d-and-gl/scene3d-scatter-outliers/"
+level = 2
+
+[[items]]
+title = "Scene3d Service Cloud"
+href = "/reference/charts/3d-and-gl/scene3d-service-cloud/"
+level = 2
+
+[[items]]
+title = "Scene3d Surface Response"
+href = "/reference/charts/3d-and-gl/scene3d-surface-response/"
+level = 2
+
+[[items]]
+title = "Scene3d Surface Terrain"
+href = "/reference/charts/3d-and-gl/scene3d-surface-terrain/"
+level = 2
+
+[[items]]
+title = "Scene3d Surface Wave"
+href = "/reference/charts/3d-and-gl/scene3d-surface-wave/"
+level = 2
+
+[[items]]
+title = "Scene3d Terrain Risk"
+href = "/reference/charts/3d-and-gl/scene3d-terrain-risk/"
+level = 2
+
+[[items]]
+title = "Scene3d Topology"
+href = "/reference/charts/3d-and-gl/scene3d-topology/"
+level = 2
+
+[[items]]
+title = "Scene3d Volume Points"
+href = "/reference/charts/3d-and-gl/scene3d-volume-points/"
+level = 2
+
+[[items]]
+title = "Surface3d Basic"
+href = "/reference/charts/3d-and-gl/surface3d-basic/"
+level = 2
+
+[[items]]
+title = "Surface3d Terrain"
+href = "/reference/charts/3d-and-gl/surface3d-terrain/"
+level = 2
+
+[[items]]
+title = "Surface3d Wave"
+href = "/reference/charts/3d-and-gl/surface3d-wave/"
+level = 2
+
+[[items]]
+title = "Terrain Surface"
+href = "/reference/charts/3d-and-gl/terrain-surface/"
+level = 2
+
+[[items]]
+title = "Volume Style"
+href = "/reference/charts/3d-and-gl/volume-style/"
+level = 2
+
+[[items]]
+title = "Analytics"
+href = "/reference/charts/analytics/overview/"
+level = 1
+group = true
+
+[[items]]
+title = "Analytics Acquisition Line"
+href = "/reference/charts/analytics/analytics-acquisition-line/"
+level = 2
+
+[[items]]
+title = "Analytics Calendar Engagement"
+href = "/reference/charts/analytics/analytics-calendar-engagement/"
+level = 2
+
+[[items]]
+title = "Analytics Channel Stack"
+href = "/reference/charts/analytics/analytics-channel-stack/"
+level = 2
+
+[[items]]
+title = "Analytics Cohort Heatmap"
+href = "/reference/charts/analytics/analytics-cohort-heatmap/"
+level = 2
+
+[[items]]
+title = "Analytics Conversion Funnel"
+href = "/reference/charts/analytics/analytics-conversion-funnel/"
+level = 2
+
+[[items]]
+title = "Analytics Device Donut"
+href = "/reference/charts/analytics/analytics-device-donut/"
+level = 2
+
+[[items]]
+title = "Analytics Gauge Score"
+href = "/reference/charts/analytics/analytics-gauge-score/"
+level = 2
+
+[[items]]
+title = "Analytics Journey Graph"
+href = "/reference/charts/analytics/analytics-journey-graph/"
+level = 2
+
+[[items]]
+title = "Analytics Journey Sankey"
+href = "/reference/charts/analytics/analytics-journey-sankey/"
+level = 2
+
+[[items]]
+title = "Analytics Market Pie"
+href = "/reference/charts/analytics/analytics-market-pie/"
+level = 2
+
+[[items]]
+title = "Analytics Parallel Segments"
+href = "/reference/charts/analytics/analytics-parallel-segments/"
+level = 2
+
+[[items]]
+title = "Analytics Radar Product"
+href = "/reference/charts/analytics/analytics-radar-product/"
+level = 2
+
+[[items]]
+title = "Analytics Region Sales"
+href = "/reference/charts/analytics/analytics-region-sales/"
+level = 2
+
+[[items]]
+title = "Analytics Retention Area"
+href = "/reference/charts/analytics/analytics-retention-area/"
+level = 2
+
+[[items]]
+title = "Analytics Route Engagement"
+href = "/reference/charts/analytics/analytics-route-engagement/"
+level = 2
+
+[[items]]
+title = "Analytics Segment Bubbles"
+href = "/reference/charts/analytics/analytics-segment-bubbles/"
+level = 2
+
+[[items]]
+title = "Analytics Source River"
+href = "/reference/charts/analytics/analytics-source-river/"
+level = 2
+
+[[items]]
+title = "Analytics Sunburst Portfolio"
+href = "/reference/charts/analytics/analytics-sunburst-portfolio/"
+level = 2
+
+[[items]]
+title = "Analytics Toolbox Report"
+href = "/reference/charts/analytics/analytics-toolbox-report/"
+level = 2
+
+[[items]]
+title = "Analytics Treemap Features"
+href = "/reference/charts/analytics/analytics-treemap-features/"
+level = 2
+
+[[items]]
+title = "Overview"
+href = "/reference/charts/analytics/overview/"
+level = 2
+
+[[items]]
+title = "Bar"
+href = "/reference/charts/bar/overview/"
+level = 1
+group = true
+
+[[items]]
+title = "Bar Benchmark Comparison"
+href = "/reference/charts/bar/bar-benchmark-comparison/"
+level = 2
+
+[[items]]
+title = "Bar Budget Stack"
+href = "/reference/charts/bar/bar-budget-stack/"
+level = 2
+
+[[items]]
+title = "Bar Budget Variance"
+href = "/reference/charts/bar/bar-budget-variance/"
+level = 2
+
+[[items]]
+title = "Bar Capacity"
+href = "/reference/charts/bar/bar-capacity/"
+level = 2
+
+[[items]]
+title = "Bar Channel Stack"
+href = "/reference/charts/bar/bar-channel-stack/"
+level = 2
+
+[[items]]
+title = "Bar Compact"
+href = "/reference/charts/bar/bar-compact/"
+level = 2
+
+[[items]]
+title = "Bar Customer Segments"
+href = "/reference/charts/bar/bar-customer-segments/"
+level = 2
+
+[[items]]
+title = "Bar Diverging"
+href = "/reference/charts/bar/bar-diverging/"
+level = 2
+
+[[items]]
+title = "Bar Funnel Units"
+href = "/reference/charts/bar/bar-funnel-units/"
+level = 2
+
+[[items]]
+title = "Bar Grouped Quarter"
+href = "/reference/charts/bar/bar-grouped-quarter/"
+level = 2
+
+[[items]]
+title = "Bar Kpi Background"
+href = "/reference/charts/bar/bar-kpi-background/"
+level = 2
+
+[[items]]
+title = "Bar Negative Delta"
+href = "/reference/charts/bar/bar-negative-delta/"
+level = 2
+
+[[items]]
+title = "Bar Performance Bands"
+href = "/reference/charts/bar/bar-performance-bands/"
+level = 2
+
+[[items]]
+title = "Bar Pictorial Units"
+href = "/reference/charts/bar/bar-pictorial-units/"
+level = 2
+
+[[items]]
+title = "Bar Priority Queue"
+href = "/reference/charts/bar/bar-priority-queue/"
+level = 2
+
+[[items]]
+title = "Bar Product Stack"
+href = "/reference/charts/bar/bar-product-stack/"
+level = 2
+
+[[items]]
+title = "Bar Profit Loss"
+href = "/reference/charts/bar/bar-profit-loss/"
+level = 2
+
+[[items]]
+title = "Bar Quarter Waterfall"
+href = "/reference/charts/bar/bar-quarter-waterfall/"
+level = 2
+
+[[items]]
+title = "Bar Ranked"
+href = "/reference/charts/bar/bar-ranked/"
+level = 2
+
+[[items]]
+title = "Bar Region Comparison"
+href = "/reference/charts/bar/bar-region-comparison/"
+level = 2
+
+[[items]]
+title = "Bar Region Rank"
+href = "/reference/charts/bar/bar-region-rank/"
+level = 2
+
+[[items]]
+title = "Bar Retail Waterfall"
+href = "/reference/charts/bar/bar-retail-waterfall/"
+level = 2
+
+[[items]]
+title = "Bar Return Deltas"
+href = "/reference/charts/bar/bar-return-deltas/"
+level = 2
+
+[[items]]
+title = "Bar Rounded"
+href = "/reference/charts/bar/bar-rounded/"
+level = 2
+
+[[items]]
+title = "Bar Sales Target Track"
+href = "/reference/charts/bar/bar-sales-target-track/"
+level = 2
+
+[[items]]
+title = "Bar Sla Breach Delta"
+href = "/reference/charts/bar/bar-sla-breach-delta/"
+level = 2
+
+[[items]]
+title = "Bar Small Multiples A"
+href = "/reference/charts/bar/bar-small-multiples-a/"
+level = 2
+
+[[items]]
+title = "Bar Small Multiples B"
+href = "/reference/charts/bar/bar-small-multiples-b/"
+level = 2
+
+[[items]]
+title = "Bar Sorted Horizontal"
+href = "/reference/charts/bar/bar-sorted-horizontal/"
+level = 2
+
+[[items]]
+title = "Bar Stacked Revenue"
+href = "/reference/charts/bar/bar-stacked-revenue/"
+level = 2
+
+[[items]]
+title = "Bar Store Comparison"
+href = "/reference/charts/bar/bar-store-comparison/"
+level = 2
+
+[[items]]
+title = "Bar Team Load"
+href = "/reference/charts/bar/bar-team-load/"
+level = 2
+
+[[items]]
+title = "Bar Ticket Age"
+href = "/reference/charts/bar/bar-ticket-age/"
+level = 2
+
+[[items]]
+title = "Bar Track Progress"
+href = "/reference/charts/bar/bar-track-progress/"
+level = 2
+
+[[items]]
+title = "Bar Utilization Capacity"
+href = "/reference/charts/bar/bar-utilization-capacity/"
+level = 2
+
+[[items]]
+title = "Bar Waterfall"
+href = "/reference/charts/bar/bar-waterfall/"
+level = 2
+
+[[items]]
+title = "Bar Weekday Shape"
+href = "/reference/charts/bar/bar-weekday-shape/"
+level = 2
+
+[[items]]
+title = "Bar Wide Labels"
+href = "/reference/charts/bar/bar-wide-labels/"
+level = 2
+
+[[items]]
+title = "Overview"
+href = "/reference/charts/bar/overview/"
+level = 2
+
+[[items]]
+title = "Cartesian"
+href = "/reference/charts/cartesian/overview/"
+level = 1
+group = true
+
+[[items]]
+title = "Bar Background"
+href = "/reference/charts/cartesian/bar-background/"
+level = 2
+
+[[items]]
+title = "Bar Basic"
+href = "/reference/charts/cartesian/bar-basic/"
+level = 2
+
+[[items]]
+title = "Bar Grouped"
+href = "/reference/charts/cartesian/bar-grouped/"
+level = 2
+
+[[items]]
+title = "Bar Horizontal"
+href = "/reference/charts/cartesian/bar-horizontal/"
+level = 2
+
+[[items]]
+title = "Bar Negative"
+href = "/reference/charts/cartesian/bar-negative/"
+level = 2
+
+[[items]]
+title = "Bar Stacked"
+href = "/reference/charts/cartesian/bar-stacked/"
+level = 2
+
+[[items]]
+title = "Line Area"
+href = "/reference/charts/cartesian/line-area/"
+level = 2
+
+[[items]]
+title = "Line Basic"
+href = "/reference/charts/cartesian/line-basic/"
+level = 2
+
+[[items]]
+title = "Line Large"
+href = "/reference/charts/cartesian/line-large/"
+level = 2
+
+[[items]]
+title = "Line Smooth"
+href = "/reference/charts/cartesian/line-smooth/"
+level = 2
+
+[[items]]
+title = "Line Stacked Area"
+href = "/reference/charts/cartesian/line-stacked-area/"
+level = 2
+
+[[items]]
+title = "Line Step"
+href = "/reference/charts/cartesian/line-step/"
+level = 2
+
+[[items]]
+title = "Overview"
+href = "/reference/charts/cartesian/overview/"
+level = 2
+
+[[items]]
+title = "Pictorial Bar"
+href = "/reference/charts/cartesian/pictorial-bar/"
+level = 2
+
+[[items]]
+title = "Components And Interaction"
+href = "/reference/charts/components-and-interaction/overview/"
+level = 1
+group = true
+
+[[items]]
+title = "Brush Select"
+href = "/reference/charts/components-and-interaction/brush-select/"
+level = 2
+
+[[items]]
+title = "Component Brush Horizontal"
+href = "/reference/charts/components-and-interaction/component-brush-horizontal/"
+level = 2
+
+[[items]]
+title = "Component Brush Rect"
+href = "/reference/charts/components-and-interaction/component-brush-rect/"
+level = 2
+
+[[items]]
+title = "Component Data Zoom Long"
+href = "/reference/charts/components-and-interaction/component-data-zoom-long/"
+level = 2
+
+[[items]]
+title = "Component Data Zoom Short"
+href = "/reference/charts/components-and-interaction/component-data-zoom-short/"
+level = 2
+
+[[items]]
+title = "Component Graphic Band"
+href = "/reference/charts/components-and-interaction/component-graphic-band/"
+level = 2
+
+[[items]]
+title = "Component Graphic Callout"
+href = "/reference/charts/components-and-interaction/component-graphic-callout/"
+level = 2
+
+[[items]]
+title = "Component Mark Area"
+href = "/reference/charts/components-and-interaction/component-mark-area/"
+level = 2
+
+[[items]]
+title = "Component Mark Line"
+href = "/reference/charts/components-and-interaction/component-mark-line/"
+level = 2
+
+[[items]]
+title = "Component Mark Point"
+href = "/reference/charts/components-and-interaction/component-mark-point/"
+level = 2
+
+[[items]]
+title = "Component Timeline Release"
+href = "/reference/charts/components-and-interaction/component-timeline-release/"
+level = 2
+
+[[items]]
+title = "Component Timeline Year"
+href = "/reference/charts/components-and-interaction/component-timeline-year/"
+level = 2
+
+[[items]]
+title = "Component Toolbox Full"
+href = "/reference/charts/components-and-interaction/component-toolbox-full/"
+level = 2
+
+[[items]]
+title = "Component Toolbox Zoom"
+href = "/reference/charts/components-and-interaction/component-toolbox-zoom/"
+level = 2
+
+[[items]]
+title = "Component Tooltip Axis"
+href = "/reference/charts/components-and-interaction/component-tooltip-axis/"
+level = 2
+
+[[items]]
+title = "Component Tooltip Item"
+href = "/reference/charts/components-and-interaction/component-tooltip-item/"
+level = 2
+
+[[items]]
+title = "Component Visual Map"
+href = "/reference/charts/components-and-interaction/component-visual-map/"
+level = 2
+
+[[items]]
+title = "Data Zoom"
+href = "/reference/charts/components-and-interaction/data-zoom/"
+level = 2
+
+[[items]]
+title = "Graphic Overlay"
+href = "/reference/charts/components-and-interaction/graphic-overlay/"
+level = 2
+
+[[items]]
+title = "Mark Line Point"
+href = "/reference/charts/components-and-interaction/mark-line-point/"
+level = 2
+
+[[items]]
+title = "Overview"
+href = "/reference/charts/components-and-interaction/overview/"
+level = 2
+
+[[items]]
+title = "Timeline Events"
+href = "/reference/charts/components-and-interaction/timeline-events/"
+level = 2
+
+[[items]]
+title = "Toolbox Actions"
+href = "/reference/charts/components-and-interaction/toolbox-actions/"
+level = 2
+
+[[items]]
+title = "Tooltip Axis"
+href = "/reference/charts/components-and-interaction/tooltip-axis/"
+level = 2
+
+[[items]]
+title = "Coordinates"
+href = "/reference/charts/coordinates/overview/"
+level = 1
+group = true
+
+[[items]]
+title = "Calendar Heatmap"
+href = "/reference/charts/coordinates/calendar-heatmap/"
+level = 2
+
+[[items]]
+title = "Overview"
+href = "/reference/charts/coordinates/overview/"
+level = 2
+
+[[items]]
+title = "Polar Bar"
+href = "/reference/charts/coordinates/polar-bar/"
+level = 2
+
+[[items]]
+title = "Polar Line"
+href = "/reference/charts/coordinates/polar-line/"
+level = 2
+
+[[items]]
+title = "Single Axis"
+href = "/reference/charts/coordinates/single-axis/"
+level = 2
+
+[[items]]
+title = "Data Pipeline And Interaction"
+href = "/reference/charts/data-pipeline-and-interaction/overview/"
+level = 1
+group = true
+
+[[items]]
+title = "Dataset Encoded"
+href = "/reference/charts/data-pipeline-and-interaction/dataset-encoded/"
+level = 2
+
+[[items]]
+title = "Overview"
+href = "/reference/charts/data-pipeline-and-interaction/overview/"
+level = 2
+
+[[items]]
+title = "Visual Map"
+href = "/reference/charts/data-pipeline-and-interaction/visual-map/"
+level = 2
+
+[[items]]
+title = "Wordcloud"
+href = "/reference/charts/data-pipeline-and-interaction/wordcloud/"
+level = 2
+
+[[items]]
+title = "Dataset"
+href = "/reference/charts/dataset/overview/"
+level = 1
+group = true
+
+[[items]]
+title = "Dataset Calendar Activity"
+href = "/reference/charts/dataset/dataset-calendar-activity/"
+level = 2
+
+[[items]]
+title = "Dataset Filtered Pie"
+href = "/reference/charts/dataset/dataset-filtered-pie/"
+level = 2
+
+[[items]]
+title = "Dataset Flow Sankey"
+href = "/reference/charts/dataset/dataset-flow-sankey/"
+level = 2
+
+[[items]]
+title = "Dataset Map Coverage"
+href = "/reference/charts/dataset/dataset-map-coverage/"
+level = 2
+
+[[items]]
+title = "Dataset Parallel Quality"
+href = "/reference/charts/dataset/dataset-parallel-quality/"
+level = 2
+
+[[items]]
+title = "Dataset Product Trends"
+href = "/reference/charts/dataset/dataset-product-trends/"
+level = 2
+
+[[items]]
+title = "Dataset Products By Year"
+href = "/reference/charts/dataset/dataset-products-by-year/"
+level = 2
+
+[[items]]
+title = "Dataset Ranked Bars"
+href = "/reference/charts/dataset/dataset-ranked-bars/"
+level = 2
+
+[[items]]
+title = "Dataset Risk Bubbles"
+href = "/reference/charts/dataset/dataset-risk-bubbles/"
+level = 2
+
+[[items]]
+title = "Dataset Stacked Revenue"
+href = "/reference/charts/dataset/dataset-stacked-revenue/"
+level = 2
+
+[[items]]
+title = "Dataset Visual Heatmap"
+href = "/reference/charts/dataset/dataset-visual-heatmap/"
+level = 2
+
+[[items]]
+title = "Dynamic Alert Scatter"
+href = "/reference/charts/dataset/dynamic-alert-scatter/"
+level = 2
+
+[[items]]
+title = "Dynamic Brush Telemetry"
+href = "/reference/charts/dataset/dynamic-brush-telemetry/"
+level = 2
+
+[[items]]
+title = "Dynamic Funnel Activation"
+href = "/reference/charts/dataset/dynamic-funnel-activation/"
+level = 2
+
+[[items]]
+title = "Dynamic Live Bars"
+href = "/reference/charts/dataset/dynamic-live-bars/"
+level = 2
+
+[[items]]
+title = "Dynamic Live Line"
+href = "/reference/charts/dataset/dynamic-live-line/"
+level = 2
+
+[[items]]
+title = "Dynamic Radar Score"
+href = "/reference/charts/dataset/dynamic-radar-score/"
+level = 2
+
+[[items]]
+title = "Dynamic Status Gauge"
+href = "/reference/charts/dataset/dynamic-status-gauge/"
+level = 2
+
+[[items]]
+title = "Dynamic Timeline Quarters"
+href = "/reference/charts/dataset/dynamic-timeline-quarters/"
+level = 2
+
+[[items]]
+title = "Dynamic Toolbox Telemetry"
+href = "/reference/charts/dataset/dynamic-toolbox-telemetry/"
+level = 2
+
+[[items]]
+title = "Overview"
+href = "/reference/charts/dataset/overview/"
+level = 2
+
+[[items]]
+title = "Dataset And Dynamic"
+href = "/reference/charts/dataset-and-dynamic/overview/"
+level = 1
+group = true
+
+[[items]]
+title = "Dataset Encoded Bars"
+href = "/reference/charts/dataset-and-dynamic/dataset-encoded-bars/"
+level = 2
+
+[[items]]
+title = "Dataset Encoded Lines"
+href = "/reference/charts/dataset-and-dynamic/dataset-encoded-lines/"
+level = 2
+
+[[items]]
+title = "Dataset Stack Area"
+href = "/reference/charts/dataset-and-dynamic/dataset-stack-area/"
+level = 2
+
+[[items]]
+title = "Dynamic Brush Scatter"
+href = "/reference/charts/dataset-and-dynamic/dynamic-brush-scatter/"
+level = 2
+
+[[items]]
+title = "Dynamic Effect Alerts"
+href = "/reference/charts/dataset-and-dynamic/dynamic-effect-alerts/"
+level = 2
+
+[[items]]
+title = "Dynamic Funnel Sales"
+href = "/reference/charts/dataset-and-dynamic/dynamic-funnel-sales/"
+level = 2
+
+[[items]]
+title = "Dynamic Gauge Score"
+href = "/reference/charts/dataset-and-dynamic/dynamic-gauge-score/"
+level = 2
+
+[[items]]
+title = "Dynamic Gauge Speed"
+href = "/reference/charts/dataset-and-dynamic/dynamic-gauge-speed/"
+level = 2
+
+[[items]]
+title = "Dynamic Pictorial Units"
+href = "/reference/charts/dataset-and-dynamic/dynamic-pictorial-units/"
+level = 2
+
+[[items]]
+title = "Dynamic Polar Score"
+href = "/reference/charts/dataset-and-dynamic/dynamic-polar-score/"
+level = 2
+
+[[items]]
+title = "Dynamic Radar Health"
+href = "/reference/charts/dataset-and-dynamic/dynamic-radar-health/"
+level = 2
+
+[[items]]
+title = "Dynamic Single Axis Events"
+href = "/reference/charts/dataset-and-dynamic/dynamic-single-axis-events/"
+level = 2
+
+[[items]]
+title = "Dynamic Toolbox Line"
+href = "/reference/charts/dataset-and-dynamic/dynamic-toolbox-line/"
+level = 2
+
+[[items]]
+title = "Overview"
+href = "/reference/charts/dataset-and-dynamic/overview/"
+level = 2
+
+[[items]]
+title = "Visual Map Calendar"
+href = "/reference/charts/dataset-and-dynamic/visual-map-calendar/"
+level = 2
+
+[[items]]
+title = "Visual Map Heatmap"
+href = "/reference/charts/dataset-and-dynamic/visual-map-heatmap/"
+level = 2
+
+[[items]]
+title = "Visual Map Scatter"
+href = "/reference/charts/dataset-and-dynamic/visual-map-scatter/"
+level = 2
+
+[[items]]
+title = "Geo"
+href = "/reference/charts/geo/overview/"
+level = 1
+group = true
+
+[[items]]
+title = "Geo Data Center Links"
+href = "/reference/charts/geo/geo-data-center-links/"
+level = 2
+
+[[items]]
+title = "Geo Dispatch Routes"
+href = "/reference/charts/geo/geo-dispatch-routes/"
+level = 2
+
+[[items]]
+title = "Geo Migration Flow"
+href = "/reference/charts/geo/geo-migration-flow/"
+level = 2
+
+[[items]]
+title = "Geo Network Overlay"
+href = "/reference/charts/geo/geo-network-overlay/"
+level = 2
+
+[[items]]
+title = "Geo Route Overlay"
+href = "/reference/charts/geo/geo-route-overlay/"
+level = 2
+
+[[items]]
+title = "Geo Sales Routes"
+href = "/reference/charts/geo/geo-sales-routes/"
+level = 2
+
+[[items]]
+title = "Lines Courier Routes"
+href = "/reference/charts/geo/lines-courier-routes/"
+level = 2
+
+[[items]]
+title = "Lines Flight Density"
+href = "/reference/charts/geo/lines-flight-density/"
+level = 2
+
+[[items]]
+title = "Lines Incident Routing"
+href = "/reference/charts/geo/lines-incident-routing/"
+level = 2
+
+[[items]]
+title = "Lines Network Traffic"
+href = "/reference/charts/geo/lines-network-traffic/"
+level = 2
+
+[[items]]
+title = "Lines Supply Routes"
+href = "/reference/charts/geo/lines-supply-routes/"
+level = 2
+
+[[items]]
+title = "Map Capacity Regions"
+href = "/reference/charts/geo/map-capacity-regions/"
+level = 2
+
+[[items]]
+title = "Map Coverage Score"
+href = "/reference/charts/geo/map-coverage-score/"
+level = 2
+
+[[items]]
+title = "Map Expansion Plan"
+href = "/reference/charts/geo/map-expansion-plan/"
+level = 2
+
+[[items]]
+title = "Map Incident Severity"
+href = "/reference/charts/geo/map-incident-severity/"
+level = 2
+
+[[items]]
+title = "Map Market Regions"
+href = "/reference/charts/geo/map-market-regions/"
+level = 2
+
+[[items]]
+title = "Map Risk Regions"
+href = "/reference/charts/geo/map-risk-regions/"
+level = 2
+
+[[items]]
+title = "Map Sales Territory"
+href = "/reference/charts/geo/map-sales-territory/"
+level = 2
+
+[[items]]
+title = "Map Service Health"
+href = "/reference/charts/geo/map-service-health/"
+level = 2
+
+[[items]]
+title = "Map Support Demand"
+href = "/reference/charts/geo/map-support-demand/"
+level = 2
+
+[[items]]
+title = "Overview"
+href = "/reference/charts/geo/overview/"
+level = 2
+
+[[items]]
+title = "Geo And Route"
+href = "/reference/charts/geo-and-route/overview/"
+level = 1
+group = true
+
+[[items]]
+title = "Geo Migration"
+href = "/reference/charts/geo-and-route/geo-migration/"
+level = 2
+
+[[items]]
+title = "Geo Network"
+href = "/reference/charts/geo-and-route/geo-network/"
+level = 2
+
+[[items]]
+title = "Geo Route Arcs"
+href = "/reference/charts/geo-and-route/geo-route-arcs/"
+level = 2
+
+[[items]]
+title = "Geo Route Map"
+href = "/reference/charts/geo-and-route/geo-route-map/"
+level = 2
+
+[[items]]
+title = "Lines Flight Like"
+href = "/reference/charts/geo-and-route/lines-flight-like/"
+level = 2
+
+[[items]]
+title = "Lines Traffic"
+href = "/reference/charts/geo-and-route/lines-traffic/"
+level = 2
+
+[[items]]
+title = "Map Region Values"
+href = "/reference/charts/geo-and-route/map-region-values/"
+level = 2
+
+[[items]]
+title = "Map Risk"
+href = "/reference/charts/geo-and-route/map-risk/"
+level = 2
+
+[[items]]
+title = "Map Sales"
+href = "/reference/charts/geo-and-route/map-sales/"
+level = 2
+
+[[items]]
+title = "Map Service Coverage"
+href = "/reference/charts/geo-and-route/map-service-coverage/"
+level = 2
+
+[[items]]
+title = "Overview"
+href = "/reference/charts/geo-and-route/overview/"
+level = 2
+
+[[items]]
+title = "Geographic And Route"
+href = "/reference/charts/geographic-and-route/overview/"
+level = 1
+group = true
+
+[[items]]
+title = "Geo Lines"
+href = "/reference/charts/geographic-and-route/geo-lines/"
+level = 2
+
+[[items]]
+title = "Lines Basic"
+href = "/reference/charts/geographic-and-route/lines-basic/"
+level = 2
+
+[[items]]
+title = "Map Choropleth"
+href = "/reference/charts/geographic-and-route/map-choropleth/"
+level = 2
+
+[[items]]
+title = "Overview"
+href = "/reference/charts/geographic-and-route/overview/"
+level = 2
+
+[[items]]
+title = "Route Map"
+href = "/reference/charts/geographic-and-route/route-map/"
+level = 2
+
+[[items]]
+title = "Heatmap"
+href = "/reference/charts/heatmap/overview/"
+level = 1
+group = true
+
+[[items]]
+title = "Calendar Commit Activity"
+href = "/reference/charts/heatmap/calendar-commit-activity/"
+level = 2
+
+[[items]]
+title = "Calendar Incident Volume"
+href = "/reference/charts/heatmap/calendar-incident-volume/"
+level = 2
+
+[[items]]
+title = "Calendar Quality Gates"
+href = "/reference/charts/heatmap/calendar-quality-gates/"
+level = 2
+
+[[items]]
+title = "Calendar Release Burndown"
+href = "/reference/charts/heatmap/calendar-release-burndown/"
+level = 2
+
+[[items]]
+title = "Calendar Retention Daily"
+href = "/reference/charts/heatmap/calendar-retention-daily/"
+level = 2
+
+[[items]]
+title = "Calendar Sales Daily"
+href = "/reference/charts/heatmap/calendar-sales-daily/"
+level = 2
+
+[[items]]
+title = "Calendar User Activity"
+href = "/reference/charts/heatmap/calendar-user-activity/"
+level = 2
+
+[[items]]
+title = "Heatmap Access Matrix"
+href = "/reference/charts/heatmap/heatmap-access-matrix/"
+level = 2
+
+[[items]]
+title = "Heatmap Availability Window"
+href = "/reference/charts/heatmap/heatmap-availability-window/"
+level = 2
+
+[[items]]
+title = "Heatmap Correlation Grid"
+href = "/reference/charts/heatmap/heatmap-correlation-grid/"
+level = 2
+
+[[items]]
+title = "Heatmap Deployment Hours"
+href = "/reference/charts/heatmap/heatmap-deployment-hours/"
+level = 2
+
+[[items]]
+title = "Heatmap Feature Usage"
+href = "/reference/charts/heatmap/heatmap-feature-usage/"
+level = 2
+
+[[items]]
+title = "Heatmap Queue Depth"
+href = "/reference/charts/heatmap/heatmap-queue-depth/"
+level = 2
+
+[[items]]
+title = "Heatmap Regression Risk"
+href = "/reference/charts/heatmap/heatmap-regression-risk/"
+level = 2
+
+[[items]]
+title = "Heatmap Resource Saturation"
+href = "/reference/charts/heatmap/heatmap-resource-saturation/"
+level = 2
+
+[[items]]
+title = "Heatmap Service Risk"
+href = "/reference/charts/heatmap/heatmap-service-risk/"
+level = 2
+
+[[items]]
+title = "Heatmap Support Load"
+href = "/reference/charts/heatmap/heatmap-support-load/"
+level = 2
+
+[[items]]
+title = "Overview"
+href = "/reference/charts/heatmap/overview/"
+level = 2
+
+[[items]]
+title = "Visual Map Calendar Builds"
+href = "/reference/charts/heatmap/visual-map-calendar-builds/"
+level = 2
+
+[[items]]
+title = "Visual Map Density Grid"
+href = "/reference/charts/heatmap/visual-map-density-grid/"
+level = 2
+
+[[items]]
+title = "Visual Map Load Grid"
+href = "/reference/charts/heatmap/visual-map-load-grid/"
+level = 2
+
+[[items]]
+title = "Heatmap And Calendar"
+href = "/reference/charts/heatmap-and-calendar/overview/"
+level = 1
+group = true
+
+[[items]]
+title = "Calendar Builds"
+href = "/reference/charts/heatmap-and-calendar/calendar-builds/"
+level = 2
+
+[[items]]
+title = "Calendar Incidents"
+href = "/reference/charts/heatmap-and-calendar/calendar-incidents/"
+level = 2
+
+[[items]]
+title = "Calendar Quarter"
+href = "/reference/charts/heatmap-and-calendar/calendar-quarter/"
+level = 2
+
+[[items]]
+title = "Calendar Retention"
+href = "/reference/charts/heatmap-and-calendar/calendar-retention/"
+level = 2
+
+[[items]]
+title = "Heatmap Availability"
+href = "/reference/charts/heatmap-and-calendar/heatmap-availability/"
+level = 2
+
+[[items]]
+title = "Heatmap Correlation"
+href = "/reference/charts/heatmap-and-calendar/heatmap-correlation/"
+level = 2
+
+[[items]]
+title = "Heatmap Large Matrix"
+href = "/reference/charts/heatmap-and-calendar/heatmap-large-matrix/"
+level = 2
+
+[[items]]
+title = "Heatmap Resource Load"
+href = "/reference/charts/heatmap-and-calendar/heatmap-resource-load/"
+level = 2
+
+[[items]]
+title = "Heatmap Risk Grid"
+href = "/reference/charts/heatmap-and-calendar/heatmap-risk-grid/"
+level = 2
+
+[[items]]
+title = "Heatmap Small Matrix"
+href = "/reference/charts/heatmap-and-calendar/heatmap-small-matrix/"
+level = 2
+
+[[items]]
+title = "Heatmap Weekday Hour"
+href = "/reference/charts/heatmap-and-calendar/heatmap-weekday-hour/"
+level = 2
+
+[[items]]
+title = "Overview"
+href = "/reference/charts/heatmap-and-calendar/overview/"
+level = 2
+
+[[items]]
+title = "Visual Map Density"
+href = "/reference/charts/heatmap-and-calendar/visual-map-density/"
+level = 2
+
+[[items]]
+title = "Hierarchy"
+href = "/reference/charts/hierarchy/overview/"
+level = 1
+group = true
+
+[[items]]
+title = "Graph Alert Correlation"
+href = "/reference/charts/hierarchy/graph-alert-correlation/"
+level = 2
+
+[[items]]
+title = "Graph Customer Journey"
+href = "/reference/charts/hierarchy/graph-customer-journey/"
+level = 2
+
+[[items]]
+title = "Graph Platform Topology"
+href = "/reference/charts/hierarchy/graph-platform-topology/"
+level = 2
+
+[[items]]
+title = "Graph Service Dependencies"
+href = "/reference/charts/hierarchy/graph-service-dependencies/"
+level = 2
+
+[[items]]
+title = "Overview"
+href = "/reference/charts/hierarchy/overview/"
+level = 2
+
+[[items]]
+title = "Sankey Energy Balance"
+href = "/reference/charts/hierarchy/sankey-energy-balance/"
+level = 2
+
+[[items]]
+title = "Sankey Lead Flow"
+href = "/reference/charts/hierarchy/sankey-lead-flow/"
+level = 2
+
+[[items]]
+title = "Sankey Resolution Path"
+href = "/reference/charts/hierarchy/sankey-resolution-path/"
+level = 2
+
+[[items]]
+title = "Sunburst Customer Segments"
+href = "/reference/charts/hierarchy/sunburst-customer-segments/"
+level = 2
+
+[[items]]
+title = "Sunburst Feature Areas"
+href = "/reference/charts/hierarchy/sunburst-feature-areas/"
+level = 2
+
+[[items]]
+title = "Sunburst Org Revenue"
+href = "/reference/charts/hierarchy/sunburst-org-revenue/"
+level = 2
+
+[[items]]
+title = "Theme River Channel Mix"
+href = "/reference/charts/hierarchy/theme-river-channel-mix/"
+level = 2
+
+[[items]]
+title = "Theme River Support"
+href = "/reference/charts/hierarchy/theme-river-support/"
+level = 2
+
+[[items]]
+title = "Tree File Ownership"
+href = "/reference/charts/hierarchy/tree-file-ownership/"
+level = 2
+
+[[items]]
+title = "Tree Platform Modules"
+href = "/reference/charts/hierarchy/tree-platform-modules/"
+level = 2
+
+[[items]]
+title = "Tree Product Taxonomy"
+href = "/reference/charts/hierarchy/tree-product-taxonomy/"
+level = 2
+
+[[items]]
+title = "Tree Radial Services"
+href = "/reference/charts/hierarchy/tree-radial-services/"
+level = 2
+
+[[items]]
+title = "Treemap Budget Allocation"
+href = "/reference/charts/hierarchy/treemap-budget-allocation/"
+level = 2
+
+[[items]]
+title = "Treemap Cost Centers"
+href = "/reference/charts/hierarchy/treemap-cost-centers/"
+level = 2
+
+[[items]]
+title = "Treemap Storage Classes"
+href = "/reference/charts/hierarchy/treemap-storage-classes/"
+level = 2
+
+[[items]]
+title = "Hierarchy And Flow"
+href = "/reference/charts/hierarchy-and-flow/overview/"
+level = 1
+group = true
+
+[[items]]
+title = "Graph Circular Like"
+href = "/reference/charts/hierarchy-and-flow/graph-circular-like/"
+level = 2
+
+[[items]]
+title = "Graph Dependencies"
+href = "/reference/charts/hierarchy-and-flow/graph-dependencies/"
+level = 2
+
+[[items]]
+title = "Graph Services"
+href = "/reference/charts/hierarchy-and-flow/graph-services/"
+level = 2
+
+[[items]]
+title = "Overview"
+href = "/reference/charts/hierarchy-and-flow/overview/"
+level = 2
+
+[[items]]
+title = "Sankey Energy"
+href = "/reference/charts/hierarchy-and-flow/sankey-energy/"
+level = 2
+
+[[items]]
+title = "Sankey User Flow"
+href = "/reference/charts/hierarchy-and-flow/sankey-user-flow/"
+level = 2
+
+[[items]]
+title = "Sunburst Product"
+href = "/reference/charts/hierarchy-and-flow/sunburst-product/"
+level = 2
+
+[[items]]
+title = "Sunburst Revenue"
+href = "/reference/charts/hierarchy-and-flow/sunburst-revenue/"
+level = 2
+
+[[items]]
+title = "Theme River Demand"
+href = "/reference/charts/hierarchy-and-flow/theme-river-demand/"
+level = 2
+
+[[items]]
+title = "Theme River Traffic"
+href = "/reference/charts/hierarchy-and-flow/theme-river-traffic/"
+level = 2
+
+[[items]]
+title = "Tree File System"
+href = "/reference/charts/hierarchy-and-flow/tree-file-system/"
+level = 2
+
+[[items]]
+title = "Tree Org"
+href = "/reference/charts/hierarchy-and-flow/tree-org/"
+level = 2
+
+[[items]]
+title = "Tree Radial Taxonomy"
+href = "/reference/charts/hierarchy-and-flow/tree-radial-taxonomy/"
+level = 2
+
+[[items]]
+title = "Treemap Budget"
+href = "/reference/charts/hierarchy-and-flow/treemap-budget/"
+level = 2
+
+[[items]]
+title = "Treemap Storage"
+href = "/reference/charts/hierarchy-and-flow/treemap-storage/"
+level = 2
+
+[[items]]
+title = "Interaction"
+href = "/reference/charts/interaction/overview/"
+level = 1
+group = true
+
+[[items]]
+title = "Interaction Annotation Callout"
+href = "/reference/charts/interaction/interaction-annotation-callout/"
+level = 2
+
+[[items]]
+title = "Interaction Brush Outliers"
+href = "/reference/charts/interaction/interaction-brush-outliers/"
+level = 2
+
+[[items]]
+title = "Interaction Brush Region"
+href = "/reference/charts/interaction/interaction-brush-region/"
+level = 2
+
+[[items]]
+title = "Interaction Datazoom Overview"
+href = "/reference/charts/interaction/interaction-datazoom-overview/"
+level = 2
+
+[[items]]
+title = "Interaction Datazoom Telemetry"
+href = "/reference/charts/interaction/interaction-datazoom-telemetry/"
+level = 2
+
+[[items]]
+title = "Interaction Graphic Band"
+href = "/reference/charts/interaction/interaction-graphic-band/"
+level = 2
+
+[[items]]
+title = "Interaction Graphic Note"
+href = "/reference/charts/interaction/interaction-graphic-note/"
+level = 2
+
+[[items]]
+title = "Interaction Mark Area Breach"
+href = "/reference/charts/interaction/interaction-mark-area-breach/"
+level = 2
+
+[[items]]
+title = "Interaction Marked Deploy"
+href = "/reference/charts/interaction/interaction-marked-deploy/"
+level = 2
+
+[[items]]
+title = "Interaction Marked Slo"
+href = "/reference/charts/interaction/interaction-marked-slo/"
+level = 2
+
+[[items]]
+title = "Interaction Select Scatter"
+href = "/reference/charts/interaction/interaction-select-scatter/"
+level = 2
+
+[[items]]
+title = "Interaction Timeline Capacity"
+href = "/reference/charts/interaction/interaction-timeline-capacity/"
+level = 2
+
+[[items]]
+title = "Interaction Timeline Releases"
+href = "/reference/charts/interaction/interaction-timeline-releases/"
+level = 2
+
+[[items]]
+title = "Interaction Timeline Years"
+href = "/reference/charts/interaction/interaction-timeline-years/"
+level = 2
+
+[[items]]
+title = "Interaction Toolbox Analysis"
+href = "/reference/charts/interaction/interaction-toolbox-analysis/"
+level = 2
+
+[[items]]
+title = "Interaction Toolbox Export"
+href = "/reference/charts/interaction/interaction-toolbox-export/"
+level = 2
+
+[[items]]
+title = "Interaction Toolbox Restore"
+href = "/reference/charts/interaction/interaction-toolbox-restore/"
+level = 2
+
+[[items]]
+title = "Interaction Tooltip Axis"
+href = "/reference/charts/interaction/interaction-tooltip-axis/"
+level = 2
+
+[[items]]
+title = "Interaction Tooltip Grouped"
+href = "/reference/charts/interaction/interaction-tooltip-grouped/"
+level = 2
+
+[[items]]
+title = "Interaction Tooltip Item"
+href = "/reference/charts/interaction/interaction-tooltip-item/"
+level = 2
+
+[[items]]
+title = "Overview"
+href = "/reference/charts/interaction/overview/"
+level = 2
+
+[[items]]
+title = "Line"
+href = "/reference/charts/line/overview/"
+level = 1
+group = true
+
+[[items]]
+title = "Line Alert Annotations"
+href = "/reference/charts/line/line-alert-annotations/"
+level = 2
+
+[[items]]
+title = "Line Alert Events"
+href = "/reference/charts/line/line-alert-events/"
+level = 2
+
+[[items]]
+title = "Line Annotation"
+href = "/reference/charts/line/line-annotation/"
+level = 2
+
+[[items]]
+title = "Line Api Throughput"
+href = "/reference/charts/line/line-api-throughput/"
+level = 2
+
+[[items]]
+title = "Line Capacity Forecast"
+href = "/reference/charts/line/line-capacity-forecast/"
+level = 2
+
+[[items]]
+title = "Line Conversion Stack"
+href = "/reference/charts/line/line-conversion-stack/"
+level = 2
+
+[[items]]
+title = "Line Demand Spark"
+href = "/reference/charts/line/line-demand-spark/"
+level = 2
+
+[[items]]
+title = "Line Deployment Events"
+href = "/reference/charts/line/line-deployment-events/"
+level = 2
+
+[[items]]
+title = "Line Dual Series"
+href = "/reference/charts/line/line-dual-series/"
+level = 2
+
+[[items]]
+title = "Line Error Budget"
+href = "/reference/charts/line/line-error-budget/"
+level = 2
+
+[[items]]
+title = "Line Forecast Band"
+href = "/reference/charts/line/line-forecast-band/"
+level = 2
+
+[[items]]
+title = "Line Gradient Area"
+href = "/reference/charts/line/line-gradient-area/"
+level = 2
+
+[[items]]
+title = "Line Inventory End Step"
+href = "/reference/charts/line/line-inventory-end-step/"
+level = 2
+
+[[items]]
+title = "Line Log Shaped"
+href = "/reference/charts/line/line-log-shaped/"
+level = 2
+
+[[items]]
+title = "Line Market Index"
+href = "/reference/charts/line/line-market-index/"
+level = 2
+
+[[items]]
+title = "Line Minmax Band"
+href = "/reference/charts/line/line-minmax-band/"
+level = 2
+
+[[items]]
+title = "Line Operational Steps"
+href = "/reference/charts/line/line-operational-steps/"
+level = 2
+
+[[items]]
+title = "Line Product Mix Area"
+href = "/reference/charts/line/line-product-mix-area/"
+level = 2
+
+[[items]]
+title = "Line Quality Band"
+href = "/reference/charts/line/line-quality-band/"
+level = 2
+
+[[items]]
+title = "Line Region Comparison"
+href = "/reference/charts/line/line-region-comparison/"
+level = 2
+
+[[items]]
+title = "Line Release Window"
+href = "/reference/charts/line/line-release-window/"
+level = 2
+
+[[items]]
+title = "Line Retention Window"
+href = "/reference/charts/line/line-retention-window/"
+level = 2
+
+[[items]]
+title = "Line Revenue Seasonality"
+href = "/reference/charts/line/line-revenue-seasonality/"
+level = 2
+
+[[items]]
+title = "Line Rolling Average"
+href = "/reference/charts/line/line-rolling-average/"
+level = 2
+
+[[items]]
+title = "Line Seasonal"
+href = "/reference/charts/line/line-seasonal/"
+level = 2
+
+[[items]]
+title = "Line Service Latency"
+href = "/reference/charts/line/line-service-latency/"
+level = 2
+
+[[items]]
+title = "Line Signup Cohorts"
+href = "/reference/charts/line/line-signup-cohorts/"
+level = 2
+
+[[items]]
+title = "Line Spark Dense"
+href = "/reference/charts/line/line-spark-dense/"
+level = 2
+
+[[items]]
+title = "Line Stacked Stream"
+href = "/reference/charts/line/line-stacked-stream/"
+level = 2
+
+[[items]]
+title = "Line Step End"
+href = "/reference/charts/line/line-step-end/"
+level = 2
+
+[[items]]
+title = "Line Step Start"
+href = "/reference/charts/line/line-step-start/"
+level = 2
+
+[[items]]
+title = "Line Support Volume"
+href = "/reference/charts/line/line-support-volume/"
+level = 2
+
+[[items]]
+title = "Line Threshold"
+href = "/reference/charts/line/line-threshold/"
+level = 2
+
+[[items]]
+title = "Line Traffic Rolling Average"
+href = "/reference/charts/line/line-traffic-rolling-average/"
+level = 2
+
+[[items]]
+title = "Line Weekly Cycle"
+href = "/reference/charts/line/line-weekly-cycle/"
+level = 2
+
+[[items]]
+title = "Line Zoomed Window"
+href = "/reference/charts/line/line-zoomed-window/"
+level = 2
+
+[[items]]
+title = "Overview"
+href = "/reference/charts/line/overview/"
+level = 2
+
+[[items]]
+title = "Monitoring"
+href = "/reference/charts/monitoring/overview/"
+level = 1
+group = true
+
+[[items]]
+title = "Monitoring 3d Cloud"
+href = "/reference/charts/monitoring/monitoring-3d-cloud/"
+level = 2
+
+[[items]]
+title = "Monitoring 3d Grid"
+href = "/reference/charts/monitoring/monitoring-3d-grid/"
+level = 2
+
+[[items]]
+title = "Monitoring Annotation"
+href = "/reference/charts/monitoring/monitoring-annotation/"
+level = 2
+
+[[items]]
+title = "Monitoring Brush Investigation"
+href = "/reference/charts/monitoring/monitoring-brush-investigation/"
+level = 2
+
+[[items]]
+title = "Monitoring Capacity Gauge"
+href = "/reference/charts/monitoring/monitoring-capacity-gauge/"
+level = 2
+
+[[items]]
+title = "Monitoring Dependency Graph"
+href = "/reference/charts/monitoring/monitoring-dependency-graph/"
+level = 2
+
+[[items]]
+title = "Monitoring Error Band"
+href = "/reference/charts/monitoring/monitoring-error-band/"
+level = 2
+
+[[items]]
+title = "Monitoring Error Scatter"
+href = "/reference/charts/monitoring/monitoring-error-scatter/"
+level = 2
+
+[[items]]
+title = "Monitoring Flow Sankey"
+href = "/reference/charts/monitoring/monitoring-flow-sankey/"
+level = 2
+
+[[items]]
+title = "Monitoring Load Heatmap"
+href = "/reference/charts/monitoring/monitoring-load-heatmap/"
+level = 2
+
+[[items]]
+title = "Monitoring Overview Line"
+href = "/reference/charts/monitoring/monitoring-overview-line/"
+level = 2
+
+[[items]]
+title = "Monitoring Region Map"
+href = "/reference/charts/monitoring/monitoring-region-map/"
+level = 2
+
+[[items]]
+title = "Monitoring Release Timeline"
+href = "/reference/charts/monitoring/monitoring-release-timeline/"
+level = 2
+
+[[items]]
+title = "Monitoring Risk Radar"
+href = "/reference/charts/monitoring/monitoring-risk-radar/"
+level = 2
+
+[[items]]
+title = "Monitoring Route Lines"
+href = "/reference/charts/monitoring/monitoring-route-lines/"
+level = 2
+
+[[items]]
+title = "Monitoring Service Rank"
+href = "/reference/charts/monitoring/monitoring-service-rank/"
+level = 2
+
+[[items]]
+title = "Monitoring Single Axis Events"
+href = "/reference/charts/monitoring/monitoring-single-axis-events/"
+level = 2
+
+[[items]]
+title = "Monitoring Toolbox Analysis"
+href = "/reference/charts/monitoring/monitoring-toolbox-analysis/"
+level = 2
+
+[[items]]
+title = "Monitoring Traffic Bars"
+href = "/reference/charts/monitoring/monitoring-traffic-bars/"
+level = 2
+
+[[items]]
+title = "Monitoring Uptime Calendar"
+href = "/reference/charts/monitoring/monitoring-uptime-calendar/"
+level = 2
+
+[[items]]
+title = "Overview"
+href = "/reference/charts/monitoring/overview/"
+level = 2
+
+[[items]]
+title = "Overview"
+href = "/reference/charts/overview/"
+level = 1
+
+[[items]]
+title = "Pie And Radial"
+href = "/reference/charts/pie-and-radial/overview/"
+level = 1
+group = true
+
+[[items]]
+title = "Gauge Capacity"
+href = "/reference/charts/pie-and-radial/gauge-capacity/"
+level = 2
+
+[[items]]
+title = "Gauge Score"
+href = "/reference/charts/pie-and-radial/gauge-score/"
+level = 2
+
+[[items]]
+title = "Overview"
+href = "/reference/charts/pie-and-radial/overview/"
+level = 2
+
+[[items]]
+title = "Pie Area Rose"
+href = "/reference/charts/pie-and-radial/pie-area-rose/"
+level = 2
+
+[[items]]
+title = "Pie Device Mix"
+href = "/reference/charts/pie-and-radial/pie-device-mix/"
+level = 2
+
+[[items]]
+title = "Pie Market Share"
+href = "/reference/charts/pie-and-radial/pie-market-share/"
+level = 2
+
+[[items]]
+title = "Pie Nested Like"
+href = "/reference/charts/pie-and-radial/pie-nested-like/"
+level = 2
+
+[[items]]
+title = "Pie Rose Presentation"
+href = "/reference/charts/pie-and-radial/pie-rose-presentation/"
+level = 2
+
+[[items]]
+title = "Pie Two Level"
+href = "/reference/charts/pie-and-radial/pie-two-level/"
+level = 2
+
+[[items]]
+title = "Polar Cyclic Bar"
+href = "/reference/charts/pie-and-radial/polar-cyclic-bar/"
+level = 2
+
+[[items]]
+title = "Polar Wind Line"
+href = "/reference/charts/pie-and-radial/polar-wind-line/"
+level = 2
+
+[[items]]
+title = "Radar Profile A"
+href = "/reference/charts/pie-and-radial/radar-profile-a/"
+level = 2
+
+[[items]]
+title = "Radar Profile B"
+href = "/reference/charts/pie-and-radial/radar-profile-b/"
+level = 2
+
+[[items]]
+title = "Radial"
+href = "/reference/charts/radial/overview/"
+level = 1
+group = true
+
+[[items]]
+title = "Gauge Availability"
+href = "/reference/charts/radial/gauge-availability/"
+level = 2
+
+[[items]]
+title = "Gauge Build Confidence"
+href = "/reference/charts/radial/gauge-build-confidence/"
+level = 2
+
+[[items]]
+title = "Gauge Capacity Headroom"
+href = "/reference/charts/radial/gauge-capacity-headroom/"
+level = 2
+
+[[items]]
+title = "Gauge Deploy Health"
+href = "/reference/charts/radial/gauge-deploy-health/"
+level = 2
+
+[[items]]
+title = "Overview"
+href = "/reference/charts/radial/overview/"
+level = 2
+
+[[items]]
+title = "Pie Device Donut"
+href = "/reference/charts/radial/pie-device-donut/"
+level = 2
+
+[[items]]
+title = "Pie Expense Donut"
+href = "/reference/charts/radial/pie-expense-donut/"
+level = 2
+
+[[items]]
+title = "Pie Exposure Rose"
+href = "/reference/charts/radial/pie-exposure-rose/"
+level = 2
+
+[[items]]
+title = "Pie Market Rose"
+href = "/reference/charts/radial/pie-market-rose/"
+level = 2
+
+[[items]]
+title = "Pie Plan Share"
+href = "/reference/charts/radial/pie-plan-share/"
+level = 2
+
+[[items]]
+title = "Pie Revenue Mix"
+href = "/reference/charts/radial/pie-revenue-mix/"
+level = 2
+
+[[items]]
+title = "Pie Risk Rose"
+href = "/reference/charts/radial/pie-risk-rose/"
+level = 2
+
+[[items]]
+title = "Pie Source Mix"
+href = "/reference/charts/radial/pie-source-mix/"
+level = 2
+
+[[items]]
+title = "Polar Cycle Line"
+href = "/reference/charts/radial/polar-cycle-line/"
+level = 2
+
+[[items]]
+title = "Polar Hourly Load"
+href = "/reference/charts/radial/polar-hourly-load/"
+level = 2
+
+[[items]]
+title = "Polar Seasonality Bars"
+href = "/reference/charts/radial/polar-seasonality-bars/"
+level = 2
+
+[[items]]
+title = "Polar Wind Speed"
+href = "/reference/charts/radial/polar-wind-speed/"
+level = 2
+
+[[items]]
+title = "Radar Platform Readiness"
+href = "/reference/charts/radial/radar-platform-readiness/"
+level = 2
+
+[[items]]
+title = "Radar Product Fit"
+href = "/reference/charts/radial/radar-product-fit/"
+level = 2
+
+[[items]]
+title = "Radar Service Health"
+href = "/reference/charts/radial/radar-service-health/"
+level = 2
+
+[[items]]
+title = "Radar Team Balance"
+href = "/reference/charts/radial/radar-team-balance/"
+level = 2
+
+[[items]]
+title = "Radial And Polar"
+href = "/reference/charts/radial-and-polar/overview/"
+level = 1
+group = true
+
+[[items]]
+title = "Gauge Basic"
+href = "/reference/charts/radial-and-polar/gauge-basic/"
+level = 2
+
+[[items]]
+title = "Gauge Progress"
+href = "/reference/charts/radial-and-polar/gauge-progress/"
+level = 2
+
+[[items]]
+title = "Liquid Fill"
+href = "/reference/charts/radial-and-polar/liquid-fill/"
+level = 2
+
+[[items]]
+title = "Overview"
+href = "/reference/charts/radial-and-polar/overview/"
+level = 2
+
+[[items]]
+title = "Pie Basic"
+href = "/reference/charts/radial-and-polar/pie-basic/"
+level = 2
+
+[[items]]
+title = "Pie Donut"
+href = "/reference/charts/radial-and-polar/pie-donut/"
+level = 2
+
+[[items]]
+title = "Pie Rose Area"
+href = "/reference/charts/radial-and-polar/pie-rose-area/"
+level = 2
+
+[[items]]
+title = "Pie Rose Radius"
+href = "/reference/charts/radial-and-polar/pie-rose-radius/"
+level = 2
+
+[[items]]
+title = "Radar Basic"
+href = "/reference/charts/radial-and-polar/radar-basic/"
+level = 2
+
+[[items]]
+title = "Radar Filled"
+href = "/reference/charts/radial-and-polar/radar-filled/"
+level = 2
+
+[[items]]
+title = "Relationships And Hierarchy"
+href = "/reference/charts/relationships-and-hierarchy/overview/"
+level = 1
+group = true
+
+[[items]]
+title = "Funnel Basic"
+href = "/reference/charts/relationships-and-hierarchy/funnel-basic/"
+level = 2
+
+[[items]]
+title = "Graph Force"
+href = "/reference/charts/relationships-and-hierarchy/graph-force/"
+level = 2
+
+[[items]]
+title = "Overview"
+href = "/reference/charts/relationships-and-hierarchy/overview/"
+level = 2
+
+[[items]]
+title = "Parallel Basic"
+href = "/reference/charts/relationships-and-hierarchy/parallel-basic/"
+level = 2
+
+[[items]]
+title = "Sankey Basic"
+href = "/reference/charts/relationships-and-hierarchy/sankey-basic/"
+level = 2
+
+[[items]]
+title = "Sunburst Basic"
+href = "/reference/charts/relationships-and-hierarchy/sunburst-basic/"
+level = 2
+
+[[items]]
+title = "Theme River"
+href = "/reference/charts/relationships-and-hierarchy/theme-river/"
+level = 2
+
+[[items]]
+title = "Tree Basic"
+href = "/reference/charts/relationships-and-hierarchy/tree-basic/"
+level = 2
+
+[[items]]
+title = "Tree Radial"
+href = "/reference/charts/relationships-and-hierarchy/tree-radial/"
+level = 2
+
+[[items]]
+title = "Treemap Basic"
+href = "/reference/charts/relationships-and-hierarchy/treemap-basic/"
+level = 2
+
+[[items]]
+title = "Scatter And Statistical"
+href = "/reference/charts/scatter-and-statistical/overview/"
+level = 1
+group = true
+
+[[items]]
+title = "Boxplot Latency"
+href = "/reference/charts/scatter-and-statistical/boxplot-latency/"
+level = 2
+
+[[items]]
+title = "Boxplot Quality"
+href = "/reference/charts/scatter-and-statistical/boxplot-quality/"
+level = 2
+
+[[items]]
+title = "Candlestick Intraday"
+href = "/reference/charts/scatter-and-statistical/candlestick-intraday/"
+level = 2
+
+[[items]]
+title = "Candlestick Volume"
+href = "/reference/charts/scatter-and-statistical/candlestick-volume/"
+level = 2
+
+[[items]]
+title = "Funnel Conversion"
+href = "/reference/charts/scatter-and-statistical/funnel-conversion/"
+level = 2
+
+[[items]]
+title = "Funnel Recruiting"
+href = "/reference/charts/scatter-and-statistical/funnel-recruiting/"
+level = 2
+
+[[items]]
+title = "Overview"
+href = "/reference/charts/scatter-and-statistical/overview/"
+level = 2
+
+[[items]]
+title = "Parallel Products"
+href = "/reference/charts/scatter-and-statistical/parallel-products/"
+level = 2
+
+[[items]]
+title = "Parallel Quality"
+href = "/reference/charts/scatter-and-statistical/parallel-quality/"
+level = 2
+
+[[items]]
+title = "Scatter Bubble Market"
+href = "/reference/charts/scatter-and-statistical/scatter-bubble-market/"
+level = 2
+
+[[items]]
+title = "Scatter Clusters"
+href = "/reference/charts/scatter-and-statistical/scatter-clusters/"
+level = 2
+
+[[items]]
+title = "Scatter Outliers"
+href = "/reference/charts/scatter-and-statistical/scatter-outliers/"
+level = 2
+
+[[items]]
+title = "Scatter Risk Return"
+href = "/reference/charts/scatter-and-statistical/scatter-risk-return/"
+level = 2
+
+[[items]]
+title = "Single Axis Distribution"
+href = "/reference/charts/scatter-and-statistical/single-axis-distribution/"
+level = 2
+
+[[items]]
+title = "Single Axis Events"
+href = "/reference/charts/scatter-and-statistical/single-axis-events/"
+level = 2
+
+[[items]]
+title = "Statistical"
+href = "/reference/charts/statistical/overview/"
+level = 1
+group = true
+
+[[items]]
+title = "Boxplot Api Latency"
+href = "/reference/charts/statistical/boxplot-api-latency/"
+level = 2
+
+[[items]]
+title = "Boxplot Quality Spread"
+href = "/reference/charts/statistical/boxplot-quality-spread/"
+level = 2
+
+[[items]]
+title = "Boxplot Region Spread"
+href = "/reference/charts/statistical/boxplot-region-spread/"
+level = 2
+
+[[items]]
+title = "Bubble Customer Value"
+href = "/reference/charts/statistical/bubble-customer-value/"
+level = 2
+
+[[items]]
+title = "Candlestick Crypto Session"
+href = "/reference/charts/statistical/candlestick-crypto-session/"
+level = 2
+
+[[items]]
+title = "Candlestick Equity Session"
+href = "/reference/charts/statistical/candlestick-equity-session/"
+level = 2
+
+[[items]]
+title = "Candlestick Volume Shift"
+href = "/reference/charts/statistical/candlestick-volume-shift/"
+level = 2
+
+[[items]]
+title = "Funnel Activation"
+href = "/reference/charts/statistical/funnel-activation/"
+level = 2
+
+[[items]]
+title = "Funnel Support Resolution"
+href = "/reference/charts/statistical/funnel-support-resolution/"
+level = 2
+
+[[items]]
+title = "Overview"
+href = "/reference/charts/statistical/overview/"
+level = 2
+
+[[items]]
+title = "Parallel Device Quality"
+href = "/reference/charts/statistical/parallel-device-quality/"
+level = 2
+
+[[items]]
+title = "Parallel Plan Comparison"
+href = "/reference/charts/statistical/parallel-plan-comparison/"
+level = 2
+
+[[items]]
+title = "Parallel Risk Score"
+href = "/reference/charts/statistical/parallel-risk-score/"
+level = 2
+
+[[items]]
+title = "Scatter Alert Hotspots"
+href = "/reference/charts/statistical/scatter-alert-hotspots/"
+level = 2
+
+[[items]]
+title = "Scatter Efficiency Frontier"
+href = "/reference/charts/statistical/scatter-efficiency-frontier/"
+level = 2
+
+[[items]]
+title = "Scatter Lab Samples"
+href = "/reference/charts/statistical/scatter-lab-samples/"
+level = 2
+
+[[items]]
+title = "Scatter Portfolio Return"
+href = "/reference/charts/statistical/scatter-portfolio-return/"
+level = 2
+
+[[items]]
+title = "Scatter Quality Outliers"
+href = "/reference/charts/statistical/scatter-quality-outliers/"
+level = 2
+
+[[items]]
+title = "Scatter Risk Bubbles"
+href = "/reference/charts/statistical/scatter-risk-bubbles/"
+level = 2
+
+[[items]]
+title = "Single Axis Job Runtime"
+href = "/reference/charts/statistical/single-axis-job-runtime/"
+level = 2
+
+[[items]]
+title = "Single Axis Release Events"
+href = "/reference/charts/statistical/single-axis-release-events/"
+level = 2
+
+[[items]]
+title = "Statistical And Finance"
+href = "/reference/charts/statistical-and-finance/overview/"
+level = 1
+group = true
+
+[[items]]
+title = "Boxplot Basic"
+href = "/reference/charts/statistical-and-finance/boxplot-basic/"
+level = 2
+
+[[items]]
+title = "Candlestick Basic"
+href = "/reference/charts/statistical-and-finance/candlestick-basic/"
+level = 2
+
+[[items]]
+title = "Heatmap Cartesian"
+href = "/reference/charts/statistical-and-finance/heatmap-cartesian/"
+level = 2
+
+[[items]]
+title = "Overview"
+href = "/reference/charts/statistical-and-finance/overview/"
+level = 2
+
+[[items]]
+title = "Scatter Basic"
+href = "/reference/charts/statistical-and-finance/scatter-basic/"
+level = 2
+
+[[items]]
+title = "Scatter Bubble"
+href = "/reference/charts/statistical-and-finance/scatter-bubble/"
+level = 2
+
+[[items]]
+title = "Scatter Effect"
+href = "/reference/charts/statistical-and-finance/scatter-effect/"
+level = 2
+
+[[items]]
+title = "Cli"
+href = "/reference/cli/overview/"
+level = 0
+group = true
+
+[[items]]
+title = "Overview"
+href = "/reference/cli/overview/"
+level = 1
+
+[[items]]
+title = "Core"
+href = "/reference/core/overview/"
+level = 0
+group = true
+
+[[items]]
+title = "Animations Portals Media"
+href = "/reference/core/animations-portals-media/"
+level = 1
+
+[[items]]
+title = "Commands Services Jobs"
+href = "/reference/core/commands-services-jobs/"
+level = 1
+
+[[items]]
+title = "Environment Input And Ime"
+href = "/reference/core/environment-input-and-ime/"
+level = 1
+
+[[items]]
+title = "Platform Runtime"
+href = "/reference/core/platform-runtime/"
+level = 1
+
+[[items]]
+title = "Rendering Pipeline"
+href = "/reference/core/rendering-pipeline/"
+level = 1
+
+[[items]]
+title = "Resources And Capabilities"
+href = "/reference/core/resources-and-capabilities/"
+level = 1
+
+[[items]]
+title = "State System"
+href = "/reference/core/state-system/"
+level = 1
+
+[[items]]
+title = "Testing And Diagnostics"
+href = "/reference/core/testing-and-diagnostics/"
+level = 1
+
+[[items]]
+title = "Theming And I18n"
+href = "/reference/core/theming-and-i18n/"
+level = 1
+
+[[items]]
+title = "Widget Trait"
+href = "/reference/core/widget-trait/"
+level = 1
+
+[[items]]
+title = "Overview"
+href = "/reference/overview/overview/"
+level = 0
+group = true
+
+[[items]]
+title = "Overview"
+href = "/reference/overview/overview/"
+level = 1
+
+[[items]]
+title = "Platform"
+href = "/reference/platform/overview/"
+level = 0
+group = true
+
+[[items]]
+title = "Accessibility And I18n"
+href = "/reference/platform/accessibility-and-i18n/"
+level = 1
+
+[[items]]
+title = "Targets"
+href = "/reference/platform/targets/"
+level = 1
+
+[[items]]
+title = "Testing"
+href = "/reference/platform/testing/"
+level = 1
+
+[[items]]
+title = "Widgets"
+href = "/reference/widgets/overview/"
+level = 0
+group = true
+
+[[items]]
+title = "Catalog"
+href = "/reference/widgets/catalog/"
+level = 1
+
+[[items]]
+title = "Display And Data"
+href = "/reference/widgets/display-and-data/"
+level = 1
+
+[[items]]
+title = "Inputs"
+href = "/reference/widgets/inputs/"
+level = 1
+
+[[items]]
+title = "Layout"
+href = "/reference/widgets/layout/"
+level = 1
+
+[[items]]
+title = "Media"
+href = "/reference/widgets/media/"
+level = 1
+
+[[items]]
+title = "Overlays And Navigation"
+href = "/reference/widgets/overlays-and-navigation/"
+level = 1
+
+[[items]]
+title = "Widget Pages"
+href = "/reference/widgets/widget-pages/overview/"
+level = 1
+group = true
+
+[[items]]
+title = "Absolute Fill"
+href = "/reference/widgets/widget-pages/absolute-fill/"
+level = 2
+
+[[items]]
+title = "Accordion Item"
+href = "/reference/widgets/widget-pages/accordion-item/"
+level = 2
+
+[[items]]
+title = "Accordion"
+href = "/reference/widgets/widget-pages/accordion/"
+level = 2
+
+[[items]]
+title = "Alert Kind"
+href = "/reference/widgets/widget-pages/alert-kind/"
+level = 2
+
+[[items]]
+title = "Alert"
+href = "/reference/widgets/widget-pages/alert/"
+level = 2
+
+[[items]]
+title = "Align"
+href = "/reference/widgets/widget-pages/align/"
+level = 2
+
+[[items]]
+title = "Aspect Ratio"
+href = "/reference/widgets/widget-pages/aspect-ratio/"
+level = 2
+
+[[items]]
+title = "Avatar"
+href = "/reference/widgets/widget-pages/avatar/"
+level = 2
+
+[[items]]
+title = "Badge"
+href = "/reference/widgets/widget-pages/badge/"
+level = 2
+
+[[items]]
+title = "Breadcrumb Item"
+href = "/reference/widgets/widget-pages/breadcrumb-item/"
+level = 2
+
+[[items]]
+title = "Breadcrumb"
+href = "/reference/widgets/widget-pages/breadcrumb/"
+level = 2
+
+[[items]]
+title = "Builder"
+href = "/reference/widgets/widget-pages/builder/"
+level = 2
+
+[[items]]
+title = "Button Content Align"
+href = "/reference/widgets/widget-pages/button-content-align/"
+level = 2
+
+[[items]]
+title = "Button Variant"
+href = "/reference/widgets/widget-pages/button-variant/"
+level = 2
+
+[[items]]
+title = "Button"
+href = "/reference/widgets/widget-pages/button/"
+level = 2
+
+[[items]]
+title = "Calendar"
+href = "/reference/widgets/widget-pages/calendar/"
+level = 2
+
+[[items]]
+title = "Canvas Lowerer"
+href = "/reference/widgets/widget-pages/canvas-lowerer/"
+level = 2
+
+[[items]]
+title = "Canvas"
+href = "/reference/widgets/widget-pages/canvas/"
+level = 2
+
+[[items]]
+title = "Card"
+href = "/reference/widgets/widget-pages/card/"
+level = 2
+
+[[items]]
+title = "Center"
+href = "/reference/widgets/widget-pages/center/"
+level = 2
+
+[[items]]
+title = "Checkbox"
+href = "/reference/widgets/widget-pages/checkbox/"
+level = 2
+
+[[items]]
+title = "Circular Progress"
+href = "/reference/widgets/widget-pages/circular-progress/"
+level = 2
+
+[[items]]
+title = "Clip"
+href = "/reference/widgets/widget-pages/clip/"
+level = 2
+
+[[items]]
+title = "Code"
+href = "/reference/widgets/widget-pages/code/"
+level = 2
+
+[[items]]
+title = "Column"
+href = "/reference/widgets/widget-pages/column/"
+level = 2
+
+[[items]]
+title = "Combobox"
+href = "/reference/widgets/widget-pages/combobox/"
+level = 2
+
+[[items]]
+title = "Composite"
+href = "/reference/widgets/widget-pages/composite/"
+level = 2
+
+[[items]]
+title = "Container"
+href = "/reference/widgets/widget-pages/container/"
+level = 2
+
+[[items]]
+title = "Custom Node"
+href = "/reference/widgets/widget-pages/custom-node/"
+level = 2
+
+[[items]]
+title = "Data Table"
+href = "/reference/widgets/widget-pages/data-table/"
+level = 2
+
+[[items]]
+title = "Date Picker"
+href = "/reference/widgets/widget-pages/date-picker/"
+level = 2
+
+[[items]]
+title = "Date Range Picker"
+href = "/reference/widgets/widget-pages/date-range-picker/"
+level = 2
+
+[[items]]
+title = "Divider"
+href = "/reference/widgets/widget-pages/divider/"
+level = 2
+
+[[items]]
+title = "Drag Target"
+href = "/reference/widgets/widget-pages/drag-target/"
+level = 2
+
+[[items]]
+title = "Draggable"
+href = "/reference/widgets/widget-pages/draggable/"
+level = 2
+
+[[items]]
+title = "Drawer Side"
+href = "/reference/widgets/widget-pages/drawer-side/"
+level = 2
+
+[[items]]
+title = "Drawer"
+href = "/reference/widgets/widget-pages/drawer/"
+level = 2
+
+[[items]]
+title = "Drop Down"
+href = "/reference/widgets/widget-pages/drop-down/"
+level = 2
+
+[[items]]
+title = "Dropzone"
+href = "/reference/widgets/widget-pages/dropzone/"
+level = 2
+
+[[items]]
+title = "Editable"
+href = "/reference/widgets/widget-pages/editable/"
+level = 2
+
+[[items]]
+title = "Empty State"
+href = "/reference/widgets/widget-pages/empty-state/"
+level = 2
+
+[[items]]
+title = "File Upload"
+href = "/reference/widgets/widget-pages/file-upload/"
+level = 2
+
+[[items]]
+title = "Flyout"
+href = "/reference/widgets/widget-pages/flyout/"
+level = 2
+
+[[items]]
+title = "Focus Scope"
+href = "/reference/widgets/widget-pages/focus-scope/"
+level = 2
+
+[[items]]
+title = "Form Control"
+href = "/reference/widgets/widget-pages/form-control/"
+level = 2
+
+[[items]]
+title = "Gesture Detector"
+href = "/reference/widgets/widget-pages/gesture-detector/"
+level = 2
+
+[[items]]
+title = "Grid Item"
+href = "/reference/widgets/widget-pages/grid-item/"
+level = 2
+
+[[items]]
+title = "Grid"
+href = "/reference/widgets/widget-pages/grid/"
+level = 2
+
+[[items]]
+title = "H Stack"
+href = "/reference/widgets/widget-pages/h-stack/"
+level = 2
+
+[[items]]
+title = "Hero"
+href = "/reference/widgets/widget-pages/hero/"
+level = 2
+
+[[items]]
+title = "Icon"
+href = "/reference/widgets/widget-pages/icon/"
+level = 2
+
+[[items]]
+title = "Image"
+href = "/reference/widgets/widget-pages/image/"
+level = 2
+
+[[items]]
+title = "Kbd"
+href = "/reference/widgets/widget-pages/kbd/"
+level = 2
+
+[[items]]
+title = "Layout Builder"
+href = "/reference/widgets/widget-pages/layout-builder/"
+level = 2
+
+[[items]]
+title = "Lazy Column"
+href = "/reference/widgets/widget-pages/lazy-column/"
+level = 2
+
+[[items]]
+title = "Link"
+href = "/reference/widgets/widget-pages/link/"
+level = 2
+
+[[items]]
+title = "Menu Button"
+href = "/reference/widgets/widget-pages/menu-button/"
+level = 2
+
+[[items]]
+title = "Menu Item"
+href = "/reference/widgets/widget-pages/menu-item/"
+level = 2
+
+[[items]]
+title = "Menu"
+href = "/reference/widgets/widget-pages/menu/"
+level = 2
+
+[[items]]
+title = "Modal Action"
+href = "/reference/widgets/widget-pages/modal-action/"
+level = 2
+
+[[items]]
+title = "Modal"
+href = "/reference/widgets/widget-pages/modal/"
+level = 2
+
+[[items]]
+title = "Node"
+href = "/reference/widgets/widget-pages/node/"
+level = 2
+
+[[items]]
+title = "Number Input"
+href = "/reference/widgets/widget-pages/number-input/"
+level = 2
+
+[[items]]
+title = "Overlay"
+href = "/reference/widgets/widget-pages/overlay/"
+level = 2
+
+[[items]]
+title = "Pagination"
+href = "/reference/widgets/widget-pages/pagination/"
+level = 2
+
+[[items]]
+title = "Popover"
+href = "/reference/widgets/widget-pages/popover/"
+level = 2
+
+[[items]]
+title = "Portal"
+href = "/reference/widgets/widget-pages/portal/"
+level = 2
+
+[[items]]
+title = "Positioned"
+href = "/reference/widgets/widget-pages/positioned/"
+level = 2
+
+[[items]]
+title = "Progress Bar"
+href = "/reference/widgets/widget-pages/progress-bar/"
+level = 2
+
+[[items]]
+title = "Radio"
+href = "/reference/widgets/widget-pages/radio/"
+level = 2
+
+[[items]]
+title = "Range Slider"
+href = "/reference/widgets/widget-pages/range-slider/"
+level = 2
+
+[[items]]
+title = "Rich Text Run"
+href = "/reference/widgets/widget-pages/rich-text-run/"
+level = 2
+
+[[items]]
+title = "Rich Text"
+href = "/reference/widgets/widget-pages/rich-text/"
+level = 2
+
+[[items]]
+title = "Route Params"
+href = "/reference/widgets/widget-pages/route-params/"
+level = 2
+
+[[items]]
+title = "Route"
+href = "/reference/widgets/widget-pages/route/"
+level = 2
+
+[[items]]
+title = "Router"
+href = "/reference/widgets/widget-pages/router/"
+level = 2
+
+[[items]]
+title = "Row"
+href = "/reference/widgets/widget-pages/row/"
+level = 2
+
+[[items]]
+title = "Safe Area"
+href = "/reference/widgets/widget-pages/safe-area/"
+level = 2
+
+[[items]]
+title = "Scroll"
+href = "/reference/widgets/widget-pages/scroll/"
+level = 2
+
+[[items]]
+title = "Segmented Control"
+href = "/reference/widgets/widget-pages/segmented-control/"
+level = 2
+
+[[items]]
+title = "Select Item"
+href = "/reference/widgets/widget-pages/select-item/"
+level = 2
+
+[[items]]
+title = "Select"
+href = "/reference/widgets/widget-pages/select/"
+level = 2
+
+[[items]]
+title = "Simple Grid"
+href = "/reference/widgets/widget-pages/simple-grid/"
+level = 2
+
+[[items]]
+title = "Skeleton"
+href = "/reference/widgets/widget-pages/skeleton/"
+level = 2
+
+[[items]]
+title = "Slider"
+href = "/reference/widgets/widget-pages/slider/"
+level = 2
+
+[[items]]
+title = "Spacer"
+href = "/reference/widgets/widget-pages/spacer/"
+level = 2
+
+[[items]]
+title = "Spinner"
+href = "/reference/widgets/widget-pages/spinner/"
+level = 2
+
+[[items]]
+title = "Split Direction"
+href = "/reference/widgets/widget-pages/split-direction/"
+level = 2
+
+[[items]]
+title = "Split View"
+href = "/reference/widgets/widget-pages/split-view/"
+level = 2
+
+[[items]]
+title = "Stat"
+href = "/reference/widgets/widget-pages/stat/"
+level = 2
+
+[[items]]
+title = "Stepper"
+href = "/reference/widgets/widget-pages/stepper/"
+level = 2
+
+[[items]]
+title = "Switch"
+href = "/reference/widgets/widget-pages/switch/"
+level = 2
+
+[[items]]
+title = "Tab Item"
+href = "/reference/widgets/widget-pages/tab-item/"
+level = 2
+
+[[items]]
+title = "Table Column"
+href = "/reference/widgets/widget-pages/table-column/"
+level = 2
+
+[[items]]
+title = "Table Row"
+href = "/reference/widgets/widget-pages/table-row/"
+level = 2
+
+[[items]]
+title = "Tabs"
+href = "/reference/widgets/widget-pages/tabs/"
+level = 2
+
+[[items]]
+title = "Tag"
+href = "/reference/widgets/widget-pages/tag/"
+level = 2
+
+[[items]]
+title = "Terminal Launch Config"
+href = "/reference/widgets/widget-pages/terminal-launch-config/"
+level = 2
+
+[[items]]
+title = "Terminal Session"
+href = "/reference/widgets/widget-pages/terminal-session/"
+level = 2
+
+[[items]]
+title = "Terminal View"
+href = "/reference/widgets/widget-pages/terminal-view/"
+level = 2
+
+[[items]]
+title = "Text Content"
+href = "/reference/widgets/widget-pages/text-content/"
+level = 2
+
+[[items]]
+title = "Text Font Style"
+href = "/reference/widgets/widget-pages/text-font-style/"
+level = 2
+
+[[items]]
+title = "Text Input"
+href = "/reference/widgets/widget-pages/text-input/"
+level = 2
+
+[[items]]
+title = "Text Run Style"
+href = "/reference/widgets/widget-pages/text-run-style/"
+level = 2
+
+[[items]]
+title = "Text"
+href = "/reference/widgets/widget-pages/text/"
+level = 2
+
+[[items]]
+title = "Time Picker"
+href = "/reference/widgets/widget-pages/time-picker/"
+level = 2
+
+[[items]]
+title = "Timeline Item"
+href = "/reference/widgets/widget-pages/timeline-item/"
+level = 2
+
+[[items]]
+title = "Timeline"
+href = "/reference/widgets/widget-pages/timeline/"
+level = 2
+
+[[items]]
+title = "Toast Kind"
+href = "/reference/widgets/widget-pages/toast-kind/"
+level = 2
+
+[[items]]
+title = "Toast"
+href = "/reference/widgets/widget-pages/toast/"
+level = 2
+
+[[items]]
+title = "Tooltip"
+href = "/reference/widgets/widget-pages/tooltip/"
+level = 2
+
+[[items]]
+title = "Transform"
+href = "/reference/widgets/widget-pages/transform/"
+level = 2
+
+[[items]]
+title = "Transition"
+href = "/reference/widgets/widget-pages/transition/"
+level = 2
+
+[[items]]
+title = "Tree Item"
+href = "/reference/widgets/widget-pages/tree-item/"
+level = 2
+
+[[items]]
+title = "Tree View"
+href = "/reference/widgets/widget-pages/tree-view/"
+level = 2
+
+[[items]]
+title = "V Stack"
+href = "/reference/widgets/widget-pages/v-stack/"
+level = 2
+
+[[items]]
+title = "Video"
+href = "/reference/widgets/widget-pages/video/"
+level = 2
+
+[[items]]
+title = "Web View"
+href = "/reference/widgets/widget-pages/web-view/"
+level = 2
+
+[[items]]
+title = "Wrap"
+href = "/reference/widgets/widget-pages/wrap/"
+level = 2
+
+[[items]]
+title = "Z Stack"
+href = "/reference/widgets/widget-pages/z-stack/"
+level = 2

@@ -1,0 +1,60 @@
+---
+title: Theming and internationalization
+description: The reference contract for theme values, locale, and translation bundles flowing through Env.
+---
+
+# Theming and internationalization
+
+This page covers two related global presentation systems.
+
+Theming controls how the interface looks.
+
+Internationalization, often shortened to i18n, controls how the interface supports multiple languages and locale-sensitive text selection.
+
+Both systems are explicit in Fission. Widgets read them through `Env` instead of guessing from hidden globals.
+
+## Theme surface
+
+The top-level theme type is `Theme` from `fission-theme`.
+
+A theme includes both primitive design tokens and component-level derived themes. In practice, that means the theme can answer questions about colors, spacing, typography, radius, elevation, and the styling rules for concrete components such as buttons, inputs, tabs, tooltips, and other widgets.
+
+Common entry points include `Theme::default()` and `Theme::dark()`.
+
+Use theme values when the whole app or a broad section of it should share a consistent presentation system. Avoid hard-coding unrelated color and spacing rules inside individual widgets when those rules should really come from the active theme.
+
+## Internationalization surface
+
+The top-level internationalization types are:
+
+| Type | Purpose |
+| --- | --- |
+| `Locale` | The active language and region identifier |
+| `TranslationBundle` | A group of translated key-value messages for one locale |
+| `I18nRegistry` | The registry of loaded translation bundles |
+
+Fission keeps this model intentionally small. The app decides what bundles to load and what locale should be active. The runtime then exposes those values through `Env` so widgets can resolve keyed text.
+
+## Environment flow
+
+`Env` carries the active theme, internationalization registry, and locale.
+
+That means widgets can read the current presentation context through `View` during `build()`. It also means layout and semantics can reflect translated text and theme-driven styling deterministically.
+
+Desktop currently exposes public `with_env(...)` and `with_sync_env(...)`. Mobile and web expose public `with_sync_env(...)`.
+
+Use `with_env(...)` to seed a base environment, such as one that already contains translation bundles.
+
+Use `with_sync_env(...)` when app state should update environment values, such as mirroring a user-selected locale or dark-mode setting into `Env`.
+
+## Practical guidance
+
+Keep durable user choices such as locale preference or theme mode in `AppState` when the product owns those choices over time.
+
+Keep translation bundle data and theme objects in the environment layer that widgets read.
+
+A common and practical pattern is to load translation files at startup, add them to `env.i18n`, and then mirror the currently selected locale into `env.locale` through `with_sync_env(...)`.
+
+## Related reference pages
+
+For the detailed `Env` contract, see [Environment, input, and input method editor](/reference/core/environment-input-and-ime). For the fuller guide with concrete examples and recommended `include_str!` translation loading, read [Theming and internationalization](/docs/guides/theming-and-i18n).

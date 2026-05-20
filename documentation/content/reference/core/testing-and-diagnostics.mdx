@@ -1,0 +1,103 @@
+---
+title: Testing and diagnostics
+description: The reference contract for reducer tests, headless runtime tests, live shell tests, and structured diagnostics.
+---
+
+# Testing and diagnostics
+
+This page is the technical map for how Fission verifies user interface behavior.
+
+The framework supports several testing layers because user interface bugs live at several layers. A reducer bug is not the same thing as a layout bug, a live shell bug, or a rendering-pipeline regression. Good reference documentation should help you choose the smallest tool that still matches the problem.
+
+## Testing layers
+
+### Reducer tests
+
+Reducer tests operate below widgets and shells. They are the right tool for checking state transitions and emitted effects.
+
+Use them when the question is purely behavioral: given this starting state and this action, did the reducer update state correctly and request the expected runtime work?
+
+### Headless runtime tests with `fission-test`
+
+`fission-test` is the headless testing crate for the shared runtime.
+
+Important public types include `TestHarness`, `TestDriver`, `HeadlessApp`, `MockRenderer`, `TextMatch`, and `SemanticMatch`.
+
+Use this layer when you need real widget building, layout, pumping, visible-text queries, semantic-tree queries, or in-process interaction without opening a real window.
+
+This is usually the best layer for geometry assertions, semantic assertions, and many interaction flows.
+
+### Live shell tests with `fission-test-driver`
+
+`fission-test-driver` is the live test client and protocol surface for running apps.
+
+Important public types include `LiveTestClient`, `TestCommand`, `TestResponse`, `SemanticNode`, and `TextItem`.
+
+Use this layer when a real shell matters, such as end-to-end interaction in a real presented app, screenshots, or shell-managed window behavior.
+
+### Target smoke validation
+
+Target smoke scripts and generated host launchers are not substitutes for the earlier test layers. They are host-level validation tools.
+
+Use them to confirm that browser, Android, or iOS host paths build and launch as expected.
+
+## Choosing the right test layer
+
+Use reducer tests for state logic.
+
+Use `fission-test` when you need the real runtime but not a real shell.
+
+Use `fission-test-driver` when you need the real shell.
+
+Use target smoke scripts when the question is specifically about the host path rather than the shared behavior.
+
+That ladder is the most important practical rule on this page.
+
+## Diagnostics model
+
+Diagnostics are the structured investigation surface for the runtime.
+
+The `fission-diagnostics` crate emits structured events rather than informal log strings. That makes it possible to inspect frame-stage behavior, compare runs, and point failures at the stage that diverged first.
+
+### Categories
+
+The public category model includes the following groups:
+
+| Category | What it covers |
+| --- | --- |
+| `Frame` | Frame lifecycle start and end information |
+| `Diff` | Structural differences between runtime snapshots |
+| `Layout` | Layout-stage summaries and related information |
+| `Paint` | Paint-stage summaries and node-level paint details |
+| `Raster` | Rasterization-stage summaries |
+| `Input` | Normalized input events and related traces |
+| `Animation` | Animation-stage summaries and motion tracking |
+| `Media` | Media and embed-related tracking |
+| `Semantics` | Reserved semantic-tree or accessibility-oriented events |
+| `Invariants` | Correctness and consistency violations |
+| `Test` | Reserved testing-oriented events |
+
+These categories exist so you can inspect one part of the runtime without turning every run into a giant unfiltered log.
+
+### Configuration
+
+The public environment variables for diagnostics include:
+
+- `FISSION_DIAG`,
+- `FISSION_DIAG_LEVEL`,
+- `FISSION_DIAG_SINK`,
+- `FISSION_DIAG_SAMPLING`.
+
+Use these to select categories, severity, output sink, and sampling behavior.
+
+## When to use diagnostics
+
+Use diagnostics when a failure clearly belongs to a stage of the runtime and you need structured evidence.
+
+Examples include layout unexpectedly rebuilding too often, paint order changing, input arriving differently than expected, or an invariant failure pointing to a deeper runtime bug.
+
+Do not use diagnostics as a substitute for ordinary tests. Diagnostics explain and narrow failures. Tests are still the primary way to lock behavior down.
+
+## Related reference pages
+
+For shell-specific test boundaries, continue to [Platform testing](/reference/platform/testing). For the teaching guide that explains test order and practical workflow, see [Testing and diagnostics](/docs/guides/testing-and-diagnostics).

@@ -1,0 +1,50 @@
+---
+title: Card
+description: Group related content on a raised surface with padding and rounded corners.
+slug: /widgets/card
+---
+# Card
+
+`Card` is the standard surface wrapper for grouped content.
+
+Use it when a section should feel visually separate from its background without becoming a whole dialog or panel. Cards work well for summaries, small dashboards, settings groups, and message attachments.
+
+## Example
+
+```rust
+use fission::prelude::*;
+
+let node = Card {
+    child: Box::new(
+        VStack {
+            spacing: Some(8.0),
+            children: vec![
+                Text::new("Billing").into_node(),
+                Text::new("Next invoice: 15 May").into_node(),
+            ],
+        }
+        .into_node(),
+    ),
+}
+.build(ctx, view);
+```
+
+This lets the content read as one unit without forcing you to recreate surface styling by hand.
+
+## Field table
+
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `child` | `Box<Node>` | The content shown inside the card. | Required. The default placeholder is only for empty construction. |
+
+## Layout behavior
+
+The checked-in card applies theme surface color, medium border radius, a level-1 shadow, and standard internal padding. It does not scroll, clip, or add interaction on its own. If the card should be clickable, wrap its content in a [`Button`](/reference/widgets/button) or a [`GestureDetector`](/reference/widgets/gesture-detector).
+
+## Specific advice
+
+A card should group meaningfully related content. If every small line item becomes its own card, the surface styling loses impact and the screen becomes harder to scan.
+
+## Related
+
+[`Container`](/reference/widgets/container), [`Alert`](/reference/widgets/alert), [`EmptyState`](/reference/widgets/empty-state), and [`Stat`](/reference/widgets/stat).

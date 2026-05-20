@@ -1,0 +1,66 @@
+---
+title: flyout
+description: Position custom popup content relative to an anchor node.
+slug: /widgets/flyout
+---
+# flyout
+
+`flyout(...)` is the low-level helper behind anchored overlays such as popovers, menus, and tooltips.
+
+It does one job: it takes an anchor `NodeId` and a popup `Node`, then asks the layout engine to place that popup next to the anchor. The popup prefers to appear below the anchor, flips upward if there is not enough room, and stays clamped within the viewport bounds.
+
+Use `flyout(...)` when the higher-level overlay widgets are too opinionated for your case and you need direct control over the popup content. Most application code should not start here. [`Popover`](/reference/widgets/popover), [`Menu`](/reference/widgets/menu), [`Select`](/reference/widgets/select), and [`Tooltip`](/reference/widgets/tooltip) already solve the common anchored-overlay cases and are easier to reason about.
+
+## Example
+
+```rust
+use fission::core::{NodeId, PortalLayer, WidgetNodeId};
+use fission::core::ui::{Button, Container, Text};
+use fission::prelude::*;
+
+let anchor_id = NodeId::derived(WidgetNodeId::explicit("help_button").as_u128(), &[]);
+
+let trigger = Button {
+    id: Some(anchor_id),
+    child: Some(Box::new(Text::new("Help").into_node())),
+    on_press: Some(toggle_help),
+    ..Default::default()
+}
+.into_node();
+
+if view.state.show_help {
+    let popup = Container::new(Text::new("Keyboard shortcuts live here").into_node())
+        .padding_all(12.0)
+        .into_node();
+
+    ctx.register_portal_with_layer(
+        PortalLayer::Flyout,
+        Some(WidgetNodeId::explicit("help_popup")),
+        flyout(anchor_id, popup),
+    );
+}
+```
+
+The open state still belongs to your app model. `flyout(...)` only handles the geometry.
+
+## Argument table
+
+| Argument | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `anchor` | `NodeId` | The already-laid-out node to position the popup against. | The anchor must exist in the normal layout tree for the current frame. |
+| `content` | `Node` | The popup subtree to place near the anchor. | `flyout(...)` does not add a backdrop, border, or dismissal logic. Those stay under your control. |
+
+## Layout behavior
+
+The helper lowers to a special `LayoutOp::Flyout` marker. During layout, Fission measures the popup content, looks up the anchor's visual rectangle, and computes a viewport-safe placement. This matters for tests and cross-platform parity because the same geometry rules apply regardless of whether the popup is a menu, a tooltip, or a custom panel.
+
+## Specific advice
+
+Prefer higher-level widgets when they fit. `flyout(...)` is easy to misuse if you forget one of the surrounding responsibilities: open state, dismissal behavior, portal layering, and accessibility. In many products, the correct implementation is not just "show a box near a button." It is "show a labeled, dismissible, keyboard-reachable overlay near a button." `Popover` and menu widgets already cover more of that work.
+
+If you do use `flyout(...)` directly, give the anchor a stable id, register the popup in the flyout portal layer, and test edge placement near the corners of the viewport.
+
+## Related
+
+[`Popover`](/reference/widgets/popover), [`Tooltip`](/reference/widgets/tooltip), [`Menu`](/reference/widgets/menu), [`Select`](/reference/widgets/select), and [`Portal`](/reference/widgets/portal).
+

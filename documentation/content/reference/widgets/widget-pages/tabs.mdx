@@ -1,0 +1,54 @@
+---
+title: Tabs
+description: Switch between a small number of peer content panels using explicit active-index state.
+slug: /widgets/tabs
+---
+# Tabs
+
+`Tabs` is the peer-section switcher for one screen region.
+
+Use it when several sections belong to the same level of navigation and users should move between them without leaving the current screen. Tabs work best when the number of choices is small and each tab represents a clear slice of the same feature area.
+
+## Example
+
+```rust
+use fission::prelude::*;
+
+let node = Tabs {
+    active_index: view.state.active_settings_tab,
+    items: vec![
+        TabItem {
+            title: "General".into(),
+            content: general_settings_node,
+            on_press: Some(select_general_tab_action),
+        },
+        TabItem {
+            title: "Security".into(),
+            content: security_settings_node,
+            on_press: Some(select_security_tab_action),
+        },
+    ],
+}
+.build(ctx, view);
+```
+
+## Field table
+
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `active_index` | `usize` | Which tab is currently selected. | Controlled by app state. |
+| `items` | `Vec<TabItem>` | Tab definitions in display order. | Defaults to an empty list. |
+
+## State ownership and rendering behavior
+
+`Tabs` does not own selection state. Each tab button emits its own `on_press` action, and the reducer updates `active_index`. The checked-in widget renders only the active tab's content below the tab bar.
+
+This is an important architectural choice. Even though tabs feel interactive, they still follow the same explicit state loop as the rest of Fission.
+
+## Specific advice
+
+Keep tab counts small. If the bar starts wrapping, scrolling, or forcing cryptic labels, the information architecture usually wants a different pattern.
+
+## Related
+
+[`TabItem`](/reference/widgets/tab-item), [`SegmentedControl`](/reference/widgets/segmented-control), [`Accordion`](/reference/widgets/accordion), and [`Breadcrumb`](/reference/widgets/breadcrumb).

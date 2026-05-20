@@ -1,0 +1,132 @@
+---
+title: Commands, services, and jobs
+description: Practical model for async work in Fission.
+---
+
+# Commands, services, and jobs
+
+Use this split every time behavior reaches outside the pure reducer layer.
+
+## The contract you should remember
+
+- **Jobs**: one-shot request/response work from a reducer.
+- **Services**: long-lived, start/stop entities that can emit repeated events.
+- **Commands**: directed instructions to an active service.
+
+The flow is always:
+
+`action -> async trigger -> completion action -> reducer -> render`
+
+## When to choose which
+
+- need network fetch when user clicks something? start with a **job**.
+- need background sync/polling/stateful stream? use a **service**.
+- need to ask an active service to do something now? send a **command**.
+
+## Minimal building blocks
+
+### Job
+
+```rust
+#[derive(Debug, Serialize, Deserialize)]
+struct SearchJob;
+
+impl JobSpec for SearchJob {
+    type Request = String;
+    type Ok = Vec<String>;
+    type Err = String;
+    const NAME: &'static str = "search-job";
+}
+```
+
+Use a job when work must complete once and return a result. In the reducer, queue a typed job envelope and map both success and failure into reducer actions:
+
+```rust
+let on_ok = ctx.effects.bind(SearchLoaded, reduce_with!(on_search_loaded));
+ctx.effects.app(SEARCH_JOB, query).on_ok(on_ok);
+```
+
+### Service
+
+```rust
+#[derive(Debug, Serialize, Deserialize)]
+struct SyncService;
+
+impl ServiceSpec for SyncService {
+    type Config = SyncConfig;
+    type Command = SyncCommand;
+    type CommandOk = SyncCommandOk;
+    type CommandErr = SyncCommandErr;
+    type Event = SyncEvent;
+    type StartErr = SyncStartErr;
+    const NAME: &'static str = "sync-service";
+}
+```
+
+Start a service when behavior is ongoing or stream-based:
+
+```rust
+let on_started = ctx.effects.bind(ServiceStarted, reduce_with!(on_service_started));
+
+ctx.effects.start_service(SYNC_SERVICE, SyncConfig { tick_ms: 250 })
+    .on_ok(on_started);
+```
+
+### Command
+
+```rust
+ctx.effects
+    .command(ServiceSlot::singleton(SYNC_SERVICE), SyncCommand::Refresh)
+    .on_ok(on_command_ok)
+    .on_err(on_command_err);
+```
+
+## Async registration in runtime
+Register async behavior once in app startup. That keeps behavior wiring central and testable:
+
+```rust
+DesktopApp::new(MyApp)
+    .with_async(|asyncs| {
+        asyncs.register_job(SEARCH_JOB, |req: SearchRequest, _| async move {
+            Ok::<_, String>(vec![req.query])
+        });
+    })
+    .run()
+```
+
+Keep options and categories organized:
+
+- **Jobs** are for bounded work that ends with one `on_ok` / `on_err` response.
+- **Services** are for background processes or repeated updates.
+- **Commands** are control messages sent to a running service.
+
+Common registration mistakes are late registration (inside reducers) and using services when one-shot jobs are enough.
+
+## Choosing the right async mechanism
+
+Use this sequence before writing the first async path:
+
+1. Can the work be repeated automatically on a timer or by stream?
+   - use a **service**.
+2. Is there a payload to fetch or save once and then finish?
+   - use a **job**.
+3. Is there an existing service that needs control messages or periodic nudges?
+   - use a **command**.
+
+If you are unsure, default to a **job** because it keeps lifecycle and cleanup simpler for the first pass.
+
+## Tooling and registration options
+
+- `with_async` setup belongs in app creation, not in reducers.
+- keep job/service specs in dedicated modules.
+- prefer typed config structs so registration is reviewable in one place.
+- register completion handlers (`on_ok`, `on_err`) that map to explicit reducer actions.
+
+## Test order that catches issues early
+
+1. reducer tests (no effects),
+2. job/service input tests with `ActionInput`,
+3. `TestHarness` behavior checks,
+4. live target smoke for the generated target.
+
+Then continue to [i18n and accessibility](/docs/guide/i18n-and-accessibility).

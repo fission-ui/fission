@@ -1,0 +1,52 @@
+---
+title: Timeline
+description: Show a vertical sequence of events, milestones, or activity entries.
+slug: /widgets/timeline
+---
+# Timeline
+
+`Timeline` is the chronological sequence widget.
+
+Use it when order matters more than tabular comparison. Timelines work well for activity feeds, deployment history, message milestones, shipping updates, and audit trails.
+
+## Example
+
+```rust
+use fission::prelude::*;
+
+let node = Timeline {
+    items: vec![
+        TimelineItem {
+            title: "Queued".into(),
+            description: Some("Waiting for an available runner".into()),
+            timestamp: Some("09:58".into()),
+        },
+        TimelineItem {
+            title: "Running".into(),
+            description: Some("Tests are executing".into()),
+            timestamp: Some("10:03".into()),
+        },
+    ],
+}
+.build(ctx, view);
+```
+
+## Field table
+
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `items` | `Vec<TimelineItem>` | Events shown from top to bottom. | Defaults to an empty list. |
+
+## Layout and usage guidance
+
+The checked-in renderer draws a dot and vertical connector line for each item, then stacks the event content beside it. This makes the widget easy to scan in a single column.
+
+A timeline is strongest when entries represent real moments in a meaningful order. If users mostly need to compare attributes across many rows, a table is usually the better fit.
+
+## Specific advice
+
+Avoid stuffing a full paragraph into every event. Timelines stay readable when the title carries the main meaning and the description adds only the context that helps the user decide what happened.
+
+## Related
+
+[`TimelineItem`](/reference/widgets/timeline-item), [`DataTable`](/reference/widgets/data-table), [`Alert`](/reference/widgets/alert), and [`Card`](/reference/widgets/card).

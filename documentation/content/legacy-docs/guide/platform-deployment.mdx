@@ -1,0 +1,54 @@
+---
+title: Platform and deployment
+description: Keep behavior stable while preparing outputs.
+---
+
+# Platform and deployment
+
+You do not change your app architecture per platform. You change output and validation strategy.
+
+## The generated contract
+
+`fission.toml` controls which hosts are enabled. Generated outputs are under `platforms/<target>/` and contain
+scripts, configs, and readmes.
+
+## Recommended order for one milestone
+
+1. Build and validate locally.
+2. Add target (`web`, `ios`, or `android`) when required.
+3. Run generated host script.
+4. Capture target-specific differences (fonts, gestures, performance).
+
+The desktop path is a good first validation target; web and mobile follow after the same behavior loop is stable.
+
+## Run commands by platform
+
+```bash
+# Desktop
+cargo run
+
+# Web
+cargo fission add-target web
+./platforms/web/run-browser.sh
+
+# iOS
+cargo fission add-target ios
+./platforms/ios/run-sim.sh
+
+# Android
+cargo fission add-target android
+./platforms/android/run-emulator.sh
+```
+
+### Notes you need before release
+
+- add platform prerequisites documented in each target README,
+- include any required environment variables in CI,
+- keep generated output scripts deterministic in your team workflows.
+
+## When to use local-checkout examples
+
+The examples folder is useful for reproducing baseline behavior and validating toolchain setup.
+It complements generated app workflow and can speed up smoke checks.
+
+Keep behavior validation in your own app first; treat examples as parity checks, not as your product model.

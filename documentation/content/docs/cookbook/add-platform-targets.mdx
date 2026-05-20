@@ -1,0 +1,185 @@
+---
+title: Add platform targets
+description: Add web, Android, and iOS hosts to a Fission app without changing the shared app model.
+---
+
+# Add platform targets
+
+By the end of this recipe, you will have added real web, Android, and iOS host folders to an existing Fission app and you will understand what those generated files are doing for you.
+
+This is a target-generation recipe, not a rewrite-your-app recipe. The whole point is that your shared app model stays the same. Your app state, actions, reducers, selectors, widgets, and effects remain shared Rust code. What changes is the host wrapper around that shared app.
+
+A good way to think about this step is: you already have an app model you trust, and now you want to run that same app through another real host.
+
+## The problem we are solving
+
+You have a Fission app and you want to reach another platform: the browser, Android, or iOS.
+
+You do not want to fork the app into separate codebases. You want one shared runtime model and multiple real hosts around it.
+
+That is what `cargo fission add-target` is for.
+
+## Step 1: choose the first target by product need
+
+Before running any command, decide which host actually answers your next question.
+
+If your product is browser-first, add the web target first because browser packaging, viewport behavior, and browser-host integration are part of the real product.
+
+If your product is mobile-first, add Android or iOS as soon as touch layout, safe-area assumptions, soft-keyboard behavior, or mobile packaging become important.
+
+If your current question is still mostly about shared reducers, widgets, selectors, and layout logic, you may continue using the desktop host heavily because it is often the shortest general-purpose loop on many machines. That is a workflow convenience, not the identity of the framework. Fission's app model is meant for desktop, web, Android, and iOS alike.
+
+The practical rule is simple: add the host that can prove the behavior you care about next.
+
+## Step 2: understand what target generation changes
+
+In Fission, a target is a generated host wrapper for a specific platform.
+
+Your shared code under `src/` remains the shared app. The target generation step adds the platform-facing files needed to build, package, and launch that app through a real browser host, Android host, or iOS host.
+
+When the command runs, it does two important things.
+
+First, it updates `fission.toml` so the project records which targets exist.
+
+Second, it creates the generated platform folders under `platforms/`. Those folders contain the host scripts, manifests, and notes that make each target runnable.
+
+That is why target generation matters: it gives you the platform wrapper without asking you to hand-author every host file yourself.
+
+## Step 3: add the targets with the command-line interface
+
+From the project root, run:
+
+```bash
+cargo fission add-target web ios android --project-dir my-app
+```
+
+The command-line interface, or command-line interface, is the tool that generates these host folders.
+
+If you are already standing inside the generated project directory, `my-app` is simply that project path. If you want, you can also add targets one at a time instead of all together.
+
+For example, if you only need the browser host right now, this is also valid:
+
+```bash
+cargo fission add-target web --project-dir my-app
+```
+
+A beginner-friendly way to read the command is:
+
+- `cargo fission` means "run the Fission command-line interface through Cargo"
+- `add-target` means "generate more host wrappers for this app"
+- `web ios android` are the host targets you want
+- `--project-dir my-app` tells the command-line interface which existing app to update
+
+## Step 4: inspect what the command-line interface generated
+
+After the command finishes, your shared app logic is still in the same place.
+
+`src/main.rs` is still your desktop entrypoint.
+
+`src/lib.rs` still holds shared entry helpers used by non-desktop hosts.
+
+`src/app.rs` still contains the shared app logic.
+
+`fission.toml` now records the targets you added.
+
+The new part is the generated `platforms/` folders.
+
+- `platforms/web/` contains the generated browser host output
+- `platforms/android/` contains the generated Android host output
+- `platforms/ios/` contains the generated iOS host output
+
+Inside those folders, you will see README files and helper scripts.
+
+A helper script is simply a checked-in script that runs the repeated platform steps for you. On web, that means building the WebAssembly package and serving the browser host. On Android and iOS, that means packaging and launching through the correct mobile host path.
+
+These files are not mystery files and they are not your app logic. They are the platform-specific wrapper around your shared app.
+
+## Step 5: run the web target when browser behavior matters
+
+If your next question is about the browser host, run:
+
+```bash
+./platforms/web/run-browser.sh
+```
+
+This script builds the WebAssembly output and serves the generated browser host so you can open the app in a browser.
+
+What should stay the same is the shared app behavior: reducers, state transitions, widget structure, and most layout intent.
+
+What you should validate specifically on web is browser-host behavior: viewport resizing, browser presentation, pointer and keyboard interaction, and any browser-specific assumptions in your product.
+
+If your app is web-first, there is no reason to treat this as a late-stage step. It is the correct host to validate early.
+
+## Step 6: run the Android target when mobile behavior matters
+
+If your next question is about Android packaging or mobile presentation, run:
+
+```bash
+./platforms/android/run-emulator.sh
+```
+
+Before that, make sure the Android software development kit (SDK) and Android native development kit (NDK) are installed, and make sure the required toolchain environment variables are set. The generated `platforms/android/README.md` file is the best place to confirm the current prerequisites for the checked-in scaffold.
+
+This step is about validating the same shared app inside a real Android host. It is not about writing a separate Android version of your reducers or widgets.
+
+On Android, pay close attention to touch targets, viewport size, text entry, emulator behavior, and any mobile-specific assumptions in your layout.
+
+## Step 7: run the iOS target when iOS host behavior matters
+
+If your next question is about the iOS host path, run:
+
+```bash
+./platforms/ios/run-sim.sh
+```
+
+This path targets the iOS simulator. It requires the current Xcode simulator tooling, and the generated `platforms/ios/README.md` file is the right place to confirm the current prerequisites and simulator notes.
+
+Again, the shared app logic does not change. What changes is the host packaging and simulator environment around it.
+
+On iOS, validate safe-area behavior, smaller viewport assumptions, text entry flow, and the current simulator behavior documented in the generated target notes.
+
+## Step 8: know what stays shared and what must be validated per host
+
+After target generation, the important architectural truth is unchanged.
+
+`AppState` is still shared.
+
+Your reducers are still shared.
+
+Your widgets still build from `View` and `BuildCtx`.
+
+Your selectors still derive shared view data.
+
+What differs is the host boundary around that app. The browser host, Android host, and iOS host each have their own packaging, launcher scripts, and platform-facing behavior.
+
+That is why target validation matters. It is not because the architecture stops being shared. It is because serious cross-platform apps still need real host checks where the host is part of the behavior.
+
+## Step 9: validate the right things on each target
+
+Once a target is generated and running, do not stop at "the window opened" or "the page loaded."
+
+Walk through a real user path.
+
+Check startup.
+
+Check the primary action flow.
+
+Check text input and focus movement.
+
+Check responsive layout at realistic sizes.
+
+Check any host boundary features such as file picking, external links, or authentication on the platforms where they matter.
+
+The shared architecture should carry most product behavior, but every real host still deserves direct validation.
+
+## What to avoid
+
+Do not fork your app model too early. The value of Fission is that desktop, web, Android, and iOS share one core runtime model.
+
+Do not treat the generated host output as disposable noise. Read the target README files and use the scripts as intended so you understand how each host launches and what it needs.
+
+Do not assume one host proves every host. A reducer bug may be shared everywhere, but browser viewport behavior, Android packaging, and iOS simulator presentation still need to be tested where they actually happen.
+
+## Where to go next
+
+If you want the deeper explanation of platform shells and the command-line interface, read [Platform shells, command-line interface, and testing](/docs/guides/platform-shells-cli-and-testing). If you want the reference view of target expectations per platform, use [Target reference](/reference/platform/targets).

@@ -1,0 +1,56 @@
+---
+title: Overlay
+description: Draw one overlay layer on top of one main content layer.
+slug: /widgets/overlay
+---
+# Overlay
+
+`Overlay` is the two-layer stacking helper.
+
+It renders `content` first, then renders `overlay` on top of that content while filling the same bounds. This is a strong fit for loading scrims, badges that should cover the same card, transient blocking layers, or other cases where you conceptually have a base surface plus one extra layer.
+
+Use `Overlay` when the relationship is naturally "main thing plus one covering layer." Do not use it when you need many independently ordered layers or precise corner positioning. Those cases are clearer with [`ZStack`](/reference/widgets/z-stack) and [`Positioned`](/reference/widgets/positioned).
+
+## Example
+
+```rust
+use fission::core::ui::{Container, Overlay, Text};
+
+let node = Overlay {
+    content: Box::new(Text::new("Invoice list").into_node()),
+    overlay: Box::new(
+        Container::new(Text::new("Syncing...").into_node())
+            .bg(fission::core::op::Color {
+                r: 0,
+                g: 0,
+                b: 0,
+                a: 110,
+            })
+            .into_node(),
+    ),
+    ..Default::default()
+}
+.into_node();
+```
+
+## Field table
+
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `id` | `Option<NodeId>` | Stable node identity. | Defaults to `None`. |
+| `content` | `Box<Node>` | The base layer, drawn first. | Required. `Default` uses empty text nodes as placeholders. |
+| `overlay` | `Box<Node>` | The top layer, drawn above `content`. | Required. Internally wrapped in an absolute-fill layer. |
+
+## Layout behavior
+
+`Overlay` builds an internal stack. The overlay child is wrapped in an `AbsoluteFill` layout node so it covers the full bounds of the composed area, and the resulting stack is wrapped so it can stretch inside surrounding layouts.
+
+That makes `Overlay` a practical high-level helper when the overlay should cover the same region rather than float at some independent position.
+
+## Specific advice
+
+Use `Overlay` when the two-layer relationship itself is important to code readability. If the overlay needs a dismiss backdrop, focus trap, and multiple positioned children, step up to `ZStack`, [`FocusScope`](/reference/widgets/focus-scope), and `Positioned` instead of trying to force everything through one `overlay` field.
+
+## Related
+
+[`ZStack`](/reference/widgets/z-stack), [`absolute_fill(...)`](/reference/widgets/absolute-fill), and [`Positioned`](/reference/widgets/positioned).

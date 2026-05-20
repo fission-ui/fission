@@ -1,0 +1,59 @@
+---
+title: Overlays and navigation
+description: The reference overview for layered interface, portals, menus, routing, and navigation-oriented widgets.
+---
+
+# Overlays and navigation
+
+This widget family covers two closely related jobs.
+
+First, it covers layered interface that should appear above the main layout flow, such as modals, popovers, menus, tooltips, and toasts.
+
+Second, it covers the widgets that help users move through app structure, such as tabs, accordions, breadcrumbs, pagination, routing, and transition-oriented navigation helpers.
+
+These widgets matter in Fission because they rely on runtime-owned portal, focus, or routing behavior rather than being simple inline content.
+
+## Overlay and portal-oriented widgets
+
+| Widget | Dedicated page | When to choose it |
+| --- | --- | --- |
+| `Modal` | [Modal](/reference/widgets/modal) | A blocking dialog should appear above the main interface |
+| `ModalAction` | [ModalAction](/reference/widgets/modal-action) | Supporting action definition for modal footers |
+| `Popover` | [Popover](/reference/widgets/popover) | A panel should anchor to another element |
+| `Drawer` | [Drawer](/reference/widgets/drawer) | A larger side panel should slide in |
+| `DrawerSide` | [DrawerSide](/reference/widgets/drawer-side) | Supporting type for drawer placement |
+| `Tooltip` | [Tooltip](/reference/widgets/tooltip) | Small explanatory overlay on hover or focus |
+| `Toast` | [Toast](/reference/widgets/toast) | Temporary notification overlay |
+| `ToastKind` | [ToastKind](/reference/widgets/toast-kind) | Supporting toast style type |
+| `Portal` | [Portal](/reference/widgets/portal) | Low-level portal registration widget |
+| `flyout(...)` | [flyout](/reference/widgets/flyout) | Flyout helper for layered overlay composition |
+| `Menu` | [Menu](/reference/widgets/menu) | Menu surface |
+| `MenuButton` | [MenuButton](/reference/widgets/menu-button) | Button that opens or owns a menu |
+| `MenuItem` | [MenuItem](/reference/widgets/menu-item) | One menu entry |
+
+## Navigation and route structure widgets
+
+| Widget | Dedicated page | When to choose it |
+| --- | --- | --- |
+| `Tabs` | [Tabs](/reference/widgets/tabs) | Peer sections should switch in the same area |
+| `TabItem` | [TabItem](/reference/widgets/tab-item) | Supporting tab definition |
+| `Accordion` | [Accordion](/reference/widgets/accordion) | Sections should expand and collapse in place |
+| `AccordionItem` | [AccordionItem](/reference/widgets/accordion-item) | Supporting accordion entry |
+| `Breadcrumb` | [Breadcrumb](/reference/widgets/breadcrumb) | Show hierarchical navigation path |
+| `BreadcrumbItem` | [BreadcrumbItem](/reference/widgets/breadcrumb-item) | Supporting breadcrumb entry |
+| `Pagination` | [Pagination](/reference/widgets/pagination) | Move through paged content |
+| `Route` | [Route](/reference/widgets/route) | Define one route mapping |
+| `RouteParams` | [RouteParams](/reference/widgets/route-params) | Access parsed route parameters |
+| `Router` | [Router](/reference/widgets/router) | Choose which routed content should build |
+
+## Transition and navigation-adjacent helpers
+
+| Widget | Dedicated page | When to choose it |
+| --- | --- | --- |
+| `Hero` | [Hero](/reference/widgets/hero) | Shared-element transition between states or routes |
+| `Transition` | [Transition](/reference/widgets/transition) | Animated transition wrapper |
+| `FocusScope` | [FocusScope](/reference/widgets/focus-scope) | Keep focus behavior bounded within a region |
+
+## Practical cross-reference
+
+If the next question is about the runtime portal and animation contracts behind these widgets, continue to [Animations, portals, and media](/reference/core/animations-portals-media). For the higher-level teaching explanation, see [Media, animation, portals, and 3D](/docs/guides/media-animation-portals-and-3d). For the full widget map, return to the [Widget catalog](/reference/widgets/catalog).

@@ -1,0 +1,36 @@
+---
+title: BreadcrumbItem
+description: Describe one location step inside a Breadcrumb trail.
+slug: /widgets/breadcrumb-item
+---
+# BreadcrumbItem
+
+`BreadcrumbItem` is the item record used by [`Breadcrumb`](/reference/widgets/breadcrumb).
+
+Each item describes one step in a location path, such as a workspace, folder, or document hierarchy. Most non-final items are clickable. The final item usually represents the current location and is displayed as plain text.
+
+## Example
+
+```rust
+use fission::prelude::*;
+
+let item = BreadcrumbItem {
+    label: "Projects".into(),
+    on_click: Some(open_projects_action),
+};
+```
+
+## Field table
+
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `label` | `String` | Visible text for this step in the trail. | Required. |
+| `on_click` | `Option<ActionEnvelope>` | Action fired when this breadcrumb step is chosen. | Defaults to `None`. In a trail, `None` usually means the item is not navigable. |
+
+## Specific advice
+
+Use stable, human-readable labels. Breadcrumbs are for orientation first and navigation second. If labels are cryptic ids, the trail stops helping.
+
+## Related
+
+[`Breadcrumb`](/reference/widgets/breadcrumb), [`Link`](/reference/widgets/link), [`Text`](/reference/widgets/text), and [`Button`](/reference/widgets/button).

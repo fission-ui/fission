@@ -1,0 +1,88 @@
+---
+title: Examples and targets
+description: Learn what Fission examples are for, what a target host is, and how to choose a practical validation path for your app.
+---
+
+# Examples and targets
+
+As you start building with Fission, you will keep seeing two ideas: examples and targets.
+
+They are related, but they solve different problems.
+
+An example is a teaching app. It exists to show you how a Fission app is structured and to prove that a feature works in real code. A target is a host for your app. It is the platform-specific wrapper that runs the same shared app model on desktop, web, Android, or iOS.
+
+That distinction is worth learning early because beginners often open the wrong thing for the question they actually have. If you want to understand reducers, widgets, selectors, or layout, an example is usually the right place to look. If you want to understand how the app launches in a browser, installs into an Android emulator, or runs in an iOS simulator, you are asking a target question.
+
+## What examples are for
+
+Fission examples are there to teach and to prove.
+
+They teach by giving you a real running crate with a limited goal. They prove by showing that the framework behavior described in the docs is not only theoretical. An example is where you can see the runtime model, widget choices, layout decisions, and platform integration working together in one app.
+
+That does not mean examples replace the docs. The docs should explain the idea clearly first. The example is there to make that explanation concrete.
+
+So a good way to use the examples is to choose one based on the next question you are trying to answer. If you want the smallest complete app loop, start with `counter`. If you want a broad tour of built-in widgets, open `widget-gallery`. If text entry, focus, menus, or input method editor behavior are your problem, `text-lab` is the better teaching app. If you want product-shaped proof for richer layout and workflow questions, move to `inbox`, `terminal`, or `fission-editor`.
+
+The important point is that examples are not separate product tracks. They are learning tools and proof points built on the same shared architecture you will use in your own app.
+
+## What a target is
+
+In Fission, a target is a real production host for the shared app model.
+
+Your shared app code owns the things that make the app feel like your app: state, actions, reducers, selectors, widgets, layout, and most of the behavior users actually experience. The target host owns the platform-facing work: startup, packaging, launch scripts, browser serving, mobile host setup, and the bridge into the platform shell.
+
+So when people say "add the web target" or "generate the Android target," they do not mean "rewrite the app for that platform." They mean "generate the host wrapper that lets the same app run there."
+
+That is why Fission can aim for one app model across desktop, web, Android, and iOS. The app stays shared. The host changes.
+
+## What a host project or host script is
+
+A host project is the platform-specific folder that knows how to launch your shared app on one target.
+
+When you add targets with the command-line interface, Fission generates folders such as `platforms/web/`, `platforms/android/`, or `platforms/ios/`. Those folders contain the files and scripts that belong to that host.
+
+A host script is just a helper that runs the repeated platform commands for you. On web, that means building and serving the WebAssembly output. WebAssembly is the compiled format that lets your Rust app run in the browser. On Android and iOS, that means packaging and launching through the documented emulator or simulator path instead of making you remember every step manually.
+
+So if the shared app is the thing you are building, the host project is the thing that gets it onto a specific platform in a runnable form.
+
+## One app model, multiple real hosts
+
+It is important not to think of desktop as the only "real" target and everything else as a later add-on. Fission is intended to power real desktop, web, Android, and iOS apps. Those are all genuine hosts for the same runtime.
+
+What does vary is the local development experience.
+
+Desktop is often the easiest first loop because many developers can run it immediately and iterate quickly there. That makes it a very practical way to learn reducers, layout, selectors, and shared user interface behavior. But that convenience should not be confused with status. Web is not a lesser host because it runs through a browser. Android is not a lesser host because it needs emulator setup. iOS is not a lesser host because simulator and device validation are distinct steps. They are all real delivery environments.
+
+The better way to think about target strategy is this: you have one shared app model and several real production hosts, and you choose the first validation path that best fits your product and your machine.
+
+If your product is browser-first, the web target may belong in your loop from the beginning. If your app is touch-heavy, phone-shaped, or depends on mobile presentation details, Android or iOS should enter the loop early. If you are still learning the framework and want the least host friction first, desktop is often the easiest place to begin. All of those choices are reasonable.
+
+## A practical beginner strategy
+
+For many beginners, the smoothest path is to start by getting the shared app model stable in the easiest local loop they have available. Often that is desktop, but it does not have to be. The real goal is not "start on desktop because desktop is the main target." The real goal is "start where you can see the shared runtime clearly."
+
+Once the shared behavior is understandable, bring in the host that can answer the next real question.
+
+Bring in web when browser serving, browser viewport behavior, or browser integration details matter. Bring in Android when emulator packaging, mobile viewport behavior, or Android-specific validation matters. Bring in iOS when simulator behavior, iOS packaging, or mobile presentation details matter there.
+
+That way, you are not delaying serious platforms. You are choosing the host that proves the behavior you care about at each step.
+
+## The checked-in target proofs in this repo
+
+This repository already contains concrete, runnable host proofs.
+
+`web-smoke` is the checked-in browser path. It also has a generated-host-style launcher under `examples/web-smoke/platforms/web/run-browser.sh`, which proves the current browser host flow in real code.
+
+`mobile-smoke` is the checked-in mobile path. It includes an Android emulator launcher under `examples/mobile-smoke/platforms/android/run-emulator.sh` and an iOS simulator launcher under `examples/mobile-smoke/platforms/ios/run-sim.sh`. Those examples matter because they keep the platform claims grounded in runnable hosts, not just abstract diagrams.
+
+The command-line interface can generate equivalent host folders for your own app with `cargo fission add-target ...`, so you are not limited to the checked-in examples when you move into your own project.
+
+## What to keep in mind as you grow
+
+Examples help you learn the app model. Targets help you run that model on real platforms. The shared runtime remains the center of gravity in both cases.
+
+If you keep that structure in mind, the site becomes much easier to navigate. Open examples when you want to learn how a concept looks in an app. Open target and shell docs when you want to understand how that app is launched, packaged, or validated on desktop, web, Android, or iOS.
+
+## Where to go next
+
+If you want the guided first-run flow, go to [Quickstart](/docs/learn/quickstart). If you want the fuller explanation of shell wrappers, generated hosts, and platform validation, continue to [Platform shells, command-line interface, and testing](/docs/guides/platform-shells-cli-and-testing). If you want help choosing an example by learning goal, visit the public [Examples](/examples) page.

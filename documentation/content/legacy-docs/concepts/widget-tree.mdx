@@ -1,0 +1,25 @@
+---
+title: Widget tree model
+description: Why Fission uses a typed widget tree and how to reason about it.
+---
+
+# Widget tree model
+
+The widget tree is your executable design document. `build()` always returns a `Node` tree that expresses:
+
+- what must be shown,
+- with what children and constraints,
+- and with any semantic metadata.
+
+## Practical debugging flow
+
+When behavior surprises you, follow this order:
+
+1. confirm action and reducer state first,
+2. check that `build()` is deterministic,
+3. inspect the generated node structure,
+4. move to layout and render diagnostics.
+
+This keeps you from guessing in paint when the issue is actually in reducer or branching logic.
+
+Move to [Rendering pipeline](/docs/concepts/pipeline) once state flow is stable.

@@ -1,0 +1,294 @@
+---
+title: Command-line interface overview
+description: Reference documentation for the Fission command-line interface, including project scaffolding, target generation, and how the command-line interface fits into real cross-platform work.
+---
+
+# Command-line interface overview
+
+The Fission command-line interface is the tool you use to put a new Fission app on disk, connect that shared app to real platform hosts, and keep the daily development loop consistent across desktop, web, Android, and iOS.
+
+That distinction matters. Fission's core architecture lives in your shared Rust code: your app state, actions, reducers, widgets, and effects. The command-line interface does not replace that architecture. Its job is narrower and more concrete. It gives you a correct starting scaffold, records which targets your app supports, generates the host folders that let the shared app run on desktop, web, Android, and iOS, and then gives you one place to discover devices, run the app, attach logs, build artifacts, and run smoke tests.
+
+If you are learning Fission, think of the command-line interface as the bridge between two layers:
+
+- your shared app model, which stays the same across platforms, and
+- the shell hosts, which package and launch that shared app in a desktop window, a browser page, an Android app, or an iOS app bundle.
+
+This page explains how to use that bridge well.
+
+## How the command-line interface fits into a real workflow
+
+Most teams meet the command-line interface at two moments.
+
+The first moment is the start of a project. You run `fission init` when you want a fresh app with the expected file layout, a starter application, an initial desktop host, and a `fission.toml` manifest that records project metadata and target choices.
+
+The second moment is when your shared app is ready to run in another host. At that point, you use `cargo fission add-target` to generate the extra platform folder for web, Android, or iOS, or to add a specific desktop target if needed. The important idea is that you are not rewriting your app for each platform. You are generating the host wrapper around the same shared app model.
+
+After that, the command-line interface becomes part of the normal development loop. You can ask it which devices are available, choose a device by id, run the app, attach to logs, build without launching, or run the generated smoke test. That keeps the workflow close to the app instead of forcing every developer on the team to memorize different shell scripts for each platform.
+
+Different teams choose a different first validation path. Many developers start on desktop because `cargo run` is a very short local loop on most machines. Others start in the browser because their product is web-first, or move into Android or iOS early because mobile input, screen size, and safe-area behavior are central to the product. The command-line interface supports that model: one shared app, multiple real hosts, generated when you need them.
+
+## Commands at a glance
+
+Fission exposes these public command-line interface entry points:
+
+| Command | What it does | When you usually reach for it |
+| --- | --- | --- |
+| `fission init <path>` | Creates a new Fission project scaffold | When you are starting a new app |
+| `cargo fission add-target <targets...>` | Adds generated host folders for more platforms | When your existing app needs another host |
+| `cargo fission doctor [targets...]` | Checks local SDKs, browsers, emulators, and Rust targets | When setting up a machine or diagnosing a broken platform loop |
+| `cargo fission devices` | Lists runnable desktop, browser, simulator, emulator, and device targets | Before choosing where to run the app |
+| `cargo fission run` | Builds and launches the app, attaching output or device logs by default | During normal development |
+| `cargo fission build` | Builds a target without launching it | Before sharing an artifact with someone else |
+| `cargo fission test` | Runs the generated platform smoke test | Before merging target-specific work |
+| `cargo fission logs` | Attaches to logs for a running or detached target where supported | When you launched with `--detach` or need to reconnect |
+
+You may also see `cargo-fission` in the repository. That binary exists so the command can be used naturally through Cargo as `cargo fission ...`.
+
+## Starting a new app with `fission init`
+
+Run `fission init <path>` when you want a new project directory with the basic pieces already connected correctly.
+
+```sh
+fission init my-app
+```
+
+This command creates the directory, writes the starter source files, seeds the default app icon, creates an initial desktop-ready entrypoint, and records project metadata in `fission.toml`.
+
+If the directory already contains files, the command becomes non-destructive. It derives the package name from `Cargo.toml` when possible, detects existing `platforms/<target>/` folders, writes or updates `fission.toml`, and creates only missing generated support files. It does not overwrite existing source files, README files, host pages, scripts, or assets. That means you can safely run it on an existing example or app that predates `fission.toml`.
+
+### Important `init` flags
+
+These flags matter most in day-to-day use:
+
+| Flag | Type | Meaning | Notes and default behavior |
+| --- | --- | --- | --- |
+| `--name <name>` | string | Sets the Rust package and crate name explicitly | By default, the directory name is used |
+| `--app-id <id>` | string | Sets the application identifier used by packaged hosts | Use a reverse-domain name such as `com.example.notes` if you already know your shipping identifier |
+| `--local-path <path>` | path | Points the scaffold at a local Fission checkout | Useful when developing against this repository instead of published crates |
+
+For a beginner, `--local-path` is the least obvious flag, so it is worth calling out directly. Rust projects normally depend on published crates from the package registry. When you pass `--local-path`, the scaffold instead points at a local Fission workspace on your machine. That is mainly useful when you are contributing to Fission itself or testing changes in the framework before publication.
+
+## What `fission init` creates
+
+The generated project is small on purpose. It gives you a runnable starting point without hiding the structure of a Fission app.
+
+These are the files most people open first:
+
+| Path | Type | Meaning | Notes and default behavior |
+| --- | --- | --- | --- |
+| `src/main.rs` | Rust source file | Starts the default desktop host | This is the shortest way to run a fresh scaffold with `cargo run` |
+| `src/lib.rs` | Rust source file | Exposes shared entry helpers for non-desktop hosts | Generated hosts call into this shared library layer |
+| `src/app.rs` | Rust source file | Contains the starter app logic | This is where you edit state, actions, reducers, and widgets |
+| `fission.toml` | manifest file | Records project metadata and enabled targets | The command-line interface updates this file when you add targets |
+| `assets/app-icon.png` | image asset | Seeds the default application icon | Generated hosts reuse it as their starting icon asset |
+| `platforms/<target>/README.md` | generated notes | Explains prerequisites and host-specific commands for that target | Read this whenever you add a new target |
+
+The key idea is that only some of those files describe your app. Files under `src/` are the shared product logic. Files under `platforms/` are host-specific scaffolding. The command-line interface keeps those concerns separate because Fission itself keeps the shared app model separate from the platform shell that runs it.
+
+On an existing project, treat the table as "created if missing." Existing files are preserved. The main required output is `fission.toml`, because commands such as `cargo fission run --project-dir . --target web` use it to know which targets belong to the app.
+
+## Adding more hosts with `cargo fission add-target`
+
+Once you have an existing app, use `cargo fission add-target` to generate another host around it.
+
+```sh
+cargo fission add-target web ios android --project-dir my-app
+```
+
+This command does not duplicate your shared widgets or reducers. Instead, it updates `fission.toml` and writes the generated files needed for the requested hosts under `platforms/`.
+
+If you are new to the term, a _target_ in this context means a host environment that packages and launches your shared app. A _generated host_ is the platform-specific wrapper the command-line interface writes so that environment can start the shared runtime. For web, that means a browser-oriented host page and helper script. For Android, that means the generated NativeActivity packaging files and emulator script. For iOS, that means the simulator bundle template and launch script. For desktop, the initial scaffold already gives you the direct desktop entrypoint.
+
+### Important `add-target` flag
+
+| Flag | Type | Meaning | Notes and default behavior |
+| --- | --- | --- | --- |
+| `--project-dir <dir>` | path | Tells the command-line interface which existing Fission project to update | If omitted, the current directory is used |
+
+### Supported target values
+
+The current target values are:
+
+| Target | Meaning | Generated host output |
+| --- | --- | --- |
+| `linux` | Linux desktop host | Desktop target metadata and notes |
+| `macos` | macOS desktop host | Desktop target metadata and notes |
+| `windows` | Windows desktop host | Desktop target metadata and notes |
+| `web` | Browser host | `platforms/web/` with a helper script and README |
+| `android` | Android host | `platforms/android/` with packaging files, script, and README |
+| `ios` | iOS host | `platforms/ios/` with simulator bundle files, script, and README |
+
+In practice, many projects start with the default desktop scaffold and then add `web`, `android`, or `ios` when that host becomes relevant to the product. The important thing is not the order. The important thing is that the same shared app can be validated through each real host.
+
+## Checking your machine with `cargo fission doctor`
+
+Run doctor when a platform does not build, when you are setting up a new workstation, or when you are preparing a continuous integration runner.
+
+```sh
+cargo fission doctor web ios android --project-dir my-app
+```
+
+Doctor checks the tools that are visible from your current environment. For web, that includes the WebAssembly Rust target, `wasm-pack`, Node.js, and Chrome or Chromium. For Android, it checks the Android SDK, Native Development Kit, emulator tooling, and Rust Android target. For iOS, it checks Xcode simulator tooling and the Rust iOS simulator target. Use `--strict` when you want the command to fail the build if a required tool is missing.
+
+## Finding devices with `cargo fission devices`
+
+Run devices before you run an app on a machine with more than one possible host.
+
+```sh
+cargo fission devices --project-dir my-app
+```
+
+The output includes stable ids that you can pass back into `cargo fission run --device <id>`. Desktop uses `desktop`, web uses `chrome`, Android uses the `adb` serial for connected devices and running emulators, and iOS uses the simulator unique device identifier. If you are scripting the workflow, add `--json` and parse the same data without relying on table formatting.
+
+## Running and attaching with `cargo fission run`
+
+`cargo fission run` is the default development command once a target exists.
+
+```sh
+cargo fission run --project-dir my-app
+cargo fission run --target web --project-dir my-app
+cargo fission run --target android --device emulator-5554 --project-dir my-app
+cargo fission run --target ios --device <simulator-udid> --project-dir my-app
+```
+
+If only one runnable device matches the target, the command uses it. If several devices match and the terminal is interactive, the command asks you to choose one. In a script or continuous integration job, pass `--device` so the choice is explicit.
+
+The command attaches by default because that is the most useful development behavior. Desktop stdout and stderr stay in the terminal. The web target keeps the local static server in the terminal. Android attaches to `adb logcat` for the launched process. iOS attaches to the simulator log stream for the launched executable.
+
+Use `--detach` when you want the app or local server to keep running without owning the terminal.
+
+```sh
+cargo fission run --target web --project-dir my-app --detach
+cargo fission logs --target web --project-dir my-app --follow
+```
+
+Web also accepts `--host`, `--port`, and `--no-open`. Mobile targets accept `--headless` for simulator or emulator runs where the host supports a background launch.
+
+## Building and testing targets
+
+Use `build` when you want the target artifact but do not want to launch it.
+
+```sh
+cargo fission build --target web --project-dir my-app --release
+cargo fission build --target android --project-dir my-app --release
+```
+
+Use `test` when you want the generated platform smoke test.
+
+```sh
+cargo fission test --target web --project-dir my-app
+cargo fission test --target ios --project-dir my-app --headless
+cargo fission test --target android --project-dir my-app --headless
+```
+
+The smoke tests are intentionally not a replacement for your application test suite. They prove that the generated platform host can build, launch, and expose the basic health path for that target. Your app should still have reducer tests, selector tests, widget tests, and product-specific integration tests.
+
+## What the generated host files are for
+
+When the command-line interface creates a `platforms/<target>/` folder, it is not creating a second app. It is creating the platform-facing wrapper that knows how to build, package, and launch your shared Fission runtime on that host.
+
+That is why generated host folders usually contain two kinds of output:
+
+First, they contain a README. That README is the target-specific checklist. It tells you what the host needs on the current platform, such as browser tooling, simulator prerequisites, or Android environment setup.
+
+Second, they contain scripts or host files. These are the concrete launch paths for that target:
+
+| Path | Type | Meaning | Notes and default behavior |
+| --- | --- | --- | --- |
+| `platforms/web/run-browser.sh` | shell script | Builds the browser package and serves it locally | The current generated host uses `wasm-pack` for the WebAssembly build step |
+| `platforms/android/run-emulator.sh` | shell script | Builds, packages, installs, and launches the app on an Android emulator | Reads the expected Android toolchain environment variables |
+| `platforms/android/AndroidManifest.xml` | Android manifest | Declares the generated Android app package | Written by the command-line interface as part of the host scaffold |
+| `platforms/ios/run-sim.sh` | shell script | Builds, installs, and launches the app on an iOS simulator | Uses the generated simulator host bundle |
+
+If you are a beginner, the practical rule is simple: edit your shared app in `src/`, then use `cargo fission run --target <target>` when you want to validate a specific host. The generated scripts remain in `platforms/<target>/` for direct CI use and for advanced debugging, but the command-line interface is the normal front door.
+
+## A practical way to use the command-line interface without overthinking it
+
+The command-line interface works best when you treat it as a project-setup and host-generation tool, not as the place where application architecture lives.
+
+One common flow looks like this:
+
+1. Run `fission init my-app`.
+2. Open `src/app.rs` and start shaping your real app state, actions, reducers, and widgets.
+3. Run `cargo fission doctor --project-dir my-app` on a new machine.
+4. Run `cargo fission devices --project-dir my-app` to see where the app can run.
+5. Run the host that is most convenient for your current work with `cargo fission run --target <target> --project-dir my-app`.
+6. When you need another platform host, run `cargo fission add-target ...`.
+7. Before merging target work, run `cargo fission test --target <target> --project-dir my-app`.
+
+That flow stays aligned with Fission's larger design. The shared app model comes first. The command-line interface then helps each platform shell host run that model in a concrete environment.
+
+## Command reference
+
+Use this section when you already understand the workflow and just need the exact command shape.
+
+### `fission init`
+
+```sh
+fission init <path> [--name <name>] [--app-id <id>] [--local-path <path>]
+```
+
+Creates a new Fission project scaffold in the given directory.
+
+### `cargo fission add-target`
+
+```sh
+cargo fission add-target <targets...> [--project-dir <dir>]
+```
+
+Adds one or more generated host targets to an existing Fission project.
+
+### `cargo fission doctor`
+
+```sh
+cargo fission doctor [targets...] [--project-dir <dir>] [--strict]
+```
+
+Checks the local platform toolchains needed for the selected targets.
+
+### `cargo fission devices`
+
+```sh
+cargo fission devices [--project-dir <dir>] [--json]
+```
+
+Lists launchable desktop, web, Android, and iOS devices known to the command-line interface.
+
+### `cargo fission run`
+
+```sh
+cargo fission run [--target <target>] [--device <id>] [--project-dir <dir>] [--release] [--detach]
+```
+
+Builds, launches, and attaches to the selected target. Web also accepts `--host`, `--port`, and `--no-open`. Mobile targets also accept `--headless`.
+
+### `cargo fission build`
+
+```sh
+cargo fission build [--target <target>] [--project-dir <dir>] [--release]
+```
+
+Builds the selected target without launching it.
+
+### `cargo fission test`
+
+```sh
+cargo fission test [--target <target>] [--project-dir <dir>] [--headless]
+```
+
+Runs the generated platform smoke test for the selected target.
+
+### `cargo fission logs`
+
+```sh
+cargo fission logs [--target <target>] [--device <id>] [--project-dir <dir>] [--follow]
+```
+
+Attaches to logs for a selected running or detached target where the platform exposes a log stream.
+
+## What the command-line interface does not do
+
+The command-line interface does not explain the runtime model for you, choose your architecture, or replace platform documentation. It creates the shared scaffold and the host wrappers, but you still use the rest of the docs to understand how the app works and how each platform behaves.
+
+If you are still learning the overall shape of a Fission app, read [Quickstart](/docs/learn/quickstart) and [Runtime model](/docs/learn/runtime-model) next. If you are already working at the platform layer, continue to [Targets](/reference/platform/targets).

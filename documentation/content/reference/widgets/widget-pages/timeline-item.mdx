@@ -1,0 +1,38 @@
+---
+title: TimelineItem
+description: Describe one event inside a Timeline.
+slug: /widgets/timeline-item
+---
+# TimelineItem
+
+`TimelineItem` is the event record used by [`Timeline`](/reference/widgets/timeline).
+
+Each item represents one moment or milestone in a sequence, such as an activity log entry, message event, deployment step, or support history item.
+
+## Example
+
+```rust
+use fission::prelude::*;
+
+let item = TimelineItem {
+    title: "Build finished".into(),
+    description: Some("All checks passed on main.".into()),
+    timestamp: Some("10:24".into()),
+};
+```
+
+## Field table
+
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `title` | `String` | Main event label. | Required. |
+| `description` | `Option<String>` | Supporting explanation below the title. | Defaults to `None`. |
+| `timestamp` | `Option<String>` | Optional time or date label. | Defaults to `None`. Format it upstream. |
+
+## Specific advice
+
+Keep timestamps human-readable and consistent across items. A timeline becomes harder to scan if each item uses a different date or time format.
+
+## Related
+
+[`Timeline`](/reference/widgets/timeline), [`Text`](/reference/widgets/text), [`Alert`](/reference/widgets/alert), and [`Card`](/reference/widgets/card).

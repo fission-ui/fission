@@ -1,0 +1,61 @@
+---
+title: Display and data widgets
+description: The reference overview for read-heavy widgets, feedback surfaces, and structured data presentation.
+---
+
+# Display and data widgets
+
+Display and data widgets are the surfaces you reach for after state flow and layout are already clear.
+
+Their job is usually to present information, status, metrics, or structured records. Some of them are purely visual. Others are semantically rich and matter for testing and accessibility because they expose meaning, values, or structure.
+
+## Text, iconography, and small display surfaces
+
+| Widget | Dedicated page | When to choose it |
+| --- | --- | --- |
+| `Text` | [Text](/reference/widgets/text) | Basic textual content |
+| `TextContent` | [TextContent](/reference/widgets/text-content) | Literal or keyed text payload |
+| `RichText` | [RichText](/reference/widgets/rich-text) | Mixed-style text content |
+| `RichTextRun` | [RichTextRun](/reference/widgets/rich-text-run) | Supporting rich-text run type |
+| `TextRunStyle` | [TextRunStyle](/reference/widgets/text-run-style) | Supporting rich-text style type |
+| `TextFontStyle` | [TextFontStyle](/reference/widgets/text-font-style) | Supporting text-style type |
+| `Icon` | [Icon](/reference/widgets/icon) | Iconographic content |
+| `Avatar` | [Avatar](/reference/widgets/avatar) | Identity or profile presentation |
+| `Badge` | [Badge](/reference/widgets/badge) | Small status label |
+| `Tag` | [Tag](/reference/widgets/tag) | Categorical chip or label |
+| `Link` | [Link](/reference/widgets/link) | Link-style display surface |
+| `Code` | [Code](/reference/widgets/code) | Code or preformatted text display |
+| `Kbd` | [Kbd](/reference/widgets/kbd) | Keyboard shortcut presentation |
+
+## Framing, messaging, and status surfaces
+
+| Widget | Dedicated page | When to choose it |
+| --- | --- | --- |
+| `Card` | [Card](/reference/widgets/card) | Group related content inside a framed surface |
+| `Divider` | [Divider](/reference/widgets/divider) | Separate content visually |
+| `Alert` | [Alert](/reference/widgets/alert) | Communicate notable inline status or warning |
+| `AlertKind` | [AlertKind](/reference/widgets/alert-kind) | Supporting alert style type |
+| `EmptyState` | [EmptyState](/reference/widgets/empty-state) | Explain absence of content |
+| `ProgressBar` | [ProgressBar](/reference/widgets/progress-bar) | Show determinate linear progress |
+| `CircularProgress` | [CircularProgress](/reference/widgets/circular-progress) | Show circular progress |
+| `Spinner` | [Spinner](/reference/widgets/spinner) | Show indeterminate activity |
+| `Skeleton` | [Skeleton](/reference/widgets/skeleton) | Reserve visual structure during loading |
+| `Stat` | [Stat](/reference/widgets/stat) | Present one labeled metric clearly |
+| `Stepper` | [Stepper](/reference/widgets/stepper) | Show multi-step progress or flow |
+
+## Structured and repeated data widgets
+
+| Widget | Dedicated page | When to choose it |
+| --- | --- | --- |
+| `Calendar` | [Calendar](/reference/widgets/calendar) | Calendar-style structured dates |
+| `DataTable` | [DataTable](/reference/widgets/data-table) | Row-and-column data presentation |
+| `TableColumn` | [TableColumn](/reference/widgets/table-column) | Supporting column definition |
+| `TableRow` | [TableRow](/reference/widgets/table-row) | Supporting row definition |
+| `Timeline` | [Timeline](/reference/widgets/timeline) | Chronological progression |
+| `TimelineItem` | [TimelineItem](/reference/widgets/timeline-item) | One timeline entry |
+| `TreeView` | [TreeView](/reference/widgets/tree-view) | Hierarchical data display |
+| `TreeItem` | [TreeItem](/reference/widgets/tree-item) | One tree node |
+
+## Practical cross-reference
+
+If the next question is really about layered interface or navigation rather than display, continue to [Overlays and navigation](/reference/widgets/overlays-and-navigation). If the next question is about media or host-backed surfaces, continue to [Media](/reference/widgets/media). For the overall map, return to the [Widget catalog](/reference/widgets/catalog).

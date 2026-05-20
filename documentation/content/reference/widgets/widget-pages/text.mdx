@@ -1,0 +1,80 @@
+---
+title: Text
+description: Render plain or translated text when one block can share one style.
+slug: /widgets/text
+---
+# Text
+
+`Text` is the default text widget in Fission.
+
+It solves the most common content problem in an application: showing one block of text with one coherent style. That includes labels, body copy, values, helper text, headings, and translated product strings. If the text needs mixed emphasis or inline widgets, move to [`RichText`](/reference/widgets/rich-text). Otherwise, `Text` is the right starting point.
+
+## Example
+
+```rust
+use fission::core::ui::{Text, TextContent};
+
+let title = Text::new(TextContent::Key("settings.profile_title".into()))
+    .size(20.0)
+    .weight(700)
+    .into_node();
+```
+
+`Text::new(...)` is the most beginner-friendly entry point because it gives you a text widget with wrapping already enabled.
+
+## Content table
+
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `id` | `Option<NodeId>` | Stable node identity. | Defaults to `None`. |
+| `content` | `TextContent` | The text source to render. | Use `Literal(...)` for direct strings or `Key(...)` for translated lookup. |
+| `semantics` | `Option<Semantics>` | Optional wrapper semantics for the text block. | Defaults to `None`. Builder helpers can also attach labels and actions. |
+
+## Typography table
+
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `font_size` | `Option<f32>` | Font size override. | Falls back to the theme's body size. |
+| `color` | `Option<IrColor>` | Text color override. | Falls back to the theme's primary text color. |
+| `underline` | `bool` | Whether the text is underlined. | Defaults to `false`. |
+| `font_family` | `Option<String>` | Font family override. | Defaults to `None`. |
+| `font_weight` | `Option<u16>` | Font weight override. | Defaults to `400` when absent. |
+| `font_style` | `TextFontStyle` | Normal or italic posture. | Defaults to `Normal`. |
+| `line_height` | `Option<f32>` | Explicit line height. | Defaults to `None`. |
+| `letter_spacing` | `Option<f32>` | Extra letter spacing. | Defaults to `None`. |
+| `locale` | `Option<String>` | Locale override used during shaping. | Defaults to `None`. |
+| `text_scale` | `Option<f32>` | Text scale multiplier. | Defaults to `None`, which behaves like `1.0`. |
+
+## Layout and interaction table
+
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `width` / `height` | `Option<f32>` | Fixed layout size. | Defaults to `None`. |
+| `min_width` / `max_width` | `Option<f32>` | Width bounds. | Defaults to `None`. |
+| `min_height` / `max_height` | `Option<f32>` | Height bounds. | Defaults to `None`. |
+| `wrap` | `bool` | Whether text may wrap to multiple lines. | `Text::new(...)` sets this to `true`. Raw `Default` construction does not. |
+| `text_align` | `IrTextAlign` | Paragraph alignment. | Defaults to the intermediate representation (IR) default. |
+| `text_direction` | `IrTextDirection` | Paragraph direction. | Defaults to the IR default. |
+| `text_width_basis` | `IrTextWidthBasis` | Width calculation policy. | Defaults to the IR default. |
+| `max_lines` | `Option<usize>` | Maximum visible line count. | Defaults to `None`. |
+| `overflow` | `IrTextOverflow` | Overflow handling. | Defaults to visible overflow. |
+| `strut_line_height` | `Option<f32>` | Paragraph strut line height. | Defaults to `None`. |
+| `text_height_behavior` | `IrTextHeightBehavior` | Height trimming behavior. | Defaults to the IR default. |
+| `selection_range` | `Option<(usize, usize)>` | Highlighted selection range. | Defaults to `None`. |
+| `selection_color` | `Option<IrColor>` | Selection highlight override. | Defaults to `None`. |
+| `selection_text_color` | `Option<IrColor>` | Selected text color override. | Defaults to `None`. |
+| `flex_grow` / `flex_shrink` | `f32` | Flex behavior inside parent layout. | Defaults to `0.0`. |
+
+## Plain language behavior
+
+`TextContent::Literal` renders exactly the string you provide. `TextContent::Key` looks up the current locale in `Env.i18n`. In the checked-in implementation, a missing translation key renders visibly as `MISSING:key`, which is useful during development because it fails loudly instead of silently disappearing.
+
+`Text` can also carry semantics and actions through helper methods like `.semantics_label(...)` and `.on_tap(...)`. That is useful for interactive labels or annotated text, but if different parts of one sentence need different actions, `RichText` is the better model.
+
+## Specific advice
+
+Prefer `Text::new(...)` over manual `Text { ..Default::default() }` when starting out. It gives you a more natural default by enabling wrapping, which avoids a common beginner surprise.
+
+## Related
+
+[`TextContent`](/reference/widgets/text-content), [`RichText`](/reference/widgets/rich-text), [`TextFontStyle`](/reference/widgets/text-font-style), and [`Link`](/reference/widgets/link).

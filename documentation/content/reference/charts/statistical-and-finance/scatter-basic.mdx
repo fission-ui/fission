@@ -1,0 +1,55 @@
+---
+title: Scatter
+sidebar_label: Scatter
+description: Fission Charts reference for Scatter.
+---
+
+# Scatter
+
+![Scatter screenshot](/img/charts/scatter-basic.png)
+
+Points plotted by two numeric dimensions. Use it to find relationship, clustering, or outliers. The screenshot is captured from the native Fission chart gallery.
+
+## What the chart is for
+
+Scatter belongs to the **Statistical and finance** family. Its job is to make this data shape readable: `Vec<(f32, f32)>.` In a production interface, choose this chart when the visual form makes the user's question faster to answer than a table or a simpler chart would.
+
+Avoid it when the visual form makes the user estimate more than necessary; choose the simplest chart that answers the product question.
+
+## Data model
+
+`Vec<(f32, f32)>.` Keep the data close to the type that describes it. Fission Charts is typed Rust, so a line uses `LineSeries`, a calendar heatmap uses `CalendarHeatmapSeries`, and chart components such as zoom, marks, and graphics are explicit fields on `Chart` rather than hidden string configuration.
+
+## Rust API
+
+| Field | Type | Notes |
+| --- | --- | --- |
+| `title` | `&str` | Names the chart for the screen, accessibility tree, and test output. |
+| `x_axis` | `Axis::value()` | Maps the first point dimension. |
+| `y_axis` | `Axis::value()` | Maps the second point dimension. |
+| `series` | `ScatterSeries / BubbleSeries / EffectScatterSeries` | Chooses fixed points, sized bubbles, or emphasized points. |
+| `width / height` | `f32` | Optional fixed size; omit them when the chart should flex inside Fission layout. |
+
+## Example
+
+```rust
+use fission_charts::Chart;
+
+let chart = Chart::new()
+    .title("Scatter")
+    .width(720.0)
+    .height(480.0);
+```
+
+## Interaction and animation
+
+Charts can emit typed `ChartInteractionEvent` values when interaction is enabled. Handle those events in a reducer when the app needs hover, press, release, scroll, selection, or brush behavior. `ChartAnimation` stores duration, delay, stagger, easing, and reduced-motion behavior as deterministic chart data, so animation timing can be tested instead of being hidden in ad-hoc timers.
+
+## Testing guidance
+
+For this chart, test the data mapping first, then test lowering, then capture a live screenshot when visual output changes. The screenshot for this page is refreshed with `npm run charts:generate` from the website package.
+
+Tags: `scatter`, `correlation`.
+
+
+[Statistical and finance family overview](./overview)

@@ -1,0 +1,71 @@
+---
+title: Testing and observability
+description: How to validate behavior with predictable, high-signal checks.
+---
+
+# Testing and observability
+
+Use the same order every time to keep fixes narrow.
+
+## 1) Reducer tests first
+
+Reducer behavior should be deterministic and side-effect free.
+
+- test success,
+- test guard cases,
+- test reset behavior.
+
+## 2) Async completion tests
+
+Test decoded completion inputs before integration:
+
+- job ok/error
+- service start and command lifecycle
+- service events and event payloads
+
+## 3) Headless behavior tests
+
+Use `TestHarness` and `TestDriver` to assert visible text, roles, and interactions.
+
+## 4) Live target smoke tests
+
+Use `LiveTestClient` for integration checks against running targets.
+
+## 5) Diagnostics
+
+Diagnostics are configured through environment variables and work best when you narrow scope first.
+
+Use environment controls for targeted tracing:
+
+```bash
+FISSION_DIAG=input,layout,frame FISSION_DIAG_LEVEL=debug cargo test -p <crate>
+```
+
+For machine-readable output:
+
+```bash
+FISSION_DIAG=input,layout FISSION_DIAG_SINK=file:/tmp/fission-diag.jsonl cargo test -p <crate>
+```
+
+Useful diagnostic categories:
+
+- `frame`
+- `layout`
+- `paint`
+- `input`
+- `semantics`
+- `animation`
+- `media`
+- `invariants`
+- `test`
+
+Useful severity levels:
+
+- `error`
+- `warn`
+- `info`
+- `debug`
+
+Start with `FISSION_DIAG=*` when debugging a new issue, then narrow to one or two categories once you know the failing stage.
+
+Continue to [Widget tree model](/docs/concepts/widget-tree) for how to localize failures earlier in the pipeline.

@@ -1,0 +1,71 @@
+---
+title: Input widgets
+description: The reference overview for controls and editing widgets that collect user intent and feed the action and reducer pipeline.
+---
+
+# Input widgets
+
+Input widgets are where user intent enters the shared app model.
+
+That is what makes them different from display widgets. A display widget mostly shows state. An input widget usually reflects current state and also emits the next action that will change it.
+
+In Fission, that means input widgets are usually bound to explicit `ActionEnvelope` values that flow into reducers, and from there into state transitions or runtime effects.
+
+## Choosing among input widgets
+
+Use the simplest control that matches the shape of the choice.
+
+Use buttons for discrete actions. Use toggles or checkboxes for boolean state. Use sliders for continuous values. Use text inputs for free-form editing. Use selects or segmented controls when the valid choices are small and known. Use comboboxes when typing and suggestion picking need to meet.
+
+When the interaction becomes more specialized, move to lower-level gesture, drag, or editing helpers.
+
+## Core action and value controls
+
+| Widget | Dedicated page | When to choose it |
+| --- | --- | --- |
+| `Button` | [Button](/reference/widgets/button) | One explicit action such as save, submit, open, or close |
+| `ButtonVariant` | [ButtonVariant](/reference/widgets/button-variant) | Supporting type for button style choice |
+| `ButtonContentAlign` | [ButtonContentAlign](/reference/widgets/button-content-align) | Supporting type for button content alignment |
+| `Checkbox` | [Checkbox](/reference/widgets/checkbox) | Boolean choice with visible checked state |
+| `Radio` | [Radio](/reference/widgets/radio) | One selection inside a known group |
+| `Switch` | [Switch](/reference/widgets/switch) | Boolean choice that reads like on or off state |
+| `Slider` | [Slider](/reference/widgets/slider) | Continuous single numeric value |
+| `RangeSlider` | [RangeSlider](/reference/widgets/range-slider) | Continuous lower and upper bound selection |
+| `SegmentedControl` | [SegmentedControl](/reference/widgets/segmented-control) | A small set of exclusive options presented side by side |
+
+## Text and form entry widgets
+
+| Widget | Dedicated page | When to choose it |
+| --- | --- | --- |
+| `TextInput` | [TextInput](/reference/widgets/text-input) | Free-form text entry |
+| `NumberInput` | [NumberInput](/reference/widgets/number-input) | Numeric entry with dedicated affordances |
+| `FormControl` | [FormControl](/reference/widgets/form-control) | Label, helper, or validation wrapper around a field |
+| `Editable` | [Editable](/reference/widgets/editable) | Lower-level editable content surface |
+
+These widgets are the ones most closely tied to the runtime's input, clipboard, and input method editor model.
+
+## Choice and picker widgets
+
+| Widget | Dedicated page | When to choose it |
+| --- | --- | --- |
+| `Select` | [Select](/reference/widgets/select) | Closed choice list with a dedicated picker surface |
+| `SelectItem` | [SelectItem](/reference/widgets/select-item) | Supporting item type for `Select` |
+| `Combobox` | [Combobox](/reference/widgets/combobox) | Typing plus filtered suggestion selection |
+| `DropDown` | [DropDown](/reference/widgets/drop-down) | Dropdown helper or composition surface |
+| `DatePicker` | [DatePicker](/reference/widgets/date-picker) | Date choice |
+| `DateRangePicker` | [DateRangePicker](/reference/widgets/date-range-picker) | Start and end date choice |
+| `TimePicker` | [TimePicker](/reference/widgets/time-picker) | Time-of-day choice |
+
+## Gesture, drag, and file-oriented input
+
+| Widget | Dedicated page | When to choose it |
+| --- | --- | --- |
+| `GestureDetector` | [GestureDetector](/reference/widgets/gesture-detector) | A widget needs direct gesture callbacks |
+| `Draggable` | [Draggable](/reference/widgets/draggable) | A region should act as a drag source |
+| `DragTarget` | [DragTarget](/reference/widgets/drag-target) | A region should accept drops |
+| `Dropzone` | [Dropzone](/reference/widgets/dropzone) | File or payload drops need a dedicated area |
+| `FileUpload` | [FileUpload](/reference/widgets/file-upload) | File selection and upload flow wrapper |
+
+## Practical cross-reference
+
+If the hard part is no longer which control to choose but how input is normalized, how locale or theme reaches the widget tree, or how the clipboard and input method editor flow work, continue to [Environment, input, and input method editor](/reference/core/environment-input-and-ime). For the user-facing guide, see [Input, text, and environment](/docs/guides/input-events-text-and-env).

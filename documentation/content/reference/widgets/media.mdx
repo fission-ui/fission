@@ -1,0 +1,45 @@
+---
+title: Media and custom surfaces
+description: The reference overview for image, video, web, terminal, canvas, and custom rendering widgets.
+---
+
+# Media and custom surfaces
+
+This family covers the parts of the widget surface that connect the shared layout and state model to richer visual or host-backed content.
+
+Some of these widgets are still ordinary display widgets with a media flavor, such as images. Others, such as video, web views, and terminal surfaces, represent deeper runtime or host integration boundaries. The custom drawing helpers sit here because they are the most direct way to go beyond the ordinary built-in widget surface without abandoning the framework model.
+
+## Media and embed widgets
+
+| Widget | Dedicated page | When to choose it |
+| --- | --- | --- |
+| `Image` | [Image](/reference/widgets/image) | Static image content |
+| `Video` | [Video](/reference/widgets/video) | Video playback surface tied to runtime registration |
+| `WebView` | [WebView](/reference/widgets/web-view) | Embedded browser content surface |
+| `TerminalView` | [TerminalView](/reference/widgets/terminal-view) | Interactive terminal surface inside the app |
+| `TerminalLaunchConfig` | [TerminalLaunchConfig](/reference/widgets/terminal-launch-config) | Supporting type for terminal startup configuration |
+| `TerminalSession` | [TerminalSession](/reference/widgets/terminal-session) | Supporting handle for a live terminal session |
+
+## Custom drawing and escape hatches
+
+| Widget or helper | Dedicated page | When to choose it |
+| --- | --- | --- |
+| `canvas(...)` | [canvas](/reference/widgets/canvas) | You need lightweight custom drawing without leaving the widget model |
+| `CanvasLowerer` | [CanvasLowerer](/reference/widgets/canvas-lowerer) | You are working at the lower-level helper behind `canvas(...)` |
+| `CustomNode` | [CustomNode](/reference/widgets/custom-node) | A widget needs custom lowering or a custom render object |
+| `Node` | [Node](/reference/widgets/node) | You need the erased authored node type directly |
+| `Builder` | [Builder](/reference/widgets/builder) | You need a lower-level authoring builder helper |
+
+## How to choose within this family
+
+Use `Image` when the content is still ordinary image display.
+
+Move to `Video`, `WebView`, or `TerminalView` when the surface needs runtime registration or host-backed behavior.
+
+Reach for `canvas(...)` when the built-in surface is close but you need a focused custom drawing escape hatch.
+
+Reach for `CustomNode` only when you truly need lower-level control over lowering or rendering. It is powerful, but most screens should stay in ordinary widget composition as long as they can.
+
+## Practical cross-reference
+
+For the runtime contracts behind animation, portals, and media registration, see [Animations, portals, and media](/reference/core/animations-portals-media). For a guided explanation of these ideas in app terms, read [Media, animation, portals, and 3D](/docs/guides/media-animation-portals-and-3d). For the full widget map, return to the [Widget catalog](/reference/widgets/catalog).

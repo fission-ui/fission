@@ -1,0 +1,57 @@
+---
+title: Cartesian heatmap
+sidebar_label: Cartesian heatmap
+description: Fission Charts reference for Cartesian heatmap.
+---
+
+# Cartesian heatmap
+
+![Cartesian heatmap screenshot](/img/charts/heatmap-cartesian.png)
+
+A rectangular value matrix rendered with a color scale. Use it for density, activity, and matrix-style comparison. The screenshot is captured from the native Fission chart gallery.
+
+## What the chart is for
+
+Cartesian heatmap belongs to the **Statistical and finance** family. Its job is to make this data shape readable: `x index, y index, and value triples.` In a production interface, choose this chart when the visual form makes the user's question faster to answer than a table or a simpler chart would.
+
+Avoid it when the visual form makes the user estimate more than necessary; choose the simplest chart that answers the product question.
+
+## Data model
+
+`x index, y index, and value triples.` Keep the data close to the type that describes it. Fission Charts is typed Rust, so a line uses `LineSeries`, a calendar heatmap uses `CalendarHeatmapSeries`, and chart components such as zoom, marks, and graphics are explicit fields on `Chart` rather than hidden string configuration.
+
+## Rust API
+
+| Field | Type | Notes |
+| --- | --- | --- |
+| `title` | `&str` | Names the chart for the screen, accessibility tree, and test output. |
+| `x_axis / y_axis` | `Axis::category()` | Names the matrix columns and rows. |
+| `visual_map` | `VisualMap` | Maps numeric intensity to color. |
+| `series` | `HeatmapSeries` | Stores x index, y index, and value triples. |
+| `width / height` | `f32` | Optional fixed size; omit them when the chart should flex inside Fission layout. |
+
+## Example
+
+```rust
+use fission_charts::{Axis, Chart, HeatmapSeries, VisualMap};
+
+let chart = Chart::new()
+    .title("Heatmap")
+    .x_axis(Axis::category(vec!["12a", "1a", "2a"]))
+    .y_axis(Axis::category(vec!["Sat", "Fri", "Thu"]))
+    .visual_map(VisualMap::new().min(0.0).max(10.0))
+    .series(vec![HeatmapSeries::new("Load").data(vec![(0, 0, 5.0), (1, 1, 4.0), (2, 2, 9.0)]).into()]);
+```
+
+## Interaction and animation
+
+Charts can emit typed `ChartInteractionEvent` values when interaction is enabled. Handle those events in a reducer when the app needs hover, press, release, scroll, selection, or brush behavior. `ChartAnimation` stores duration, delay, stagger, easing, and reduced-motion behavior as deterministic chart data, so animation timing can be tested instead of being hidden in ad-hoc timers.
+
+## Testing guidance
+
+For this chart, test the data mapping first, then test lowering, then capture a live screenshot when visual output changes. The screenshot for this page is refreshed with `npm run charts:generate` from the website package.
+
+Tags: `heatmap`, `matrix`.
+
+
+[Statistical and finance family overview](./overview)

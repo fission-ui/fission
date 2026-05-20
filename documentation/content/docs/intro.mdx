@@ -1,0 +1,34 @@
+---
+title: Docs
+sidebar_position: 1
+description: A gentle introduction to what Fission is, how it is structured, and what to read first.
+---
+
+# Docs
+
+If you are new to Fission, start here. Fission is a Rust framework for building user interfaces from one shared app model across desktop, web, Android, and iOS. These docs are written to help readers who may be new to Rust user interface work and even new to state-driven user interface, so the first goal is not to overwhelm you with names. The first goal is to give you a mental model that makes the rest of the framework feel understandable.
+
+Fission is structured around a simple idea: your app should behave predictably. In practice, that means the same app state, the same input, and the same time progression should lead to the same result. That kind of predictability matters because it makes bugs easier to reproduce, tests easier to trust, and cross-platform work easier to carry from one target to another without rewriting the core of the app.
+
+At a high level, a Fission app works like this. App state holds the data your product cares about, such as the current screen, the selected item, or the text in an editor. Actions are named messages that describe user intent, such as "increment the counter", "open this message", or "save the file". Reducers are the functions that receive those actions and change the state. Widgets then read the current state and describe the hierarchy of interface elements, sometimes called a widget tree, that should appear on screen right now. Finally, shells are the thin platform-specific runners that host the same shared app on desktop, web, Android, and iOS.
+
+This structure matters because it keeps each job in a clear place. State changes happen in one predictable path instead of being scattered through callbacks. Widgets focus on describing what to show instead of quietly performing outside work. Shells handle windows, browser surfaces, input, lifecycle, and accessibility, while the shared core still defines what the app means. The result is a framework that is easier to debug, easier to test, and easier to move across platforms.
+
+## Recommended reading path
+
+If you want the smoothest introduction, read the docs in this order.
+
+1. Start with [Learn overview](/docs/learn/overview), because it gives you the big picture of a Fission app before the details start to pile up.
+2. Move to [Quickstart](/docs/learn/quickstart), because running an example or scaffolding a small app early makes the architecture feel real instead of theoretical.
+3. Read [Runtime model](/docs/learn/runtime-model) next, because it explains what your app owns, what the runtime owns, and why Fission keeps cross-frame behavior out of your product state.
+4. Then open [Rendering pipeline](/docs/learn/rendering-pipeline), because it shows how widgets become layout, accessibility information, and painted output, which is the key to understanding debugging and performance.
+5. Continue to [Examples and targets](/docs/learn/examples-and-targets), because it connects the ideas to the repository's real desktop, web, Android, and iOS paths.
+6. When you are ready to organize your own app, read [App structure](/docs/guides/app-structure), because it turns the mental model into a project shape you can maintain.
+7. After that, pick the guide that matches your next question: [Resources and async](/docs/guides/resources-and-async) explains outside work such as background jobs, timers, and host integrations; [Platform shells and command-line interface](/docs/guides/platform-shells-cli-and-testing) explains how the shared app reaches each platform through the command-line interface and shell wrappers; and [Testing and diagnostics](/docs/guides/testing-and-diagnostics) shows how Fission turns predictable behavior into practical tests.
+8. Use [Build a counter](/docs/cookbook/build-a-counter) when you want a worked example you can follow end to end, and use [Reference overview](/reference/overview/overview) when you need exact types, fields, and function names after the bigger ideas are already familiar.
+
+## How to use the rest of the docs
+
+The docs are organized by job, not only by difficulty. The Learn pages teach the model. The Guides explain real subsystems you will use while building an app. The Cookbook gives you practical recipes when you want a known-good pattern. The Reference is there for precise details when you already know what concept you are looking for.
+
+If you ever feel lost, come back to the core flow: state holds the data, actions describe intent, reducers change state, widgets render from state, and shells run the same app on each platform. That flow is the reason the rest of Fission stays understandable.

@@ -1,0 +1,79 @@
+---
+title: Router
+description: Match an app-owned path string to one of several screen builders.
+slug: /widgets/router
+---
+# Router
+
+`Router` is Fission's basic path-matching widget.
+
+A beginner-friendly way to think about it is this: your app state stores a path string such as `/inbox` or `/projects/42`, and `Router` decides which screen to build for that string. It does not read the browser location on its own. It does not push history entries for you. It does not own a hidden navigation stack. It simply turns explicit route state into explicit user interface.
+
+That design is important for cross-platform work. The same `current_path` state can drive a browser location, a desktop sidebar selection, or a mobile back-stack model that you choose to represent as paths. The shell differences stay outside the routing widget. The `Router` just matches the current string and builds the corresponding screen.
+
+## Example
+
+```rust
+use std::sync::Arc;
+use fission::core::ui::Text;
+use fission::prelude::*;
+
+let router = Router {
+    current_path: view.state.current_path.clone(),
+    routes: vec![
+        Route {
+            path: "/projects".into(),
+            builder: Arc::new(|ctx, view, _| ProjectList.build(ctx, view)),
+        },
+        Route {
+            path: "/projects/:id".into(),
+            builder: Arc::new(|ctx, view, params| {
+                let id = params.get("id").cloned().unwrap_or_default();
+                ProjectDetail { id }.build(ctx, view)
+            }),
+        },
+    ],
+    not_found: Some(Arc::new(|_ctx, _view, _| {
+        Text::new("Page not found").into_node()
+    })),
+}
+.build(ctx, view);
+```
+
+In a real app, some other widget dispatches a navigation action, a reducer updates `state.current_path`, and the next build chooses a different route.
+
+## Field table
+
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `current_path` | `String` | The path string to match this frame. | Usually lives in `AppState` so reducers can update it explicitly. |
+| `routes` | `Vec<Route<S>>` | Ordered list of route patterns and screen builders. | The router returns the first matching route. Order matters. |
+| `not_found` | `Option<PageBuilder<S>>` | Fallback builder when no route matches. | If omitted, the router renders a plain `404: {current_path}` text node. |
+
+## Matching behavior
+
+The current matcher is deliberately small:
+
+- `/users/:id` matches `/users/123`
+- `/users/:id` does not match `/users/123/details`
+- empty leading and trailing slashes are ignored during matching
+- parameter values are returned as strings in [`RouteParams`](/reference/widgets/route-params)
+
+This small contract makes routing easy to test. If a path renders the wrong screen, you only need to inspect the current path string and the ordered route list.
+
+## State ownership across platforms
+
+On web, you will usually want some outer integration that keeps `current_path` in sync with the browser location and history. On desktop, the same state may come from a sidebar click, command palette action, or menu item. On mobile, it may mirror a back-navigation model that you still choose to express as paths.
+
+The key point is that `Router` does not hide those differences. It lets you keep one app model and connect each shell-specific navigation source to that model in the place where it belongs.
+
+## Specific advice
+
+Keep `current_path` normalized. Pick one format for trailing slashes, slug casing, and identifier encoding so reducers and tests do not have to guess what a valid path looks like.
+
+Also keep route changes explicit. If a button means "go to /settings," dispatch a navigation action that updates state. Avoid scattering manual string mutations through unrelated reducers.
+
+## Related
+
+[`Route`](/reference/widgets/route), [`RouteParams`](/reference/widgets/route-params), [`Link`](/reference/widgets/link), and [`Overview`](/docs/learn/overview).
+

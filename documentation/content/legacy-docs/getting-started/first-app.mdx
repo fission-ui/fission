@@ -1,0 +1,94 @@
+---
+title: Build your first app
+description: A tiny first app showing state, actions, and rebuild flow.
+---
+
+# Build your first app
+
+This is your first complete loop: edit, run, observe, then repeat.
+
+## What we are building
+
+A one-screen counter app with:
+
+- typed state,
+- typed action,
+- one reducer,
+- and a button that sends the action.
+
+## Your starter source
+
+Keep your starter edits local to `src/app.rs` and avoid changing scaffold boilerplate until behavior is stable.
+
+```rust
+use fission::prelude::*;
+use serde::{Deserialize, Serialize};
+
+#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CounterState {
+    count: i32,
+}
+
+impl AppState for CounterState {}
+
+#[fission_action]
+struct Increment;
+
+fn on_increment(
+    state: &mut CounterState,
+    _action: Increment,
+    _ctx: &mut ReducerContext<CounterState>,
+) {
+    state.count += 1;
+}
+
+pub struct CounterApp;
+
+impl Widget<CounterState> for CounterApp {
+    fn build(&self, ctx: &mut BuildCtx<CounterState>, view: &View<CounterState>) -> Node {
+        let increment = with_reducer!(ctx, Increment, on_increment);
+
+        Column {
+            gap: Some(16.0),
+            children: vec![
+                Text::new(format!("Count: {}", view.state.count)).into_node(),
+                Button {
+                    on_press: Some(increment),
+                    child: Some(Box::new(Text::new("Increment").into_node())),
+                    ..Default::default()
+                }
+                .into_node(),
+            ],
+            ..Default::default()
+        }
+        .into_node()
+    }
+}
+```
+
+## Run and verify
+
+From your app root:
+
+```bash
+cargo run
+```
+
+Expected checks:
+
+- app starts without panic,
+- text initially says `Count: 0`,
+- pressing **Increment** increases count by 1,
+- UI changes reflect state immediately and consistently.
+
+## Why this structure matters
+
+You can reason through this loop by reading each line:
+
+1. action is explicit (`Increment`),
+2. reducer is focused (`on_increment`),
+3. rebuild is automatic once state changes.
+
+That loop is what you reuse in every larger screen.
+
+When this is stable, continue with [Counter tutorial](/docs/tutorials/counter).

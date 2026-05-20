@@ -1,0 +1,41 @@
+---
+title: Spinner
+description: Show indeterminate loading when the app is busy but cannot report exact completion.
+slug: /widgets/spinner
+---
+# Spinner
+
+`Spinner` is the indeterminate loading indicator.
+
+Use it when the app is working but does not have a meaningful completion fraction yet. This is the right choice for short waits such as opening a panel, checking a server, or refreshing a view where exact progress is unknown.
+
+## Example
+
+```rust
+use fission::prelude::*;
+
+let node = Spinner {
+    id: WidgetNodeId::explicit("sync_spinner"),
+    color: None,
+    animated: true,
+}
+.build(ctx, view);
+```
+
+## Field table
+
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `id` | `WidgetNodeId` | Stable identity used to drive the dot animations. | Required. |
+| `color` | `Option<Color>` | Dot color override. | Defaults to the theme's primary color. |
+| `animated` | `bool` | Whether the dots should pulse. | Defaults to `true`. |
+
+## user experience guidance
+
+A spinner says "work is happening" but does not explain how long it will take. That makes it useful for short or uncertain waits, but weaker than a real progress indicator for long-running tasks.
+
+The checked-in widget uses three animated dots. Stable ids matter here just as they do for other animated widgets.
+
+## Related
+
+[`Skeleton`](/reference/widgets/skeleton), [`CircularProgress`](/reference/widgets/circular-progress), [`ProgressBar`](/reference/widgets/progress-bar), and [`EmptyState`](/reference/widgets/empty-state).

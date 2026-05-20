@@ -1,0 +1,100 @@
+---
+title: Install and setup
+description: Install the CLI, scaffold your first app, and add desktop/web/mobile targets.
+---
+
+import Tabs from '@theme/Tabs';
+import TabItem from '@theme/TabItem';
+
+# Install and setup
+
+Get the CLI first, then create your first app.
+
+## Required tools
+
+- Rust toolchain (stable)
+- `cargo`
+- GPU backend dependencies (`wgpu` backend requirements) on Linux:
+  - `libwayland-dev`
+  - `libxkbcommon-dev`
+  - X11/Wayland dev headers
+
+## Default installation path
+
+```bash
+cargo install fission-cli
+```
+
+Then scaffold and run:
+
+```bash
+fission init my-fission-app
+cd my-fission-app
+cargo run
+```
+
+You now have a runnable baseline application and generated docs, manifests, and default desktop targets.
+
+## Local setup options
+
+Use one of these paths after installing tooling:
+
+<Tabs>
+<TabItem value="default" label="Default CLI" default>
+
+```bash
+cargo install fission-cli
+fission init my-fission-app
+cd my-fission-app
+cargo run
+```
+
+</TabItem>
+<TabItem value="local" label="Local checkout">
+
+```bash
+git clone https://github.com/worka-ai/fission.git
+cd fission
+git submodule update --init --recursive
+FISSION_CHECKOUT="$PWD"
+
+cargo install --locked --path "$FISSION_CHECKOUT/crates/tools/fission-cli"
+
+cd ..
+fission init my-fission-app --local-path "$FISSION_CHECKOUT"
+cd my-fission-app
+cargo run
+```
+
+</TabItem>
+</Tabs>
+
+## Add optional targets
+
+Use `cargo fission add-target <target>` after the first app loop is stable:
+
+```bash
+cargo fission add-target web ios android
+```
+
+Targets supported by the generator:
+
+- `linux`, `macos`, `windows`
+- `web` (WASM)
+- `ios`
+- `android`
+
+Each added target writes host scripts under `platforms/<target>/` plus `fission.toml` metadata updates.
+
+## Generated files you should know
+
+After `fission init`, you typically get:
+
+- `Cargo.toml`, `src/main.rs`, `src/lib.rs`, `src/app.rs`
+- `fission.toml`
+- `platforms/<default targets>/`
+- `assets/app-icon.png`
+
+Before adding a target, keep only application logic in `src/app.rs`; everything else is runtime integration.
+
+Continue to [Build your first app](/docs/getting-started/first-app).

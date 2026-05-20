@@ -1,0 +1,97 @@
+---
+title: I18n and accessibility
+description: Add language-ready and accessible interfaces from the first feature.
+---
+
+# I18n and accessibility
+
+Internationalization and accessibility are not late-stage concerns. Add them as you add your first user-visible text.
+
+## Keep text out of UI code with keys
+
+Use `TextContent::Key` for all user text that may be translated.
+
+```rust
+use fission::prelude::*;
+
+Text::new(TextContent::Key("home.title".into())).into_node()
+```
+
+## Load translations from files (recommended)
+
+A practical pattern is to load YAML translation bundles with `include_str!` and add them to the environment.
+
+```rust
+use fission::i18n::{Locale, TranslationBundle};
+use fission::prelude::*;
+use serde::{Deserialize, Serialize};
+
+#[derive(Default, Debug, Clone, Serialize, Deserialize)]
+struct AppState {
+    locale: Locale,
+}
+
+impl AppState for AppState {}
+
+fn base_env() -> anyhow::Result<Env> {
+    let mut env = Env::default();
+
+    let en_yaml = include_str!("../assets/i18n/en.yaml");
+    let es_yaml = include_str!("../assets/i18n/es.yaml");
+
+    let en = serde_yaml::from_str::<std::collections::HashMap<String, String>>(en_yaml)?;
+    let es = serde_yaml::from_str::<std::collections::HashMap<String, String>>(es_yaml)?;
+
+    env.i18n.add_bundle(TranslationBundle {
+        locale: Locale::from("en-US"),
+        messages: en,
+    });
+    env.i18n.add_bundle(TranslationBundle {
+        locale: Locale::from("es-ES"),
+        messages: es,
+    });
+
+    Ok(env)
+}
+
+fn main() -> anyhow::Result<()> {
+    DesktopApp::new(MyApp)
+        .with_env(base_env()?)
+        .with_sync_env(|state: &AppState, env| {
+            env.locale = state.locale.clone();
+        })
+        .run()
+}
+```
+
+## Accessibility: make interactions machine-checkable
+
+Assign semantics on action controls, and verify role/label/focus behavior with tests.
+
+```rust
+Button {
+    on_press: Some(increment),
+    semantics: Some(Semantics {
+        role: Role::Button,
+        label: Some("Increase count".into()),
+        focusable: true,
+        ..Default::default()
+    }),
+    child: Some(Box::new(Text::new(TextContent::Key("action.increment".into())).into_node())),
+    ..Default::default()
+}.into_node()
+```
+
+In tests, use role-based query checks instead of only pixel checks:
+
+- `TestDriver::find_role(Role::Button)` for headless tests
+- `LiveTestClient::get_tree()` for running target checks
+
+## What to check before release
+
+- labels and roles exist for every primary control,
+- keyboard traversal works through logical order,
+- translated keys resolve for each locale you ship,
+- dynamic text length does not break layout unexpectedly.
+
+Continue to [Commands, services, and jobs](/docs/guide/commands-services-jobs) if you need background work in this app.

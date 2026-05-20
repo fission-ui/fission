@@ -1,0 +1,32 @@
+---
+title: Geo and route
+sidebar_label: Overview
+description: Fission Charts reference for the Geo and route family.
+---
+
+# Geo and route
+
+The Geo and route family contains 10 renderer-backed chart variants. Use this page as the entry point for choosing the right variant, then open the variant page for the screenshot, data shape, Rust API notes, and example code.
+
+The chart family is still ordinary Fission UI. Each variant is constructed from typed Rust data, participates in layout and theme decisions, and can be driven by app state, reducers, resources, jobs, or services just like any other widget.
+
+![Flight-like lines screenshot](/img/charts/lines-flight-like.png)
+
+## Variants
+
+| Chart | Data shape | Use when |
+| --- | --- | --- |
+| [Flight-like lines](./lines-flight-like) | LineSegment values plus effect. | Use it for route animation-style visuals. |
+| [Geo network](./geo-network) | GeoJSON plus lines. | Use it for network coverage and paths. |
+| [Migration routes](./geo-migration) | LineSegment values. | Use it for movement and transfer flows. |
+| [Region value map](./map-region-values) | GeoJSON regions plus values. | Use it for geography-first comparisons. |
+| [Risk map](./map-risk) | GeoJSON regions plus numeric values. | Use it for geographic risk dashboards. |
+| [Route arcs](./geo-route-arcs) | Line segments with values. | Use it for logistics and movement. |
+| [Route map overlay](./geo-route-map) | GeoJSON regions plus route segments. | Use it when geography and movement combine. |
+| [Sales map](./map-sales) | GeoJSON regions plus values. | Use it for regional business metrics. |
+| [Service coverage map](./map-service-coverage) | GeoJSON regions plus values. | Use it for coverage and rollout screens. |
+| [Traffic lines](./lines-traffic) | LineSegment values. | Use it for traffic or flow intensity. |
+
+## Choosing within this family
+
+Start with the user's question, not the visual effect. Pick the simplest variant that makes the answer clear, add interaction only when it reduces work for the user, and keep animation purposeful enough that it explains a change rather than decorating the page.

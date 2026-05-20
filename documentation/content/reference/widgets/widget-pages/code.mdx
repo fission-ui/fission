@@ -1,0 +1,43 @@
+---
+title: Code
+description: Present a short inline code-like token without building a full code editor.
+slug: /widgets/code
+---
+# Code
+
+`Code` is the small inline code-style wrapper.
+
+Use it for command names, short snippets, key values, or other compact inline technical text that should stand out from prose. It is not a syntax highlighter and not a code editor surface.
+
+## Example
+
+```rust
+use fission::prelude::*;
+
+let node = Code {
+    text: "cargo fission run".into(),
+}
+.build(ctx, view);
+```
+
+This works well inside help panels, alerts, and setup instructions.
+
+## Field table
+
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `text` | `String` | Inline code-like text to display. | Required. |
+
+## What it is and what it is not
+
+The checked-in `Code` widget is a styled text chip. It gives you a subtle background and compact padding, but it does not provide syntax coloring, line numbering, or an enforced monospace font family.
+
+If you need editable source text, use [`TextInput`](/reference/widgets/text-input) or a dedicated editor surface. If you need multi-style or annotated code display, [`RichText`](/reference/widgets/rich-text) gives you more control.
+
+## Specific advice
+
+Keep `Code` short. Once the content becomes multi-line or structurally significant, a dedicated block layout is clearer than an inline chip.
+
+## Related
+
+[`Kbd`](/reference/widgets/kbd), [`Text`](/reference/widgets/text), [`RichText`](/reference/widgets/rich-text), and [`Card`](/reference/widgets/card).

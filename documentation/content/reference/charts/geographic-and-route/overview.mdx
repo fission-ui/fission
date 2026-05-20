@@ -1,0 +1,26 @@
+---
+title: Geographic and route
+sidebar_label: Overview
+description: Fission Charts reference for the Geographic and route family.
+---
+
+# Geographic and route
+
+The Geographic and route family contains 4 renderer-backed chart variants. Use this page as the entry point for choosing the right variant, then open the variant page for the screenshot, data shape, Rust API notes, and example code.
+
+The chart family is still ordinary Fission UI. Each variant is constructed from typed Rust data, participates in layout and theme decisions, and can be driven by app state, reducers, resources, jobs, or services just like any other widget.
+
+![Choropleth map screenshot](/img/charts/map-choropleth.png)
+
+## Variants
+
+| Chart | Data shape | Use when |
+| --- | --- | --- |
+| [Choropleth map](./map-choropleth) | Region identifiers plus values and GeoJSON geometry. | Use it for geography-first comparison. |
+| [Geo lines](./geo-lines) | GeoJSON regions plus route line segments. | Use it when geography and movement need to be read together. |
+| [Lines](./lines-basic) | Line segments with from/to points and a value. | Use it for routes, movement, and connection flow. |
+| [Route map](./route-map) | Regions plus route segments. | Use it for logistics, traffic, or service coverage views. |
+
+## Choosing within this family
+
+Start with the user's question, not the visual effect. Pick the simplest variant that makes the answer clear, add interaction only when it reduces work for the user, and keep animation purposeful enough that it explains a change rather than decorating the page.

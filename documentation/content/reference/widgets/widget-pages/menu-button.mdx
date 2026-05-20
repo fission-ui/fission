@@ -1,0 +1,63 @@
+---
+title: MenuButton
+description: Open a menu flyout from a button whose open state lives in your app state.
+slug: /widgets/menu-button
+---
+# MenuButton
+
+`MenuButton` is the turnkey "button plus flyout menu" widget.
+
+Use it when the user presses a button to reveal a short list of actions. The widget renders the trigger button and, when `is_open` is true, registers a flyout portal that contains a [`Menu`](/reference/widgets/menu).
+
+## Example
+
+```rust
+use fission::prelude::*;
+
+let node = MenuButton {
+id: WidgetNodeId::explicit("message_actions"),
+label: "Actions".into(),
+is_open: view.state.actions_open,
+on_toggle: Some(toggle_actions_menu_action),
+items: vec![
+    MenuItem {
+        label: "Archive".into(),
+        icon: None,
+        on_select: Some(archive_action),
+    },
+    MenuItem {
+        label: "Delete".into(),
+        icon: None,
+        on_select: Some(delete_action),
+    },
+],
+}
+.build(ctx, view);
+```
+
+The usual reducer flow is simple: `on_toggle` flips `is_open`, and each menu item's action performs the choice and closes the menu by updating state.
+
+## Field table
+
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `id` | `WidgetNodeId` | Stable identity for the trigger and portal anchor. | Required. |
+| `label` | `String` | Visible text on the trigger button. | Required. |
+| `items` | `Vec<MenuItem>` | Menu entries to show when open. | Required. |
+| `is_open` | `bool` | Whether the flyout menu is currently visible. | Controlled by app state. |
+| `on_toggle` | `Option<ActionEnvelope>` | Action dispatched when the trigger is pressed. | Defaults to `None`. Usually toggles `is_open`. |
+
+## Portal and action behavior
+
+`MenuButton` does not hide itself after selection unless your reducers say so. That is an intentional part of Fission's explicit state model. The widget describes the menu. Your state decides whether the menu remains open.
+
+The checked-in implementation also uses an internal `Menu` width of `200.0` and max height of `300.0`. If you need different popup sizing, compose [`Menu`](/reference/widgets/menu) and your own portal or popover directly.
+
+## Specific advice
+
+Use `MenuButton` for action menus, not for choosing one persistent value from a form. For persistent value selection, [`Select`](/reference/widgets/select) usually gives clearer product semantics.
+
+## Related
+
+[`Menu`](/reference/widgets/menu), [`MenuItem`](/reference/widgets/menu-item), [`Select`](/reference/widgets/select), and [`Button`](/reference/widgets/button).
+

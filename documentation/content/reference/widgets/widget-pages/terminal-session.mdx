@@ -1,0 +1,103 @@
+---
+title: TerminalSession
+description: Own a live terminal process and expose a handle that TerminalView can render.
+slug: /widgets/terminal-session
+---
+# TerminalSession
+
+`TerminalSession` is the long-lived runtime object behind an embedded terminal pane.
+
+In plain language, it represents "a program that is currently running inside a terminal." That might be a shell, a command-line tool, or another text-based program. The session keeps track of the screen contents, the cursor, the selected text, the scrollback history, and the connection to the running program.
+
+It is important to start with one boundary: `TerminalSession` is not a widget. [`TerminalView`](/reference/widgets/terminal-view) is the widget that draws the terminal on screen. `TerminalSession` is the stateful runtime handle that keeps the terminal alive between frames.
+
+Fission implements this by launching the program through a _pseudo-terminal_ (PTY). A pseudo-terminal is an operating-system feature that makes a normal process think it is talking to a real terminal window. That is what lets a shell prompt, text editor, or terminal tool behave normally while Fission renders the result inside your app.
+
+If you are new to terminal-system vocabulary, these terms are the important ones:
+
+- a _process_ is a running program
+- a _child process_ is a program launched by another program
+- _scrollback_ is the saved terminal history you can scroll upward through
+- a _pseudo-terminal_ (PTY) is the host-side connection that makes terminal-style input and output work
+
+You do not need to become an expert in those details to use `TerminalSession`, but you do need to know that this surface lives close to the host operating system. It is not just text in a box.
+
+## When to use it
+
+Use `TerminalSession` when your product needs a real embedded terminal, such as:
+
+- a developer tool with an integrated shell
+- a deployment or automation screen that runs commands locally
+- a desktop workflow where users need to inspect or interact with a command-line process
+
+Do not start here if you only need to show command output as plain text. In that case, a normal text widget is simpler, more portable, and easier to control from app state.
+
+Also be careful about platform expectations. `TerminalSession` launches a local host process and relies on terminal-system behavior supplied by the operating system. That makes it a host capability, especially suited to desktop-style products, not a purely portable widget surface.
+
+## Example
+
+The usual flow is to create a session once, store the handle in app state, and then pass that handle to `TerminalView`.
+
+```rust
+use std::sync::Arc;
+use fission::prelude::*;
+
+let session: Arc<TerminalSession> = TerminalSession::spawn(TerminalLaunchConfig {
+    program: std::env::var("SHELL").ok(),
+    ..Default::default()
+})?;
+```
+
+Two pieces of Rust syntax here are worth explaining.
+
+`TerminalSession::spawn(...)` starts the runtime session and returns a `Result`, which means the launch can succeed or fail. The `?` at the end is standard Rust shorthand for "if this failed, stop here and return the error."
+
+`Arc<TerminalSession>` is a shareable handle type. `Arc` stands for _atomically reference-counted_. For now, you can treat it as "a safe shared pointer that lets several parts of the app refer to the same live session without copying the session itself."
+
+A common pattern is to store `Option<Arc<TerminalSession>>` in app state. `Option` means the session may or may not exist yet. That is useful when the terminal starts only after a user action or startup effect.
+
+## Method reference
+
+These are the methods most app authors interact with directly.
+
+| Method | Type | Meaning | Notes and default behavior |
+| --- | --- | --- | --- |
+| `spawn(config)` | `fn(TerminalLaunchConfig) -> Result<Arc<TerminalSession>>` | Starts a new terminal session and launches the configured program. | Uses a pseudo-terminal under the hood. Call this outside `build()`, usually from startup logic or an effect path. |
+| `id()` | `fn() -> u64` | Returns the runtime session identifier. | Useful for diagnostics, logs, or matching tabs to sessions. |
+| `take_dirty()` | `fn() -> bool` | Tells you whether the session changed and needs another redraw. | Commonly polled from a timer resource so terminal output can trigger fresh frames. |
+| `title()` | `fn() -> String` | Returns the current terminal title. | Useful for tab labels or pane headings if the running program updates its title. |
+| `set_focused(focused)` | `fn(bool)` | Tells the session whether it currently has keyboard focus. | `TerminalView` usually handles the visible focus story, but this matters for terminal behavior and cursor state. |
+| `send_text(text)` | `fn(&str) -> Result<()>` | Sends literal text to the running program. | Clears any current selection and jumps scrollback back to the live bottom. |
+| `send_key(key, modifiers)` | `fn(TermKeyCode, u8) -> Result<()>` | Sends a key press into the terminal. | Most apps let `TerminalView` do this rather than calling it directly. |
+| `paste_clipboard()` | `fn() -> Result<()>` | Reads the host clipboard and pastes it into the terminal. | Useful for terminal paste behavior that should match the operating system. |
+| `copy_selection_to_clipboard()` | `fn() -> Result<Option<String>>` | Copies the currently selected terminal text to the clipboard. | Returns `None` when there is no useful selection to copy. |
+| `scroll_scrollback(delta_lines)` | `fn(i32)` | Moves through saved terminal history. | Positive and negative values move through the scrollback buffer. |
+| `resize_for_viewport(width, height, font_size, line_height)` | `fn(f32, f32, f32, f32)` | Recomputes how many rows and columns fit in the current view. | Called by `TerminalView` so the host process sees the correct terminal size. |
+
+There are also lower-level selection helpers such as `begin_selection`, `update_selection`, `finish_selection`, and `clear_selection`. Most app code does not call these directly because `TerminalView` handles pointer-driven text selection for you.
+
+## State ownership
+
+`TerminalSession` works best when you keep ownership boundaries clear.
+
+| Owner | What it should own | What it should not own |
+| --- | --- | --- |
+| App state | Whether a session exists, which session is visible, labels or tabs around the terminal | The raw terminal buffer, clipboard transfer, or process I/O details |
+| `TerminalSession` | The running process, terminal buffer, cursor, selection, scrollback, and low-level terminal input and output | Your product decisions about which pane is active or whether the terminal should be shown |
+| `TerminalView` | The per-frame visual description of the terminal surface | The long-lived process lifetime |
+
+This separation is what keeps `build()` pure. Your widget tree can describe "show this terminal pane here" without also launching processes or reading terminal bytes during rendering.
+
+## Practical advice
+
+Create the session once and reuse it. If you recreate it every time the user interface rebuilds, you will keep restarting the underlying process and lose the terminal history.
+
+Expect redraw scheduling to be explicit. A terminal can change because the running program prints output even when your app state does not change. That is why checked-in examples poll `take_dirty()` from a timer-style resource and trigger another frame when the session says it changed.
+
+Use the configuration object for startup choices, not app-state copies of runtime internals. Things like the initial working directory or program name belong in [`TerminalLaunchConfig`](/reference/widgets/terminal-launch-config). The actual session internals belong in the session itself.
+
+Finally, validate the exact target you plan to ship. Embedded terminal behavior depends heavily on host support, so treat it as a runtime surface that deserves direct platform testing.
+
+## Related
+
+[`TerminalLaunchConfig`](/reference/widgets/terminal-launch-config), [`TerminalView`](/reference/widgets/terminal-view), [`WebView`](/reference/widgets/web-view), and [`Resources and async`](/docs/guides/resources-and-async).

@@ -1,0 +1,98 @@
+---
+title: Targets
+description: The reference contract for generated target hosts, checked-in smoke paths, and practical expectations across desktop, web, Android, and iOS.
+---
+
+# Targets
+
+A target in Fission is a generated platform host around shared app code.
+
+The target does not own your reducers, selectors, widgets, or product state model. It owns the files, packaging steps, and launch path needed to run that shared app on a specific host.
+
+That is why generated target output matters. It is the host wrapper around your app, not a second copy of your app.
+
+## What generated host output means
+
+The command-line interface generates platform folders under `platforms/<target>/`. Those folders contain host-specific notes, scripts, and supporting files for packaging and launch.
+
+In practice, a generated host may include a launcher script, bundle or manifest metadata, and a target-specific `README.md` file that explains prerequisites and current caveats.
+
+The important contract is that generated target output stays thin. Your product logic remains in shared Rust code, while the target folder owns host setup.
+
+## Targets the command-line interface can scaffold
+
+The current command-line interface target set includes:
+
+- `windows`
+- `macos`
+- `linux`
+- `web`
+- `ios`
+- `android`
+
+A fresh `fission init` project starts with the desktop family scaffolded. You add other targets with `cargo fission add-target ...` when the product or host you care about requires them.
+
+## Choosing a target in practice
+
+Target choice should follow product need.
+
+If your app is browser-first, the web target belongs early because browser hosting, browser packaging, and browser behavior are part of the real product.
+
+If your app is mobile-first, Android and iOS belong early because touch layout, safe areas, text entry, packaging, emulator flow, and simulator flow are part of the real product.
+
+If your current question is still mostly about shared reducers, widgets, selectors, and layout behavior, the desktop host is often the shortest general loop on many machines. That is a workflow convenience, not the identity of the framework.
+
+## Desktop expectations
+
+The desktop targets are real shipping targets, not only preview hosts.
+
+They are usually the lightest local loop because `cargo run` can launch them directly without a separate browser or mobile packaging step. That makes them convenient for broad shared-runtime work, but desktop is only one host family among several real targets.
+
+## Web expectations
+
+The web target generates a browser host around the shared runtime. In practice, that means a WebAssembly build plus a local browser-serving path.
+
+The checked-in proof path is `examples/web-smoke/`, and generated apps use the same style of launcher through `./platforms/web/run-browser.sh`.
+
+Treat the web target as a real browser host with its own validation needs, not as a cosmetic variation of desktop.
+
+## Android expectations
+
+The Android target generates an emulator-oriented mobile host path around the shared app.
+
+In practice, that means Android software development kit (SDK) setup, Android native development kit (NDK) setup, generated packaging files, and the launcher script `./platforms/android/run-emulator.sh`.
+
+The checked-in repo-backed proof path is `examples/mobile-smoke/`, which documents the current emulator flow and environment details.
+
+## iOS expectations
+
+The iOS target generates a simulator-oriented host path around the shared app.
+
+In practice, that means simulator prerequisites, generated bundle support, and the launcher script `./platforms/ios/run-sim.sh`.
+
+The checked-in smoke examples and public docs treat the iOS simulator path as the current concrete validation path. As with Android, this host boundary has its own prerequisites and should be validated directly.
+
+## Files and paths worth knowing
+
+When you inspect generated output, the most important files are usually:
+
+- `fission.toml`, which records project and target configuration
+- `platforms/<target>/README.md`, which explains prerequisites and current status for that host
+- target-specific launcher scripts such as `run-browser.sh`, `run-sim.sh`, and `run-emulator.sh`
+- `assets/app-icon.png`, which seeds generated app icon usage
+
+## How to validate targets
+
+Use the host that matches the behavior you need to prove.
+
+Use desktop heavily when the question is mostly about shared runtime behavior and you want a short local loop.
+
+Use web when browser hosting, browser layout, browser packaging, or browser-specific behavior matters.
+
+Use Android and iOS when mobile packaging, mobile layout, simulator or emulator launch, or other mobile host behavior matters.
+
+Use the checked-in smoke examples and generated target folders together. The examples prove the repository's current host paths, and the generated folders show how that host shape reaches your own project.
+
+## Related reference pages
+
+For shell-wrapper boundaries, see [Platform runtime](/reference/core/platform-runtime). For target-level testing expectations, continue to [Platform testing](/reference/platform/testing). For the learner-facing explanation of examples and host choice, see [Examples and targets](/docs/learn/examples-and-targets).

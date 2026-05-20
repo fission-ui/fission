@@ -1,0 +1,112 @@
+---
+title: Media, animation, portals, and 3D
+description: Learn how Fission handles motion, overlays, embedded media, and the current 3D path without breaking the shared runtime model.
+---
+
+# Media, animation, portals, and 3D
+
+This page groups together four topics that often feel "special" in user interface work.
+
+Animation changes over time. Portals and overlays appear above the normal page flow. Media and embeds may depend on host-managed surfaces. Three-dimensional scenes feel like they belong to a separate rendering world.
+
+Fission keeps all four inside the same explicit runtime model as the rest of the user interface. That is the point of learning them together.
+
+They are not random exceptions. They are places where the framework proves that a serious app can still keep deterministic structure, explicit registration, and testable behavior.
+
+## Animation: motion owned by the runtime
+
+Animation is the controlled change of a visual property over time.
+
+In Fission, animations are not hidden in ad hoc widget-local timers. They are requested through `BuildCtx` against stable widget identities, and the runtime tracks their current values.
+
+That design exists for practical reasons.
+
+When the runtime owns animation state, motion follows the same deterministic clock model as the rest of the framework. Tests can reason about progress. Widgets can read animation values without managing their own background loops. The same app model stays consistent across shells.
+
+You will usually see animation in one of two forms.
+
+The first is a higher-level widget such as `Transition`, which requests a property animation for you. The second is a direct request through `ctx.anim_for(...)` or `ctx.request_animation_for(...)` when you want explicit control.
+
+Use animation when motion explains state change, preserves continuity, or reduces abruptness. A sidebar sliding in, a status badge fading, or a tooltip softening into view are all reasonable examples.
+
+Do not use animation as a substitute for clear structure. If the user cannot tell what changed without a flourish, the state model or layout may need work first.
+
+A common mistake is forgetting stable widget identity. The runtime needs a durable widget ID to track an animation across frames. Another mistake is mixing animation intent with business logic. Reducers should decide what state changed. Animation should explain that change visually.
+
+If you want a concrete example, `animation-gallery` is the clearest proving ground in the repo.
+
+## Portals and overlays: content that belongs above the main flow
+
+A portal is the mechanism Fission uses when content should render above the normal layout flow while still belonging to the same app.
+
+Modals, drawers, popovers, menus, tooltips, and toast notifications all live in this family. They are overlays because they appear above ordinary content. They are portals because they are registered into a higher-level overlay stack instead of pretending to sit inline in the main layout tree.
+
+Why does Fission model them this way? Because overlays still need deterministic ordering, layout participation, and test visibility. They should not be a magical escape hatch that bypasses the rest of the runtime.
+
+`BuildCtx` exposes portal registration APIs, and higher-level widgets such as `Modal`, `Drawer`, `Popover`, `Tooltip`, and menu-style controls build on that mechanism. Portals are ordered by explicit layers such as default, modal, flyout, and toast.
+
+Use a portal when the content should visually escape clipping or stacking constraints from the main page while still behaving like part of the same app. A dropdown menu anchored to a field, a full-screen modal, or a toast message are all good fits.
+
+Do not use a portal just because layering feels convenient. If content is really part of the normal page flow, keep it in the ordinary layout tree. Portal-heavy design becomes harder to reason about when every panel floats by default.
+
+A common mistake is forgetting that overlays still need layout and interaction reasoning. They may paint above the page, but they still need correct anchors, semantics, dismissal behavior, and input handling. That is why the portal system exists as a runtime-managed feature rather than a loose convention.
+
+The `inbox`, `widget-gallery`, `text-lab`, and `fission-editor` examples all prove different parts of this story.
+
+## Media and embeds: host-backed surfaces with shared layout rules
+
+Media and embeds are the parts of the user interface where the host may own some of the actual playback or surface behavior, even though the shared runtime still owns layout and interaction meaning.
+
+Today, the most visible examples are `Video` and `WebView`. These are not plain text or rectangle draws. They involve external surfaces or host-managed functionality.
+
+Why keep them explicit? Because an embedded surface still needs a place in the layout system. It still needs geometry, hit testing, and visibility rules. Tests and diagnostics still need to know that it exists, even when the host provides the low-level playback or browsing surface.
+
+That is why widgets such as `Video` and `WebView` register themselves with the runtime during `build()`. The runtime can then track them as part of the frame model instead of letting them become an invisible side channel.
+
+Use media or embed widgets when the user interface genuinely needs a host-backed surface, such as video playback or a bounded browser view.
+
+Do not treat embeds as a shortcut for ordinary interface composition. If the content is really just app user interface, keep it in normal widgets. Embedded surfaces bring integration boundaries and testing considerations with them.
+
+A common mistake is expecting every aspect of media playback to be as deterministic as ordinary layout. The framework keeps layout, registration, and observable state explicit, but some subsystems, such as hardware-backed video decoding, still need isolation and careful testing strategy.
+
+## 3D: a bounded scene inside the ordinary user interface model
+
+Three-dimensional content often tempts frameworks into creating a separate mini-engine with its own rules. Fission deliberately avoids that split.
+
+The current 3D path is `Scene3D` from `fission-3d`. It is treated as an embedded scene inside the normal layout system.
+
+What is it? A widget that describes a 3D scene and lowers it into an embed-style runtime path.
+
+Why does it exist? Because some apps genuinely need charts, previews, or scene-driven content, but the rest of the app should not have to abandon the shared runtime model to host that view.
+
+When should you use it? Use it when a bounded region of the interface really needs three-dimensional rendering or a 3D-style visual surface.
+
+When should you not use it? Do not use `Scene3D` as an excuse to move ordinary two-dimensional app layout into a separate world. It should stay a focused viewport inside the larger interface.
+
+A common mistake is assuming 3D should control the rest of the screen. In Fission, the main app still owns navigation, state flow, layout around the scene, and shell integration. The 3D scene is one surface inside that architecture, not a competing app runtime.
+
+The `chart-gallery` example is the current checked-in proof for this path.
+
+## How these four topics still fit the core model
+
+Even though animation, overlays, embeds, and 3D feel advanced, they still follow the same broad Fission story.
+
+State lives in `AppState`. Widgets describe the current user interface in `build()`. `BuildCtx` registers runtime-managed behavior such as animations, portals, and embeds. The runtime lowers, lays out, and renders the result. Shells host the output on desktop, web, Android, and iOS.
+
+That consistency is the real lesson here.
+
+The framework does not become structurally different the moment you add motion or media. It keeps asking for explicit declarations instead of hidden side systems.
+
+## What to watch out for in practice
+
+For animation, watch identity and overuse. Motion should clarify state changes, not obscure them.
+
+For portals, watch layering, focus, dismissal rules, and anchor geometry. Overlays need deliberate interaction design.
+
+For media and embeds, watch host boundaries and testing strategy. Geometry and registration are explicit, but some low-level playback behavior still depends on external systems.
+
+For 3D, watch scope. Treat the scene as a bounded part of the interface, not as a license to bypass the rest of the runtime.
+
+## Where to go next
+
+If you want the underlying explanation of layout, viewport reasoning, and screen composition first, read [Layout and widgets](/docs/guides/layout-and-widgets). If you want the async and runtime side of jobs, timers, and long-lived work, continue to [Resources and async](/docs/guides/resources-and-async). For checked-in proofs, open `animation-gallery`, `chart-gallery`, `inbox`, or `fission-editor` from the public [Examples](/examples) page.

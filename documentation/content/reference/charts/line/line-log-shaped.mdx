@@ -1,0 +1,58 @@
+---
+title: Log-shaped line
+sidebar_label: Log-shaped line
+description: Fission Charts reference for Log-shaped line.
+---
+
+# Log-shaped line
+
+![Log-shaped line screenshot](/img/charts/line-log-shaped.png)
+
+A line with rapid early growth and slower later growth. Use it for adoption curves and saturation effects. The screenshot is captured from the native Fission chart gallery.
+
+## What the chart is for
+
+Log-shaped line belongs to the **Line** family. Its job is to make this data shape readable: `Vec<f32> with nonlinear values.` In a production interface, choose this chart when the visual form makes the user's question faster to answer than a table or a simpler chart would.
+
+Avoid it when the visual form makes the user estimate more than necessary; choose the simplest chart that answers the product question.
+
+## Data model
+
+`Vec<f32> with nonlinear values.` Keep the data close to the Rust type that describes it. Fission Charts is typed Rust, so each chart uses explicit series and component structs instead of string configuration hidden in a loosely typed object.
+
+## Rust API
+
+| Field | Type | Notes |
+| --- | --- | --- |
+| `title` | `&str` | Names the chart for the screen, accessibility tree, and test output. |
+| `x_axis` | `Axis` | Usually `Axis::category`; use `Axis::value()` when x positions are numeric. |
+| `y_axis` | `Axis::value()` | Maps each sample value to the chart range. |
+| `series` | `Series` | Provides the typed data model for this chart family. |
+| `width / height` | `f32` | Optional fixed size; omit them when the chart should flex inside Fission layout. |
+
+## Example
+
+```rust
+use fission_charts::{Axis, Chart, LineSeries};
+
+let chart = Chart::new()
+    .title("Trend")
+    .x_axis(Axis::category(vec!["Mon", "Tue", "Wed", "Thu", "Fri"]))
+    .y_axis(Axis::value())
+    .series(vec![LineSeries::new("Revenue")
+        .data(vec![120.0, 132.0, 101.0, 134.0, 190.0])
+        .into()]);
+```
+
+## Interaction and animation
+
+Charts can emit typed `ChartInteractionEvent` values when interaction is enabled. Handle those events in a reducer when the app needs hover, press, release, scroll, selection, or brush behavior. `ChartAnimation` stores duration, delay, stagger, easing, and reduced-motion behavior as deterministic chart data, so animation timing can be tested instead of being hidden in ad-hoc timers.
+
+## Testing guidance
+
+For this chart, test the data mapping first, then test lowering, then capture a live screenshot when visual output changes. The screenshot for this page is refreshed with `npm run charts:generate` from the website package.
+
+Tags: `line`, `growth`.
+
+
+[Line family overview](./overview)

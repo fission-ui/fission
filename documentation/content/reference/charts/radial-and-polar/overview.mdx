@@ -1,0 +1,31 @@
+---
+title: Radial and polar
+sidebar_label: Overview
+description: Fission Charts reference for the Radial and polar family.
+---
+
+# Radial and polar
+
+The Radial and polar family contains 9 renderer-backed chart variants. Use this page as the entry point for choosing the right variant, then open the variant page for the screenshot, data shape, Rust API notes, and example code.
+
+The chart family is still ordinary Fission UI. Each variant is constructed from typed Rust data, participates in layout and theme decisions, and can be driven by app state, reducers, resources, jobs, or services just like any other widget.
+
+![Donut screenshot](/img/charts/pie-donut.png)
+
+## Variants
+
+| Chart | Data shape | Use when |
+| --- | --- | --- |
+| [Donut](./pie-donut) | Label/value pairs plus inner radius. | Use it when the whole needs a central value or status. |
+| [Filled radar](./radar-filled) | Metric profiles plus fill style. | Use it when profile area and overlap should be visible. |
+| [Gauge](./gauge-basic) | One label/value pair with an expected range. | Use it when the value is read as a current instrument state. |
+| [Liquid fill](./liquid-fill) | One or more percentages. | Use it for capacity, completion, or quota states. |
+| [Pie](./pie-basic) | Label/value pairs. | Use it for a small number of categories where the whole matters. |
+| [Progress gauge](./gauge-progress) | One or more bounded values. | Use it for operational progress and service health panels. |
+| [Radar](./radar-basic) | Vec&lt;Vec&lt;f32&gt;&gt; where each row is one profile. | Use it for profile comparison across a fixed set of dimensions. |
+| [Rose by area](./pie-rose-area) | Label/value pairs plus area rose mode. | Use it when rose slices should emphasize difference without making small values disappear. |
+| [Rose by radius](./pie-rose-radius) | Label/value pairs plus radius rose mode. | Use it for presentation-heavy part-to-whole views. |
+
+## Choosing within this family
+
+Start with the user's question, not the visual effect. Pick the simplest variant that makes the answer clear, add interaction only when it reduces work for the user, and keep animation purposeful enough that it explains a change rather than decorating the page.
