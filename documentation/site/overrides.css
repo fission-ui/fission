@@ -12,3 +12,59 @@
 .fission-site-theme-toggle:hover {
   background: color-mix(in srgb, var(--fs-color-primary-subtle) 62%, transparent);
 }
+
+/* Landing page parity and responsive polish for the Fission documentation site. */
+.fission-site-home-hero,
+.fission-site-home-signals,
+.fission-site-home-charts,
+.fission-site-home-model,
+.fission-site-home-targets {
+  width: 100%;
+}
+
+.fission-site-home-charts > .fission-site-row,
+.fission-site-home-model {
+  max-width: 100%;
+}
+
+.fission-site-home-charts .fission-site-img {
+  object-fit: cover;
+  border-radius: 0.55rem;
+}
+
+@media (max-width: 1180px) {
+  .fission-site-home-charts > .fission-site-row,
+  .fission-site-home-model,
+  .fission-site-home-targets .fission-site-row {
+    justify-content: center !important;
+  }
+}
+
+@media (max-width: 760px) {
+  .fission-site-home-hero-title .fission-site-text-run {
+    font-size: clamp(3.9rem, 19vw, 5.4rem) !important;
+    line-height: 0.96 !important;
+  }
+
+  .fission-site-home-hero,
+  .fission-site-home-signals,
+  .fission-site-home-charts,
+  .fission-site-home-model,
+  .fission-site-home-targets {
+    padding-left: 1rem !important;
+    padding-right: 1rem !important;
+  }
+
+  .fission-site-home-hero .fission-site-box,
+  .fission-site-home-signals .fission-site-box,
+  .fission-site-home-charts .fission-site-box,
+  .fission-site-home-model .fission-site-box,
+  .fission-site-home-targets .fission-site-box {
+    width: 100% !important;
+    max-width: 100% !important;
+  }
+
+  .fission-site-home-charts .fission-site-img {
+    height: auto !important;
+  }
+}

@@ -1,10 +1,11 @@
 use crate::stack::VStack;
 use fission_core::op::Color;
 use fission_core::ui::{
-    Container, Image, Node, RichText, RichTextRun, Row, Scroll, Text, TextFontStyle,
+    Column, Container, Image, Node, RichText, RichTextRun, Row, Scroll, Text, TextFontStyle,
 };
 use fission_core::{BuildCtx, FlexDirection, View, Widget};
 use fission_ir::op::{AlignItems, ImageFit};
+use fission_ir::{Role, Semantics};
 use rushdown::ast::{
     Arena, CodeBlock, CodeSpan, Heading, HtmlBlock, Image as MarkdownImage, KindData, Link,
     NodeRef, TableCellAlignment, Text as MarkdownText, TextQualifier,
@@ -375,9 +376,11 @@ impl<'a> MarkdownRenderer<'a> {
         }
 
         Container::new(
-            VStack {
-                spacing: Some(0.0),
+            Column {
                 children: rows,
+                semantics: Some(markdown_semantics("markdown-table")),
+                gap: Some(0.0),
+                ..Default::default()
             }
             .into_node(),
         )
@@ -393,6 +396,11 @@ impl<'a> MarkdownRenderer<'a> {
             .collect();
         Row {
             children: cells,
+            semantics: Some(markdown_semantics(if is_header {
+                "markdown-table-row:header"
+            } else {
+                "markdown-table-row:body"
+            })),
             gap: Some(0.0),
             align_items: AlignItems::Start,
             ..Default::default()
@@ -427,7 +435,24 @@ impl<'a> MarkdownRenderer<'a> {
             _ => {}
         }
 
-        cell.into_node()
+        let alignment = match alignment {
+            TableCellAlignment::Left => "left",
+            TableCellAlignment::Center => "center",
+            TableCellAlignment::Right => "right",
+            TableCellAlignment::None => "none",
+            _ => "none",
+        };
+        Row {
+            children: vec![cell.into_node()],
+            semantics: Some(markdown_semantics(format!(
+                "markdown-table-cell:{}:{alignment}",
+                if is_header { "header" } else { "body" }
+            ))),
+            flex_grow: 1.0,
+            align_items: AlignItems::Start,
+            ..Default::default()
+        }
+        .into_node()
     }
 
     fn readable_plain_block(&self, node_ref: NodeRef) -> Node {
@@ -649,6 +674,14 @@ impl<'a> MarkdownRenderer<'a> {
                 }
             }
         }
+    }
+}
+
+fn markdown_semantics(identifier: impl Into<String>) -> Semantics {
+    Semantics {
+        role: Role::Generic,
+        identifier: Some(identifier.into()),
+        ..Semantics::default()
     }
 }
 

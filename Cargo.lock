@@ -1396,6 +1396,7 @@ dependencies = [
  "fission-theme",
  "fission-widgets",
  "serde",
+ "serde_json",
  "toml",
 ]
 

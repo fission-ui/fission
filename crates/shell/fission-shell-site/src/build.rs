@@ -13,6 +13,7 @@ use fission_core::{BuildCtx, Env, LoweringContext, Node, RuntimeState, View, Wid
 use fission_layout::LayoutSize;
 use fission_theme::DesignMode;
 use serde::Deserialize;
+use serde_json::json;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -25,10 +26,14 @@ pub struct SiteBuildOptions {
     pub site_title: String,
     pub site_description: Option<String>,
     pub site_logo: Option<String>,
+    pub base_url: Option<String>,
+    pub default_locale: String,
     pub site_nav: Vec<SiteNavLink>,
     pub user_css: Vec<String>,
     pub content_routes: Vec<SiteContentRouteConfig>,
     pub asset_dirs: Vec<PathBuf>,
+    pub generate_sitemap: bool,
+    pub generate_robots: bool,
     pub clean: bool,
 }
 
@@ -49,6 +54,8 @@ impl SiteBuildOptions {
             site_title: site_title.into(),
             site_description: None,
             site_logo: None,
+            base_url: None,
+            default_locale: "en".to_string(),
             site_nav: Vec::new(),
             user_css: Vec::new(),
             content_routes: vec![SiteContentRouteConfig {
@@ -58,6 +65,8 @@ impl SiteBuildOptions {
                 sidebar: None,
             }],
             asset_dirs: Vec::new(),
+            generate_sitemap: false,
+            generate_robots: false,
             clean: true,
         }
     }
@@ -79,6 +88,10 @@ impl SiteBuildOptions {
             .or(app_name)
             .unwrap_or_else(|| fallback_title.into());
         let site_logo = site.logo.as_deref().map(normalize_site_asset_href);
+        let base_url = site
+            .base_url
+            .map(|url| url.trim_end_matches('/').to_string());
+        let default_locale = site.default_locale.unwrap_or_else(|| "en".to_string());
         let site_nav = site
             .nav
             .into_iter()
@@ -128,16 +141,22 @@ impl SiteBuildOptions {
             .into_iter()
             .map(|path| resolve_project_path(&project_dir, PathBuf::from(path)))
             .collect();
+        let generate_sitemap = site.generate_sitemap.unwrap_or(false);
+        let generate_robots = site.generate_robots.unwrap_or(false);
         Ok(Self {
             project_dir,
             output_dir,
             site_title,
             site_description: site.description,
             site_logo,
+            base_url,
+            default_locale,
             site_nav,
             user_css,
             content_routes,
             asset_dirs,
+            generate_sitemap,
+            generate_robots,
             clean: true,
         })
     }
@@ -212,6 +231,9 @@ pub fn build_site(options: &SiteBuildOptions, site: &FissionSite) -> Result<Site
     }
 
     write_root_index_if_needed(options, &routes)?;
+    write_sitemap_if_needed(options, &routes)?;
+    write_robots_if_needed(options)?;
+    validate_generated_internal_links(&options.output_dir)?;
 
     Ok(SiteBuildReport {
         output_dir: options.output_dir.clone(),
@@ -301,6 +323,60 @@ fn write_site_css(
         format!(
             "failed to write {}",
             options.output_dir.join("site.css").display()
+        )
+    })
+}
+
+fn write_sitemap_if_needed(options: &SiteBuildOptions, routes: &[ContentRoute]) -> Result<()> {
+    if !options.generate_sitemap {
+        return Ok(());
+    }
+    let Some(base_url) = options.base_url.as_ref() else {
+        return Ok(());
+    };
+    let mut xml = String::from(
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<urlset xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\">\n",
+    );
+    for route in routes {
+        let Some(location) = canonical_url_for_route(options, &route.path) else {
+            continue;
+        };
+        xml.push_str("  <url><loc>");
+        xml.push_str(&escape_text(&location));
+        xml.push_str("</loc></url>\n");
+    }
+    xml.push_str("</urlset>\n");
+    if routes.iter().all(|route| route.path != "/") {
+        xml = xml.replace(
+            "</urlset>",
+            &format!(
+                "  <url><loc>{}/</loc></url>\n</urlset>",
+                escape_text(base_url)
+            ),
+        );
+    }
+    fs::write(options.output_dir.join("sitemap.xml"), xml).with_context(|| {
+        format!(
+            "failed to write {}",
+            options.output_dir.join("sitemap.xml").display()
+        )
+    })
+}
+
+fn write_robots_if_needed(options: &SiteBuildOptions) -> Result<()> {
+    if !options.generate_robots {
+        return Ok(());
+    }
+    let mut robots = String::from("User-agent: *\nAllow: /\n");
+    if let Some(base_url) = &options.base_url {
+        robots.push_str("Sitemap: ");
+        robots.push_str(base_url);
+        robots.push_str("/sitemap.xml\n");
+    }
+    fs::write(options.output_dir.join("robots.txt"), robots).with_context(|| {
+        format!(
+            "failed to write {}",
+            options.output_dir.join("robots.txt").display()
         )
     })
 }
@@ -489,6 +565,7 @@ fn render_custom_routes(
                 .clone()
                 .or_else(|| options.site_description.clone()),
             &route.path,
+            options,
             site,
             styles,
         )?;
@@ -565,6 +642,7 @@ fn render_route(
             .clone()
             .or_else(|| options.site_description.clone()),
         &route.path,
+        options,
         site,
         styles,
     )
@@ -575,6 +653,7 @@ fn render_node_to_html(
     title: &str,
     description: Option<String>,
     route_path: &str,
+    options: &SiteBuildOptions,
     site: &FissionSite,
     styles: &mut StyleRegistry,
 ) -> Result<String> {
@@ -586,13 +665,22 @@ fn render_node_to_html(
     lowering.ir.set_root(root);
 
     let render_options = HtmlRenderOptions {
+        lang: options.default_locale.clone(),
         document_title: title.to_string(),
-        description,
+        description: description.clone(),
+        canonical_url: canonical_url_for_route(options, route_path),
+        site_name: Some(options.site_title.clone()),
         stylesheet_href: stylesheet_href_for_route(route_path),
         current_route_path: route_path.to_string(),
         css_variables: CssVariableMap::from_theme(&site.theme),
         default_theme_mode: site.default_theme_mode,
         theme_switching: site.theme_switching,
+        structured_data: structured_data_for_route(
+            options,
+            title,
+            description.as_deref(),
+            route_path,
+        ),
         ..Default::default()
     };
     Ok(render_ir_to_html_with_styles(&lowering.ir, &render_options, styles)?.html)
@@ -764,6 +852,162 @@ fn stylesheet_href_for_route(route_path: &str) -> String {
     }
 }
 
+fn canonical_url_for_route(options: &SiteBuildOptions, route_path: &str) -> Option<String> {
+    let base = options.base_url.as_ref()?;
+    let path = normalize_site_path(route_path);
+    if path == "/" {
+        Some(format!("{base}/"))
+    } else {
+        Some(format!("{base}{path}"))
+    }
+}
+
+fn structured_data_for_route(
+    options: &SiteBuildOptions,
+    title: &str,
+    description: Option<&str>,
+    route_path: &str,
+) -> Vec<String> {
+    let Some(url) = canonical_url_for_route(options, route_path) else {
+        return Vec::new();
+    };
+    let mut data = Vec::new();
+    if normalize_site_path(route_path) == "/" {
+        data.push(
+            json!({
+                "@context": "https://schema.org",
+                "@type": "WebSite",
+                "name": options.site_title,
+                "url": url,
+            })
+            .to_string(),
+        );
+    }
+    data.push(
+        json!({
+            "@context": "https://schema.org",
+            "@type": "WebPage",
+            "name": title,
+            "url": url,
+            "description": description.or(options.site_description.as_deref()),
+            "isPartOf": {
+                "@type": "WebSite",
+                "name": options.site_title,
+                "url": options.base_url,
+            },
+        })
+        .to_string(),
+    );
+    data
+}
+
+fn validate_generated_internal_links(output_dir: &Path) -> Result<()> {
+    let mut html_files = Vec::new();
+    collect_generated_html_files(output_dir, &mut html_files)?;
+    let mut missing = Vec::new();
+    for html_file in html_files {
+        let html = fs::read_to_string(&html_file)
+            .with_context(|| format!("failed to read generated HTML {}", html_file.display()))?;
+        for target in extract_html_attr_values(&html, "href")
+            .into_iter()
+            .chain(extract_html_attr_values(&html, "src"))
+        {
+            if generated_link_target_exists(output_dir, &html_file, &target) {
+                continue;
+            }
+            missing.push(format!("{} -> {}", html_file.display(), target));
+            if missing.len() >= 10 {
+                break;
+            }
+        }
+        if missing.len() >= 10 {
+            break;
+        }
+    }
+    if missing.is_empty() {
+        Ok(())
+    } else {
+        bail!(
+            "static site generated links that do not resolve:\n{}",
+            missing.join("\n")
+        )
+    }
+}
+
+fn collect_generated_html_files(root: &Path, out: &mut Vec<PathBuf>) -> Result<()> {
+    if !root.exists() {
+        return Ok(());
+    }
+    for entry in fs::read_dir(root).with_context(|| format!("failed to read {}", root.display()))? {
+        let entry = entry?;
+        let path = entry.path();
+        if entry.file_type()?.is_dir() {
+            collect_generated_html_files(&path, out)?;
+        } else if path.extension().and_then(|value| value.to_str()) == Some("html") {
+            out.push(path);
+        }
+    }
+    Ok(())
+}
+
+fn extract_html_attr_values(html: &str, attr: &str) -> Vec<String> {
+    let needle = format!("{attr}=\"");
+    let mut values = Vec::new();
+    let mut rest = html;
+    while let Some(start) = rest.find(&needle) {
+        let after_start = &rest[start + needle.len()..];
+        let Some(end) = after_start.find('"') else {
+            break;
+        };
+        values.push(unescape_basic_attr(&after_start[..end]));
+        rest = &after_start[end + 1..];
+    }
+    values
+}
+
+fn generated_link_target_exists(output_dir: &Path, source: &Path, target: &str) -> bool {
+    if target.is_empty()
+        || target.starts_with('#')
+        || target.starts_with("http://")
+        || target.starts_with("https://")
+        || target.starts_with("mailto:")
+        || target.starts_with("tel:")
+        || target.starts_with("data:")
+    {
+        return true;
+    }
+    let target = target.split(['#', '?']).next().unwrap_or(target).trim();
+    if target.is_empty() {
+        return true;
+    }
+    let path = if target.starts_with('/') {
+        output_dir.join(target.trim_start_matches('/'))
+    } else {
+        source.parent().unwrap_or(output_dir).join(target)
+    };
+    generated_target_path_exists(path)
+}
+
+fn generated_target_path_exists(path: PathBuf) -> bool {
+    if path.is_file() {
+        return true;
+    }
+    if path.is_dir() && path.join("index.html").is_file() {
+        return true;
+    }
+    if path.extension().is_none() && path.join("index.html").is_file() {
+        return true;
+    }
+    false
+}
+
+fn unescape_basic_attr(value: &str) -> String {
+    value
+        .replace("&quot;", "\"")
+        .replace("&#39;", "'")
+        .replace("&amp;", "&")
+}
+
 fn first_h1(markdown: &str) -> Option<String> {
     markdown
         .lines()
@@ -858,6 +1102,8 @@ struct ProjectSite {
     title: Option<String>,
     description: Option<String>,
     logo: Option<String>,
+    base_url: Option<String>,
+    default_locale: Option<String>,
     out_dir: Option<String>,
     #[serde(default)]
     nav: Vec<ProjectSiteNavLink>,
@@ -867,6 +1113,10 @@ struct ProjectSite {
     asset_dirs: Vec<String>,
     #[serde(default)]
     css_files: Vec<String>,
+    #[serde(default)]
+    generate_sitemap: Option<bool>,
+    #[serde(default)]
+    generate_robots: Option<bool>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -940,7 +1190,11 @@ mod tests {
             "---\ntitle: Getting started\ndescription: First page\n---\n# Getting started\n\nThis is rendered by Fission.",
         )
         .unwrap();
-        let options = SiteBuildOptions::for_project(&temp, "Test site");
+        let mut options = SiteBuildOptions::for_project(&temp, "Test site");
+        options.base_url = Some("https://example.com/docs".to_string());
+        options.default_locale = "en-GB".to_string();
+        options.generate_sitemap = true;
+        options.generate_robots = true;
         let report = build_content_site(&options).unwrap();
         let output = temp.join("target/fission/site/content/getting-started/index.html");
         assert_eq!(report.routes.len(), 1);
@@ -949,9 +1203,14 @@ mod tests {
         assert!(html.contains("This is rendered by"));
         assert!(html.contains("Fission."));
         assert!(!html.contains("style=\""));
+        assert!(html.contains("rel=\"canonical\""));
+        assert!(html.contains("property=\"og:locale\" content=\"en_GB\""));
+        assert!(html.contains("application/ld+json"));
         let css = fs::read_to_string(temp.join("target/fission/site/site.css")).unwrap();
         assert!(css.contains(":root"));
         assert!(css.contains(".fs_"));
+        assert!(temp.join("target/fission/site/sitemap.xml").exists());
+        assert!(temp.join("target/fission/site/robots.txt").exists());
         let _ = fs::remove_dir_all(temp);
     }
 

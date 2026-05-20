@@ -23,3 +23,138 @@ img, svg { max-width: 100%; }
 .fission-site-svg svg { display: inline-block; max-width: 100%; }
 
 .fission-site-theme-toggle { cursor: pointer; }
+
+.fission-site-box,
+.fission-site-grid,
+.fission-site-scroll,
+.fission-site-column,
+.fission-site-row {
+  max-width: 100%;
+}
+
+.fission-site-markdown-table-wrap {
+  width: 100%;
+  max-width: 100%;
+  overflow-x: auto;
+  border: 1px solid var(--fs-color-border);
+  border-radius: 0.65rem;
+  background: var(--fs-color-surface);
+}
+
+.fission-site-markdown-table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: auto;
+}
+
+.fission-site-markdown-table-cell {
+  padding: 0.68rem 0.82rem;
+  border: 1px solid color-mix(in srgb, var(--fs-color-border) 72%, transparent);
+  color: var(--fs-color-text-primary);
+  vertical-align: top;
+}
+
+.fission-site-markdown-table th.fission-site-markdown-table-cell {
+  background: var(--fs-color-surface-raised);
+  color: var(--fs-color-heading);
+  font-weight: 700;
+}
+
+.fission-site-markdown-table-cell > .fission-site-row,
+.fission-site-markdown-table-cell > .fission-site-row > .fission-site-box {
+  border: 0 !important;
+  background: transparent !important;
+  padding: 0 !important;
+  width: auto !important;
+  min-height: 0 !important;
+}
+
+.fission-site-markdown-align-center { text-align: center; }
+.fission-site-markdown-align-right { text-align: right; }
+
+.fission-site-doc-layout {
+  height: calc(100vh - 4.75rem);
+  overflow: hidden;
+}
+
+.fission-site-doc-layout > .fission-site-row {
+  height: 100%;
+  align-items: stretch;
+}
+
+.fission-site-doc-sidebar,
+.fission-site-doc-main,
+.fission-site-doc-toc {
+  max-height: 100%;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+
+.fission-site-doc-sidebar,
+.fission-site-doc-toc {
+  position: sticky;
+  top: 0;
+  align-self: stretch;
+}
+
+.fission-site-doc-main {
+  min-width: 0;
+  flex: 1 1 0;
+}
+
+.fission-site-js .fission-site-sidebar-item[hidden] {
+  display: none !important;
+}
+
+.fission-site-sidebar-item[data-fission-site-sidebar-has-children="true"] > .fission-site-column > .fission-site-box::after {
+  content: "›";
+  float: right;
+  color: var(--fs-color-text-muted);
+  transform: rotate(0deg);
+}
+
+.fission-site-sidebar-item[data-fission-site-sidebar-expanded="true"] > .fission-site-column > .fission-site-box::after {
+  transform: rotate(90deg);
+}
+
+@media (max-width: 960px) {
+  .fission-site-doc-layout {
+    height: auto;
+    overflow: visible;
+  }
+
+  .fission-site-doc-layout > .fission-site-row {
+    height: auto;
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .fission-site-doc-sidebar,
+  .fission-site-doc-main,
+  .fission-site-doc-toc {
+    position: static;
+    max-height: none;
+    overflow: visible;
+    width: 100%;
+  }
+
+  .fission-site-doc-toc {
+    display: none;
+  }
+}
+
+@media (max-width: 760px) {
+  .fission-site-root .fission-site-row {
+    flex-wrap: wrap;
+  }
+
+  .fission-site-root .fission-site-box {
+    width: auto !important;
+    max-width: 100% !important;
+  }
+
+  .fission-site-root {
+    overflow-x: hidden;
+  }
+}

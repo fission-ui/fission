@@ -1,6 +1,7 @@
 use fission_core::op::{AlignItems, Fill, JustifyContent};
 use fission_core::ui::{Column, Container, Image, Row, Text};
 use fission_core::{AppState, BuildCtx, Node, View, Widget};
+use fission_ir::{Role, Semantics};
 use fission_theme::Tokens;
 use fission_widgets::MarkdownViewer;
 use std::path::PathBuf;
@@ -128,6 +129,7 @@ impl DocumentationPage<'_> {
                 .size(tokens.typography.font_size_lg)
                 .weight(tokens.typography.font_weight_bold)
                 .color(tokens.colors.heading)
+                .semantics_identifier("site-route:/")
                 .into_node(),
         );
         Row {
@@ -147,8 +149,9 @@ impl DocumentationPage<'_> {
                 self.article(ctx, view),
                 self.toc(tokens),
             ],
+            semantics: Some(site_semantics("site-doc-layout")),
             gap: Some(tokens.spacing.xl),
-            align_items: AlignItems::Start,
+            align_items: AlignItems::Stretch,
             ..Default::default()
         }
         .into_node()
@@ -158,38 +161,53 @@ impl DocumentationPage<'_> {
         let mut children = Vec::new();
         if self.route.sidebar.is_empty() {
             let section_prefix = section_prefix(&self.route.path);
-            for route in self
+            for (index, route) in self
                 .all_routes
                 .iter()
                 .filter(|route| route.path.starts_with(section_prefix))
+                .enumerate()
             {
-                children.push(self.sidebar_item(&route.title, &route.path, 0, false, tokens));
+                children.push(self.sidebar_item(
+                    &route.title,
+                    &route.path,
+                    0,
+                    false,
+                    index,
+                    tokens,
+                ));
             }
         } else {
-            for item in visible_sidebar_items(&self.route.sidebar, &self.route.path) {
+            for (index, item) in self.route.sidebar.iter().enumerate() {
                 children.push(self.sidebar_item(
                     &item.title,
                     &item.href,
                     item.level,
                     item.group,
+                    index,
                     tokens,
                 ));
             }
         }
-        Container::new(
-            Column {
-                children,
-                gap: Some(tokens.spacing.s),
-                ..Default::default()
-            }
-            .into_node(),
-        )
-        .padding_all(tokens.spacing.l)
-        .bg_fill(Fill::Solid(tokens.colors.surface))
-        .border(tokens.colors.border, 1.0)
-        .width(tokens.spacing.xxxxl * 3.0)
-        .min_height(tokens.spacing.xxxxl * 9.0)
-        .flex_shrink(0.0)
+        Column {
+            children: vec![Container::new(
+                Column {
+                    children,
+                    gap: Some(tokens.spacing.s),
+                    ..Default::default()
+                }
+                .into_node(),
+            )
+            .padding_all(tokens.spacing.l)
+            .bg_fill(Fill::Solid(tokens.colors.surface))
+            .border(tokens.colors.border, 1.0)
+            .width(tokens.spacing.xxxxl * 3.0)
+            .min_height(tokens.spacing.xxxxl * 9.0)
+            .flex_shrink(0.0)
+            .into_node()],
+            semantics: Some(site_semantics("site-doc-sidebar")),
+            flex_shrink: 0.0,
+            ..Default::default()
+        }
         .into_node()
     }
 
@@ -199,6 +217,7 @@ impl DocumentationPage<'_> {
         href: &str,
         level: usize,
         group: bool,
+        index: usize,
         tokens: &Tokens,
     ) -> Node {
         let active = normalize_link_path(href) == self.route.path;
@@ -233,7 +252,14 @@ impl DocumentationPage<'_> {
         if active {
             item = item.bg_fill(Fill::Solid(tokens.colors.surface_raised));
         }
-        item.into_node()
+        Column {
+            children: vec![item.into_node()],
+            semantics: Some(site_semantics(format!(
+                "site-sidebar-item:{level}:{active}:{group}:{index}"
+            ))),
+            ..Default::default()
+        }
+        .into_node()
     }
 
     fn article(&self, ctx: &mut BuildCtx<SitePageState>, view: &View<SitePageState>) -> Node {
@@ -273,18 +299,24 @@ impl DocumentationPage<'_> {
         };
         children.push(markdown.build(ctx, view));
 
-        Container::new(
-            Column {
-                children,
-                gap: Some(tokens.spacing.l),
-                flex_grow: 1.0,
-                ..Default::default()
-            }
-            .into_node(),
-        )
-        .padding([0.0, 0.0, tokens.spacing.xxl, tokens.spacing.xxl])
-        .bg_fill(Fill::Solid(tokens.colors.background))
-        .flex_grow(1.0)
+        Column {
+            children: vec![Container::new(
+                Column {
+                    children,
+                    gap: Some(tokens.spacing.l),
+                    flex_grow: 1.0,
+                    ..Default::default()
+                }
+                .into_node(),
+            )
+            .padding([0.0, 0.0, tokens.spacing.xxl, tokens.spacing.xxl])
+            .bg_fill(Fill::Solid(tokens.colors.background))
+            .flex_grow(1.0)
+            .into_node()],
+            semantics: Some(site_semantics("site-doc-main")),
+            flex_grow: 1.0,
+            ..Default::default()
+        }
         .into_node()
     }
 
@@ -339,18 +371,32 @@ impl DocumentationPage<'_> {
                     .into_node(),
             );
         }
-        Container::new(
-            Column {
-                children,
-                gap: Some(tokens.spacing.s),
-                ..Default::default()
-            }
-            .into_node(),
-        )
-        .padding_all(tokens.spacing.l)
-        .width(tokens.spacing.xxxxl * 2.75)
-        .flex_shrink(0.0)
+        Column {
+            children: vec![Container::new(
+                Column {
+                    children,
+                    gap: Some(tokens.spacing.s),
+                    ..Default::default()
+                }
+                .into_node(),
+            )
+            .padding_all(tokens.spacing.l)
+            .width(tokens.spacing.xxxxl * 2.75)
+            .flex_shrink(0.0)
+            .into_node()],
+            semantics: Some(site_semantics("site-doc-toc")),
+            flex_shrink: 0.0,
+            ..Default::default()
+        }
         .into_node()
+    }
+}
+
+fn site_semantics(identifier: impl Into<String>) -> Semantics {
+    Semantics {
+        role: Role::Generic,
+        identifier: Some(identifier.into()),
+        ..Semantics::default()
     }
 }
 
@@ -440,26 +486,6 @@ fn normalize_link_path(path: &str) -> String {
     out
 }
 
-fn visible_sidebar_items<'a>(items: &'a [SidebarLink], current_path: &str) -> Vec<&'a SidebarLink> {
-    let active = active_sidebar_index(items, current_path);
-    let active_level_0 = active.and_then(|index| ancestor_at_level(items, index, 0));
-    let active_level_2 = active.and_then(|index| ancestor_at_level(items, index, 2));
-    items
-        .iter()
-        .enumerate()
-        .filter_map(|(index, item)| {
-            let visible = match item.level {
-                0 => true,
-                1 => active_level_0.is_some_and(|parent| belongs_to_parent(items, index, parent)),
-                2 => active_level_0.is_some_and(|parent| belongs_to_parent(items, index, parent)),
-                3 => active_level_2.is_some_and(|parent| belongs_to_parent(items, index, parent)),
-                _ => active.is_some_and(|active| index == active),
-            };
-            visible.then_some(item)
-        })
-        .collect()
-}
-
 fn active_sidebar_index(items: &[SidebarLink], current_path: &str) -> Option<usize> {
     let current = normalize_link_path(current_path);
     items
@@ -485,16 +511,6 @@ fn ancestor_at_level(items: &[SidebarLink], index: usize, level: usize) -> Optio
         .enumerate()
         .rev()
         .find_map(|(candidate, item)| (item.level == level).then_some(candidate))
-}
-
-fn belongs_to_parent(items: &[SidebarLink], index: usize, parent: usize) -> bool {
-    if index <= parent {
-        return false;
-    }
-    let parent_level = items[parent].level;
-    items[parent + 1..index]
-        .iter()
-        .all(|item| item.level > parent_level)
 }
 
 fn breadcrumb_items(items: &[SidebarLink], current_path: &str) -> Vec<(String, String)> {

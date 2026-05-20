@@ -10,27 +10,35 @@ use std::collections::{BTreeMap, HashSet};
 
 #[derive(Clone, Debug)]
 pub struct HtmlRenderOptions {
+    pub lang: String,
     pub document_title: String,
     pub description: Option<String>,
+    pub canonical_url: Option<String>,
+    pub site_name: Option<String>,
     pub stylesheet_href: String,
     pub root_class: String,
     pub current_route_path: String,
     pub css_variables: CssVariableMap,
     pub default_theme_mode: Option<DesignMode>,
     pub theme_switching: bool,
+    pub structured_data: Vec<String>,
 }
 
 impl Default for HtmlRenderOptions {
     fn default() -> Self {
         Self {
+            lang: "en".to_string(),
             document_title: "Static site".to_string(),
             description: None,
+            canonical_url: None,
+            site_name: None,
             stylesheet_href: "/site.css".to_string(),
             root_class: "fission-site-root".to_string(),
             current_route_path: "/".to_string(),
             css_variables: CssVariableMap::default(),
             default_theme_mode: None,
             theme_switching: false,
+            structured_data: Vec::new(),
         }
     }
 }
@@ -75,16 +83,69 @@ pub fn render_ir_to_html_with_styles(
 }
 
 fn render_document(body_html: &str, options: &HtmlRenderOptions) -> String {
-    let description = options
-        .description
-        .as_ref()
-        .map(|value| {
-            format!(
-                "\n    <meta name=\"description\" content=\"{}\">",
-                escape_attr(value)
-            )
-        })
-        .unwrap_or_default();
+    let mut metadata = String::new();
+    if let Some(value) = options.description.as_ref() {
+        metadata.push_str(&format!(
+            "\n    <meta name=\"description\" content=\"{}\">",
+            escape_attr(value)
+        ));
+    }
+    if let Some(canonical) = options.canonical_url.as_ref() {
+        metadata.push_str(&format!(
+            "\n    <link rel=\"canonical\" href=\"{}\">",
+            escape_attr(canonical)
+        ));
+    }
+    metadata.push_str(&format!(
+        "\n    <meta property=\"og:title\" content=\"{}\">",
+        escape_attr(&options.document_title)
+    ));
+    if let Some(value) = options.description.as_ref() {
+        metadata.push_str(&format!(
+            "\n    <meta property=\"og:description\" content=\"{}\">",
+            escape_attr(value)
+        ));
+    }
+    metadata.push_str("\n    <meta property=\"og:type\" content=\"website\">");
+    if let Some(canonical) = options.canonical_url.as_ref() {
+        metadata.push_str(&format!(
+            "\n    <meta property=\"og:url\" content=\"{}\">",
+            escape_attr(canonical)
+        ));
+    }
+    if let Some(site_name) = options.site_name.as_ref() {
+        metadata.push_str(&format!(
+            "\n    <meta property=\"og:site_name\" content=\"{}\">",
+            escape_attr(site_name)
+        ));
+    }
+    metadata.push_str(&format!(
+        "\n    <meta property=\"og:locale\" content=\"{}\">",
+        escape_attr(&options.lang.replace('-', "_"))
+    ));
+    metadata.push_str("\n    <meta name=\"robots\" content=\"index,follow\">");
+    if let Some(site_name) = options.site_name.as_ref() {
+        metadata.push_str(&format!(
+            "\n    <meta name=\"application-name\" content=\"{}\">",
+            escape_attr(site_name)
+        ));
+    }
+    metadata.push_str("\n    <meta name=\"twitter:card\" content=\"summary_large_image\">");
+    metadata.push_str(&format!(
+        "\n    <meta name=\"twitter:title\" content=\"{}\">",
+        escape_attr(&options.document_title)
+    ));
+    if let Some(value) = options.description.as_ref() {
+        metadata.push_str(&format!(
+            "\n    <meta name=\"twitter:description\" content=\"{}\">",
+            escape_attr(value)
+        ));
+    }
+    for json in &options.structured_data {
+        metadata.push_str("\n    <script type=\"application/ld+json\">");
+        metadata.push_str(json);
+        metadata.push_str("</script>");
+    }
     let theme_attr = options
         .default_theme_mode
         .map(|mode| {
@@ -95,17 +156,28 @@ fn render_document(body_html: &str, options: &HtmlRenderOptions) -> String {
             format!(" data-theme=\"{mode}\"")
         })
         .unwrap_or_default();
-    let theme_script = if options.theme_switching {
-        "\n    <script>(function(){var k='fission-site-theme';var r=document.documentElement;try{var s=localStorage.getItem(k);if(s){r.dataset.theme=s;}}catch(_){}document.addEventListener('click',function(e){var b=e.target.closest('[data-fission-theme-toggle]');if(!b)return;var n=r.dataset.theme==='dark'?'light':'dark';r.dataset.theme=n;try{localStorage.setItem(k,n);}catch(_){}});}());</script>"
-    } else {
-        ""
-    };
+    let enhancement_script = site_enhancement_script(options.theme_switching);
     format!(
-        "<!doctype html>\n<html lang=\"en\"{theme_attr}>\n  <head>\n    <meta charset=\"utf-8\">\n    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">{description}\n    <title>{}</title>\n    <link rel=\"stylesheet\" href=\"{}\">{theme_script}\n  </head>\n  <body>\n    {body_html}\n  </body>\n</html>\n",
+        "<!doctype html>\n<html lang=\"{}\"{theme_attr}>\n  <head>\n    <meta charset=\"utf-8\">\n    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">{metadata}\n    <title>{}</title>\n    <link rel=\"stylesheet\" href=\"{}\">{enhancement_script}\n  </head>\n  <body>\n    {body_html}\n  </body>\n</html>\n",
+        escape_attr(&options.lang),
         escape_text(&options.document_title),
         escape_attr(&options.stylesheet_href)
     )
 }
+
+fn site_enhancement_script(theme_switching: bool) -> &'static str {
+    if theme_switching {
+        THEME_ENHANCEMENT_SCRIPT
+    } else {
+        PLAIN_ENHANCEMENT_SCRIPT
+    }
+}
+
+const THEME_ENHANCEMENT_SCRIPT: &str = r#"
+    <script>(function(){var d=document.documentElement;d.classList.add('fission-site-js');var k='fission-site-theme';try{var s=localStorage.getItem(k);if(s){d.dataset.theme=s;}}catch(_){}document.addEventListener('click',function(e){var b=e.target.closest('[data-fission-theme-toggle]');if(!b)return;var n=d.dataset.theme==='dark'?'light':'dark';d.dataset.theme=n;try{localStorage.setItem(k,n);}catch(_){}});function initSidebar(root){var items=Array.prototype.slice.call(root.querySelectorAll('.fission-site-sidebar-item'));if(!items.length)return;var sk='fission-site-sidebar:v2:'+location.pathname;var expanded=new Set();try{JSON.parse(localStorage.getItem(sk)||'[]').forEach(function(v){expanded.add(String(v));});}catch(_){}function level(el){return Number(el.dataset.fissionSiteSidebarLevel||'0');}function group(el){return el.dataset.fissionSiteSidebarGroup==='true';}function active(el){return el.dataset.fissionSiteSidebarActive==='true';}function hasChildren(i){var l=level(items[i]);for(var j=i+1;j<items.length;j++){if(level(items[j])<=l)return false;if(level(items[j])===l+1)return true;}return false;}function ancestors(i){var out=[],current=level(items[i]);for(var j=i-1;j>=0;j--){var l=level(items[j]);if(l<current){out.unshift(j);current=l;if(current===0)break;}}return out;}items.forEach(function(el,i){el.dataset.fissionSiteSidebarIndex=String(i);if(active(el)){ancestors(i).forEach(function(a){expanded.add(String(a));});if(group(el))expanded.add(String(i));}});function apply(){items.forEach(function(el,i){var visible=level(el)===0||ancestors(i).every(function(a){return expanded.has(String(a));});el.hidden=!visible;el.dataset.fissionSiteSidebarExpanded=expanded.has(String(i))?'true':'false';el.dataset.fissionSiteSidebarHasChildren=hasChildren(i)?'true':'false';});try{localStorage.setItem(sk,JSON.stringify(Array.from(expanded)));}catch(_){}}root.addEventListener('click',function(e){var item=e.target.closest('.fission-site-sidebar-item');if(!item||!root.contains(item))return;var i=items.indexOf(item);if(i<0||!hasChildren(i))return;if(!expanded.has(String(i))){e.preventDefault();expanded.add(String(i));apply();}});apply();}function bootSidebar(){document.querySelectorAll('.fission-site-doc-sidebar').forEach(initSidebar);}if(document.readyState==='loading'){document.addEventListener('DOMContentLoaded',bootSidebar,{once:true});}else{bootSidebar();}}());</script>"#;
+
+const PLAIN_ENHANCEMENT_SCRIPT: &str = r#"
+    <script>(function(){var d=document.documentElement;d.classList.add('fission-site-js');function initSidebar(root){var items=Array.prototype.slice.call(root.querySelectorAll('.fission-site-sidebar-item'));if(!items.length)return;var sk='fission-site-sidebar:v2:'+location.pathname;var expanded=new Set();try{JSON.parse(localStorage.getItem(sk)||'[]').forEach(function(v){expanded.add(String(v));});}catch(_){}function level(el){return Number(el.dataset.fissionSiteSidebarLevel||'0');}function group(el){return el.dataset.fissionSiteSidebarGroup==='true';}function active(el){return el.dataset.fissionSiteSidebarActive==='true';}function hasChildren(i){var l=level(items[i]);for(var j=i+1;j<items.length;j++){if(level(items[j])<=l)return false;if(level(items[j])===l+1)return true;}return false;}function ancestors(i){var out=[],current=level(items[i]);for(var j=i-1;j>=0;j--){var l=level(items[j]);if(l<current){out.unshift(j);current=l;if(current===0)break;}}return out;}items.forEach(function(el,i){el.dataset.fissionSiteSidebarIndex=String(i);if(active(el)){ancestors(i).forEach(function(a){expanded.add(String(a));});if(group(el))expanded.add(String(i));}});function apply(){items.forEach(function(el,i){var visible=level(el)===0||ancestors(i).every(function(a){return expanded.has(String(a));});el.hidden=!visible;el.dataset.fissionSiteSidebarExpanded=expanded.has(String(i))?'true':'false';el.dataset.fissionSiteSidebarHasChildren=hasChildren(i)?'true':'false';});try{localStorage.setItem(sk,JSON.stringify(Array.from(expanded)));}catch(_){}}root.addEventListener('click',function(e){var item=e.target.closest('.fission-site-sidebar-item');if(!item||!root.contains(item))return;var i=items.indexOf(item);if(i<0||!hasChildren(i))return;if(!expanded.has(String(i))){e.preventDefault();expanded.add(String(i));apply();}});apply();}function bootSidebar(){document.querySelectorAll('.fission-site-doc-sidebar').forEach(initSidebar);}if(document.readyState==='loading'){document.addEventListener('DOMContentLoaded',bootSidebar,{once:true});}else{bootSidebar();}}());</script>"#;
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct CssVariableMap {
@@ -637,7 +709,7 @@ impl HtmlRenderer<'_> {
                 Ok(format!(
                     "<img class=\"{}\" src=\"{}\" alt=\"\" data-fission-node=\"{}\">",
                     escape_attr(&class_name),
-                    escape_attr(source),
+                    escape_attr(&self.resolve_asset_src(source)),
                     node.id
                 ))
             }
@@ -700,6 +772,22 @@ impl HtmlRenderer<'_> {
                     node.id
                 ));
             }
+            if identifier == "markdown-table" {
+                return self.render_markdown_table(node);
+            }
+            if let Some(row_kind) = identifier.strip_prefix("markdown-table-row:") {
+                return self.render_markdown_table_row(node, row_kind);
+            }
+            if let Some(cell_kind) = identifier.strip_prefix("markdown-table-cell:") {
+                return self.render_markdown_table_cell(node, cell_kind);
+            }
+            if identifier.starts_with("site-") {
+                return self.render_site_semantic_wrapper(
+                    node,
+                    identifier,
+                    semantics.label.as_deref(),
+                );
+            }
         }
         let tag = match semantics.role {
             Role::Button => "button",
@@ -740,6 +828,81 @@ impl HtmlRenderer<'_> {
         ))
     }
 
+    fn render_markdown_table(&mut self, node: &CoreNode) -> Result<String> {
+        let children = self.render_semantic_payload_children(node)?;
+        Ok(format!(
+            "<div class=\"fission-site-markdown-table-wrap\" data-fission-node=\"{}\"><table class=\"fission-site-markdown-table\"><tbody>{children}</tbody></table></div>",
+            node.id
+        ))
+    }
+
+    fn render_markdown_table_row(&mut self, node: &CoreNode, row_kind: &str) -> Result<String> {
+        let children = self.render_semantic_payload_children(node)?;
+        let class_name = if row_kind == "header" {
+            "fission-site-markdown-table-row fission-site-markdown-table-head-row"
+        } else {
+            "fission-site-markdown-table-row"
+        };
+        Ok(format!(
+            "<tr class=\"{class_name}\" data-fission-node=\"{}\">{children}</tr>",
+            node.id
+        ))
+    }
+
+    fn render_markdown_table_cell(&mut self, node: &CoreNode, cell_kind: &str) -> Result<String> {
+        let mut parts = cell_kind.split(':');
+        let kind = parts.next().unwrap_or("body");
+        let align = parts.next().unwrap_or("none");
+        let tag = if kind == "header" { "th" } else { "td" };
+        let align_class = match align {
+            "left" => " fission-site-markdown-align-left",
+            "center" => " fission-site-markdown-align-center",
+            "right" => " fission-site-markdown-align-right",
+            _ => "",
+        };
+        let children = self.render_semantic_payload_children(node)?;
+        Ok(format!(
+            "<{tag} class=\"fission-site-markdown-table-cell{align_class}\" data-fission-node=\"{}\">{children}</{tag}>",
+            node.id
+        ))
+    }
+
+    fn render_site_semantic_wrapper(
+        &mut self,
+        node: &CoreNode,
+        identifier: &str,
+        label: Option<&str>,
+    ) -> Result<String> {
+        let class_name = site_semantic_class(identifier);
+        let mut attrs = format!(" data-fission-semantics=\"{}\"", escape_attr(identifier));
+        if let Some(label) = label {
+            attrs.push_str(&format!(" aria-label=\"{}\"", escape_attr(label)));
+        }
+        attrs.push_str(&site_semantic_data_attrs(identifier));
+        let children = self.render_children(&node.children, &HashSet::new())?;
+        Ok(format!(
+            "<div class=\"fission-site-node fission-site-semantics {class_name}\"{attrs} data-fission-node=\"{}\">{children}</div>",
+            node.id
+        ))
+    }
+
+    fn render_semantic_payload_children(&mut self, node: &CoreNode) -> Result<String> {
+        let children = self.semantic_payload_children(node);
+        self.render_children(&children, &HashSet::new())
+    }
+
+    fn semantic_payload_children(&self, node: &CoreNode) -> Vec<NodeId> {
+        if node.children.len() == 1 {
+            if let Some(child) = self.ir.nodes.get(&node.children[0]) {
+                match child.op {
+                    Op::Layout(_) | Op::Structural(_) => return child.children.clone(),
+                    _ => {}
+                }
+            }
+        }
+        node.children.clone()
+    }
+
     fn render_semantic_link(
         &mut self,
         node: &CoreNode,
@@ -764,15 +927,24 @@ impl HtmlRenderer<'_> {
 
     fn resolve_link_href(&self, target: &str) -> String {
         if target.starts_with('#')
-            || target.starts_with('/')
             || target.starts_with("http://")
             || target.starts_with("https://")
             || target.starts_with("mailto:")
             || target.starts_with("tel:")
         {
             target.to_string()
+        } else if target.starts_with('/') {
+            relative_href_for_route(&self.options.current_route_path, target)
         } else {
             target.to_string()
+        }
+    }
+
+    fn resolve_asset_src(&self, source: &str) -> String {
+        if source.starts_with('/') {
+            relative_href_for_route(&self.options.current_route_path, source)
+        } else {
+            source.to_string()
         }
     }
 
@@ -983,6 +1155,63 @@ fn markdown_heading_anchor(identifier: &str) -> Option<&str> {
         .split_once(':')
         .map(|(_, anchor)| anchor)
         .filter(|anchor| !anchor.is_empty())
+}
+
+fn relative_href_for_route(current_route_path: &str, target: &str) -> String {
+    let suffix_start = target
+        .find('#')
+        .or_else(|| target.find('?'))
+        .unwrap_or(target.len());
+    let (path, suffix) = target.split_at(suffix_start);
+    let depth = current_route_path
+        .trim_matches('/')
+        .split('/')
+        .filter(|segment| !segment.is_empty())
+        .count();
+    let prefix = "../".repeat(depth);
+    let trimmed = path.trim_start_matches('/');
+    if trimmed.is_empty() {
+        if prefix.is_empty() {
+            format!("./{suffix}")
+        } else {
+            format!("{prefix}{suffix}")
+        }
+    } else {
+        format!("{prefix}{trimmed}{suffix}")
+    }
+}
+
+fn site_semantic_class(identifier: &str) -> String {
+    let base = identifier.split(':').next().unwrap_or(identifier);
+    let suffix = base
+        .chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() || ch == '-' {
+                ch
+            } else {
+                '-'
+            }
+        })
+        .collect::<String>();
+    format!("fission-{suffix}")
+}
+
+fn site_semantic_data_attrs(identifier: &str) -> String {
+    let Some(rest) = identifier.strip_prefix("site-sidebar-item:") else {
+        return String::new();
+    };
+    let mut parts = rest.split(':');
+    let level = parts.next().unwrap_or("0");
+    let active = parts.next().unwrap_or("false");
+    let group = parts.next().unwrap_or("false");
+    let index = parts.next().unwrap_or("0");
+    format!(
+        " data-fission-site-sidebar-level=\"{}\" data-fission-site-sidebar-active=\"{}\" data-fission-site-sidebar-group=\"{}\" data-fission-site-sidebar-index=\"{}\"",
+        escape_attr(level),
+        escape_attr(active),
+        escape_attr(group),
+        escape_attr(index)
+    )
 }
 
 fn push_paragraph_style(
@@ -1324,6 +1553,22 @@ mod tests {
         assert!(css.contains(&format!(".{class_name}")));
         assert!(css.contains("display:block;overflow:hidden"));
         assert!(!css.contains("overflow:auto"));
+    }
+
+    #[test]
+    fn relative_hrefs_are_derived_from_current_route() {
+        assert_eq!(
+            relative_href_for_route("/docs/learn/quickstart/", "/reference/widgets/button/#api"),
+            "../../../reference/widgets/button/#api"
+        );
+        assert_eq!(
+            relative_href_for_route("/", "/docs/learn/overview/"),
+            "docs/learn/overview/"
+        );
+        assert_eq!(
+            relative_href_for_route("/docs/learn/quickstart/", "/"),
+            "../../../"
+        );
     }
 
     #[test]

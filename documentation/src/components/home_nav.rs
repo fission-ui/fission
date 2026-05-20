@@ -1,6 +1,8 @@
-use super::home_widgets::{nav_inset, NavLink, ThemeToggle};
+use super::home_widgets::{
+    nav_inset, semantic_row, ExternalNavLink, NavLink, SearchPill, ThemeToggle,
+};
 use super::state::DocsState;
-use fission::op::{AlignItems, Fill, JustifyContent};
+use fission::op::{AlignItems, Fill, FlexWrap, JustifyContent};
 use fission::prelude::*;
 
 const NAV_ITEMS: &[(&str, &str)] = &[
@@ -18,16 +20,16 @@ pub(super) struct HomePageNav;
 impl Widget<DocsState> for HomePageNav {
     fn build(&self, _ctx: &mut BuildCtx<DocsState>, view: &View<DocsState>) -> Node {
         let tokens = &view.env.theme.tokens;
-        let mut nav_items = NAV_ITEMS
+        let nav_items = NAV_ITEMS
             .iter()
             .map(|(label, href)| NavLink::new(label, href).build(_ctx, view))
             .collect::<Vec<_>>();
-        nav_items.push(ThemeToggle.build(_ctx, view));
         Container::new(
             Row {
                 children: vec![
-                    Row {
-                        children: vec![
+                    semantic_row(
+                        "site-route:/",
+                        vec![
                             Image {
                                 source: "/img/fission-mark.svg".to_string(),
                                 width: Some(tokens.spacing.l),
@@ -41,11 +43,11 @@ impl Widget<DocsState> for HomePageNav {
                                 .color(tokens.colors.heading)
                                 .into_node(),
                         ],
-                        gap: Some(tokens.spacing.s),
-                        align_items: AlignItems::Center,
-                        ..Default::default()
-                    }
-                    .into_node(),
+                        Some(tokens.spacing.s),
+                        FlexWrap::NoWrap,
+                        AlignItems::Center,
+                        JustifyContent::Start,
+                    ),
                     Row {
                         children: nav_items,
                         gap: Some(tokens.spacing.l),
@@ -53,9 +55,23 @@ impl Widget<DocsState> for HomePageNav {
                         ..Default::default()
                     }
                     .into_node(),
+                    Row {
+                        children: vec![
+                            ExternalNavLink::new("GitHub", "https://github.com/worka-ai/fission")
+                                .build(_ctx, view),
+                            ThemeToggle.build(_ctx, view),
+                            SearchPill.build(_ctx, view),
+                        ],
+                        gap: Some(tokens.spacing.m),
+                        justify_content: JustifyContent::End,
+                        align_items: AlignItems::Center,
+                        ..Default::default()
+                    }
+                    .into_node(),
                 ],
                 justify_content: JustifyContent::SpaceBetween,
                 align_items: AlignItems::Center,
+                wrap: FlexWrap::Wrap,
                 ..Default::default()
             }
             .into_node(),

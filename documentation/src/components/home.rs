@@ -1,6 +1,7 @@
 use super::home_nav::HomePageNav;
 use super::home_sections::{
-    ArchitectureSection, ChartsSection, FinalCta, HomePageHero, ProofStrip, TargetsSection,
+    ArchitectureSection, ChartsSection, ExamplesSection, FinalCta, HomePageHero, ModelSection,
+    ProofStrip, TargetsSection,
 };
 use super::home_widgets::{content_width, page_fill};
 use super::state::DocsState;
@@ -50,10 +51,12 @@ impl Widget<DocsState> for HomePage {
                             Column {
                                 children: vec![
                                     HomePageHero.build(ctx, view),
-                                    ArchitectureSection.build(ctx, view),
                                     ProofStrip.build(ctx, view),
-                                    TargetsSection.build(ctx, view),
+                                    ArchitectureSection.build(ctx, view),
                                     ChartsSection.build(ctx, view),
+                                    ModelSection.build(ctx, view),
+                                    TargetsSection.build(ctx, view),
+                                    ExamplesSection.build(ctx, view),
                                     FinalCta.build(ctx, view),
                                 ],
                                 gap: Some(tokens.spacing.xxxl),
