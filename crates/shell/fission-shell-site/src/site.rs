@@ -2,7 +2,7 @@ use crate::build::{build_site, check_site, list_site_routes, SiteBuildOptions};
 use anyhow::{bail, Context, Result};
 use fission_core::{AppState, BuildCtx, Env, Node, RuntimeState, View, Widget};
 use fission_layout::LayoutSize;
-use fission_theme::Theme;
+use fission_theme::{DesignMode, Theme};
 use std::fs;
 use std::io::{self, BufRead, Write};
 use std::net::{TcpListener, TcpStream};
@@ -25,6 +25,7 @@ pub struct CustomRoute {
 pub struct SiteRenderContext<'a> {
     pub project_dir: &'a Path,
     pub route_path: &'a str,
+    pub theme: &'a Theme,
 }
 
 #[derive(Clone)]
@@ -32,6 +33,12 @@ pub struct FissionSite {
     pub(crate) custom_routes: Vec<CustomRoute>,
     pub(crate) content_transform: Option<Arc<ContentTransform>>,
     pub(crate) theme: Theme,
+    pub(crate) light_theme: Option<Theme>,
+    pub(crate) dark_theme: Option<Theme>,
+    pub(crate) default_theme_mode: Option<DesignMode>,
+    pub(crate) theme_switching: bool,
+    pub(crate) user_css: Vec<String>,
+    pub(crate) footer: Option<Arc<RouteRenderer>>,
 }
 
 impl Default for FissionSite {
@@ -40,6 +47,12 @@ impl Default for FissionSite {
             custom_routes: Vec::new(),
             content_transform: None,
             theme: Theme::default(),
+            light_theme: None,
+            dark_theme: None,
+            default_theme_mode: None,
+            theme_switching: false,
+            user_css: Vec::new(),
+            footer: None,
         }
     }
 }
@@ -51,6 +64,28 @@ impl FissionSite {
 
     pub fn theme(mut self, theme: Theme) -> Self {
         self.theme = theme;
+        self
+    }
+
+    pub fn light_dark_themes(
+        mut self,
+        light: Theme,
+        dark: Theme,
+        default_mode: DesignMode,
+    ) -> Self {
+        self.theme = match default_mode {
+            DesignMode::Light => light.clone(),
+            DesignMode::Dark => dark.clone(),
+        };
+        self.light_theme = Some(light);
+        self.dark_theme = Some(dark);
+        self.default_theme_mode = Some(default_mode);
+        self.theme_switching = true;
+        self
+    }
+
+    pub fn user_css(mut self, css: impl Into<String>) -> Self {
+        self.user_css.push(css.into());
         self
     }
 
@@ -66,15 +101,14 @@ impl FissionSite {
         W: Widget<S> + Clone + Send + Sync + 'static,
     {
         let widget = Arc::new(widget);
-        let theme = self.theme.clone();
         self.custom_routes.push(CustomRoute {
             path: normalize_site_path(&path.into()),
             title: title.into(),
             description: description.into(),
-            render: Arc::new(move |_ctx| {
+            render: Arc::new(move |ctx| {
                 let runtime = RuntimeState::default();
                 let mut env = Env::default();
-                env.theme = theme.clone();
+                env.theme = ctx.theme.clone();
                 env.viewport_size = LayoutSize::new(1280.0, 900.0);
                 let state = S::default();
                 let view = View::new(&state, &runtime, &env, None);
@@ -85,6 +119,18 @@ impl FissionSite {
         self
     }
 
+    pub fn footer_widget<S, W>(mut self, widget: W) -> Self
+    where
+        S: AppState + Default + 'static,
+        W: Widget<S> + Clone + Send + Sync + 'static,
+    {
+        let widget = Arc::new(widget);
+        self.footer = Some(Arc::new(move |ctx| {
+            render_widget_node::<S, W>(widget.as_ref().clone(), ctx)
+        }));
+        self
+    }
+
     pub fn content_transform<F>(mut self, transform: F) -> Self
     where
         F: Fn(&str, &Path, &Path) -> Result<String> + Send + Sync + 'static,
@@ -92,6 +138,21 @@ impl FissionSite {
         self.content_transform = Some(Arc::new(transform));
         self
     }
+}
+
+fn render_widget_node<S, W>(widget: W, ctx: &SiteRenderContext<'_>) -> Result<Node>
+where
+    S: AppState + Default + 'static,
+    W: Widget<S>,
+{
+    let runtime = RuntimeState::default();
+    let mut env = Env::default();
+    env.theme = ctx.theme.clone();
+    env.viewport_size = LayoutSize::new(1280.0, 900.0);
+    let state = S::default();
+    let view = View::new(&state, &runtime, &env, None);
+    let mut build_ctx = BuildCtx::<S>::new();
+    Ok(widget.build(&mut build_ctx, &view))
 }
 
 pub fn build_from_cli(site: FissionSite) -> Result<()> {

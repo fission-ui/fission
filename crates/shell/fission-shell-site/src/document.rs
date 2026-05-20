@@ -45,6 +45,7 @@ pub(crate) struct DocumentationPage<'a> {
     pub site_title: &'a str,
     pub site_logo: Option<&'a str>,
     pub site_nav: &'a [SiteNavLink],
+    pub theme_switching: bool,
     pub route: &'a ContentRoute,
     pub all_routes: &'a [ContentRoute],
 }
@@ -84,6 +85,9 @@ impl DocumentationPage<'_> {
                 }
                 .into_node(),
             );
+        }
+        if self.theme_switching {
+            children.push(theme_toggle(tokens));
         }
         Container::new(
             Row {
@@ -356,6 +360,15 @@ fn nav_link(label: &str, href: &str, tokens: &Tokens) -> Node {
         .weight(tokens.typography.font_weight_semibold)
         .color(tokens.colors.text_link)
         .semantics_identifier(format!("site-route:{href}"))
+        .into_node()
+}
+
+fn theme_toggle(tokens: &Tokens) -> Node {
+    Text::new("Theme")
+        .size(tokens.typography.label_large_size)
+        .weight(tokens.typography.font_weight_semibold)
+        .color(tokens.colors.text_link)
+        .semantics_identifier("site-theme-toggle")
         .into_node()
 }
 

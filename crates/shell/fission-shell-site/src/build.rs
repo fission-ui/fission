@@ -2,11 +2,16 @@ use crate::document::{
     extract_page_links, ContentRoute, DocumentationPage, SidebarLink, SiteNavLink, SitePageState,
 };
 use crate::front_matter::split_front_matter;
-use crate::html::{render_ir_to_html, HtmlRenderOptions};
+use crate::html::{
+    render_ir_to_html_with_styles, theme_variables_css, CssVariableMap, HtmlRenderOptions,
+    StyleRegistry,
+};
 use crate::site::{normalize_site_path, ContentTransform, FissionSite, SiteRenderContext};
 use anyhow::{bail, Context, Result};
-use fission_core::{BuildCtx, Env, LoweringContext, RuntimeState, View, Widget};
+use fission_core::ui::Column;
+use fission_core::{BuildCtx, Env, LoweringContext, Node, RuntimeState, View, Widget};
 use fission_layout::LayoutSize;
+use fission_theme::DesignMode;
 use serde::Deserialize;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -21,6 +26,7 @@ pub struct SiteBuildOptions {
     pub site_description: Option<String>,
     pub site_logo: Option<String>,
     pub site_nav: Vec<SiteNavLink>,
+    pub user_css: Vec<String>,
     pub content_routes: Vec<SiteContentRouteConfig>,
     pub asset_dirs: Vec<PathBuf>,
     pub clean: bool,
@@ -44,6 +50,7 @@ impl SiteBuildOptions {
             site_description: None,
             site_logo: None,
             site_nav: Vec::new(),
+            user_css: Vec::new(),
             content_routes: vec![SiteContentRouteConfig {
                 path: "/content".to_string(),
                 source: project_dir.join("content"),
@@ -80,6 +87,15 @@ impl SiteBuildOptions {
                 href: normalize_site_link_href(&link.href),
             })
             .collect();
+        let user_css = site
+            .css_files
+            .into_iter()
+            .map(|path| {
+                let path = resolve_project_path(&project_dir, PathBuf::from(path));
+                fs::read_to_string(&path)
+                    .with_context(|| format!("failed to read site CSS {}", path.display()))
+            })
+            .collect::<Result<Vec<_>>>()?;
         let output_dir = resolve_project_path(
             &project_dir,
             site.out_dir
@@ -119,6 +135,7 @@ impl SiteBuildOptions {
             site_description: site.description,
             site_logo,
             site_nav,
+            user_css,
             content_routes,
             asset_dirs,
             clean: true,
@@ -154,7 +171,8 @@ pub fn list_content_routes(options: &SiteBuildOptions) -> Result<Vec<SiteRouteRe
 
 pub fn build_site(options: &SiteBuildOptions, site: &FissionSite) -> Result<SiteBuildReport> {
     let mut routes = load_content_routes(options, site.content_transform.as_deref())?;
-    let custom_routes = render_custom_routes(options, site)?;
+    let mut styles = StyleRegistry::default();
+    let custom_routes = render_custom_routes(options, site, &mut styles)?;
     routes.extend(custom_routes);
     routes.sort_by(|a, b| a.path.cmp(&b.path));
     detect_duplicate_routes(&routes)?;
@@ -170,9 +188,15 @@ pub fn build_site(options: &SiteBuildOptions, site: &FissionSite) -> Result<Site
     prepare_output_dir(options)?;
     copy_asset_dirs(options)?;
 
-    let mut report_routes = Vec::new();
+    let mut rendered_routes = Vec::new();
     for route in &routes {
-        let html = render_route(route, &routes, options, &site.theme)?;
+        let html = render_route(route, &routes, options, site, &mut styles)?;
+        rendered_routes.push((route, html));
+    }
+    write_site_css(options, site, &styles)?;
+
+    let mut report_routes = Vec::new();
+    for (route, html) in rendered_routes {
         let output = output_path_for_route(&options.output_dir, &route.path);
         if let Some(parent) = output.parent() {
             fs::create_dir_all(parent)?;
@@ -197,13 +221,14 @@ pub fn build_site(options: &SiteBuildOptions, site: &FissionSite) -> Result<Site
 
 pub fn check_site(options: &SiteBuildOptions, site: &FissionSite) -> Result<SiteBuildReport> {
     let mut routes = load_content_routes(options, site.content_transform.as_deref())?;
-    routes.extend(render_custom_routes(options, site)?);
+    let mut styles = StyleRegistry::default();
+    routes.extend(render_custom_routes(options, site, &mut styles)?);
     routes.sort_by(|a, b| a.path.cmp(&b.path));
     detect_duplicate_routes(&routes)?;
 
     let mut report_routes = Vec::new();
     for route in &routes {
-        render_route(route, &routes, options, &site.theme)?;
+        render_route(route, &routes, options, site, &mut styles)?;
         report_routes.push(SiteRouteReport {
             path: route.path.clone(),
             title: route.title.clone(),
@@ -253,13 +278,78 @@ fn prepare_output_dir(options: &SiteBuildOptions) -> Result<()> {
             "failed to create site output dir {}",
             options.output_dir.display()
         )
-    })?;
-    fs::write(options.output_dir.join("site.css"), SITE_CSS).with_context(|| {
+    })
+}
+
+fn write_site_css(
+    options: &SiteBuildOptions,
+    site: &FissionSite,
+    styles: &StyleRegistry,
+) -> Result<()> {
+    let mut css = String::new();
+    css.push_str(SITE_CSS);
+    css.push('\n');
+    css.push_str(&site_theme_css(site));
+    css.push('\n');
+    css.push_str(&styles.to_css());
+    for user_css in options.user_css.iter().chain(site.user_css.iter()) {
+        css.push('\n');
+        css.push_str(user_css);
+        css.push('\n');
+    }
+    fs::write(options.output_dir.join("site.css"), css).with_context(|| {
         format!(
             "failed to write {}",
             options.output_dir.join("site.css").display()
         )
     })
+}
+
+fn site_theme_css(site: &FissionSite) -> String {
+    let mut css = String::new();
+    if site.theme_switching {
+        let default_selector = match site.default_theme_mode.unwrap_or(DesignMode::Light) {
+            DesignMode::Light => ":root,[data-theme=\"light\"]",
+            DesignMode::Dark => ":root,[data-theme=\"dark\"]",
+        };
+        css.push_str(&theme_variables_css(default_selector, &site.theme));
+        if let Some(light) = &site.light_theme {
+            css.push_str(&theme_variables_css("[data-theme=\"light\"]", light));
+        }
+        if let Some(dark) = &site.dark_theme {
+            css.push_str(&theme_variables_css("[data-theme=\"dark\"]", dark));
+        }
+    } else {
+        css.push_str(&theme_variables_css(":root", &site.theme));
+    }
+    css
+}
+
+fn render_footer_node(
+    options: &SiteBuildOptions,
+    site: &FissionSite,
+    route_path: &str,
+) -> Result<Option<Node>> {
+    let Some(footer) = &site.footer else {
+        return Ok(None);
+    };
+    let ctx = SiteRenderContext {
+        project_dir: &options.project_dir,
+        route_path,
+        theme: &site.theme,
+    };
+    Ok(Some(footer(&ctx)?))
+}
+
+fn append_footer(node: Node, footer: Option<Node>) -> Node {
+    let Some(footer) = footer else {
+        return node;
+    };
+    Column {
+        children: vec![node, footer],
+        ..Default::default()
+    }
+    .into_node()
 }
 
 fn copy_asset_dirs(options: &SiteBuildOptions) -> Result<()> {
@@ -380,14 +470,17 @@ fn site_has_content_routes(options: &SiteBuildOptions) -> bool {
 fn render_custom_routes(
     options: &SiteBuildOptions,
     site: &FissionSite,
+    styles: &mut StyleRegistry,
 ) -> Result<Vec<ContentRoute>> {
     let mut routes = Vec::new();
     for route in &site.custom_routes {
         let ctx = SiteRenderContext {
             project_dir: &options.project_dir,
             route_path: &route.path,
+            theme: &site.theme,
         };
         let node = (route.render)(&ctx)?;
+        let node = append_footer(node, render_footer_node(options, site, &route.path)?);
         let html = render_node_to_html(
             node,
             &route.title,
@@ -396,7 +489,8 @@ fn render_custom_routes(
                 .clone()
                 .or_else(|| options.site_description.clone()),
             &route.path,
-            &site.theme,
+            site,
+            styles,
         )?;
         routes.push(ContentRoute {
             path: route.path.clone(),
@@ -438,14 +532,15 @@ fn render_route(
     route: &ContentRoute,
     routes: &[ContentRoute],
     options: &SiteBuildOptions,
-    theme: &fission_theme::Theme,
+    site: &FissionSite,
+    styles: &mut StyleRegistry,
 ) -> Result<String> {
     if let Some(rendered) = &route.rendered {
         return Ok(rendered.clone());
     }
     let runtime = RuntimeState::default();
     let mut env = Env::default();
-    env.theme = theme.clone();
+    env.theme = site.theme.clone();
     env.viewport_size = LayoutSize::new(1280.0, 900.0);
     let state = SitePageState;
     let view = View::new(&state, &runtime, &env, None);
@@ -454,10 +549,14 @@ fn render_route(
         site_title: &options.site_title,
         site_logo: options.site_logo.as_deref(),
         site_nav: &options.site_nav,
+        theme_switching: site.theme_switching,
         route,
         all_routes: routes,
     };
-    let node = page.build(&mut build_ctx, &view);
+    let node = append_footer(
+        page.build(&mut build_ctx, &view),
+        render_footer_node(options, site, &route.path)?,
+    );
     render_node_to_html(
         node,
         &format!("{} | {}", route.title, options.site_title),
@@ -466,20 +565,22 @@ fn render_route(
             .clone()
             .or_else(|| options.site_description.clone()),
         &route.path,
-        theme,
+        site,
+        styles,
     )
 }
 
 fn render_node_to_html(
-    node: fission_core::Node,
+    node: Node,
     title: &str,
     description: Option<String>,
     route_path: &str,
-    theme: &fission_theme::Theme,
+    site: &FissionSite,
+    styles: &mut StyleRegistry,
 ) -> Result<String> {
     let runtime = RuntimeState::default();
     let mut env = Env::default();
-    env.theme = theme.clone();
+    env.theme = site.theme.clone();
     let mut lowering = LoweringContext::new(&env, &runtime, None, None);
     let root = node.lower(&mut lowering);
     lowering.ir.set_root(root);
@@ -489,9 +590,12 @@ fn render_node_to_html(
         description,
         stylesheet_href: stylesheet_href_for_route(route_path),
         current_route_path: route_path.to_string(),
+        css_variables: CssVariableMap::from_theme(&site.theme),
+        default_theme_mode: site.default_theme_mode,
+        theme_switching: site.theme_switching,
         ..Default::default()
     };
-    Ok(render_ir_to_html(&lowering.ir, &render_options)?.html)
+    Ok(render_ir_to_html_with_styles(&lowering.ir, &render_options, styles)?.html)
 }
 
 fn detect_duplicate_routes(routes: &[ContentRoute]) -> Result<()> {
@@ -761,6 +865,8 @@ struct ProjectSite {
     routes: Vec<ProjectSiteRoute>,
     #[serde(default)]
     asset_dirs: Vec<String>,
+    #[serde(default)]
+    css_files: Vec<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -842,6 +948,10 @@ mod tests {
         let html = fs::read_to_string(output).unwrap();
         assert!(html.contains("This is rendered by"));
         assert!(html.contains("Fission."));
+        assert!(!html.contains("style=\""));
+        let css = fs::read_to_string(temp.join("target/fission/site/site.css")).unwrap();
+        assert!(css.contains(":root"));
+        assert!(css.contains(".fs_"));
         let _ = fs::remove_dir_all(temp);
     }
 

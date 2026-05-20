@@ -5,7 +5,8 @@ use fission_ir::op::{
     PaintOp, Stroke, TextAlign, TextOverflow, TextRun,
 };
 use fission_ir::{CoreIR, CoreNode, NodeId, Role};
-use std::collections::HashSet;
+use fission_theme::{DesignMode, Theme};
+use std::collections::{BTreeMap, HashSet};
 
 #[derive(Clone, Debug)]
 pub struct HtmlRenderOptions {
@@ -14,6 +15,9 @@ pub struct HtmlRenderOptions {
     pub stylesheet_href: String,
     pub root_class: String,
     pub current_route_path: String,
+    pub css_variables: CssVariableMap,
+    pub default_theme_mode: Option<DesignMode>,
+    pub theme_switching: bool,
 }
 
 impl Default for HtmlRenderOptions {
@@ -24,6 +28,9 @@ impl Default for HtmlRenderOptions {
             stylesheet_href: "/site.css".to_string(),
             root_class: "fission-site-root".to_string(),
             current_route_path: "/".to_string(),
+            css_variables: CssVariableMap::default(),
+            default_theme_mode: None,
+            theme_switching: false,
         }
     }
 }
@@ -32,21 +39,39 @@ impl Default for HtmlRenderOptions {
 pub struct RenderedHtml {
     pub html: String,
     pub body_html: String,
+    pub css: String,
 }
 
 pub fn render_ir_to_html(ir: &CoreIR, options: &HtmlRenderOptions) -> Result<RenderedHtml> {
+    let mut registry = StyleRegistry::default();
+    render_ir_to_html_with_styles(ir, options, &mut registry)
+}
+
+pub fn render_ir_to_html_with_styles(
+    ir: &CoreIR,
+    options: &HtmlRenderOptions,
+    styles: &mut StyleRegistry,
+) -> Result<RenderedHtml> {
     validate_static_ir(ir)?;
     let root = ir
         .root
         .ok_or_else(|| anyhow!("site render failed: Core IR has no root node"))?;
-    let mut renderer = HtmlRenderer { ir, options };
+    let mut renderer = HtmlRenderer {
+        ir,
+        options,
+        styles,
+    };
     let body = renderer.render_node(root)?;
     let body_html = format!(
         "<div class=\"{}\">{body}</div>",
         escape_attr(&options.root_class)
     );
     let html = render_document(&body_html, options);
-    Ok(RenderedHtml { html, body_html })
+    Ok(RenderedHtml {
+        html,
+        body_html,
+        css: renderer.styles.to_css(),
+    })
 }
 
 fn render_document(body_html: &str, options: &HtmlRenderOptions) -> String {
@@ -60,11 +85,199 @@ fn render_document(body_html: &str, options: &HtmlRenderOptions) -> String {
             )
         })
         .unwrap_or_default();
+    let theme_attr = options
+        .default_theme_mode
+        .map(|mode| {
+            let mode = match mode {
+                DesignMode::Light => "light",
+                DesignMode::Dark => "dark",
+            };
+            format!(" data-theme=\"{mode}\"")
+        })
+        .unwrap_or_default();
+    let theme_script = if options.theme_switching {
+        "\n    <script>(function(){var k='fission-site-theme';var r=document.documentElement;try{var s=localStorage.getItem(k);if(s){r.dataset.theme=s;}}catch(_){}document.addEventListener('click',function(e){var b=e.target.closest('[data-fission-theme-toggle]');if(!b)return;var n=r.dataset.theme==='dark'?'light':'dark';r.dataset.theme=n;try{localStorage.setItem(k,n);}catch(_){}});}());</script>"
+    } else {
+        ""
+    };
     format!(
-        "<!doctype html>\n<html lang=\"en\">\n  <head>\n    <meta charset=\"utf-8\">\n    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">{description}\n    <title>{}</title>\n    <link rel=\"stylesheet\" href=\"{}\">\n  </head>\n  <body>\n    {body_html}\n  </body>\n</html>\n",
+        "<!doctype html>\n<html lang=\"en\"{theme_attr}>\n  <head>\n    <meta charset=\"utf-8\">\n    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">{description}\n    <title>{}</title>\n    <link rel=\"stylesheet\" href=\"{}\">{theme_script}\n  </head>\n  <body>\n    {body_html}\n  </body>\n</html>\n",
         escape_text(&options.document_title),
         escape_attr(&options.stylesheet_href)
     )
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct CssVariableMap {
+    color_vars: Vec<(Color, &'static str)>,
+    font_vars: Vec<(String, &'static str)>,
+}
+
+impl CssVariableMap {
+    pub fn from_theme(theme: &Theme) -> Self {
+        Self {
+            color_vars: theme_color_vars(theme)
+                .into_iter()
+                .map(|(name, color)| (color, name))
+                .collect(),
+            font_vars: theme_font_vars(theme)
+                .into_iter()
+                .map(|(name, family)| (family.to_string(), name))
+                .collect(),
+        }
+    }
+
+    fn color_var(&self, color: Color) -> Option<&'static str> {
+        self.color_vars
+            .iter()
+            .find_map(|(candidate, name)| (*candidate == color).then_some(*name))
+    }
+
+    fn font_var(&self, family: &str) -> Option<&'static str> {
+        self.font_vars
+            .iter()
+            .find_map(|(candidate, name)| (candidate == family).then_some(*name))
+    }
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct StyleRegistry {
+    style_to_class: BTreeMap<String, String>,
+    class_to_style: BTreeMap<String, String>,
+}
+
+impl StyleRegistry {
+    pub fn class_for(&mut self, style: Vec<String>) -> Option<String> {
+        let style = normalize_style(style)?;
+        if let Some(class_name) = self.style_to_class.get(&style) {
+            return Some(class_name.clone());
+        }
+        let base = format!("fs_{:016x}", stable_hash(style.as_bytes()));
+        let mut class_name = base.clone();
+        let mut suffix = 2usize;
+        while self
+            .class_to_style
+            .get(&class_name)
+            .is_some_and(|existing| existing != &style)
+        {
+            class_name = format!("{base}_{suffix}");
+            suffix += 1;
+        }
+        self.style_to_class
+            .insert(style.clone(), class_name.clone());
+        self.class_to_style.insert(class_name.clone(), style);
+        Some(class_name)
+    }
+
+    pub fn to_css(&self) -> String {
+        let mut out = String::new();
+        for (class_name, style) in &self.class_to_style {
+            out.push('.');
+            out.push_str(class_name);
+            out.push('{');
+            out.push_str(style);
+            out.push_str("}\n");
+        }
+        out
+    }
+}
+
+pub fn theme_variables_css(selector: &str, theme: &Theme) -> String {
+    let mut out = String::new();
+    out.push_str(selector);
+    out.push_str("{\n");
+    for (name, color) in theme_color_vars(theme) {
+        out.push_str("  --fs-color-");
+        out.push_str(name);
+        out.push(':');
+        out.push_str(&raw_color_css(color));
+        out.push_str(";\n");
+    }
+    for (name, family) in theme_font_vars(theme) {
+        out.push_str("  --fs-font-");
+        out.push_str(name);
+        out.push(':');
+        out.push_str(family);
+        out.push_str(";\n");
+    }
+    out.push_str("}\n");
+    out
+}
+
+fn theme_color_vars(theme: &Theme) -> Vec<(&'static str, Color)> {
+    let colors = &theme.tokens.colors;
+    vec![
+        ("primary", colors.primary),
+        ("on-primary", colors.on_primary),
+        ("primary-hover", colors.primary_hover),
+        ("primary-subtle", colors.primary_subtle),
+        ("secondary", colors.secondary),
+        ("on-secondary", colors.on_secondary),
+        ("surface", colors.surface),
+        ("on-surface", colors.on_surface),
+        ("surface-raised", colors.surface_raised),
+        ("surface-sunken", colors.surface_sunken),
+        ("background", colors.background),
+        ("on-background", colors.on_background),
+        ("error", colors.error),
+        ("on-error", colors.on_error),
+        ("success", colors.success),
+        ("warning", colors.warning),
+        ("info", colors.info),
+        ("border", colors.border),
+        ("border-strong", colors.border_strong),
+        ("divider", colors.divider),
+        ("text-primary", colors.text_primary),
+        ("text-secondary", colors.text_secondary),
+        ("text-muted", colors.text_muted),
+        ("text-link", colors.text_link),
+        ("heading", colors.heading),
+        ("focus-ring", colors.focus_ring),
+    ]
+}
+
+fn theme_font_vars(theme: &Theme) -> Vec<(&'static str, &str)> {
+    let typography = &theme.tokens.typography;
+    vec![
+        ("sans", &typography.font_family_sans),
+        ("serif", &typography.font_family_serif),
+        ("mono", &typography.font_family_mono),
+    ]
+}
+
+fn normalize_style(style: Vec<String>) -> Option<String> {
+    let mut by_property = BTreeMap::new();
+    let mut unkeyed = Vec::new();
+    for entry in style {
+        let entry = entry.trim().trim_end_matches(';').to_string();
+        if entry.is_empty() {
+            continue;
+        }
+        if let Some((property, _)) = entry.split_once(':') {
+            // Preserve renderer precedence by letting later declarations for the
+            // same CSS property win before sorting the canonical rule.
+            by_property.insert(property.trim().to_string(), entry);
+        } else {
+            unkeyed.push(entry);
+        }
+    }
+    let mut style = by_property.into_values().collect::<Vec<_>>();
+    unkeyed.sort();
+    unkeyed.dedup();
+    style.extend(unkeyed);
+    if style.is_empty() {
+        return None;
+    }
+    Some(style.join(";"))
+}
+
+fn stable_hash(bytes: &[u8]) -> u64 {
+    let mut hash = 0xcbf29ce484222325u64;
+    for byte in bytes {
+        hash ^= u64::from(*byte);
+        hash = hash.wrapping_mul(0x100000001b3);
+    }
+    hash
 }
 
 fn validate_static_ir(ir: &CoreIR) -> Result<()> {
@@ -108,6 +321,7 @@ fn validate_static_ir(ir: &CoreIR) -> Result<()> {
 struct HtmlRenderer<'a> {
     ir: &'a CoreIR,
     options: &'a HtmlRenderOptions,
+    styles: &'a mut StyleRegistry,
 }
 
 impl HtmlRenderer<'_> {
@@ -147,12 +361,20 @@ impl HtmlRenderer<'_> {
         style.extend(self.coalesced_paint_style(node, &mut skip)?);
         style.extend(composite_style(node));
         let children = self.render_children(&node.children, &skip)?;
+        let class_name = self.class_name(class_name, style);
         Ok(format!(
-            "<{tag} class=\"{}\" style=\"{}\" data-fission-node=\"{}\">{children}</{tag}>",
-            escape_attr(class_name),
-            escape_attr(&style.join(";")),
+            "<{tag} class=\"{}\" data-fission-node=\"{}\">{children}</{tag}>",
+            escape_attr(&class_name),
             node.id
         ))
+    }
+
+    fn class_name(&mut self, base: &str, style: Vec<String>) -> String {
+        if let Some(generated) = self.styles.class_for(style) {
+            format!("{base} {generated}")
+        } else {
+            base.to_string()
+        }
     }
 
     fn render_layout(&mut self, node: &CoreNode, layout: &LayoutOp) -> Result<String> {
@@ -349,7 +571,12 @@ impl HtmlRenderer<'_> {
                 corner_radius,
                 shadow,
             } => {
-                let mut style = draw_rect_style(fill.as_ref(), stroke.as_ref(), *corner_radius, shadow.as_ref());
+                let mut style = self.draw_rect_style(
+                    fill.as_ref(),
+                    stroke.as_ref(),
+                    *corner_radius,
+                    shadow.as_ref(),
+                );
                 style.push("min-height:1px".to_string());
                 self.render_element("div", node, "fission-site-node fission-site-rect", style)
             }
@@ -362,11 +589,12 @@ impl HtmlRenderer<'_> {
                 paragraph_style,
                 ..
             } => {
-                let mut style = text_style(*size, *color, *underline, *wrap);
+                let mut style = self.text_style(*size, *color, *underline, *wrap);
                 push_paragraph_style(&mut style, paragraph_style.as_ref());
+                let class_name = self.class_name("fission-site-text", style);
                 Ok(format!(
-                    "<span class=\"fission-site-text\" style=\"{}\" data-fission-node=\"{}\">{}</span>",
-                    escape_attr(&style.join(";")),
+                    "<span class=\"{}\" data-fission-node=\"{}\">{}</span>",
+                    escape_attr(&class_name),
                     node.id,
                     escape_text(text)
                 ))
@@ -387,35 +615,51 @@ impl HtmlRenderer<'_> {
                     if decode_inline_widget_marker(run.style.font_family.as_deref()).is_some() {
                         continue;
                     }
-                    content.push_str(&render_text_run(run));
+                    content.push_str(&self.render_text_run(run));
                 }
                 content.push_str(&self.render_children(&node.children, &HashSet::new())?);
+                let class_name = self.class_name("fission-site-rich-text", style);
                 Ok(format!(
-                    "<span class=\"fission-site-rich-text\" style=\"{}\" data-fission-node=\"{}\">{content}</span>",
-                    escape_attr(&style.join(";")),
+                    "<span class=\"{}\" data-fission-node=\"{}\">{content}</span>",
+                    escape_attr(&class_name),
                     node.id
                 ))
             }
-            PaintOp::DrawImage { source, fit } => Ok(format!(
-                "<img class=\"fission-site-img\" src=\"{}\" alt=\"\" style=\"width:100%;height:100%;object-fit:{}\" data-fission-node=\"{}\">",
-                escape_attr(source),
-                image_fit_css(*fit),
-                node.id
-            )),
-            PaintOp::DrawPath { path, fill, stroke } => Ok(format!(
-                "<svg class=\"fission-site-svg\" viewBox=\"0 0 24 24\" aria-hidden=\"true\" data-fission-node=\"{}\"><path d=\"{}\" style=\"{}\"></path></svg>",
-                node.id,
-                escape_attr(path),
-                escape_attr(&svg_paint_style(fill.as_ref(), stroke.as_ref()))
-            )),
+            PaintOp::DrawImage { source, fit } => {
+                let class_name = self.class_name(
+                    "fission-site-img",
+                    vec![
+                        "width:100%".to_string(),
+                        "height:100%".to_string(),
+                        format!("object-fit:{}", image_fit_css(*fit)),
+                    ],
+                );
+                Ok(format!(
+                    "<img class=\"{}\" src=\"{}\" alt=\"\" data-fission-node=\"{}\">",
+                    escape_attr(&class_name),
+                    escape_attr(source),
+                    node.id
+                ))
+            }
+            PaintOp::DrawPath { path, fill, stroke } => {
+                let path_class = self.class_name(
+                    "fission-site-svg-path",
+                    self.svg_paint_style(fill.as_ref(), stroke.as_ref()),
+                );
+                Ok(format!(
+                    "<svg class=\"fission-site-svg\" viewBox=\"0 0 24 24\" aria-hidden=\"true\" data-fission-node=\"{}\"><path class=\"{}\" d=\"{}\"></path></svg>",
+                    node.id,
+                    escape_attr(&path_class),
+                    escape_attr(path)
+                ))
+            }
             PaintOp::DrawSvg {
                 content,
                 fill: _,
                 stroke: _,
             } => Ok(format!(
                 "<span class=\"fission-site-svg\" data-fission-node=\"{}\">{}</span>",
-                node.id,
-                content
+                node.id, content
             )),
         }
     }
@@ -448,6 +692,13 @@ impl HtmlRenderer<'_> {
                     semantics.label.as_deref(),
                     "fission-site-markdown-link",
                 );
+            }
+            if identifier == "site-theme-toggle" {
+                let children = self.render_children(&node.children, &HashSet::new())?;
+                return Ok(format!(
+                    "<button class=\"fission-site-node fission-site-theme-toggle\" type=\"button\" data-fission-theme-toggle data-fission-node=\"{}\">{children}</button>",
+                    node.id
+                ));
             }
         }
         let tag = match semantics.role {
@@ -542,7 +793,7 @@ impl HtmlRenderer<'_> {
                 shadow,
             }) = &child.op
             {
-                style.extend(draw_rect_style(
+                style.extend(self.draw_rect_style(
                     fill.as_ref(),
                     stroke.as_ref(),
                     *corner_radius,
@@ -553,38 +804,160 @@ impl HtmlRenderer<'_> {
         }
         Ok(style)
     }
-}
 
-fn draw_rect_style(
-    fill: Option<&Fill>,
-    stroke: Option<&Stroke>,
-    corner_radius: f32,
-    shadow: Option<&BoxShadow>,
-) -> Vec<String> {
-    let mut style = Vec::new();
-    if let Some(fill) = fill {
-        style.push(format!("background:{}", fill_css(fill)));
+    fn draw_rect_style(
+        &self,
+        fill: Option<&Fill>,
+        stroke: Option<&Stroke>,
+        corner_radius: f32,
+        shadow: Option<&BoxShadow>,
+    ) -> Vec<String> {
+        let mut style = Vec::new();
+        if let Some(fill) = fill {
+            style.push(format!("background:{}", self.fill_css(fill)));
+        }
+        if let Some(stroke) = stroke {
+            style.push(format!(
+                "border:{}px solid {}",
+                px(stroke.width),
+                self.stroke_css(stroke)
+            ));
+        }
+        if corner_radius > 0.0 {
+            style.push(format!("border-radius:{}px", px(corner_radius)));
+        }
+        if let Some(shadow) = shadow {
+            style.push(format!(
+                "box-shadow:{}px {}px {}px {}",
+                px(shadow.offset.0),
+                px(shadow.offset.1),
+                px(shadow.blur_radius),
+                self.color_css(shadow.color)
+            ));
+        }
+        style
     }
-    if let Some(stroke) = stroke {
-        style.push(format!(
-            "border:{}px solid {}",
-            px(stroke.width),
-            stroke_css(stroke)
-        ));
+
+    fn text_style(&self, size: f32, color: Color, underline: bool, wrap: bool) -> Vec<String> {
+        let mut style = vec![
+            format!("font-size:{}px", px(size)),
+            format!("color:{}", self.color_css(color)),
+            format!("white-space:{}", if wrap { "pre-wrap" } else { "pre" }),
+        ];
+        if underline {
+            style.push("text-decoration:underline".to_string());
+        }
+        style
     }
-    if corner_radius > 0.0 {
-        style.push(format!("border-radius:{}px", px(corner_radius)));
+
+    fn render_text_run(&mut self, run: &TextRun) -> String {
+        let mut style = vec![
+            format!("font-size:{}px", px(run.style.font_size)),
+            format!("color:{}", self.color_css(run.style.color)),
+            format!("font-weight:{}", run.style.font_weight),
+            format!("letter-spacing:{}px", px(run.style.letter_spacing)),
+        ];
+        if run.style.underline {
+            style.push("text-decoration:underline".to_string());
+        }
+        if let Some(family) = &run.style.font_family {
+            style.push(format!("font-family:{}", self.font_family_css(family)));
+        }
+        if let Some(line_height) = run.style.line_height {
+            style.push(format!("line-height:{}px", px(line_height)));
+        }
+        if run.style.font_style == FontStyle::Italic {
+            style.push("font-style:italic".to_string());
+        }
+        if let Some(background) = run.style.background_color {
+            style.push(format!("background:{}", self.color_css(background)));
+            style.push("border-radius:0.35em".to_string());
+            style.push("padding:0.1em 0.3em".to_string());
+        }
+        let class_name = self.class_name("fission-site-text-run", style);
+        format!(
+            "<span class=\"{}\">{}</span>",
+            escape_attr(&class_name),
+            escape_text(&run.text)
+        )
     }
-    if let Some(shadow) = shadow {
-        style.push(format!(
-            "box-shadow:{}px {}px {}px {}",
-            px(shadow.offset.0),
-            px(shadow.offset.1),
-            px(shadow.blur_radius),
-            color_css(shadow.color)
-        ));
+
+    fn fill_css(&self, fill: &Fill) -> String {
+        match fill {
+            Fill::Solid(color) => self.color_css(*color),
+            Fill::LinearGradient {
+                start: _,
+                end,
+                stops,
+            } => {
+                let angle = if end.0.abs() >= end.1.abs() {
+                    "90deg"
+                } else {
+                    "180deg"
+                };
+                let stops = stops
+                    .iter()
+                    .map(|(offset, color)| {
+                        format!("{} {}%", self.color_css(*color), (offset * 100.0).round())
+                    })
+                    .collect::<Vec<_>>()
+                    .join(",");
+                format!("linear-gradient({angle},{stops})")
+            }
+            Fill::RadialGradient { stops, .. } => {
+                let stops = stops
+                    .iter()
+                    .map(|(offset, color)| {
+                        format!("{} {}%", self.color_css(*color), (offset * 100.0).round())
+                    })
+                    .collect::<Vec<_>>()
+                    .join(",");
+                format!("radial-gradient(circle,{stops})")
+            }
+        }
     }
-    style
+
+    fn stroke_css(&self, stroke: &Stroke) -> String {
+        match &stroke.fill {
+            Fill::Solid(color) => self.color_css(*color),
+            fill => self.fill_css(fill),
+        }
+    }
+
+    fn svg_paint_style(&self, fill: Option<&Fill>, stroke: Option<&Stroke>) -> Vec<String> {
+        let mut style = Vec::new();
+        if let Some(fill) = fill {
+            style.push(format!("fill:{}", self.fill_css(fill)));
+        } else {
+            style.push("fill:currentColor".to_string());
+        }
+        if let Some(stroke) = stroke {
+            style.push(format!("stroke:{}", self.stroke_css(stroke)));
+            style.push(format!("stroke-width:{}", px(stroke.width)));
+            style.push(format!("stroke-linecap:{}", line_cap_css(stroke.line_cap)));
+            style.push(format!(
+                "stroke-linejoin:{}",
+                line_join_css(stroke.line_join)
+            ));
+        }
+        style
+    }
+
+    fn color_css(&self, color: Color) -> String {
+        self.options
+            .css_variables
+            .color_var(color)
+            .map(|name| format!("var(--fs-color-{name})"))
+            .unwrap_or_else(|| raw_color_css(color))
+    }
+
+    fn font_family_css(&self, family: &str) -> String {
+        self.options
+            .css_variables
+            .font_var(family)
+            .map(|name| format!("var(--fs-font-{name})"))
+            .unwrap_or_else(|| family.to_string())
+    }
 }
 
 fn markdown_heading_tag(identifier: &str) -> Option<&'static str> {
@@ -610,49 +983,6 @@ fn markdown_heading_anchor(identifier: &str) -> Option<&str> {
         .split_once(':')
         .map(|(_, anchor)| anchor)
         .filter(|anchor| !anchor.is_empty())
-}
-
-fn text_style(size: f32, color: Color, underline: bool, wrap: bool) -> Vec<String> {
-    let mut style = vec![
-        format!("font-size:{}px", px(size)),
-        format!("color:{}", color_css(color)),
-        format!("white-space:{}", if wrap { "pre-wrap" } else { "pre" }),
-    ];
-    if underline {
-        style.push("text-decoration:underline".to_string());
-    }
-    style
-}
-
-fn render_text_run(run: &TextRun) -> String {
-    let mut style = vec![
-        format!("font-size:{}px", px(run.style.font_size)),
-        format!("color:{}", color_css(run.style.color)),
-        format!("font-weight:{}", run.style.font_weight),
-        format!("letter-spacing:{}px", px(run.style.letter_spacing)),
-    ];
-    if run.style.underline {
-        style.push("text-decoration:underline".to_string());
-    }
-    if let Some(family) = &run.style.font_family {
-        style.push(format!("font-family:{}", css_string(family)));
-    }
-    if let Some(line_height) = run.style.line_height {
-        style.push(format!("line-height:{}px", px(line_height)));
-    }
-    if run.style.font_style == FontStyle::Italic {
-        style.push("font-style:italic".to_string());
-    }
-    if let Some(background) = run.style.background_color {
-        style.push(format!("background:{}", color_css(background)));
-        style.push("border-radius:0.35em".to_string());
-        style.push("padding:0.1em 0.3em".to_string());
-    }
-    format!(
-        "<span style=\"{}\">{}</span>",
-        escape_attr(&style.join(";")),
-        escape_text(&run.text)
-    )
 }
 
 fn push_paragraph_style(
@@ -776,68 +1106,7 @@ fn composite_style(node: &CoreNode) -> Vec<String> {
     style
 }
 
-fn fill_css(fill: &Fill) -> String {
-    match fill {
-        Fill::Solid(color) => color_css(*color),
-        Fill::LinearGradient {
-            start: _,
-            end,
-            stops,
-        } => {
-            let angle = if end.0.abs() >= end.1.abs() {
-                "90deg"
-            } else {
-                "180deg"
-            };
-            let stops = stops
-                .iter()
-                .map(|(offset, color)| {
-                    format!("{} {}%", color_css(*color), (offset * 100.0).round())
-                })
-                .collect::<Vec<_>>()
-                .join(",");
-            format!("linear-gradient({angle},{stops})")
-        }
-        Fill::RadialGradient { stops, .. } => {
-            let stops = stops
-                .iter()
-                .map(|(offset, color)| {
-                    format!("{} {}%", color_css(*color), (offset * 100.0).round())
-                })
-                .collect::<Vec<_>>()
-                .join(",");
-            format!("radial-gradient(circle,{stops})")
-        }
-    }
-}
-
-fn stroke_css(stroke: &Stroke) -> String {
-    match &stroke.fill {
-        Fill::Solid(color) => color_css(*color),
-        fill => fill_css(fill),
-    }
-}
-
-fn svg_paint_style(fill: Option<&Fill>, stroke: Option<&Stroke>) -> String {
-    let mut style = Vec::new();
-    if let Some(fill) = fill {
-        style.push(format!("fill:{}", fill_css(fill)));
-    } else {
-        style.push("fill:currentColor".to_string());
-    }
-    if let Some(stroke) = stroke {
-        style.push(format!("stroke:{}", stroke_css(stroke)));
-        style.push(format!("stroke-width:{}", px(stroke.width)));
-        style.push(format!("stroke-linecap:{}", line_cap_css(stroke.line_cap)));
-        style.push(format!(
-            "stroke-linejoin:{}",
-            line_join_css(stroke.line_join)
-        ));
-    }
-    style.join(";")
-}
-
-fn color_css(color: Color) -> String {
+fn raw_color_css(color: Color) -> String {
     if color.a == 255 {
         format!("#{:02x}{:02x}{:02x}", color.r, color.g, color.b)
     } else {
@@ -1022,6 +1291,39 @@ mod tests {
 
         let rendered = render_ir_to_html(&ir, &HtmlRenderOptions::default()).unwrap();
         assert!(rendered.html.contains("Hello &lt;site&gt;"));
+        assert!(!rendered.html.contains("style=\""));
+        assert!(rendered.css.contains(".fs_"));
+    }
+
+    #[test]
+    fn style_registry_deduplicates_normalized_styles() {
+        let mut styles = StyleRegistry::default();
+        let first = styles
+            .class_for(vec!["color:red".to_string(), "display:block".to_string()])
+            .unwrap();
+        let second = styles
+            .class_for(vec!["display:block;".to_string(), "color:red".to_string()])
+            .unwrap();
+
+        assert_eq!(first, second);
+        assert_eq!(styles.to_css().matches(".fs_").count(), 1);
+    }
+
+    #[test]
+    fn style_registry_keeps_last_declaration_for_duplicate_properties() {
+        let mut styles = StyleRegistry::default();
+        let class_name = styles
+            .class_for(vec![
+                "overflow:auto".to_string(),
+                "display:block".to_string(),
+                "overflow:hidden".to_string(),
+            ])
+            .unwrap();
+        let css = styles.to_css();
+
+        assert!(css.contains(&format!(".{class_name}")));
+        assert!(css.contains("display:block;overflow:hidden"));
+        assert!(!css.contains("overflow:auto"));
     }
 
     #[test]
