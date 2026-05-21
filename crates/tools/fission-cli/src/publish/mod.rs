@@ -1,4 +1,4 @@
-use crate::{FissionProject, Target};
+use crate::{release, FissionProject, Target};
 use anyhow::{bail, Context, Result};
 use clap::ValueEnum;
 use serde::{Deserialize, Serialize};
@@ -588,18 +588,13 @@ fn print_distribution_receipt(
 fn provider_status(options: &DistributeOptions, config: &PublishManifest) -> Result<()> {
     let receipt = match options.provider {
         DistributionProvider::GithubPages => github_pages_status(options, config)?,
-        DistributionProvider::CloudflarePages => command_status_receipt(
-            options,
-            "cloudflare-pages",
-            "wrangler",
-            cloudflare_status_args(config, &options.site)?,
-        )?,
+        DistributionProvider::CloudflarePages => cloudflare_pages_status(options, config)?,
         DistributionProvider::Netlify => static_hosts::netlify_status(options, config)?,
+        DistributionProvider::PlayStore => stores::play_store_status(options, config)?,
         DistributionProvider::S3
         | DistributionProvider::GoogleDrive
         | DistributionProvider::OneDrive
         | DistributionProvider::Dropbox
-        | DistributionProvider::PlayStore
         | DistributionProvider::AppStore
         | DistributionProvider::MicrosoftStore => generic_status_receipt(options),
     };
@@ -1016,6 +1011,77 @@ fn github_pages_status(
     )
 }
 
+fn cloudflare_pages_status(
+    options: &DistributeOptions,
+    config: &PublishManifest,
+) -> Result<DistributionReceipt> {
+    let cfg = cloudflare_config(config, &options.site)?;
+    let account_id = cfg
+        .account_id
+        .clone()
+        .or_else(|| env::var("CLOUDFLARE_ACCOUNT_ID").ok())
+        .context(
+            "distribution.cloudflare_pages.<site>.account_id or CLOUDFLARE_ACCOUNT_ID is required",
+        )?;
+    let project_name = cfg
+        .project_name
+        .as_deref()
+        .context("distribution.cloudflare_pages.<site>.project_name is required")?;
+    let token = release::provider_secret(
+        DistributionProvider::CloudflarePages,
+        &["CLOUDFLARE_API_TOKEN"],
+    )?
+    .context("CLOUDFLARE_API_TOKEN or Fission vault credentials are required")?;
+    let url = format!(
+        "https://api.cloudflare.com/client/v4/accounts/{account_id}/pages/projects/{project_name}/deployments"
+    );
+    let response = reqwest::blocking::Client::builder()
+        .user_agent("fission-cli-publish/0.1")
+        .build()?
+        .get(url)
+        .bearer_auth(token)
+        .send()
+        .context("failed to query Cloudflare Pages deployments")?;
+    let status = response.status();
+    let text = response.text()?;
+    if !status.is_success() {
+        bail!("Cloudflare Pages status failed with {status}: {text}");
+    }
+    let value: serde_json::Value = serde_json::from_str(&text)
+        .with_context(|| format!("failed to parse Cloudflare Pages status response: {text}"))?;
+    let latest = value
+        .get("result")
+        .and_then(serde_json::Value::as_array)
+        .and_then(|items| items.first());
+    Ok(DistributionReceipt {
+        schema_version: 1,
+        created_at_unix_seconds: now_unix_seconds(),
+        provider: "cloudflare-pages".to_string(),
+        site: options.site.clone(),
+        action: "status".to_string(),
+        artifact_manifest: None,
+        deployment_id: latest
+            .and_then(|item| item.get("id"))
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_string),
+        canonical_url: cloudflare_url(&cfg),
+        preview_url: latest
+            .and_then(|item| item.get("url"))
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_string),
+        custom_domain: non_empty(cfg.custom_domain.clone()),
+        status: latest
+            .and_then(|item| item.pointer("/latest_stage/status"))
+            .or_else(|| latest.and_then(|item| item.get("deployment_trigger")))
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("ok")
+            .to_string(),
+        stdout: Some(serde_json::to_string_pretty(&value)?),
+        stderr: None,
+        manual_follow_up: Vec::new(),
+    })
+}
+
 fn command_status_receipt(
     options: &DistributeOptions,
     provider: &str,
@@ -1049,20 +1115,6 @@ fn command_status_receipt(
         stderr: (!stderr.trim().is_empty()).then_some(stderr),
         manual_follow_up: Vec::new(),
     })
-}
-
-fn cloudflare_status_args(config: &PublishManifest, site: &str) -> Result<Vec<String>> {
-    let cfg = cloudflare_config(config, site)?;
-    let project_name = cfg
-        .project_name
-        .context("cloudflare-pages status requires project_name")?;
-    Ok(vec![
-        "pages".to_string(),
-        "deployment".to_string(),
-        "list".to_string(),
-        "--project-name".to_string(),
-        project_name,
-    ])
 }
 
 fn readiness_package(
@@ -1416,15 +1468,11 @@ fn readiness_cloudflare_pages(
         "Cloudflare Pages project name is configured",
         "Set distribution.cloudflare_pages.<site>.project_name.",
     ));
-    checks.push(required_env(
+    checks.push(required_provider_secret(
         "release.cloudflare_pages.token_available",
-        "CLOUDFLARE_API_TOKEN",
-        "Create a Cloudflare API token with Pages Edit permission and store it in CI secrets or your shell environment.",
-    ));
-    checks.push(check_tool(
-        "release.cloudflare_pages.wrangler_available",
-        "wrangler",
-        "Install Wrangler or wait for the direct Rust upload backend.",
+        DistributionProvider::CloudflarePages,
+        &["CLOUDFLARE_API_TOKEN"],
+        "Create a Cloudflare API token with Pages Edit permission and store it in CI secrets or the Fission release vault.",
     ));
     checks.push(base_path_check(
         "release.cloudflare_pages.base_path_root",
@@ -1445,9 +1493,10 @@ fn readiness_netlify(
         "Netlify site id is configured",
         "Set distribution.netlify.<site>.site_id or run provider setup after creating a Netlify site.",
     ));
-    checks.push(required_env(
+    checks.push(required_provider_secret(
         "release.netlify.token_available",
-        "NETLIFY_AUTH_TOKEN",
+        DistributionProvider::Netlify,
+        &["NETLIFY_AUTH_TOKEN"],
         "Create a Netlify access token and store it in CI secrets, your shell environment, or the Fission release vault.",
     ));
     checks.push(base_path_check(
@@ -1902,17 +1951,29 @@ fn required_value(
     )
 }
 
-fn required_env(id: &str, name: &str, remediation: &str) -> ReadinessCheck {
+fn required_provider_secret(
+    id: &str,
+    provider: DistributionProvider,
+    env_names: &[&str],
+    remediation: &str,
+) -> ReadinessCheck {
+    let env_name = env_names.iter().find(|name| env::var_os(name).is_some());
+    let vault_present = release::provider_secret(provider, &[])
+        .ok()
+        .flatten()
+        .is_some();
     check(
         id,
         CheckSeverity::Error,
-        if env::var_os(name).is_some() {
+        if env_name.is_some() || vault_present {
             CheckStatus::Passed
         } else {
             CheckStatus::Missing
         },
-        format!("environment variable {name} is available"),
-        None,
+        "provider credentials are available",
+        env_name
+            .map(|name| format!("environment variable {name}"))
+            .or_else(|| vault_present.then(|| "Fission release vault".to_string())),
         vec![remediation],
     )
 }

@@ -343,6 +343,52 @@ pub(super) fn publish_microsoft_store(
     ))
 }
 
+pub(super) fn play_store_status(
+    options: &DistributeOptions,
+    config: &PublishManifest,
+) -> Result<DistributionReceipt> {
+    let cfg = play_store_config(config);
+    let package_name = cfg
+        .package_name
+        .as_deref()
+        .context("distribution.play_store.package_name is required")?;
+    let track = options
+        .track
+        .as_deref()
+        .or(cfg.default_track.as_deref())
+        .unwrap_or("internal");
+    let client = http_client()?;
+    let token = google_play_access_token(&cfg, &client)?;
+    let edit_id = create_play_edit(&client, &token, package_name)?;
+    let url = format!(
+        "{PLAY_API}/androidpublisher/v3/applications/{package_name}/edits/{edit_id}/tracks/{track}"
+    );
+    let response = client
+        .get(url)
+        .bearer_auth(&token)
+        .send()
+        .with_context(|| format!("failed to read Google Play track {track}"))?;
+    let value = json_response(response, "Google Play track get")?;
+    Ok(DistributionReceipt {
+        schema_version: 1,
+        created_at_unix_seconds: now_unix_seconds(),
+        provider: "play-store".to_string(),
+        site: options.site.clone(),
+        action: "status".to_string(),
+        artifact_manifest: None,
+        deployment_id: Some(format!("edit:{edit_id}/track:{track}")),
+        canonical_url: Some(format!(
+            "https://play.google.com/console/u/0/developers/app/{package_name}/tracks/{track}"
+        )),
+        preview_url: None,
+        custom_domain: None,
+        status: "ok".to_string(),
+        stdout: Some(serde_json::to_string_pretty(&value)?),
+        stderr: None,
+        manual_follow_up: Vec::new(),
+    })
+}
+
 pub(super) fn readiness_play_store(
     track: Option<&str>,
     artifact: Option<&Path>,
