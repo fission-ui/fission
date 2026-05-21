@@ -15,6 +15,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 mod content;
 mod model;
+mod store_ops;
 
 #[derive(Subcommand, Debug)]
 pub(crate) enum ReleaseConfigCommand {
@@ -605,14 +606,7 @@ pub(crate) fn reviews(command: ReviewsCommand) -> Result<()> {
             since,
             project_dir,
             json,
-        } => {
-            let mut report = provider_backend_report("reviews.list", &project_dir, provider);
-            report.checks.push(ok_check(
-                "reviews.list.window",
-                since.unwrap_or_else(|| "all".to_string()),
-            ));
-            print_report(report, json)
-        }
+        } => store_ops::reviews_list(provider, since, &project_dir, json),
         ReviewsCommand::Reply {
             provider,
             review,
@@ -620,19 +614,14 @@ pub(crate) fn reviews(command: ReviewsCommand) -> Result<()> {
             project_dir,
             dry_run,
             json,
-        } => {
-            let mut report = provider_backend_report("reviews.reply", &project_dir, provider);
-            report.checks.push(path_check(
-                "reviews.reply.message_exists",
-                message_file,
-                "reply message file exists",
-            ));
-            report.checks.push(ok_check(
-                "reviews.reply.intent",
-                format!("review = {review}, dry_run = {dry_run}"),
-            ));
-            print_report(report, json)
-        }
+        } => store_ops::reviews_reply(
+            provider,
+            &review,
+            &message_file,
+            &project_dir,
+            dry_run,
+            json,
+        ),
     }
 }
 
