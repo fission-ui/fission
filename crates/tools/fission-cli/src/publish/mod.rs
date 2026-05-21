@@ -597,7 +597,7 @@ fn provider_status(options: &DistributeOptions, config: &PublishManifest) -> Res
         DistributionProvider::OneDrive => files::onedrive_status(options, config)?,
         DistributionProvider::Dropbox => files::dropbox_status(options, config)?,
         DistributionProvider::AppStore => stores::app_store_status(options, config)?,
-        DistributionProvider::MicrosoftStore => generic_status_receipt(options),
+        DistributionProvider::MicrosoftStore => stores::microsoft_store_status(options, config)?,
     };
     if options.json {
         println!("{}", serde_json::to_string_pretty(&receipt)?);
@@ -902,28 +902,6 @@ fn publish_cloudflare_pages(
         artifact_path,
         || cloudflare_url(&cfg),
     )
-}
-
-fn generic_status_receipt(options: &DistributeOptions) -> DistributionReceipt {
-    DistributionReceipt {
-        schema_version: 1,
-        created_at_unix_seconds: now_unix_seconds(),
-        provider: options.provider.as_str().to_string(),
-        site: options.site.clone(),
-        action: "status".to_string(),
-        artifact_manifest: None,
-        deployment_id: options.deploy.clone(),
-        canonical_url: None,
-        preview_url: None,
-        custom_domain: None,
-        status: "not-connected".to_string(),
-        stdout: None,
-        stderr: None,
-        manual_follow_up: vec![format!(
-            "{} status requires provider API integration or provider credentials.",
-            options.provider.as_str()
-        )],
-    }
 }
 
 fn run_publish_command<F>(

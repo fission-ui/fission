@@ -433,6 +433,70 @@ pub(super) fn play_store_status(
     })
 }
 
+pub(super) fn microsoft_store_status(
+    options: &DistributeOptions,
+    config: &PublishManifest,
+) -> Result<DistributionReceipt> {
+    let cfg = microsoft_store_config(config);
+    let product_id = cfg
+        .product_id
+        .as_deref()
+        .context("distribution.microsoft_store.product_id is required")?;
+    let seller_id = env_value("MICROSOFT_STORE_SELLER_ID")
+        .or(cfg.seller_id.clone())
+        .context(
+            "distribution.microsoft_store.seller_id or MICROSOFT_STORE_SELLER_ID is required",
+        )?;
+    let client = http_client()?;
+    let token = microsoft_store_access_token(&cfg, &client)?;
+    let url = options
+        .deploy
+        .as_deref()
+        .filter(|value| !value.trim().is_empty())
+        .map(|value| {
+            if value.starts_with("http") {
+                value.to_string()
+            } else if value.starts_with('/') {
+                format!("{MICROSOFT_STORE_API}{value}")
+            } else {
+                format!("{MICROSOFT_STORE_API}/submission/v1/product/{product_id}/submission/{value}/status")
+            }
+        })
+        .unwrap_or_else(|| format!("{MICROSOFT_STORE_API}/submission/v1/product/{product_id}/status"));
+    let response = client
+        .get(url)
+        .bearer_auth(&token)
+        .header("X-Seller-Account-Id", &seller_id)
+        .send()
+        .context("failed to query Microsoft Store submission status")?;
+    let value = json_response(response, "Microsoft Store status")?;
+    microsoft_store_success(&value, "Microsoft Store status")?;
+    let status = value
+        .pointer("/responseData/publishingStatus")
+        .or_else(|| value.pointer("/responseData/packageUploadStatus"))
+        .and_then(Value::as_str)
+        .unwrap_or("ok")
+        .to_ascii_lowercase();
+    Ok(DistributionReceipt {
+        schema_version: 1,
+        created_at_unix_seconds: now_unix_seconds(),
+        provider: "microsoft-store".to_string(),
+        site: options.site.clone(),
+        action: "status".to_string(),
+        artifact_manifest: None,
+        deployment_id: options.deploy.clone(),
+        canonical_url: Some(format!(
+            "https://partner.microsoft.com/dashboard/products/{product_id}"
+        )),
+        preview_url: None,
+        custom_domain: None,
+        status,
+        stdout: Some(serde_json::to_string_pretty(&value)?),
+        stderr: None,
+        manual_follow_up: Vec::new(),
+    })
+}
+
 pub(super) fn readiness_play_store(
     track: Option<&str>,
     artifact: Option<&Path>,
