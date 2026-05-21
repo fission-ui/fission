@@ -305,6 +305,8 @@ fn finish_artifact_manifest(
 ) -> Result<ArtifactManifest> {
     let mut manifest = build_artifact_manifest(project, options, staging_dir, profile)?;
     add_configured_secondary_artifacts(&options.project_dir, &mut manifest)?;
+    manifest.validation.checks = package_artifact_checks(options, staging_dir, &manifest);
+    manifest.validation.state = manifest_validation_state(&manifest.validation.checks).to_string();
     let manifest_path = staging_dir.join(ARTIFACT_MANIFEST);
     fs::write(&manifest_path, serde_json::to_vec_pretty(&manifest)?).with_context(|| {
         format!(
@@ -313,6 +315,280 @@ fn finish_artifact_manifest(
         )
     })?;
     Ok(manifest)
+}
+
+fn package_artifact_checks(
+    options: &PackageOptions,
+    staging_dir: &Path,
+    manifest: &ArtifactManifest,
+) -> Vec<ReadinessCheck> {
+    let mut checks = Vec::new();
+    checks.push(package_primary_artifact_check(
+        options.format,
+        staging_dir,
+        manifest,
+    ));
+    checks.push(package_artifact_bytes_check(manifest));
+    checks.extend(package_signature_checks(options, staging_dir, manifest));
+    checks.push(package_install_smoke_check(options.format, staging_dir));
+    checks
+}
+
+fn package_primary_artifact_check(
+    format: PackageFormat,
+    staging_dir: &Path,
+    manifest: &ArtifactManifest,
+) -> ReadinessCheck {
+    let found = match format {
+        PackageFormat::Static => staging_dir.join("index.html").exists(),
+        PackageFormat::App => has_child_with_extension(staging_dir, "app"),
+        PackageFormat::Run
+        | PackageFormat::Pkg
+        | PackageFormat::Exe
+        | PackageFormat::Apk
+        | PackageFormat::Aab
+        | PackageFormat::Ipa
+        | PackageFormat::Msi
+        | PackageFormat::Msix => manifest.artifacts.iter().any(|file| {
+            Path::new(&file.path).extension().and_then(OsStr::to_str) == Some(format.as_str())
+        }),
+    };
+    check(
+        "release.package.artifact.primary_present",
+        CheckSeverity::Error,
+        if found {
+            CheckStatus::Passed
+        } else {
+            CheckStatus::Missing
+        },
+        "primary package artifact exists",
+        Some(format!(
+            "{} package output in {}",
+            format.as_str(),
+            staging_dir.display()
+        )),
+        vec![
+            "Re-run the package command and ensure the packager emits the requested artifact type.",
+        ],
+    )
+}
+
+fn package_artifact_bytes_check(manifest: &ArtifactManifest) -> ReadinessCheck {
+    let empty = manifest
+        .artifacts
+        .iter()
+        .filter(|file| file.size_bytes == 0)
+        .map(|file| file.relative_path.as_str())
+        .collect::<Vec<_>>();
+    check(
+        "release.package.artifact.files_non_empty",
+        CheckSeverity::Warning,
+        if empty.is_empty() {
+            CheckStatus::Passed
+        } else {
+            CheckStatus::Warning
+        },
+        "artifact files have non-zero bytes",
+        (!empty.is_empty()).then(|| empty.join(", ")),
+        vec![
+            "Inspect the listed zero-byte files and remove or regenerate them before distribution.",
+        ],
+    )
+}
+
+fn package_signature_checks(
+    options: &PackageOptions,
+    staging_dir: &Path,
+    manifest: &ArtifactManifest,
+) -> Vec<ReadinessCheck> {
+    match options.format {
+        PackageFormat::App => vec![verify_with_tool(
+            "release.package.signature.macos_app",
+            "codesign",
+            &["--verify", "--deep", "--strict"],
+            primary_child_with_extension(staging_dir, "app"),
+            "macOS .app signature verifies",
+            "Sign the .app bundle with package.macos.signing_identity or disable signed distribution for this package.",
+        )],
+        PackageFormat::Pkg => vec![verify_with_tool(
+            "release.package.signature.macos_pkg",
+            "pkgutil",
+            &["--check-signature"],
+            primary_file_with_extension(manifest, "pkg"),
+            "macOS .pkg signature verifies",
+            "Sign the package with package.macos.installer_identity before distribution.",
+        )],
+        PackageFormat::Apk => vec![verify_with_tool(
+            "release.package.signature.android_apk",
+            "apksigner",
+            &["verify"],
+            primary_file_with_extension(manifest, "apk"),
+            "Android APK signature verifies",
+            "Configure Android signing and run the platform packager again.",
+        )],
+        PackageFormat::Aab => vec![verify_with_tool(
+            "release.package.signature.android_aab",
+            "jarsigner",
+            &["-verify"],
+            primary_file_with_extension(manifest, "aab"),
+            "Android AAB jar signature verifies",
+            "Configure Android upload signing and regenerate the AAB.",
+        )],
+        PackageFormat::Msix => vec![verify_with_tool(
+            "release.package.signature.windows_msix",
+            "signtool",
+            &["verify", "/pa"],
+            primary_file_with_extension(manifest, "msix"),
+            "Windows MSIX signature verifies",
+            "Sign the MSIX with the Windows package certificate before distribution.",
+        )],
+        PackageFormat::Msi => vec![verify_with_tool(
+            "release.package.signature.windows_msi",
+            "signtool",
+            &["verify", "/pa"],
+            primary_file_with_extension(manifest, "msi"),
+            "Windows MSI signature verifies",
+            "Sign the MSI with the Windows package certificate before distribution.",
+        )],
+        PackageFormat::Exe => vec![verify_with_tool(
+            "release.package.signature.windows_exe",
+            "signtool",
+            &["verify", "/pa"],
+            primary_file_with_extension(manifest, "exe"),
+            "Windows executable signature verifies",
+            "Sign the executable or installer with the Windows package certificate before distribution.",
+        )],
+        _ => Vec::new(),
+    }
+}
+
+fn package_install_smoke_check(format: PackageFormat, staging_dir: &Path) -> ReadinessCheck {
+    if matches!(format, PackageFormat::Static) {
+        return check(
+            "release.package.install_smoke.not_required",
+            CheckSeverity::Info,
+            CheckStatus::Passed,
+            "install smoke receipt is not required for static packages",
+            Some(staging_dir.display().to_string()),
+            Vec::new(),
+        );
+    }
+    let candidates = [
+        staging_dir.join("install-smoke.json"),
+        staging_dir.join("package-validation/install-smoke.json"),
+    ];
+    let receipt = candidates.iter().find(|path| path.exists());
+    check(
+        "release.package.install_smoke.receipt",
+        CheckSeverity::Warning,
+        if receipt.is_some() {
+            CheckStatus::Passed
+        } else {
+            CheckStatus::Skipped
+        },
+        "package install smoke receipt exists",
+        receipt
+            .map(|path| path.display().to_string())
+            .or_else(|| Some(staging_dir.display().to_string())),
+        vec!["Run the platform install/smoke workflow and write install-smoke.json next to the artifact before release distribution."],
+    )
+}
+
+fn verify_with_tool(
+    id: &str,
+    tool: &str,
+    args: &[&str],
+    path: Option<PathBuf>,
+    summary: &str,
+    remediation: &str,
+) -> ReadinessCheck {
+    let Some(path) = path else {
+        return check(
+            id,
+            CheckSeverity::Warning,
+            CheckStatus::Skipped,
+            summary,
+            Some("primary artifact was not found".to_string()),
+            vec![remediation],
+        );
+    };
+    let Some(tool_path) = find_in_path(tool) else {
+        return check(
+            id,
+            CheckSeverity::Warning,
+            CheckStatus::Skipped,
+            summary,
+            Some(format!("{tool} is not available on PATH")),
+            vec![remediation],
+        );
+    };
+    let output = Command::new(&tool_path).args(args).arg(&path).output();
+    match output {
+        Ok(output) => check(
+            id,
+            CheckSeverity::Error,
+            if output.status.success() {
+                CheckStatus::Passed
+            } else {
+                CheckStatus::Failed
+            },
+            summary,
+            Some(format!(
+                "{} {} {}: {}{}",
+                tool_path.display(),
+                args.join(" "),
+                path.display(),
+                String::from_utf8_lossy(&output.stdout).trim(),
+                String::from_utf8_lossy(&output.stderr).trim()
+            )),
+            vec![remediation],
+        ),
+        Err(error) => check(
+            id,
+            CheckSeverity::Warning,
+            CheckStatus::Skipped,
+            summary,
+            Some(error.to_string()),
+            vec![remediation],
+        ),
+    }
+}
+
+fn manifest_validation_state(checks: &[ReadinessCheck]) -> &'static str {
+    if checks
+        .iter()
+        .any(|check| check.severity == CheckSeverity::Error && check.status != CheckStatus::Passed)
+    {
+        "failed"
+    } else if checks
+        .iter()
+        .any(|check| check.status == CheckStatus::Warning || check.status == CheckStatus::Skipped)
+    {
+        "warning"
+    } else {
+        "passed"
+    }
+}
+
+fn has_child_with_extension(root: &Path, extension: &str) -> bool {
+    primary_child_with_extension(root, extension).is_some()
+}
+
+fn primary_child_with_extension(root: &Path, extension: &str) -> Option<PathBuf> {
+    fs::read_dir(root)
+        .ok()?
+        .filter_map(Result::ok)
+        .find_map(|entry| {
+            let path = entry.path();
+            (path.extension().and_then(OsStr::to_str) == Some(extension)).then_some(path)
+        })
+}
+
+fn primary_file_with_extension(manifest: &ArtifactManifest, extension: &str) -> Option<PathBuf> {
+    manifest.artifacts.iter().find_map(|file| {
+        let path = Path::new(&file.path);
+        (path.extension().and_then(OsStr::to_str) == Some(extension)).then(|| path.to_path_buf())
+    })
 }
 
 fn add_configured_secondary_artifacts(

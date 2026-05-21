@@ -588,7 +588,7 @@ The release tooling should prefer Rust for Fission-owned control flow and data h
 | iOS IPA | app metadata, asset staging, provisioning selection, and readiness checks | Xcode signing/export tools and Transporter | Device/App Store IPAs require Apple signing assets and provisioning. |
 | S3-compatible upload | AWS SDK for Rust | none by default | AWS provides Rust SDK S3 examples for upload and multipart flows [R20]. |
 | GitHub Pages | GitHub REST/GraphQL clients, workflow generation, branch publish staging, DNS/readiness checks, and receipts | GitHub Actions for artifact deployment when `mode = "actions"` | GitHub Pages supports branch sources and custom GitHub Actions workflows; Actions deployments use `configure-pages`, `upload-pages-artifact`, and `deploy-pages` with `pages: write` and `id-token: write` permissions [R54][R55]. |
-| Cloudflare Pages | Cloudflare API client for projects, deployments, domains, status, credentials, and receipts | Wrangler only where the upload protocol is not yet implemented directly in Rust | Cloudflare Pages supports Direct Upload of prebuilt assets and API-token based Pages API access [R58][R59]. |
+| Cloudflare Pages | Cloudflare API client for projects, deployments, domains, status, credentials, and receipts; Wrangler as the explicit upload backend | Cloudflare-provided tooling for prebuilt upload | Cloudflare Pages supports Direct Upload of prebuilt assets through Wrangler and API-token based Pages API access [R58][R59]. |
 | Netlify | Netlify API client for site lookup/create, atomic deploys, domains, status polling, and receipts | Netlify CLI only as a fallback when a new API capability is not yet implemented | Netlify supports API deployments using file digests or ZIP uploads and supports custom domain management through UI/API flows [R61][R62][R63]. |
 | Google Drive | `reqwest` + OAuth crates | none by default | Drive supports resumable uploads for large files [R21]. |
 | OneDrive | `reqwest` + OAuth crates | none by default | Microsoft Graph supports upload sessions for large files [R23]. |
@@ -1147,12 +1147,12 @@ Required behavior:
 fission distribute --provider cloudflare-pages --artifact <manifest> --site production
 ```
 
-Cloudflare Pages is a good first dedicated static-hosting provider because it supports Direct Upload for prebuilt assets and API-token based management. Cloudflare documents Direct Upload for prebuilt assets and CI use, including `wrangler pages deploy <DIRECTORY> --project-name=<PROJECT_NAME>` with `CLOUDFLARE_ACCOUNT_ID` and an API token [R58]. Cloudflare's Pages REST API uses bearer API tokens and documents Pages Read/Write permissions for project/deployment access [R59].
+Cloudflare Pages is a good first dedicated static-hosting provider because it supports Direct Upload for prebuilt assets through the provider CLI and API-token based management. Cloudflare documents Direct Upload for prebuilt assets and CI use, including `wrangler pages deploy <DIRECTORY> --project-name=<PROJECT_NAME>` with `CLOUDFLARE_ACCOUNT_ID` and an API token [R58]. Cloudflare's Pages REST API uses bearer API tokens and documents Pages Read/Write permissions for project/deployment access [R59].
 
 Implementation approach:
 
 - Fission SHOULD use the Cloudflare API directly for account, project, deployment, custom-domain, DNS, status, and receipt operations.
-- Fission MAY invoke Wrangler as the upload backend until the direct upload protocol is implemented as a Rust client. This is an explicit provider-tool fallback, not a hidden script path.
+- Fission MUST invoke Wrangler as the Cloudflare Pages upload backend. This is not a fallback path; it is the supported provider-owned upload tool for prebuilt Pages assets.
 - Fission MUST store Cloudflare API tokens only in the vault or CI secrets.
 
 Custom-domain behavior:
@@ -1779,7 +1779,7 @@ These are implementation milestones, not partial product definitions. The final 
 13. Implement beta group/tester/flight management for supported providers.
 14. Implement version-state queries, release recipes, and provider-side status observation.
 15. Implement GitHub Pages distribution for Actions and branch-source modes, including custom-domain readiness and DNS health checks.
-16. Implement Cloudflare Pages distribution with API-token auth, Direct Upload, project/domain readiness, and receipts.
+16. Implement Cloudflare Pages distribution with API-token auth, Wrangler-based prebuilt upload, project/domain readiness, and receipts.
 17. Implement Netlify distribution with token auth, API deploys, draft/production deploys, custom-domain readiness, and receipts.
 18. Implement S3-compatible distribution and receipts.
 19. Implement Google Drive, OneDrive, and Dropbox distribution.

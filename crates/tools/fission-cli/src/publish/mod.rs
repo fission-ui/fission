@@ -1322,13 +1322,33 @@ fn readiness_package_tools(
                 "cargo",
                 "Install Rust from https://rustup.rs/ and ensure cargo is on PATH.",
             ));
+            checks.push(check_tool(
+                "release.package.codesign_available",
+                "codesign",
+                "Install Xcode command line tools so Fission can verify signed .app bundles.",
+            ));
         }
         (Target::Macos, PackageFormat::Pkg) => {
             checks.push(host_os_check("release.package.host_is_macos", "macos"));
             checks.push(check_tool(
+                "release.package.cargo_available",
+                "cargo",
+                "Install Rust from https://rustup.rs/ and ensure cargo is on PATH.",
+            ));
+            checks.push(check_tool(
                 "release.package.pkgbuild_available",
                 "pkgbuild",
                 "Install Xcode command line tools.",
+            ));
+            checks.push(check_tool(
+                "release.package.productbuild_available",
+                "productbuild",
+                "Install Xcode command line tools.",
+            ));
+            checks.push(check_tool(
+                "release.package.pkgutil_available",
+                "pkgutil",
+                "Install macOS package tools so Fission can inspect produced .pkg files.",
             ));
         }
         (Target::Windows, PackageFormat::Exe) => {
@@ -1339,30 +1359,70 @@ fn readiness_package_tools(
                 "Install Rust from https://rustup.rs/ and ensure cargo is on PATH.",
             ));
         }
-        (Target::Windows, PackageFormat::Msi) => checks.push(check_path(
-            "release.package.windows_msi_script_exists",
-            project_dir.join("platforms/windows/package-msi.ps1"),
-            "Windows MSI packaging script exists",
-            "Configure platforms/windows/package-msi.ps1 or install the Windows packaging target template.",
-        )),
-        (Target::Windows, PackageFormat::Msix) => checks.push(check_path(
-            "release.package.windows_msix_script_exists",
-            project_dir.join("platforms/windows/package-msix.ps1"),
-            "Windows MSIX packaging script exists",
-            "Configure platforms/windows/package-msix.ps1 or install the Windows packaging target template.",
-        )),
-        (Target::Android, PackageFormat::Apk) => checks.push(check_path(
-            "release.package.android_apk_script_exists",
-            project_dir.join("platforms/android/package-apk.sh"),
-            "Android APK packaging script exists",
-            "Run `fission add-target android --project-dir .` or restore platforms/android/package-apk.sh.",
-        )),
-        (Target::Android, PackageFormat::Aab) => checks.push(check_path(
-            "release.package.android_aab_script_exists",
-            project_dir.join("platforms/android/package-aab.sh"),
-            "Android AAB packaging script exists",
-            "Add platforms/android/package-aab.sh once release AAB packaging is configured.",
-        )),
+        (Target::Windows, PackageFormat::Msi) => {
+            checks.push(host_os_check("release.package.host_is_windows", "windows"));
+            checks.push(check_path(
+                "release.package.windows_msi_script_exists",
+                project_dir.join("platforms/windows/package-msi.ps1"),
+                "Windows MSI packaging script exists",
+                "Configure platforms/windows/package-msi.ps1 or install the Windows packaging target template.",
+            ));
+            checks.push(check_any_tool(
+                "release.package.windows_msi_builder_available",
+                &["wix", "candle"],
+                "WiX MSI packaging tooling is available",
+                "Install WiX Toolset or configure platforms/windows/package-msi.ps1 to call the approved MSI packager.",
+            ));
+            checks.push(check_tool(
+                "release.package.signtool_available",
+                "signtool",
+                "Install Windows SDK signing tools and ensure signtool is on PATH.",
+            ));
+        }
+        (Target::Windows, PackageFormat::Msix) => {
+            checks.push(host_os_check("release.package.host_is_windows", "windows"));
+            checks.push(check_path(
+                "release.package.windows_msix_script_exists",
+                project_dir.join("platforms/windows/package-msix.ps1"),
+                "Windows MSIX packaging script exists",
+                "Configure platforms/windows/package-msix.ps1 or install the Windows packaging target template.",
+            ));
+            checks.push(check_tool(
+                "release.package.makeappx_available",
+                "makeappx",
+                "Install Windows SDK MSIX packaging tools and ensure makeappx is on PATH.",
+            ));
+            checks.push(check_tool(
+                "release.package.signtool_available",
+                "signtool",
+                "Install Windows SDK signing tools and ensure signtool is on PATH.",
+            ));
+        }
+        (Target::Android, PackageFormat::Apk) => {
+            checks.push(check_path(
+                "release.package.android_apk_script_exists",
+                project_dir.join("platforms/android/package-apk.sh"),
+                "Android APK packaging script exists",
+                "Run `fission add-target android --project-dir .` or restore platforms/android/package-apk.sh.",
+            ));
+            android_packaging_checks(checks);
+        }
+        (Target::Android, PackageFormat::Aab) => {
+            checks.push(check_path(
+                "release.package.android_aab_script_exists",
+                project_dir.join("platforms/android/package-aab.sh"),
+                "Android AAB packaging script exists",
+                "Add platforms/android/package-aab.sh once release AAB packaging is configured.",
+            ));
+            android_packaging_checks(checks);
+            checks.push(check_env_or_tool(
+                "release.package.bundletool_available",
+                &["BUNDLETOOL"],
+                &["bundletool"],
+                "Android bundletool is available for AAB validation",
+                "Install bundletool or set BUNDLETOOL to the bundletool jar/path used by the project packaging script.",
+            ));
+        }
         (Target::Ios, PackageFormat::Ipa) => {
             checks.push(host_os_check("release.package.host_is_macos", "macos"));
             checks.push(check_path(
@@ -1371,9 +1431,59 @@ fn readiness_package_tools(
                 "iOS IPA packaging script exists",
                 "Add platforms/ios/package-ipa.sh once release IPA export is configured.",
             ));
+            checks.push(check_tool(
+                "release.package.xcrun_available",
+                "xcrun",
+                "Install Xcode command line tools and select an Xcode installation.",
+            ));
+            checks.push(check_tool(
+                "release.package.xcodebuild_available",
+                "xcodebuild",
+                "Install Xcode so Fission can archive and export iOS IPA files.",
+            ));
+            checks.push(check_tool(
+                "release.package.codesign_available",
+                "codesign",
+                "Install Xcode command line tools so Fission can verify iOS signing.",
+            ));
         }
         _ => {}
     }
+}
+
+fn android_packaging_checks(checks: &mut Vec<ReadinessCheck>) {
+    checks.push(check_tool(
+        "release.package.cargo_available",
+        "cargo",
+        "Install Rust from https://rustup.rs/ and ensure cargo is on PATH.",
+    ));
+    checks.push(check_any_env(
+        "release.package.android_sdk_configured",
+        &["ANDROID_HOME", "ANDROID_SDK_ROOT"],
+        "Android SDK path is configured",
+        "Set ANDROID_HOME or ANDROID_SDK_ROOT to the installed Android SDK.",
+    ));
+    checks.push(check_any_env(
+        "release.package.android_ndk_configured",
+        &["ANDROID_NDK_HOME", "ANDROID_NDK_ROOT"],
+        "Android NDK path is configured",
+        "Set ANDROID_NDK_HOME or ANDROID_NDK_ROOT to the installed Android NDK used by Rust cross-compilation.",
+    ));
+    checks.push(check_tool(
+        "release.package.aapt2_available",
+        "aapt2",
+        "Install Android SDK build-tools and ensure aapt2 is on PATH.",
+    ));
+    checks.push(check_tool(
+        "release.package.zipalign_available",
+        "zipalign",
+        "Install Android SDK build-tools and ensure zipalign is on PATH.",
+    ));
+    checks.push(check_tool(
+        "release.package.apksigner_available",
+        "apksigner",
+        "Install Android SDK build-tools and ensure apksigner is on PATH.",
+    ));
 }
 
 fn readiness_distribute(
@@ -1510,6 +1620,24 @@ fn readiness_github_pages(
             "GitHub Pages workflow exists",
             "Run `fission distribute setup --provider github-pages --site production` to generate it.",
         ));
+        checks.push(check(
+            "release.github_pages.local_api_token_optional",
+            CheckSeverity::Info,
+            if env::var_os("GH_TOKEN").is_some()
+                || env::var_os("GITHUB_TOKEN").is_some()
+                || release::provider_secret(DistributionProvider::GithubPages, &[])
+                    .ok()
+                    .flatten()
+                    .is_some()
+            {
+                CheckStatus::Passed
+            } else {
+                CheckStatus::Skipped
+            },
+            "GitHub API token is available for local status/domain setup",
+            None,
+            vec!["For local Pages status or future domain setup automation, set GH_TOKEN/GITHUB_TOKEN or import a GitHub credential into the Fission vault."],
+        ));
     }
     let base = cfg.base_path.as_deref().unwrap_or("/");
     let expected = expected_github_base_path(&cfg, repo.as_deref());
@@ -1560,6 +1688,11 @@ fn readiness_cloudflare_pages(
         DistributionProvider::CloudflarePages,
         &["CLOUDFLARE_API_TOKEN"],
         "Create a Cloudflare API token with Pages Edit permission and store it in CI secrets or the Fission release vault.",
+    ));
+    checks.push(check_tool(
+        "release.cloudflare_pages.wrangler_available",
+        "wrangler",
+        "Install Wrangler and authenticate it; Cloudflare Pages upload intentionally uses the provider CLI backend.",
     ));
     checks.push(base_path_check(
         "release.cloudflare_pages.base_path_root",
@@ -2115,6 +2248,69 @@ fn check_tool(id: &str, tool: &str, remediation: &str) -> ReadinessCheck {
     )
 }
 
+fn check_any_tool(id: &str, tools: &[&str], summary: &str, remediation: &str) -> ReadinessCheck {
+    let found = tools
+        .iter()
+        .find_map(|tool| find_in_path(tool).map(|path| (*tool, path)));
+    check(
+        id,
+        CheckSeverity::Error,
+        if found.is_some() {
+            CheckStatus::Passed
+        } else {
+            CheckStatus::Missing
+        },
+        summary,
+        found
+            .map(|(tool, path)| format!("{tool}: {}", path.display()))
+            .or_else(|| Some(format!("checked: {}", tools.join(", ")))),
+        vec![remediation],
+    )
+}
+
+fn check_any_env(id: &str, names: &[&str], summary: &str, remediation: &str) -> ReadinessCheck {
+    let found = names.iter().find(|name| env::var_os(name).is_some());
+    check(
+        id,
+        CheckSeverity::Error,
+        if found.is_some() {
+            CheckStatus::Passed
+        } else {
+            CheckStatus::Missing
+        },
+        summary,
+        found.map(|name| format!("{name}={}", env::var(name).unwrap_or_default())),
+        vec![remediation],
+    )
+}
+
+fn check_env_or_tool(
+    id: &str,
+    env_names: &[&str],
+    tools: &[&str],
+    summary: &str,
+    remediation: &str,
+) -> ReadinessCheck {
+    let found_env = env_names.iter().find(|name| env::var_os(name).is_some());
+    let found_tool = tools
+        .iter()
+        .find_map(|tool| find_in_path(tool).map(|path| (*tool, path)));
+    check(
+        id,
+        CheckSeverity::Error,
+        if found_env.is_some() || found_tool.is_some() {
+            CheckStatus::Passed
+        } else {
+            CheckStatus::Missing
+        },
+        summary,
+        found_env
+            .map(|name| format!("{name}={}", env::var(name).unwrap_or_default()))
+            .or_else(|| found_tool.map(|(tool, path)| format!("{tool}: {}", path.display()))),
+        vec![remediation],
+    )
+}
+
 fn find_in_path(name: &str) -> Option<PathBuf> {
     let path = env::var_os("PATH")?;
     for dir in env::split_paths(&path) {
@@ -2123,9 +2319,11 @@ fn find_in_path(name: &str) -> Option<PathBuf> {
             return Some(candidate);
         }
         if cfg!(windows) {
-            let candidate = dir.join(format!("{name}.exe"));
-            if candidate.exists() {
-                return Some(candidate);
+            for extension in ["exe", "cmd", "bat", "ps1"] {
+                let candidate = dir.join(format!("{name}.{extension}"));
+                if candidate.exists() {
+                    return Some(candidate);
+                }
             }
         }
     }
@@ -2373,6 +2571,11 @@ base_path = "/site-demo/"
         assert!(dir
             .join("target/fission/release/site/static/fission-mime-map.json")
             .exists());
+        assert!(manifest
+            .validation
+            .checks
+            .iter()
+            .any(|check| check.id == "release.package.artifact.primary_present"));
     }
 
     #[test]
@@ -2450,5 +2653,52 @@ upload_provider = "crash-service"
             ..Default::default()
         };
         assert_eq!(expected_github_base_path(&cfg, Some("repo")), "/repo/");
+    }
+
+    #[test]
+    fn android_aab_readiness_checks_official_toolchain() {
+        let dir = unique_dir("android-aab-readiness");
+        write_minimal_site(&dir);
+        let checks = readiness_package(&dir, Some(Target::Android), Some(PackageFormat::Aab))
+            .expect("readiness should produce checks even when blocked");
+        for id in [
+            "release.package.android_aab_script_exists",
+            "release.package.android_sdk_configured",
+            "release.package.android_ndk_configured",
+            "release.package.aapt2_available",
+            "release.package.zipalign_available",
+            "release.package.apksigner_available",
+            "release.package.bundletool_available",
+        ] {
+            assert!(checks.iter().any(|check| check.id == id), "missing {id}");
+        }
+    }
+
+    #[test]
+    fn cloudflare_readiness_requires_wrangler_backend() {
+        let dir = unique_dir("cloudflare-readiness");
+        write_minimal_site(&dir);
+        let mut toml = fs::read_to_string(dir.join("fission.toml")).unwrap();
+        toml.push_str(
+            r#"
+[distribution.cloudflare_pages.production]
+account_id = "account"
+project_name = "site-demo"
+"#,
+        );
+        fs::write(dir.join("fission.toml"), toml).unwrap();
+        let config = load_publish_manifest(&dir).unwrap();
+        let checks = readiness_distribute(
+            &dir,
+            DistributionProvider::CloudflarePages,
+            "production",
+            None,
+            None,
+            &config,
+        )
+        .unwrap();
+        assert!(checks
+            .iter()
+            .any(|check| check.id == "release.cloudflare_pages.wrangler_available"));
     }
 }
