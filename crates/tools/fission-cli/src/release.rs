@@ -457,7 +457,7 @@ pub(crate) fn beta(command: BetaCommand) -> Result<()> {
         BetaCommand::Testers { command } => match command {
             BetaTestersCommand::Import {
                 provider,
-                group: _,
+                group,
                 track,
                 csv,
                 project_dir,
@@ -465,6 +465,7 @@ pub(crate) fn beta(command: BetaCommand) -> Result<()> {
                 json,
             } => store_ops::beta_testers_import(
                 provider,
+                group.as_deref(),
                 track.as_deref(),
                 &csv,
                 &project_dir,
@@ -473,13 +474,14 @@ pub(crate) fn beta(command: BetaCommand) -> Result<()> {
             ),
             BetaTestersCommand::Export {
                 provider,
-                group: _,
+                group,
                 track,
                 output,
                 project_dir,
                 json,
             } => store_ops::beta_testers_export(
                 provider,
+                group.as_deref(),
                 track.as_deref(),
                 &output,
                 &project_dir,

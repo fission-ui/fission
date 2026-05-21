@@ -185,6 +185,9 @@ pub(super) fn beta_groups_list(
 ) -> Result<()> {
     match provider {
         publish::DistributionProvider::PlayStore => play_beta_groups_list(project_dir, json_output),
+        publish::DistributionProvider::AppStore => {
+            app_store_beta_groups_list(project_dir, json_output)
+        }
         _ => unsupported_beta(provider, "groups list"),
     }
 }
@@ -206,6 +209,7 @@ pub(super) fn beta_groups_sync(
 
 pub(super) fn beta_testers_import(
     provider: publish::DistributionProvider,
+    group: Option<&str>,
     track: Option<&str>,
     csv: &Path,
     project_dir: &Path,
@@ -216,12 +220,16 @@ pub(super) fn beta_testers_import(
         publish::DistributionProvider::PlayStore => {
             play_beta_testers_import(project_dir, track, csv, dry_run, json_output)
         }
+        publish::DistributionProvider::AppStore => {
+            app_store_beta_testers_import(project_dir, group, csv, dry_run, json_output)
+        }
         _ => unsupported_beta(provider, "testers import"),
     }
 }
 
 pub(super) fn beta_testers_export(
     provider: publish::DistributionProvider,
+    group: Option<&str>,
     track: Option<&str>,
     output: &Path,
     project_dir: &Path,
@@ -230,6 +238,9 @@ pub(super) fn beta_testers_export(
     match provider {
         publish::DistributionProvider::PlayStore => {
             play_beta_testers_export(project_dir, track, output, json_output)
+        }
+        publish::DistributionProvider::AppStore => {
+            app_store_beta_testers_export(project_dir, group, output, json_output)
         }
         _ => unsupported_beta(provider, "testers export"),
     }
@@ -720,6 +731,164 @@ fn play_beta_groups_list(project_dir: &Path, json_output: bool) -> Result<()> {
                 .unwrap_or_default();
             println!("{name}: {groups}");
         }
+    }
+    Ok(())
+}
+
+fn app_store_beta_groups_list(project_dir: &Path, json_output: bool) -> Result<()> {
+    let cfg = app_store_config(project_dir)?;
+    let client = http_client()?;
+    let token = app_store_access_token(&cfg)?;
+    let app_id = app_store_app_id(&cfg, &client, &token)?;
+    let value = app_store_beta_groups(&client, &token, &app_id)?;
+    if json_output {
+        println!("{}", serde_json::to_string_pretty(&value)?);
+    } else {
+        println!("App Store TestFlight groups for app {app_id}");
+        for group in value
+            .get("data")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+        {
+            let id = group.get("id").and_then(Value::as_str).unwrap_or("<id>");
+            let attrs = group.get("attributes").unwrap_or(&Value::Null);
+            let name = attrs
+                .get("name")
+                .and_then(Value::as_str)
+                .unwrap_or("<name>");
+            let public_link = attrs
+                .get("publicLink")
+                .and_then(Value::as_str)
+                .unwrap_or("");
+            println!("{id} {name} {public_link}");
+        }
+    }
+    Ok(())
+}
+
+fn app_store_beta_testers_import(
+    project_dir: &Path,
+    group: Option<&str>,
+    csv: &Path,
+    dry_run: bool,
+    json_output: bool,
+) -> Result<()> {
+    let group = group.context("App Store tester import requires --group <group-id-or-name>")?;
+    let testers = read_app_store_tester_csv(csv)?;
+    let cfg = app_store_config(project_dir)?;
+    let client = http_client()?;
+    let token = app_store_access_token(&cfg)?;
+    let app_id = app_store_app_id(&cfg, &client, &token)?;
+    let group_id = resolve_app_store_beta_group(&client, &token, &app_id, group)?;
+    if dry_run {
+        let value = json!({
+            "provider": "app-store",
+            "app_id": app_id,
+            "group": group,
+            "group_id": group_id,
+            "testers": testers,
+            "status": "dry-run"
+        });
+        if json_output {
+            println!("{}", serde_json::to_string_pretty(&value)?);
+        } else {
+            println!(
+                "Would import {} App Store TestFlight tester(s) into group {group}",
+                testers.len()
+            );
+        }
+        return Ok(());
+    }
+    let mut responses = Vec::new();
+    for tester in &testers {
+        let response = client
+            .post(format!("{APP_STORE_API}/v1/betaTesters"))
+            .bearer_auth(&token)
+            .json(&app_store_beta_tester_payload(tester, &group_id))
+            .send()
+            .with_context(|| format!("failed to create App Store beta tester {}", tester.email))?;
+        responses.push(json_response(response, "App Store beta tester create")?);
+    }
+    let value = json!({
+        "provider": "app-store",
+        "app_id": app_id,
+        "group": group,
+        "group_id": group_id,
+        "created": responses.len(),
+        "responses": responses,
+        "status": "imported"
+    });
+    if json_output {
+        println!("{}", serde_json::to_string_pretty(&value)?);
+    } else {
+        println!(
+            "Imported {} App Store TestFlight tester(s) into group {group}",
+            responses.len()
+        );
+    }
+    Ok(())
+}
+
+fn app_store_beta_testers_export(
+    project_dir: &Path,
+    group: Option<&str>,
+    output: &Path,
+    json_output: bool,
+) -> Result<()> {
+    let group = group.context("App Store tester export requires --group <group-id-or-name>")?;
+    let cfg = app_store_config(project_dir)?;
+    let client = http_client()?;
+    let token = app_store_access_token(&cfg)?;
+    let app_id = app_store_app_id(&cfg, &client, &token)?;
+    let group_id = resolve_app_store_beta_group(&client, &token, &app_id, group)?;
+    let url = format!(
+        "{APP_STORE_API}/v1/betaGroups/{group_id}/betaTesters?limit=200&fields[betaTesters]=email,firstName,lastName,inviteType,state"
+    );
+    let response = client
+        .get(url)
+        .bearer_auth(&token)
+        .send()
+        .context("failed to list App Store beta testers")?;
+    let value = json_response(response, "App Store beta testers list")?;
+    let testers = value
+        .get("data")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .map(app_store_tester_from_value)
+        .collect::<Vec<_>>();
+    if let Some(parent) = output.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    let mut csv = String::from("email,first_name,last_name\n");
+    for tester in &testers {
+        csv.push_str(&format!(
+            "{},{},{}\n",
+            csv_cell(&tester.email),
+            csv_cell(tester.first_name.as_deref().unwrap_or("")),
+            csv_cell(tester.last_name.as_deref().unwrap_or(""))
+        ));
+    }
+    fs::write(output, csv)?;
+    if json_output {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&json!({
+                "provider": "app-store",
+                "app_id": app_id,
+                "group": group,
+                "group_id": group_id,
+                "output": output,
+                "count": testers.len()
+            }))?
+        );
+    } else {
+        println!(
+            "Exported {} App Store TestFlight tester(s) to {}",
+            testers.len(),
+            output.display()
+        );
     }
     Ok(())
 }
@@ -1263,7 +1432,7 @@ fn unsupported_reviews(provider: publish::DistributionProvider, action: &str) ->
 
 fn unsupported_beta(provider: publish::DistributionProvider, action: &str) -> Result<()> {
     bail!(
-        "{} beta {} is not exposed by the current provider API backend; Google Play Google Group tester management is implemented",
+        "{} beta {} is not exposed by the current provider API backend; Google Play group management and App Store TestFlight group/tester management are implemented",
         provider.as_str(),
         action
     )
@@ -1430,6 +1599,145 @@ fn app_store_app_id(cfg: &AppStoreConfig, client: &Client, token: &str) -> Resul
         .with_context(|| {
             format!("App Store Connect did not return an app for bundle id {bundle_id}")
         })
+}
+
+#[derive(Clone, Debug, Serialize, PartialEq, Eq)]
+struct AppStoreTester {
+    email: String,
+    first_name: Option<String>,
+    last_name: Option<String>,
+}
+
+fn app_store_beta_groups(client: &Client, token: &str, app_id: &str) -> Result<Value> {
+    let url = format!(
+        "{APP_STORE_API}/v1/apps/{app_id}/betaGroups?limit=200&fields[betaGroups]=name,createdDate,isInternalGroup,hasAccessToAllBuilds,publicLinkEnabled,publicLink,feedbackEnabled"
+    );
+    let response = client
+        .get(url)
+        .bearer_auth(token)
+        .send()
+        .context("failed to list App Store beta groups")?;
+    json_response(response, "App Store beta groups list")
+}
+
+fn resolve_app_store_beta_group(
+    client: &Client,
+    token: &str,
+    app_id: &str,
+    group: &str,
+) -> Result<String> {
+    let groups = app_store_beta_groups(client, token, app_id)?;
+    groups
+        .get("data")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .find_map(|item| {
+            let id = item.get("id").and_then(Value::as_str)?;
+            let name = item
+                .pointer("/attributes/name")
+                .and_then(Value::as_str)
+                .unwrap_or_default();
+            (id == group || name == group).then(|| id.to_string())
+        })
+        .with_context(|| {
+            format!("App Store TestFlight group `{group}` was not found for app {app_id}")
+        })
+}
+
+fn read_app_store_tester_csv(path: &Path) -> Result<Vec<AppStoreTester>> {
+    let text =
+        fs::read_to_string(path).with_context(|| format!("failed to read {}", path.display()))?;
+    let mut testers = Vec::new();
+    for (index, line) in text.lines().enumerate() {
+        let cells = split_csv_line(line);
+        if cells.is_empty() || cells[0].eq_ignore_ascii_case("email") {
+            continue;
+        }
+        let email = cells[0].trim().to_string();
+        if !email.contains('@') {
+            bail!(
+                "{} line {} does not start with a tester email address",
+                path.display(),
+                index + 1
+            );
+        }
+        testers.push(AppStoreTester {
+            email,
+            first_name: cells
+                .get(1)
+                .map(|value| value.trim().to_string())
+                .filter(|value| !value.is_empty()),
+            last_name: cells
+                .get(2)
+                .map(|value| value.trim().to_string())
+                .filter(|value| !value.is_empty()),
+        });
+    }
+    testers.sort_by(|left, right| left.email.cmp(&right.email));
+    testers.dedup_by(|left, right| left.email == right.email);
+    if testers.is_empty() {
+        bail!(
+            "{} did not contain any tester email addresses",
+            path.display()
+        );
+    }
+    Ok(testers)
+}
+
+fn app_store_beta_tester_payload(tester: &AppStoreTester, group_id: &str) -> Value {
+    let mut attributes = serde_json::Map::new();
+    attributes.insert("email".to_string(), Value::String(tester.email.clone()));
+    if let Some(first_name) = &tester.first_name {
+        attributes.insert("firstName".to_string(), Value::String(first_name.clone()));
+    }
+    if let Some(last_name) = &tester.last_name {
+        attributes.insert("lastName".to_string(), Value::String(last_name.clone()));
+    }
+    json!({
+        "data": {
+            "type": "betaTesters",
+            "attributes": attributes,
+            "relationships": {
+                "betaGroups": {
+                    "data": [{"type": "betaGroups", "id": group_id}]
+                }
+            }
+        }
+    })
+}
+
+fn app_store_tester_from_value(value: &Value) -> AppStoreTester {
+    let attrs = value.get("attributes").unwrap_or(&Value::Null);
+    AppStoreTester {
+        email: attrs
+            .get("email")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string(),
+        first_name: attrs
+            .get("firstName")
+            .and_then(Value::as_str)
+            .map(str::to_string),
+        last_name: attrs
+            .get("lastName")
+            .and_then(Value::as_str)
+            .map(str::to_string),
+    }
+}
+
+fn split_csv_line(line: &str) -> Vec<String> {
+    line.split(',')
+        .map(|cell| cell.trim().trim_matches('"').to_string())
+        .collect()
+}
+
+fn csv_cell(value: &str) -> String {
+    if value.contains(',') || value.contains('"') || value.contains('\n') {
+        format!("\"{}\"", value.replace('"', "\"\""))
+    } else {
+        value.to_string()
+    }
 }
 
 fn play_config(project_dir: &Path) -> Result<PlayStoreConfig> {
@@ -1637,6 +1945,32 @@ groups = ["qa@example.com"]
                 .pointer("/data/relationships/review/data/id")
                 .and_then(Value::as_str),
             Some("review-123")
+        );
+    }
+
+    #[test]
+    fn app_store_beta_tester_payload_assigns_group() {
+        let tester = AppStoreTester {
+            email: "person@example.com".to_string(),
+            first_name: Some("Test".to_string()),
+            last_name: Some("User".to_string()),
+        };
+        let payload = app_store_beta_tester_payload(&tester, "group-123");
+        assert_eq!(
+            payload.pointer("/data/type").and_then(Value::as_str),
+            Some("betaTesters")
+        );
+        assert_eq!(
+            payload
+                .pointer("/data/attributes/email")
+                .and_then(Value::as_str),
+            Some("person@example.com")
+        );
+        assert_eq!(
+            payload
+                .pointer("/data/relationships/betaGroups/data/0/id")
+                .and_then(Value::as_str),
+            Some("group-123")
         );
     }
 }
