@@ -94,7 +94,7 @@ cargo fission reviews list --project-dir my-app --provider play-store --since 30
 cargo fission auth status --json
 ```
 
-The CLI currently keeps provider credentials out of `fission.toml`; readiness and auth commands inspect environment-provided credentials and report the missing vault/provider backend explicitly instead of writing plaintext secrets.
+The CLI keeps provider credentials out of `fission.toml`; auth commands can inspect environment-provided credentials or store imported secrets in an encrypted local vault whose key lives in the OS credential store.
 
 The generated project contains:
 
