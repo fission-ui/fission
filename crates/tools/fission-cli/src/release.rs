@@ -1,11 +1,17 @@
 use crate::{publish, Target};
 use anyhow::{bail, Context, Result};
+use base64::{engine::general_purpose::STANDARD_NO_PAD, Engine as _};
+use chacha20poly1305::{
+    aead::{Aead, KeyInit},
+    XChaCha20Poly1305, XNonce,
+};
 use clap::Subcommand;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 #[derive(Subcommand, Debug)]
 pub(crate) enum ReleaseConfigCommand {
@@ -333,6 +339,15 @@ struct LifecycleCheck {
     remediation: Vec<String>,
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+struct VaultRecord {
+    schema_version: u32,
+    provider: String,
+    created_at_unix_seconds: u64,
+    nonce: String,
+    ciphertext: String,
+}
+
 pub(crate) fn release_config(command: ReleaseConfigCommand) -> Result<()> {
     match command {
         ReleaseConfigCommand::Edit { project_dir, tui } => edit_release_config(&project_dir, tui),
@@ -643,7 +658,17 @@ pub(crate) fn auth(command: AuthCommand) -> Result<()> {
                     provider.as_str()
                 );
             }
-            println!("{} credential deletion requires the secure vault backend; no plaintext credentials were removed.", provider.as_str());
+            let path = vault_record_path(provider)?;
+            if path.exists() {
+                fs::remove_file(&path)?;
+                println!(
+                    "Removed {} credentials from {}",
+                    provider.as_str(),
+                    path.display()
+                );
+            } else {
+                println!("No stored {} credentials found", provider.as_str());
+            }
             Ok(())
         }
         AuthCommand::Import {
@@ -661,14 +686,17 @@ pub(crate) fn auth(command: AuthCommand) -> Result<()> {
                 fs::metadata(path)
                     .with_context(|| format!("credential file {path} does not exist"))?;
             }
-            println!("{} credential import source accepted, but secure vault persistence is not enabled in this CLI build.", provider.as_str());
+            let secret = read_secret_source(&from)?;
+            store_provider_secret(provider, secret.as_bytes())?;
+            println!(
+                "Stored {} credentials in the encrypted Fission release vault",
+                provider.as_str()
+            );
             Ok(())
         }
         AuthCommand::Rotate { provider } => {
-            println!(
-                "{} credential rotation requires provider-specific API support.",
-                provider.as_str()
-            );
+            rotate_provider_secret(provider)?;
+            println!("Rotated {} vault encryption record", provider.as_str());
             Ok(())
         }
     }
@@ -932,16 +960,134 @@ fn provider_env_check(provider: publish::DistributionProvider) -> LifecycleCheck
         publish::DistributionProvider::MicrosoftStore => &["MICROSOFT_STORE_TOKEN"],
     };
     let found = vars.iter().find(|name| env::var_os(name).is_some());
+    let vault_path = vault_record_path(provider).ok();
+    let vault_present = vault_path.as_ref().is_some_and(|path| path.exists());
     LifecycleCheck {
         id: format!("auth.{}.credentials", provider.as_str().replace('-', "_")),
-        status: if found.is_some() { "passed" } else { "missing" }.to_string(),
+        status: if found.is_some() || vault_present {
+            "passed"
+        } else {
+            "missing"
+        }
+        .to_string(),
         summary: format!("{} credentials are available", provider.as_str()),
-        details: found.map(|name| format!("using {name}")),
+        details: found
+            .map(|name| format!("using {name}"))
+            .or_else(|| vault_path.map(|path| format!("vault: {}", path.display()))),
         remediation: vec![format!(
-            "Set one of {} or use fission auth import once the secure vault backend is enabled.",
-            vars.join(", ")
+            "Set one of {} or use `fission auth import {} --from env:<NAME> --yes` to store credentials in the encrypted local vault.",
+            vars.join(", "),
+            provider.as_str()
         )],
     }
+}
+
+fn read_secret_source(source: &str) -> Result<String> {
+    if let Some(name) = source.strip_prefix("env:") {
+        env::var(name).with_context(|| format!("environment variable {name} is not set"))
+    } else if let Some(path) = source.strip_prefix("file:") {
+        fs::read_to_string(path).with_context(|| format!("failed to read credential file {path}"))
+    } else {
+        bail!("credential source must be env:<NAME> or file:<PATH>")
+    }
+}
+
+fn store_provider_secret(provider: publish::DistributionProvider, secret: &[u8]) -> Result<()> {
+    let key = vault_key(true)?;
+    let mut nonce = [0u8; 24];
+    getrandom::getrandom(&mut nonce)?;
+    let cipher = XChaCha20Poly1305::new_from_slice(&key)
+        .map_err(|error| anyhow::anyhow!("failed to initialize vault cipher: {error}"))?;
+    let ciphertext = cipher
+        .encrypt(XNonce::from_slice(&nonce), secret)
+        .map_err(|error| anyhow::anyhow!("failed to encrypt credential record: {error}"))?;
+    let record = VaultRecord {
+        schema_version: 1,
+        provider: provider.as_str().to_string(),
+        created_at_unix_seconds: now_unix_seconds(),
+        nonce: STANDARD_NO_PAD.encode(nonce),
+        ciphertext: STANDARD_NO_PAD.encode(ciphertext),
+    };
+    let path = vault_record_path(provider)?;
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    fs::write(&path, serde_json::to_vec_pretty(&record)?)
+        .with_context(|| format!("failed to write {}", path.display()))?;
+    Ok(())
+}
+
+fn load_provider_secret(provider: publish::DistributionProvider) -> Result<Vec<u8>> {
+    let path = vault_record_path(provider)?;
+    let record: VaultRecord = serde_json::from_slice(
+        &fs::read(&path).with_context(|| format!("failed to read {}", path.display()))?,
+    )?;
+    let nonce = STANDARD_NO_PAD
+        .decode(record.nonce)
+        .context("failed to decode vault nonce")?;
+    let ciphertext = STANDARD_NO_PAD
+        .decode(record.ciphertext)
+        .context("failed to decode vault ciphertext")?;
+    let key = vault_key(false)?;
+    let cipher = XChaCha20Poly1305::new_from_slice(&key)
+        .map_err(|error| anyhow::anyhow!("failed to initialize vault cipher: {error}"))?;
+    cipher
+        .decrypt(XNonce::from_slice(&nonce), ciphertext.as_ref())
+        .map_err(|error| anyhow::anyhow!("failed to decrypt credential record: {error}"))
+}
+
+fn rotate_provider_secret(provider: publish::DistributionProvider) -> Result<()> {
+    let secret = load_provider_secret(provider)?;
+    store_provider_secret(provider, &secret)
+}
+
+fn vault_key(create: bool) -> Result<[u8; 32]> {
+    let entry = keyring::Entry::new("fission", "release-vault")
+        .context("failed to open OS credential store for the Fission release vault")?;
+    match entry.get_password() {
+        Ok(encoded) => decode_vault_key(&encoded),
+        Err(error) if create => {
+            let mut key = [0u8; 32];
+            getrandom::getrandom(&mut key)?;
+            entry
+                .set_password(&STANDARD_NO_PAD.encode(key))
+                .with_context(|| {
+                    format!("failed to store Fission vault key in OS credential store: {error}")
+                })?;
+            Ok(key)
+        }
+        Err(error) => {
+            Err(error).context("Fission vault key does not exist in the OS credential store")
+        }
+    }
+}
+
+fn decode_vault_key(encoded: &str) -> Result<[u8; 32]> {
+    let bytes = STANDARD_NO_PAD
+        .decode(encoded)
+        .context("failed to decode Fission vault key")?;
+    let key: [u8; 32] = bytes
+        .try_into()
+        .map_err(|_| anyhow::anyhow!("Fission vault key has the wrong length"))?;
+    Ok(key)
+}
+
+fn vault_record_path(provider: publish::DistributionProvider) -> Result<PathBuf> {
+    Ok(vault_dir()?.join(format!("{}.json", provider.as_str())))
+}
+
+fn vault_dir() -> Result<PathBuf> {
+    let home = env::var_os("HOME")
+        .or_else(|| env::var_os("USERPROFILE"))
+        .context("HOME/USERPROFILE is not set")?;
+    Ok(PathBuf::from(home).join(".fission/vault"))
+}
+
+fn now_unix_seconds() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs()
 }
 
 fn set_toml_path(root: &mut toml::Value, path: &str, value: toml::Value) -> Result<()> {

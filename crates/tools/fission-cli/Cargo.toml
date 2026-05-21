@@ -25,3 +25,7 @@ tar = "0.4"
 toml = "0.8"
 fission = { path = "../../authoring/fission", version = "0.1.1", default-features = false, features = ["terminal-shell"] }
 fission-shell-site = { path = "../../shell/fission-shell-site", version = "0.1.1" }
+base64 = "0.22"
+chacha20poly1305 = "0.10"
+getrandom = { version = "0.2", features = ["std"] }
+keyring = { version = "3", features = ["apple-native", "windows-native", "linux-native-sync-persistent", "crypto-rust"] }
