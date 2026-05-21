@@ -17,6 +17,7 @@ const GOOGLE_PLAY_SCOPE: &str = "https://www.googleapis.com/auth/androidpublishe
 const GOOGLE_TOKEN_URI: &str = "https://oauth2.googleapis.com/token";
 const APP_STORE_API_PRIVATE_KEYS_DIR: &str = "API_PRIVATE_KEYS_DIR";
 const MICROSOFT_STORE_API: &str = "https://api.store.microsoft.com";
+const APP_STORE_API: &str = "https://api.appstoreconnect.apple.com";
 const MICROSOFT_STORE_SCOPE: &str = "https://api.store.microsoft.com/.default";
 
 #[derive(Debug, Deserialize)]
@@ -31,6 +32,14 @@ struct GoogleServiceAccount {
 struct GoogleJwtClaims<'a> {
     iss: &'a str,
     scope: &'a str,
+    aud: &'a str,
+    iat: u64,
+    exp: u64,
+}
+
+#[derive(Debug, Serialize)]
+struct AppStoreJwtClaims<'a> {
+    iss: &'a str,
     aud: &'a str,
     iat: u64,
     exp: u64,
@@ -215,6 +224,41 @@ pub(super) fn publish_app_store(
         manual_follow_up: vec![format!(
             "App Store Connect accepted the upload; wait for build processing, then assign the build to {track} or App Review."
         )],
+    })
+}
+
+pub(super) fn app_store_status(
+    options: &DistributeOptions,
+    config: &PublishManifest,
+) -> Result<DistributionReceipt> {
+    let cfg = app_store_config(config);
+    let client = http_client()?;
+    let token = app_store_access_token(&cfg)?;
+    let app_id = app_store_app_id(&cfg, &client, &token)?;
+    let url = format!(
+        "{APP_STORE_API}/v1/apps/{app_id}/builds?limit=10&sort=-uploadedDate&fields[builds]=version,uploadedDate,processingState,expired,minOsVersion,usesNonExemptEncryption"
+    );
+    let response = client
+        .get(url)
+        .bearer_auth(token)
+        .send()
+        .context("failed to query App Store Connect build status")?;
+    let value = json_response(response, "App Store Connect build status")?;
+    Ok(DistributionReceipt {
+        schema_version: 1,
+        created_at_unix_seconds: now_unix_seconds(),
+        provider: "app-store".to_string(),
+        site: options.site.clone(),
+        action: "status".to_string(),
+        artifact_manifest: None,
+        deployment_id: Some(app_id),
+        canonical_url: Some("https://appstoreconnect.apple.com/apps".to_string()),
+        preview_url: None,
+        custom_domain: None,
+        status: "ok".to_string(),
+        stdout: Some(serde_json::to_string_pretty(&value)?),
+        stderr: None,
+        manual_follow_up: Vec::new(),
     })
 }
 
@@ -770,6 +814,79 @@ fn service_account_access_token(account: &GoogleServiceAccount, client: &Client)
         .context("failed to parse Google OAuth token response")?;
     let _ = (&token.token_type, token.expires_in);
     Ok(token.access_token)
+}
+
+fn app_store_access_token(cfg: &AppStoreConfig) -> Result<String> {
+    if let Some(token) = env_value("APP_STORE_CONNECT_ACCESS_TOKEN") {
+        return Ok(token);
+    }
+    let issuer_id = env_value("APP_STORE_CONNECT_ISSUER_ID")
+        .or(cfg.issuer_id.clone())
+        .context("distribution.app_store.issuer_id or APP_STORE_CONNECT_ISSUER_ID is required")?;
+    let key_id = env_value("APP_STORE_CONNECT_KEY_ID")
+        .or(cfg.key_id.clone())
+        .context("distribution.app_store.key_id or APP_STORE_CONNECT_KEY_ID is required")?;
+    let key_source = env_value("APP_STORE_CONNECT_API_KEY")
+        .or_else(|| env_value("APP_STORE_CONNECT_API_KEY_PATH"))
+        .or(cfg.api_key_path.clone())
+        .or_else(|| release::provider_secret(DistributionProvider::AppStore, &[]).ok().flatten())
+        .context("APP_STORE_CONNECT_API_KEY, APP_STORE_CONNECT_API_KEY_PATH, distribution.app_store.api_key_path, or vault credentials are required")?;
+    if looks_like_bearer_token(&key_source) {
+        return Ok(key_source);
+    }
+    let key_text = if key_source.contains("-----BEGIN PRIVATE KEY-----") {
+        key_source
+    } else {
+        fs::read_to_string(&key_source).with_context(|| {
+            format!("failed to read App Store Connect API key from {key_source}")
+        })?
+    };
+    let now = now_unix_seconds();
+    let claims = AppStoreJwtClaims {
+        iss: &issuer_id,
+        aud: "appstoreconnect-v1",
+        iat: now,
+        exp: now + 20 * 60,
+    };
+    let mut header = Header::new(Algorithm::ES256);
+    header.kid = Some(key_id);
+    encode(
+        &header,
+        &claims,
+        &EncodingKey::from_ec_pem(key_text.as_bytes())
+            .context("failed to parse App Store Connect .p8 key as EC private key")?,
+    )
+    .context("failed to sign App Store Connect JWT")
+}
+
+fn app_store_app_id(cfg: &AppStoreConfig, client: &Client, token: &str) -> Result<String> {
+    if let Some(app_id) = cfg
+        .app_id
+        .as_deref()
+        .filter(|value| !value.trim().is_empty())
+    {
+        return Ok(app_id.to_string());
+    }
+    let bundle_id = cfg.bundle_id.as_deref().context(
+        "distribution.app_store.app_id or bundle_id is required for App Store Connect status",
+    )?;
+    let url = format!("{APP_STORE_API}/v1/apps?filter[bundleId]={bundle_id}&limit=1");
+    let response = client
+        .get(url)
+        .bearer_auth(token)
+        .send()
+        .context("failed to resolve App Store Connect app id from bundle id")?;
+    let value = json_response(response, "App Store app lookup")?;
+    value
+        .get("data")
+        .and_then(Value::as_array)
+        .and_then(|items| items.first())
+        .and_then(|item| item.get("id"))
+        .and_then(Value::as_str)
+        .map(str::to_string)
+        .with_context(|| {
+            format!("App Store Connect did not return an app for bundle id {bundle_id}")
+        })
 }
 
 fn microsoft_store_access_token(cfg: &MicrosoftStoreConfig, client: &Client) -> Result<String> {

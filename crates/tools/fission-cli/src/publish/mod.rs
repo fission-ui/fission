@@ -309,6 +309,7 @@ struct PlayStoreConfig {
 
 #[derive(Clone, Debug, Deserialize, Default)]
 struct AppStoreConfig {
+    app_id: Option<String>,
     bundle_id: Option<String>,
     issuer_id: Option<String>,
     key_id: Option<String>,
@@ -595,9 +596,8 @@ fn provider_status(options: &DistributeOptions, config: &PublishManifest) -> Res
         DistributionProvider::GoogleDrive => files::google_drive_status(options, config)?,
         DistributionProvider::OneDrive => files::onedrive_status(options, config)?,
         DistributionProvider::Dropbox => files::dropbox_status(options, config)?,
-        DistributionProvider::AppStore | DistributionProvider::MicrosoftStore => {
-            generic_status_receipt(options)
-        }
+        DistributionProvider::AppStore => stores::app_store_status(options, config)?,
+        DistributionProvider::MicrosoftStore => generic_status_receipt(options),
     };
     if options.json {
         println!("{}", serde_json::to_string_pretty(&receipt)?);
