@@ -67,6 +67,7 @@ fission distribute --project-dir . --provider s3 --artifact <manifest>
 fission distribute --project-dir . --provider google-drive --artifact <manifest>
 fission distribute --project-dir . --provider onedrive --artifact <manifest>
 fission distribute --project-dir . --provider dropbox --artifact <manifest>
+fission distribute --project-dir . --provider github-releases --artifact <manifest> --site production --deploy v1.2.3
 fission distribute --project-dir . --provider github-pages --artifact <manifest> --site production
 fission distribute --project-dir . --provider cloudflare-pages --artifact <manifest> --site production
 fission distribute --project-dir . --provider netlify --artifact <manifest> --site production
@@ -240,6 +241,17 @@ site_kind = "project"
 base_path = "/todo/"
 custom_domain = "docs.example.com"
 enforce_https = true
+
+[distribution.github_releases.production]
+owner = "example"
+repo = "todo"
+tag = "v1.2.3"
+name = "Todo 1.2.3"
+notes_file = "release-content/metadata/1.2.3+42/notes/en-US.md"
+draft = true
+prerelease = false
+replace_assets = true
+upload_artifact_manifest = true
 
 [distribution.cloudflare_pages.production]
 account_id = "00000000000000000000000000000000"
@@ -522,6 +534,7 @@ fission_release
   signing_assets
   distribute
     s3
+    github_releases
     github_pages
     cloudflare_pages
     netlify
@@ -587,6 +600,7 @@ The release tooling should prefer Rust for Fission-owned control flow and data h
 | Android AAB | bundle inputs, feature/module configuration, validation orchestration, and receipts | `bundletool` and Android SDK tools | `bundletool` is the underlying tool used by Android Studio, Android Gradle Plugin, and Google Play for app bundles [R1]. |
 | iOS IPA | app metadata, asset staging, provisioning selection, and readiness checks | Xcode signing/export tools and Transporter | Device/App Store IPAs require Apple signing assets and provisioning. |
 | S3-compatible upload | AWS SDK for Rust | none by default | AWS provides Rust SDK S3 examples for upload and multipart flows [R20]. |
+| GitHub Releases | GitHub REST API client for releases and release assets, release metadata, asset upload receipts, duplicate-asset policy, and status | none by default | GitHub's Releases API creates and updates releases, while the release assets API uploads raw binary assets to the release-specific upload endpoint [R64][R65]. |
 | GitHub Pages | GitHub REST/GraphQL clients, workflow generation, branch publish staging, DNS/readiness checks, and receipts | GitHub Actions for artifact deployment when `mode = "actions"` | GitHub Pages supports branch sources and custom GitHub Actions workflows; Actions deployments use `configure-pages`, `upload-pages-artifact`, and `deploy-pages` with `pages: write` and `id-token: write` permissions [R54][R55]. |
 | Cloudflare Pages | Cloudflare API client for projects, deployments, domains, status, credentials, and receipts; Wrangler as the explicit upload backend | Cloudflare-provided tooling for prebuilt upload | Cloudflare Pages supports Direct Upload of prebuilt assets through Wrangler and API-token based Pages API access [R58][R59]. |
 | Netlify | Netlify API client for site lookup/create, atomic deploys, domains, status polling, and receipts | Netlify CLI only as a fallback when a new API capability is not yet implemented | Netlify supports API deployments using file digests or ZIP uploads and supports custom domain management through UI/API flows [R61][R62][R63]. |
@@ -1087,7 +1101,7 @@ Static web distribution MUST preserve content type metadata. A `.wasm` object up
 
 ## 15. Static hosting and cloud/file distribution providers
 
-Static hosting and cloud/file providers use `fission distribute`. They upload artifacts and return durable links, provider IDs, deployment status, and receipts. Public website providers also participate in post-build lifecycle management: domain readiness, HTTPS readiness, preview/production promotion, rollback metadata, deployment status, and link reporting.
+Static hosting and cloud/file providers use `fission distribute`. They upload artifacts and return durable links, provider IDs, deployment status, and receipts. Public website providers also participate in post-build lifecycle management: domain readiness, HTTPS readiness, preview/production promotion, rollback metadata, deployment status, and link reporting. GitHub Releases is deliberately separate from GitHub Pages: it is an artifact distribution channel for binaries, installers, bundles, archives, debug symbols, checksums, and optionally a zipped static-site package.
 
 Static hosting providers MUST implement the lifecycle operations they can support:
 
@@ -1098,7 +1112,58 @@ Static hosting providers MUST implement the lifecycle operations they can suppor
 - `rollback`: restore a previous deployment where the provider supports it, or emit a precise unsupported-operation diagnostic;
 - `observe`: record provider events, build/deploy logs, URLs, and pending manual actions into receipts.
 
-### 15.1 GitHub Pages
+### 15.1 GitHub Releases
+
+```text
+fission distribute --provider github-releases --artifact <manifest> --site production --deploy v1.2.3
+```
+
+GitHub Releases distribution MUST work for any package artifact emitted by `fission package`. It is not a static-site provider and must not require `index.html`, route manifests, web base paths, or custom-domain configuration. It can distribute Linux `.run` installers, macOS `.app` archives or `.pkg` installers, Windows `.exe`, `.msi`, and `.msix` installers, Android `.apk` and `.aab` files, iOS `.ipa` files, zipped static-site output, debug symbols, crash diagnostics, checksums, SBOMs, and any other files listed in the artifact manifest.
+
+Configuration:
+
+```toml
+[distribution.github_releases.production]
+owner = "example"
+repo = "todo"
+tag = "v1.2.3"
+name = "Todo 1.2.3"
+notes_file = "release-content/metadata/1.2.3+42/notes/en-US.md"
+draft = true
+prerelease = false
+replace_assets = true
+upload_artifact_manifest = true
+```
+
+Publishing behavior:
+
+- resolve owner/repository from `distribution.github_releases.<site>` or the GitHub origin remote;
+- resolve the release tag from `--deploy`, `distribution.github_releases.<site>.tag`, or the package version as `v<version>`;
+- create the release if the tag has no release yet, otherwise update the existing release metadata;
+- upload every file listed in the artifact manifest, not just static-site files or a hard-coded extension list;
+- optionally upload `artifact-manifest.json` itself so consumers and CI can verify hashes, sizes, MIME types, target, format, profile, and validation state;
+- fail if a same-named asset already exists unless `replace_assets = true`, in which case the existing asset is deleted and re-uploaded;
+- preserve draft/prerelease/latest behavior through explicit config rather than inferring release status from filenames;
+- write a distribution receipt containing the GitHub release ID, release URL, uploaded asset JSON, and any manual follow-up.
+
+GitHub's REST API creates releases with `tag_name`, optional `target_commitish`, `name`, `body`, `draft`, `prerelease`, and `make_latest` fields [R64]. Release assets are uploaded as raw binary data to the release-specific upload URL with a required asset `name`; GitHub returns asset metadata including browser download URL, size, state, and digest where available [R65].
+
+Readiness MUST check:
+
+- owner and repository are configured or inferable;
+- `GH_TOKEN`, `GITHUB_TOKEN`, or a Fission vault credential is available for private repositories and publishing;
+- a tag can be resolved before publishing;
+- the artifact manifest exists and contains at least one existing uploadable file;
+- duplicate-asset policy is explicit when republishing is expected;
+- release notes file exists when configured.
+
+Authentication:
+
+- GitHub Releases uses the same environment variables as GitHub Pages, but with different required permissions.
+- Publishing requires repository Contents write permission because release and release-asset operations mutate repository release state [R64][R65].
+- Public status checks may work unauthenticated, but Fission should still use stored credentials when present so private repositories and draft releases behave consistently.
+
+### 15.2 GitHub Pages
 
 ```text
 fission distribute --provider github-pages --artifact <manifest> --site production
@@ -1141,7 +1206,7 @@ Required behavior:
 - poll deployment/build status;
 - record page URL, custom-domain URL, deployment ID, source branch/workflow run, and DNS/HTTPS status in the receipt.
 
-### 15.2 Cloudflare Pages
+### 15.3 Cloudflare Pages
 
 ```text
 fission distribute --provider cloudflare-pages --artifact <manifest> --site production
@@ -1877,3 +1942,5 @@ The post-build lifecycle work is accepted when the following are true:
 [R61] Netlify Docs, Get started with the Netlify API: https://docs.netlify.com/api-and-cli-guides/api-guides/get-started-with-api/
 [R62] Netlify Docs, Create deploys: https://docs.netlify.com/deploy/create-deploys/
 [R63] Netlify Docs, Manage domains for a site or app: https://docs.netlify.com/domains/manage-domains/manage-domains-for-a-site-app/
+[R64] GitHub Docs, REST API endpoints for releases: https://docs.github.com/en/rest/releases/releases
+[R65] GitHub Docs, REST API endpoints for release assets: https://docs.github.com/en/rest/releases/assets
