@@ -1,9 +1,14 @@
 use super::*;
 use anyhow::{Context, Result};
+use base64::engine::general_purpose::STANDARD;
+use reqwest::blocking::Client;
 use serde::{Deserialize, Serialize};
+use serde_json::{json, Value};
 use std::fs;
+use std::net::TcpListener;
 use std::path::Path;
-use std::process::{Command, Stdio};
+use std::process::{Child, Command, Stdio};
+use std::time::{Duration, Instant};
 
 #[derive(Debug, Deserialize, Default)]
 struct ContentToml {
@@ -31,7 +36,29 @@ struct ScreenshotScenario {
     #[serde(default)]
     targets: Vec<String>,
     script: Option<String>,
+    command: Option<String>,
+    test_port: Option<u16>,
+    timeout_ms: Option<u64>,
     wait_for: Option<String>,
+    #[serde(default)]
+    steps: Vec<ScreenshotStep>,
+}
+
+#[derive(Debug, Deserialize, Default)]
+struct ScreenshotStep {
+    cmd: String,
+    text: Option<String>,
+    key: Option<String>,
+    modifiers: Option<u8>,
+    ms: Option<u64>,
+    x: Option<f32>,
+    y: Option<f32>,
+    dx: Option<f32>,
+    dy: Option<f32>,
+    width: Option<u32>,
+    height: Option<u32>,
+    name: Option<String>,
+    path: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Default)]
@@ -252,63 +279,66 @@ fn capture_scenario(
         scenario.wait_for.as_deref(),
         "scenario wait selector is set",
     ));
-    let Some(script) = scenario.script.as_deref() else {
+    if scenario.script.is_none() && scenario.command.is_none() {
         checks.push(failed_check(
-            &format!("release_content.capture.{id}.script"),
-            "scenario script is missing".to_string(),
+            &format!("release_content.capture.{id}.driver"),
+            "scenario script or command is missing".to_string(),
         ));
         return Ok(());
     };
-    let script_path = project_dir.join(script);
-    checks.push(path_check(
-        &format!("release_content.capture.{id}.script_exists"),
-        script_path.clone(),
-        "scenario script exists",
-    ));
-    if !script_path.exists() {
-        return Ok(());
-    }
-    match script_path.extension().and_then(|value| value.to_str()) {
-        Some("sh") => run_capture_script(
-            "bash",
-            &[script_path.to_string_lossy().as_ref()],
-            project_dir,
-            raw_dir,
-            target,
-            set,
-            id,
-            checks,
-        ),
-        Some("ps1") => run_capture_script(
-            "pwsh",
-            &["-File", script_path.to_string_lossy().as_ref()],
-            project_dir,
-            raw_dir,
-            target,
-            set,
-            id,
-            checks,
-        ),
-        _ => {
-            let receipt = raw_dir.join(format!("{set}-{id}-capture-plan.json"));
-            let body = serde_json::json!({
-                "schema_version": 1,
-                "target": target.as_str(),
-                "set": set,
-                "scenario": id,
-                "script": script_path,
-                "wait_for": scenario.wait_for,
-                "status": "planned",
-                "note": "Non-shell scenario files are validated and recorded; execution is handled by the Fission platform test runner."
-            });
-            fs::write(&receipt, serde_json::to_vec_pretty(&body)?)?;
-            checks.push(ok_check(
-                &format!("release_content.capture.{id}.plan_written"),
-                receipt.display().to_string(),
-            ));
-            Ok(())
+    if let Some(script) = scenario.script.as_deref() {
+        let script_path = project_dir.join(script);
+        checks.push(path_check(
+            &format!("release_content.capture.{id}.script_exists"),
+            script_path.clone(),
+            "scenario script exists",
+        ));
+        if !script_path.exists() {
+            return Ok(());
         }
+        return match script_path.extension().and_then(|value| value.to_str()) {
+            Some("sh") => run_capture_script(
+                "bash",
+                &[script_path.to_string_lossy().as_ref()],
+                project_dir,
+                raw_dir,
+                target,
+                set,
+                id,
+                checks,
+            ),
+            Some("ps1") => run_capture_script(
+                "pwsh",
+                &["-File", script_path.to_string_lossy().as_ref()],
+                project_dir,
+                raw_dir,
+                target,
+                set,
+                id,
+                checks,
+            ),
+            _ => {
+                let receipt = raw_dir.join(format!("{set}-{id}-capture-plan.json"));
+                let body = serde_json::json!({
+                    "schema_version": 1,
+                    "target": target.as_str(),
+                    "set": set,
+                    "scenario": id,
+                    "script": script_path,
+                    "wait_for": scenario.wait_for,
+                    "status": "planned",
+                    "note": "Non-shell scenario files are validated and recorded; execution is handled by the Fission platform test runner."
+                });
+                fs::write(&receipt, serde_json::to_vec_pretty(&body)?)?;
+                checks.push(ok_check(
+                    &format!("release_content.capture.{id}.plan_written"),
+                    receipt.display().to_string(),
+                ));
+                Ok(())
+            }
+        };
     }
+    run_test_control_capture(project_dir, raw_dir, target, set, id, scenario, checks)
 }
 
 fn run_capture_script(
@@ -354,6 +384,288 @@ fn run_capture_script(
         ],
     });
     Ok(())
+}
+
+fn run_test_control_capture(
+    project_dir: &Path,
+    raw_dir: &Path,
+    target: Target,
+    set: &str,
+    id: &str,
+    scenario: &ScreenshotScenario,
+    checks: &mut Vec<LifecycleCheck>,
+) -> Result<()> {
+    let command = scenario
+        .command
+        .as_deref()
+        .context("scenario command is missing")?;
+    let port = scenario.test_port.unwrap_or_else(free_loopback_port);
+    let timeout = Duration::from_millis(scenario.timeout_ms.unwrap_or(20_000));
+    let stdout_path = raw_dir.join(format!("{set}-{id}-stdout.log"));
+    let stderr_path = raw_dir.join(format!("{set}-{id}-stderr.log"));
+    let mut child = spawn_capture_command(
+        project_dir,
+        command,
+        target,
+        set,
+        id,
+        port,
+        &stdout_path,
+        &stderr_path,
+    )?;
+    let result = run_test_control_steps(raw_dir, set, id, scenario, port, timeout, checks);
+    terminate_capture_process(&mut child);
+    checks.push(LifecycleCheck {
+        id: format!("release_content.capture.{id}.logs"),
+        status: "passed".to_string(),
+        summary: "capture command logs were recorded".to_string(),
+        details: Some(format!(
+            "stdout: {}; stderr: {}",
+            stdout_path.display(),
+            stderr_path.display()
+        )),
+        remediation: Vec::new(),
+    });
+    result
+}
+
+#[allow(clippy::too_many_arguments)]
+fn spawn_capture_command(
+    project_dir: &Path,
+    command: &str,
+    target: Target,
+    set: &str,
+    id: &str,
+    port: u16,
+    stdout_path: &Path,
+    stderr_path: &Path,
+) -> Result<Child> {
+    let stdout = fs::File::create(stdout_path)?;
+    let stderr = fs::File::create(stderr_path)?;
+    let mut cmd = shell_command(command);
+    cmd.current_dir(project_dir)
+        .env("FISSION_TEST_CONTROL_PORT", port.to_string())
+        .env("FISSION_CAPTURE_TARGET", target.as_str())
+        .env("FISSION_CAPTURE_SET", set)
+        .env("FISSION_CAPTURE_SCENARIO", id)
+        .stdout(Stdio::from(stdout))
+        .stderr(Stdio::from(stderr));
+    cmd.spawn()
+        .with_context(|| format!("failed to spawn capture command `{command}`"))
+}
+
+fn run_test_control_steps(
+    raw_dir: &Path,
+    set: &str,
+    id: &str,
+    scenario: &ScreenshotScenario,
+    port: u16,
+    timeout: Duration,
+    checks: &mut Vec<LifecycleCheck>,
+) -> Result<()> {
+    let client = Client::builder()
+        .timeout(Duration::from_secs(30))
+        .user_agent("fission-cli-release-content/0.1")
+        .build()?;
+    wait_for_test_control(&client, port, timeout)?;
+    checks.push(ok_check(
+        &format!("release_content.capture.{id}.test_control_ready"),
+        format!("http://127.0.0.1:{port}"),
+    ));
+    let mut saw_screenshot = false;
+    for (index, step) in scenario.steps.iter().enumerate() {
+        let response = send_test_command(&client, port, &step_payload(step, raw_dir, set, id)?)?;
+        if step.cmd == "screenshot" || step.cmd == "capture_screenshot" {
+            write_screenshot_response(raw_dir, set, id, index, step, &response)?;
+            saw_screenshot = true;
+        }
+        checks.push(ok_check(
+            &format!("release_content.capture.{id}.step.{index}"),
+            step.cmd.clone(),
+        ));
+    }
+    if !saw_screenshot {
+        let response = send_test_command(&client, port, &json!({"cmd": "CaptureScreenshot"}))?;
+        write_screenshot_response(
+            raw_dir,
+            set,
+            id,
+            scenario.steps.len(),
+            &ScreenshotStep {
+                cmd: "capture_screenshot".to_string(),
+                name: Some("final".to_string()),
+                ..Default::default()
+            },
+            &response,
+        )?;
+    }
+    let _ = send_test_command(&client, port, &json!({"cmd": "Quit"}));
+    Ok(())
+}
+
+fn wait_for_test_control(client: &Client, port: u16, timeout: Duration) -> Result<()> {
+    let start = Instant::now();
+    let url = format!("http://127.0.0.1:{port}/health");
+    loop {
+        if client
+            .get(&url)
+            .send()
+            .is_ok_and(|response| response.status().is_success())
+        {
+            return Ok(());
+        }
+        if start.elapsed() > timeout {
+            bail!("timed out waiting for Fission test control server at {url}");
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
+}
+
+fn send_test_command(client: &Client, port: u16, payload: &serde_json::Value) -> Result<Value> {
+    let response = client
+        .post(format!("http://127.0.0.1:{port}/cmd"))
+        .json(payload)
+        .send()
+        .with_context(|| format!("failed to send test command {payload}"))?;
+    let status = response.status();
+    let text = response.text()?;
+    if !status.is_success() {
+        bail!("test command failed with {status}: {text}");
+    }
+    let value: Value = serde_json::from_str(&text)
+        .with_context(|| format!("failed to parse test command response: {text}"))?;
+    if value.get("status").and_then(Value::as_str) == Some("Error") {
+        bail!(
+            "test command returned error: {}",
+            value
+                .get("message")
+                .and_then(Value::as_str)
+                .unwrap_or("unknown")
+        );
+    }
+    Ok(value)
+}
+
+fn step_payload(step: &ScreenshotStep, raw_dir: &Path, set: &str, id: &str) -> Result<Value> {
+    match step.cmd.as_str() {
+        "tap_text" => Ok(json!({"cmd": "TapText", "text": required_step_text(step, "text")?})),
+        "type_text" => Ok(json!({"cmd": "TypeText", "text": required_step_text(step, "text")?})),
+        "press_key" => Ok(json!({
+            "cmd": "PressKey",
+            "key": required_step_text(step, "key")?,
+            "modifiers": step.modifiers.unwrap_or(0)
+        })),
+        "tap" => Ok(json!({
+            "cmd": "Tap",
+            "x": required_step_f32(step.x, "x")?,
+            "y": required_step_f32(step.y, "y")?
+        })),
+        "scroll" => Ok(json!({
+            "cmd": "Scroll",
+            "x": step.x.unwrap_or(0.0),
+            "y": step.y.unwrap_or(0.0),
+            "dx": step.dx.unwrap_or(0.0),
+            "dy": step.dy.unwrap_or(0.0)
+        })),
+        "wait" => Ok(json!({"cmd": "Wait", "ms": step.ms.unwrap_or(250)})),
+        "pump" => Ok(json!({"cmd": "Pump"})),
+        "resize" => Ok(json!({
+            "cmd": "SimulateResize",
+            "width": step.width.context("resize step requires width")?,
+            "height": step.height.context("resize step requires height")?
+        })),
+        "screenshot" | "capture_screenshot" => {
+            let _ = screenshot_output_path(raw_dir, set, id, 0, step);
+            Ok(json!({"cmd": "CaptureScreenshot"}))
+        }
+        other => bail!("unsupported screenshot scenario step `{other}`"),
+    }
+}
+
+fn write_screenshot_response(
+    raw_dir: &Path,
+    set: &str,
+    id: &str,
+    index: usize,
+    step: &ScreenshotStep,
+    response: &Value,
+) -> Result<()> {
+    let payload = response
+        .get("png_base64")
+        .and_then(Value::as_str)
+        .context("CaptureScreenshot response did not include png_base64")?;
+    let bytes = STANDARD
+        .decode(payload)
+        .context("CaptureScreenshot response had invalid base64")?;
+    let path = screenshot_output_path(raw_dir, set, id, index, step);
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    fs::write(&path, bytes).with_context(|| format!("failed to write {}", path.display()))?;
+    Ok(())
+}
+
+fn screenshot_output_path(
+    raw_dir: &Path,
+    set: &str,
+    id: &str,
+    index: usize,
+    step: &ScreenshotStep,
+) -> std::path::PathBuf {
+    if let Some(path) = step
+        .path
+        .as_deref()
+        .filter(|value| !value.trim().is_empty())
+    {
+        return raw_dir.join(path);
+    }
+    let name = step
+        .name
+        .as_deref()
+        .filter(|value| !value.trim().is_empty())
+        .map(str::to_string)
+        .unwrap_or_else(|| format!("{index:02}"));
+    raw_dir.join(format!("{set}-{id}-{name}.png"))
+}
+
+fn required_step_text<'a>(step: &'a ScreenshotStep, field: &str) -> Result<&'a str> {
+    match field {
+        "text" => step.text.as_deref().context("step requires text"),
+        "key" => step.key.as_deref().context("step requires key"),
+        _ => bail!("unknown step text field {field}"),
+    }
+}
+
+fn required_step_f32(value: Option<f32>, field: &str) -> Result<f32> {
+    value.with_context(|| format!("step requires {field}"))
+}
+
+fn free_loopback_port() -> u16 {
+    TcpListener::bind(("127.0.0.1", 0))
+        .ok()
+        .and_then(|listener| listener.local_addr().ok())
+        .map(|addr| addr.port())
+        .unwrap_or(19_900)
+}
+
+fn shell_command(command: &str) -> Command {
+    if cfg!(windows) {
+        let mut cmd = Command::new("cmd");
+        cmd.args(["/C", command]);
+        cmd
+    } else {
+        let mut cmd = Command::new("sh");
+        cmd.args(["-c", command]);
+        cmd
+    }
+}
+
+fn terminate_capture_process(child: &mut Child) {
+    if child.try_wait().ok().flatten().is_some() {
+        return;
+    }
+    let _ = child.kill();
+    let _ = child.wait();
 }
 
 fn validate_screenshots(
@@ -1075,5 +1387,17 @@ feature_graphic = "release-content/screenshots/raw/en-US/home.png"
         assert!(checks
             .iter()
             .any(|check| { check.id.ends_with(".dimensions") && check.status == "passed" }));
+    }
+
+    #[test]
+    fn screenshot_step_payload_uses_test_control_protocol() {
+        let step = ScreenshotStep {
+            cmd: "tap_text".to_string(),
+            text: Some("Save".to_string()),
+            ..Default::default()
+        };
+        let payload = step_payload(&step, Path::new("/tmp"), "store", "save").unwrap();
+        assert_eq!(payload["cmd"], "TapText");
+        assert_eq!(payload["text"], "Save");
     }
 }
