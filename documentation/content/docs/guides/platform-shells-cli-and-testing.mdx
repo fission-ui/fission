@@ -19,17 +19,34 @@ Keeping those three questions separate makes the rest of the page easier to read
 
 A shell is the thin platform-facing layer that boots the shared runtime inside a real host.
 
-On desktop, that means a native window. On the web, it means a browser entrypoint and browser rendering surface. On Android and iOS, it means the mobile host that packages, launches, and presents the same shared app on that platform.
+On desktop, that means a native window. On the web, it means a browser entrypoint and browser rendering surface. On Android and iOS, it means the mobile host that packages, launches, and presents the same shared app on that platform. For terminal tools, it means a terminal cell renderer. For static sites, it means a build-time shell that renders Fission widget output into semantic HTML.
 
 The shell is not where your product architecture should live. Your reducers, selectors, widgets, and explicit side effects stay in shared Rust code. The shell's job is narrower: it starts the app, forwards input, presents frames, connects platform services such as clipboard and accessibility, and exposes the host-specific hooks needed for launch and validation.
 
 That boundary is one of the reasons Fission can aim for strong cross-platform parity. The framework keeps the meaning of the interface in the shared runtime and keeps platform differences near the host edge where they belong.
 
+## Shells available today
+
+Fission now has six shell families that serve different host surfaces.
+
+| Shell | Use it when | Main API |
+| --- | --- | --- |
+| Desktop | You want a native window on Windows, macOS, or Linux. | `DesktopApp` |
+| Web | You want a browser app compiled to WebAssembly. | `WebApp` |
+| Mobile | You want Android or iOS hosts for the same shared app. | `MobileApp` |
+| Static site | You want generated HTML routes from Fission widgets and Markdown content. | `FissionSite` and `fission site ...` |
+| Terminal | You want an interactive terminal user interface. | `TerminalApp` |
+| Test driver | You want automated shell control for supported live hosts. | `fission-test` and `fission-test-driver` |
+
+Desktop, web, and mobile are runtime shells: they keep the app running in a host event loop. The terminal shell is also a runtime shell, but its renderer targets terminal cells instead of a GPU-backed window. The static site shell is different: it runs at build time, lowers real Fission widgets to Core IR, and emits static HTML, CSS, and site assets.
+
+Those differences are host differences, not app-model differences. The same state, reducers, selectors, widgets, design system, and environment model stay at the center.
+
 ## The shared runtime is the same, even when wrappers differ
 
-When you choose `DesktopApp`, `WebApp`, or `MobileApp`, you are not choosing a different application model. You are choosing which shell wrapper should boot the same runtime for the host you care about.
+When you choose `DesktopApp`, `WebApp`, `MobileApp`, or `TerminalApp`, you are not choosing a different application model. You are choosing which shell wrapper should boot the same runtime for the host you care about.
 
-All three wrappers revolve around the same product questions. What is the initial state? Should the app dispatch a startup action? Which values should be synchronized into `Env` each frame? Which jobs, services, or capabilities should the host know how to run outside pure reducers?
+These runtime wrappers revolve around the same product questions. What is the initial state? Should the app dispatch a startup action? Which values should be synchronized into `Env` each frame? Which jobs, services, or capabilities should the host know how to run outside pure reducers?
 
 That shared shape is the important part. It means the same mental model travels with you across platforms.
 
@@ -40,6 +57,10 @@ The public wrappers are not completely symmetrical, so it helps to understand th
 `MobileApp` exposes the same core runtime ideas: state setup, startup action flow, environment synchronization, async registration, and live test-control support. It also includes the Android-specific `run_with_android_app(...)` host entrypoint used when the Android shell hands control to Fission.
 
 `WebApp` keeps the browser wrapper intentionally small. It supports the same shared startup and async-registration story, but it does not currently expose a public live test-control port or a public key-handler hook. That should be read as a shell-tooling difference in the current browser wrapper, not as a statement that the browser target is less real. A web app still runs the same shared runtime and can still be a production app.
+
+`TerminalApp` runs the same build, lower, layout, verify, and render pipeline inside a terminal. It is useful for command tools, dashboards, setup flows, and developer workflows where the user already lives in a terminal. It verifies terminal compatibility from Core IR and semantics rather than from hard-coded widget names. Continue to [Terminal user interfaces](/docs/guides/terminal-user-interfaces/) for a full guide.
+
+`FissionSite` is the static site shell. It is not an interactive app loop. It renders configured routes at build time, turns Markdown and custom Fission page widgets into semantic HTML, writes shared CSS, generates search data when enabled, and copies configured assets. Continue to [Static sites](/docs/guides/static-sites/) for the site workflow.
 
 ## How developers actually use shell wrappers
 

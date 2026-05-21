@@ -190,7 +190,7 @@ fn render_document(body_html: &str, options: &HtmlRenderOptions, has_code_blocks
         .unwrap_or_default();
     let code_highlighting_assets = code_highlighting_assets(options, has_code_blocks);
     let search_script = search_script(options);
-    let enhancement_script = site_enhancement_script(options.theme_switching);
+    let enhancement_script = site_enhancement_script(options);
     format!(
         "<!doctype html>\n<html lang=\"{}\"{theme_attr}>\n  <head>\n    <meta charset=\"utf-8\">\n    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">{metadata}\n    <title>{}</title>\n    <link rel=\"stylesheet\" href=\"{}\">{code_highlighting_assets}{search_script}{enhancement_script}\n  </head>\n  <body>\n    {body_html}\n  </body>\n</html>\n",
         escape_attr(&options.lang),
@@ -249,19 +249,26 @@ fn search_script(options: &HtmlRenderOptions) -> String {
         .unwrap_or_default()
 }
 
-fn site_enhancement_script(theme_switching: bool) -> &'static str {
-    if theme_switching {
-        THEME_ENHANCEMENT_SCRIPT
-    } else {
-        PLAIN_ENHANCEMENT_SCRIPT
+fn site_enhancement_script(options: &HtmlRenderOptions) -> String {
+    let src = site_enhancement_script_href(&options.stylesheet_href);
+    let script = format!(
+        "\n    <script defer src=\"{}\"></script>",
+        escape_attr(&src)
+    );
+    if !options.theme_switching {
+        return script;
     }
+    format!(
+        "\n    <script>(function(){{var d=document.documentElement;d.classList.add('fission-site-js');var k='fission-site-theme';try{{var s=localStorage.getItem(k);if(s){{d.dataset.theme=s;}}}}catch(_){{}}document.addEventListener('click',function(e){{var b=e.target.closest('[data-fission-theme-toggle]');if(!b)return;var n=d.dataset.theme==='dark'?'light':'dark';d.dataset.theme=n;try{{localStorage.setItem(k,n);}}catch(_){{}}}});}}());</script>{script}"
+    )
 }
 
-const THEME_ENHANCEMENT_SCRIPT: &str = r#"
-    <script>(function(){var d=document.documentElement;d.classList.add('fission-site-js');var k='fission-site-theme';try{var s=localStorage.getItem(k);if(s){d.dataset.theme=s;}}catch(_){}document.addEventListener('click',function(e){var b=e.target.closest('[data-fission-theme-toggle]');if(!b)return;var n=d.dataset.theme==='dark'?'light':'dark';d.dataset.theme=n;try{localStorage.setItem(k,n);}catch(_){}});function initSidebar(root){var items=Array.prototype.slice.call(root.querySelectorAll('.fission-site-sidebar-item'));if(!items.length)return;var sk='fission-site-sidebar:v2:'+location.pathname;var expanded=new Set();try{JSON.parse(localStorage.getItem(sk)||'[]').forEach(function(v){expanded.add(String(v));});}catch(_){}function level(el){return Number(el.dataset.fissionSiteSidebarLevel||'0');}function group(el){return el.dataset.fissionSiteSidebarGroup==='true';}function active(el){return el.dataset.fissionSiteSidebarActive==='true';}function hasChildren(i){var l=level(items[i]);for(var j=i+1;j<items.length;j++){if(level(items[j])<=l)return false;if(level(items[j])===l+1)return true;}return false;}function ancestors(i){var out=[],current=level(items[i]);for(var j=i-1;j>=0;j--){var l=level(items[j]);if(l<current){out.unshift(j);current=l;if(current===0)break;}}return out;}items.forEach(function(el,i){el.dataset.fissionSiteSidebarIndex=String(i);if(active(el)){ancestors(i).forEach(function(a){expanded.add(String(a));});if(group(el))expanded.add(String(i));}});function apply(){items.forEach(function(el,i){var visible=level(el)===0||ancestors(i).every(function(a){return expanded.has(String(a));});el.hidden=!visible;el.dataset.fissionSiteSidebarExpanded=expanded.has(String(i))?'true':'false';el.dataset.fissionSiteSidebarHasChildren=hasChildren(i)?'true':'false';});try{localStorage.setItem(sk,JSON.stringify(Array.from(expanded)));}catch(_){}}root.addEventListener('click',function(e){var item=e.target.closest('.fission-site-sidebar-item');if(!item||!root.contains(item))return;var i=items.indexOf(item);if(i<0||!hasChildren(i))return;if(!expanded.has(String(i))){e.preventDefault();expanded.add(String(i));apply();}});apply();}function bootSidebar(){document.querySelectorAll('.fission-site-doc-sidebar').forEach(initSidebar);}if(document.readyState==='loading'){document.addEventListener('DOMContentLoaded',bootSidebar,{once:true});}else{bootSidebar();}}());</script>"#;
-
-const PLAIN_ENHANCEMENT_SCRIPT: &str = r#"
-    <script>(function(){var d=document.documentElement;d.classList.add('fission-site-js');function initSidebar(root){var items=Array.prototype.slice.call(root.querySelectorAll('.fission-site-sidebar-item'));if(!items.length)return;var sk='fission-site-sidebar:v2:'+location.pathname;var expanded=new Set();try{JSON.parse(localStorage.getItem(sk)||'[]').forEach(function(v){expanded.add(String(v));});}catch(_){}function level(el){return Number(el.dataset.fissionSiteSidebarLevel||'0');}function group(el){return el.dataset.fissionSiteSidebarGroup==='true';}function active(el){return el.dataset.fissionSiteSidebarActive==='true';}function hasChildren(i){var l=level(items[i]);for(var j=i+1;j<items.length;j++){if(level(items[j])<=l)return false;if(level(items[j])===l+1)return true;}return false;}function ancestors(i){var out=[],current=level(items[i]);for(var j=i-1;j>=0;j--){var l=level(items[j]);if(l<current){out.unshift(j);current=l;if(current===0)break;}}return out;}items.forEach(function(el,i){el.dataset.fissionSiteSidebarIndex=String(i);if(active(el)){ancestors(i).forEach(function(a){expanded.add(String(a));});if(group(el))expanded.add(String(i));}});function apply(){items.forEach(function(el,i){var visible=level(el)===0||ancestors(i).every(function(a){return expanded.has(String(a));});el.hidden=!visible;el.dataset.fissionSiteSidebarExpanded=expanded.has(String(i))?'true':'false';el.dataset.fissionSiteSidebarHasChildren=hasChildren(i)?'true':'false';});try{localStorage.setItem(sk,JSON.stringify(Array.from(expanded)));}catch(_){}}root.addEventListener('click',function(e){var item=e.target.closest('.fission-site-sidebar-item');if(!item||!root.contains(item))return;var i=items.indexOf(item);if(i<0||!hasChildren(i))return;if(!expanded.has(String(i))){e.preventDefault();expanded.add(String(i));apply();}});apply();}function bootSidebar(){document.querySelectorAll('.fission-site-doc-sidebar').forEach(initSidebar);}if(document.readyState==='loading'){document.addEventListener('DOMContentLoaded',bootSidebar,{once:true});}else{bootSidebar();}}());</script>"#;
+fn site_enhancement_script_href(stylesheet_href: &str) -> String {
+    stylesheet_href
+        .strip_suffix("site.css")
+        .map(|prefix| format!("{prefix}site-enhancement.js"))
+        .unwrap_or_else(|| "site-enhancement.js".to_string())
+}
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct CssVariableMap {
@@ -861,6 +868,13 @@ impl HtmlRenderer<'_> {
                 let children = self.render_children(&node.children, &HashSet::new())?;
                 return Ok(format!(
                     "<button class=\"fission-site-node fission-site-search-trigger\" type=\"button\" data-fission-search-trigger data-fission-node=\"{}\">{children}</button>",
+                    node.id
+                ));
+            }
+            if identifier == "site-sidebar-toggle" {
+                let children = self.render_children(&node.children, &HashSet::new())?;
+                return Ok(format!(
+                    "<button class=\"fission-site-node fission-site-sidebar-toggle\" type=\"button\" aria-expanded=\"false\" data-fission-sidebar-toggle data-fission-node=\"{}\">{children}</button>",
                     node.id
                 ));
             }

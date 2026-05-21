@@ -6,6 +6,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 mod doctor;
+mod ui;
 mod workflow;
 
 const CURRENT_VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -140,6 +141,24 @@ enum Command {
         /// Continue following logs instead of printing the current buffer.
         #[arg(long)]
         follow: bool,
+    },
+    /// Open the interactive Fission CLI terminal UI.
+    Ui {
+        /// Project directory; defaults to the current working directory.
+        #[arg(long, default_value = ".")]
+        project_dir: PathBuf,
+        /// Write a PNG screenshot of the rendered terminal frame.
+        #[arg(long)]
+        screenshot: Option<PathBuf>,
+        /// Render once and exit; useful for screenshots and smoke tests.
+        #[arg(long)]
+        exit_after_render: bool,
+        /// Override terminal width in cells.
+        #[arg(long)]
+        width: Option<u16>,
+        /// Override terminal height in cells.
+        #[arg(long)]
+        height: Option<u16>,
     },
     /// Hidden helper used by `fission run --target web --detach`.
     #[command(hide = true)]
@@ -368,6 +387,19 @@ where
             target,
             device,
             follow,
+        }),
+        Command::Ui {
+            project_dir,
+            screenshot,
+            exit_after_render,
+            width,
+            height,
+        } => ui::run_ui(ui::UiOptions {
+            project_dir,
+            screenshot,
+            exit_after_render,
+            width,
+            height,
         }),
         Command::ServeWeb {
             project_dir,

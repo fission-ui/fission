@@ -38,6 +38,10 @@ impl Widget<DocsState> for DocsFooter {
                                         "Platform shells",
                                         "/docs/guides/platform-shells-cli-and-testing/",
                                     ),
+                                    (
+                                        "Terminal interfaces",
+                                        "/docs/guides/terminal-user-interfaces/",
+                                    ),
                                 ],
                             )
                             .build(ctx, view),

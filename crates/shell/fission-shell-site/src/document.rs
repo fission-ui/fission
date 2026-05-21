@@ -71,7 +71,7 @@ impl<'a> Widget<SitePageState> for DocumentationPage<'a> {
 
 impl DocumentationPage<'_> {
     fn header(&self, tokens: &Tokens) -> Node {
-        let mut children = vec![self.brand(tokens)];
+        let mut children = vec![sidebar_toggle(tokens), self.brand(tokens)];
         if !self.site_nav.is_empty() {
             children.push(
                 Row {
@@ -83,6 +83,7 @@ impl DocumentationPage<'_> {
                     gap: Some(tokens.spacing.l),
                     align_items: AlignItems::Center,
                     justify_content: JustifyContent::End,
+                    semantics: Some(site_semantics("site-doc-nav")),
                     ..Default::default()
                 }
                 .into_node(),
@@ -100,6 +101,7 @@ impl DocumentationPage<'_> {
                 gap: Some(tokens.spacing.m),
                 align_items: AlignItems::Center,
                 justify_content: JustifyContent::SpaceBetween,
+                semantics: Some(site_semantics("site-doc-header")),
                 ..Default::default()
             }
             .into_node(),
@@ -439,6 +441,21 @@ fn search_trigger(tokens: &Tokens) -> Node {
         gap: Some(tokens.spacing.s),
         align_items: AlignItems::Center,
         semantics: Some(site_semantics("site-search-trigger")),
+        ..Default::default()
+    }
+    .into_node()
+}
+
+fn sidebar_toggle(tokens: &Tokens) -> Node {
+    Row {
+        children: vec![Text::new("Menu")
+            .size(tokens.typography.label_large_size)
+            .weight(tokens.typography.font_weight_semibold)
+            .color(tokens.colors.text_link)
+            .into_node()],
+        gap: Some(tokens.spacing.xs),
+        align_items: AlignItems::Center,
+        semantics: Some(site_semantics("site-sidebar-toggle")),
         ..Default::default()
     }
     .into_node()

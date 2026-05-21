@@ -22,6 +22,7 @@ members = [
     "crates/shell/fission-shell-mobile",
     "crates/shell/fission-shell-web",
     "crates/shell/fission-shell-site",
+    "crates/shell/fission-shell-terminal",
     "crates/tools/fission-diagnostics",
     "crates/tools/fission-cli",
     "crates/tools/fission-design-system-codegen",

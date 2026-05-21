@@ -71,6 +71,11 @@ href = "/docs/guides/platform-shells-cli-and-testing/"
 level = 2
 
 [[items]]
+title = "Terminal user interfaces"
+href = "/docs/guides/terminal-user-interfaces/"
+level = 2
+
+[[items]]
 title = "Testing and diagnostics"
 href = "/docs/guides/testing-and-diagnostics/"
 level = 2

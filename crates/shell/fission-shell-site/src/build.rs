@@ -19,6 +19,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 const SITE_CSS: &str = include_str!("../assets/site.css");
+const SITE_ENHANCEMENT_JS: &str = include_str!("../assets/site-enhancement.js");
 const SEARCH_JS: &str = include_str!("../assets/search.js");
 
 #[derive(Clone, Debug)]
@@ -230,6 +231,7 @@ pub fn build_site(options: &SiteBuildOptions, site: &FissionSite) -> Result<Site
         rendered_routes.push((route, html));
     }
     write_site_css(options, site, &styles)?;
+    write_site_enhancement_js(options)?;
 
     let mut report_routes = Vec::new();
     for (route, html) in rendered_routes {
@@ -343,6 +345,12 @@ fn write_site_css(
             options.output_dir.join("site.css").display()
         )
     })
+}
+
+fn write_site_enhancement_js(options: &SiteBuildOptions) -> Result<()> {
+    let path = options.output_dir.join("site-enhancement.js");
+    fs::write(&path, SITE_ENHANCEMENT_JS)
+        .with_context(|| format!("failed to write {}", path.display()))
 }
 
 fn write_sitemap_if_needed(options: &SiteBuildOptions, routes: &[ContentRoute]) -> Result<()> {
