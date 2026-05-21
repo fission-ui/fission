@@ -61,9 +61,11 @@ struct ReleaseRootToml {
 #[derive(Debug, Deserialize, Default)]
 struct ReleaseEntryToml {
     id: Option<String>,
+    version: Option<String>,
     #[serde(default)]
     locales: Vec<String>,
     metadata: Option<String>,
+    release_notes: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Default, Serialize, PartialEq, Eq)]
@@ -72,6 +74,11 @@ struct StoreListingToml {
     name: Option<String>,
     short_description: Option<String>,
     subtitle: Option<String>,
+    #[serde(default)]
+    keywords: Vec<String>,
+    support_url: Option<String>,
+    marketing_url: Option<String>,
+    privacy_url: Option<String>,
     video: Option<String>,
     video_url: Option<String>,
 }
@@ -80,6 +87,14 @@ struct StoreListingToml {
 struct ReleaseMetadataToml {
     #[serde(default)]
     play_store: BTreeMap<String, PlayReleaseMetadataToml>,
+    #[serde(default)]
+    app_store: BTreeMap<String, AppStoreReleaseMetadataToml>,
+}
+
+#[derive(Clone, Debug, Deserialize, Default)]
+struct AppStoreReleaseMetadataToml {
+    description: Option<String>,
+    promotional_text: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Default)]
@@ -95,6 +110,18 @@ struct PlayListing {
     short_description: String,
     full_description: String,
     video: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize, PartialEq, Eq)]
+struct AppStoreLocalization {
+    id: Option<String>,
+    locale: String,
+    description: String,
+    keywords: Option<String>,
+    marketing_url: Option<String>,
+    promotional_text: Option<String>,
+    support_url: Option<String>,
+    whats_new: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Default)]
@@ -257,6 +284,9 @@ pub(super) fn release_config_import(
         publish::DistributionProvider::PlayStore => {
             play_release_config_import(project_dir, locales.as_deref(), yes, json_output)
         }
+        publish::DistributionProvider::AppStore => {
+            app_store_release_config_import(project_dir, locales.as_deref(), yes, json_output)
+        }
         _ => unsupported_release_config(provider, "import"),
     }
 }
@@ -269,6 +299,9 @@ pub(super) fn release_config_diff(
     match provider {
         publish::DistributionProvider::PlayStore => {
             play_release_config_diff(project_dir, json_output)
+        }
+        publish::DistributionProvider::AppStore => {
+            app_store_release_config_diff(project_dir, json_output)
         }
         _ => unsupported_release_config(provider, "diff"),
     }
@@ -286,8 +319,181 @@ pub(super) fn release_config_push(
         publish::DistributionProvider::PlayStore => {
             play_release_config_push(project_dir, locales.as_deref(), dry_run, yes, json_output)
         }
+        publish::DistributionProvider::AppStore => app_store_release_config_push(
+            project_dir,
+            locales.as_deref(),
+            dry_run,
+            yes,
+            json_output,
+        ),
         _ => unsupported_release_config(provider, "push"),
     }
+}
+
+fn app_store_release_config_import(
+    project_dir: &Path,
+    locales: Option<&str>,
+    yes: bool,
+    json_output: bool,
+) -> Result<()> {
+    if !yes {
+        bail!("release-config import mutates fission.toml/release metadata; pass --yes after reviewing the provider and locales");
+    }
+    let root = read_release_provider_toml(project_dir)?;
+    let cfg = app_store_config(project_dir)?;
+    let client = http_client()?;
+    let token = app_store_access_token(&cfg)?;
+    let app_id = app_store_app_id(&cfg, &client, &token)?;
+    let version_id = app_store_version_id(&root, &client, &token, &app_id)?;
+    let remote = fetch_app_store_version_localizations(&client, &token, &version_id)?;
+    write_imported_app_store_localizations(project_dir, &root, locales, &remote)?;
+    let summary = json!({
+        "provider": "app-store",
+        "app_id": app_id,
+        "version_id": version_id,
+        "imported_locales": remote.iter().map(|item| item.locale.as_str()).collect::<Vec<_>>(),
+        "status": "imported"
+    });
+    if json_output {
+        println!("{}", serde_json::to_string_pretty(&summary)?);
+    } else {
+        println!("Imported {} App Store localization(s)", remote.len());
+    }
+    Ok(())
+}
+
+fn app_store_release_config_diff(project_dir: &Path, json_output: bool) -> Result<()> {
+    let root = read_release_provider_toml(project_dir)?;
+    let cfg = app_store_config(project_dir)?;
+    let client = http_client()?;
+    let token = app_store_access_token(&cfg)?;
+    let app_id = app_store_app_id(&cfg, &client, &token)?;
+    let version_id = app_store_version_id(&root, &client, &token, &app_id)?;
+    let locales = resolve_release_locales(&root, None)?;
+    let local = resolve_app_store_localizations(project_dir, &root, &locales)?;
+    let remote = fetch_app_store_version_localizations(&client, &token, &version_id)?;
+    let diff = app_store_localization_diff(&local, &remote);
+    if json_output {
+        println!("{}", serde_json::to_string_pretty(&diff)?);
+    } else if diff.as_array().is_some_and(Vec::is_empty) {
+        println!(
+            "App Store metadata is in sync for {} locale(s)",
+            locales.len()
+        );
+    } else {
+        println!("App Store metadata differences:");
+        for item in diff.as_array().into_iter().flatten() {
+            println!(
+                "{} {}: local={:?} remote={:?}",
+                item.get("locale")
+                    .and_then(Value::as_str)
+                    .unwrap_or("<locale>"),
+                item.get("field")
+                    .and_then(Value::as_str)
+                    .unwrap_or("<field>"),
+                item.get("local"),
+                item.get("remote")
+            );
+        }
+    }
+    Ok(())
+}
+
+fn app_store_release_config_push(
+    project_dir: &Path,
+    locales_arg: Option<&str>,
+    dry_run: bool,
+    yes: bool,
+    json_output: bool,
+) -> Result<()> {
+    if !dry_run && !yes {
+        bail!("release-config push mutates provider metadata; pass --yes after reviewing `release-config diff`");
+    }
+    let root = read_release_provider_toml(project_dir)?;
+    let cfg = app_store_config(project_dir)?;
+    let locales = resolve_release_locales(&root, locales_arg)?;
+    let localizations = resolve_app_store_localizations(project_dir, &root, &locales)?;
+    if dry_run {
+        let value = json!({
+            "provider": "app-store",
+            "locales": locales,
+            "localizations": localizations,
+            "status": "dry-run"
+        });
+        if json_output {
+            println!("{}", serde_json::to_string_pretty(&value)?);
+        } else {
+            println!(
+                "Would push {} App Store localization(s)",
+                localizations.len()
+            );
+        }
+        return Ok(());
+    }
+    let client = http_client()?;
+    let token = app_store_access_token(&cfg)?;
+    let app_id = app_store_app_id(&cfg, &client, &token)?;
+    let version_id = app_store_version_id(&root, &client, &token, &app_id)?;
+    let remote = fetch_app_store_version_localizations(&client, &token, &version_id)?;
+    let mut responses = Vec::new();
+    for localization in &localizations {
+        if let Some(existing) = remote
+            .iter()
+            .find(|item| item.locale == localization.locale)
+        {
+            let response = client
+                .patch(format!(
+                    "{APP_STORE_API}/v1/appStoreVersionLocalizations/{}",
+                    existing
+                        .id
+                        .as_deref()
+                        .context("remote localization missing id")?
+                ))
+                .bearer_auth(&token)
+                .json(&app_store_localization_update_payload(
+                    existing.id.as_deref().unwrap(),
+                    localization,
+                ))
+                .send()
+                .with_context(|| {
+                    format!(
+                        "failed to update App Store localization {}",
+                        localization.locale
+                    )
+                })?;
+            responses.push(json_response(response, "App Store localization update")?);
+        } else {
+            let response = client
+                .post(format!("{APP_STORE_API}/v1/appStoreVersionLocalizations"))
+                .bearer_auth(&token)
+                .json(&app_store_localization_create_payload(
+                    &version_id,
+                    localization,
+                ))
+                .send()
+                .with_context(|| {
+                    format!(
+                        "failed to create App Store localization {}",
+                        localization.locale
+                    )
+                })?;
+            responses.push(json_response(response, "App Store localization create")?);
+        }
+    }
+    let value = json!({
+        "provider": "app-store",
+        "app_id": app_id,
+        "version_id": version_id,
+        "updated_locales": localizations.iter().map(|item| item.locale.as_str()).collect::<Vec<_>>(),
+        "responses": responses,
+        "status": "pushed"
+    });
+    if json_output {
+        println!("{}", serde_json::to_string_pretty(&value)?);
+    } else {
+        println!("Pushed {} App Store localization(s)", localizations.len());
+    }
+    Ok(())
 }
 
 fn play_release_config_import(
@@ -1112,6 +1318,323 @@ fn play_beta_testers_export(
     Ok(())
 }
 
+fn fetch_app_store_version_localizations(
+    client: &Client,
+    token: &str,
+    version_id: &str,
+) -> Result<Vec<AppStoreLocalization>> {
+    let response = client
+        .get(format!(
+            "{APP_STORE_API}/v1/appStoreVersions/{version_id}/appStoreVersionLocalizations?limit=200"
+        ))
+        .bearer_auth(token)
+        .send()
+        .context("failed to list App Store version localizations")?;
+    let value = json_response(response, "App Store localizations list")?;
+    value
+        .get("data")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .map(app_store_localization_from_value)
+        .collect()
+}
+
+fn app_store_localization_from_value(value: &Value) -> Result<AppStoreLocalization> {
+    let attrs = value.get("attributes").unwrap_or(&Value::Null);
+    Ok(AppStoreLocalization {
+        id: value.get("id").and_then(Value::as_str).map(str::to_string),
+        locale: attrs
+            .get("locale")
+            .and_then(Value::as_str)
+            .context("App Store localization missing locale")?
+            .to_string(),
+        description: attrs
+            .get("description")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string(),
+        keywords: attrs
+            .get("keywords")
+            .and_then(Value::as_str)
+            .map(str::to_string),
+        marketing_url: attrs
+            .get("marketingUrl")
+            .and_then(Value::as_str)
+            .map(str::to_string),
+        promotional_text: attrs
+            .get("promotionalText")
+            .and_then(Value::as_str)
+            .map(str::to_string),
+        support_url: attrs
+            .get("supportUrl")
+            .and_then(Value::as_str)
+            .map(str::to_string),
+        whats_new: attrs
+            .get("whatsNew")
+            .and_then(Value::as_str)
+            .map(str::to_string),
+    })
+}
+
+fn resolve_app_store_localizations(
+    project_dir: &Path,
+    root: &ReleaseProviderToml,
+    locales: &[String],
+) -> Result<Vec<AppStoreLocalization>> {
+    let metadata = active_release(root)
+        .and_then(|release| release.metadata.as_deref())
+        .map(|metadata| read_release_metadata(project_dir, metadata))
+        .transpose()?
+        .unwrap_or_default();
+    locales
+        .iter()
+        .map(|locale| resolve_app_store_localization(project_dir, root, &metadata, locale))
+        .collect()
+}
+
+fn resolve_app_store_localization(
+    project_dir: &Path,
+    root: &ReleaseProviderToml,
+    metadata: &ReleaseMetadataToml,
+    locale: &str,
+) -> Result<AppStoreLocalization> {
+    let listing = root
+        .release
+        .as_ref()
+        .and_then(|release| release.store_listing.get("app_store"))
+        .and_then(|listings| listings.get(locale))
+        .cloned()
+        .unwrap_or_default();
+    let meta = metadata.app_store.get(locale).cloned().unwrap_or_default();
+    let description = meta.description.with_context(|| {
+        format!("active release metadata [app_store.{locale}].description is required")
+    })?;
+    let whats_new = active_release(root)
+        .and_then(|release| release.release_notes.as_deref())
+        .map(|notes| project_dir.join(notes).join(format!("{locale}.md")))
+        .filter(|path| path.exists())
+        .map(fs::read_to_string)
+        .transpose()?;
+    Ok(AppStoreLocalization {
+        id: None,
+        locale: locale.to_string(),
+        description,
+        keywords: (!listing.keywords.is_empty()).then(|| listing.keywords.join(",")),
+        marketing_url: listing.marketing_url,
+        promotional_text: meta.promotional_text,
+        support_url: listing.support_url,
+        whats_new: whats_new
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty()),
+    })
+}
+
+fn app_store_version_id(
+    root: &ReleaseProviderToml,
+    client: &Client,
+    token: &str,
+    app_id: &str,
+) -> Result<String> {
+    let version = active_release(root)
+        .and_then(|release| release.version.as_deref())
+        .or_else(|| {
+            root.release
+                .as_ref()?
+                .active_release
+                .as_deref()
+                .and_then(|id| id.split('+').next())
+        })
+        .context("active [[releases]].version is required for App Store metadata sync")?;
+    let response = client
+        .get(format!(
+            "{APP_STORE_API}/v1/apps/{app_id}/appStoreVersions?filter[versionString]={version}&limit=1"
+        ))
+        .bearer_auth(token)
+        .send()
+        .context("failed to list App Store versions")?;
+    let value = json_response(response, "App Store versions list")?;
+    value
+        .get("data")
+        .and_then(Value::as_array)
+        .and_then(|items| items.first())
+        .and_then(|item| item.get("id"))
+        .and_then(Value::as_str)
+        .map(str::to_string)
+        .with_context(|| format!("App Store version {version} was not found for app {app_id}"))
+}
+
+fn app_store_localization_update_payload(id: &str, localization: &AppStoreLocalization) -> Value {
+    json!({
+        "data": {
+            "type": "appStoreVersionLocalizations",
+            "id": id,
+            "attributes": app_store_localization_attributes(localization)
+        }
+    })
+}
+
+fn app_store_localization_create_payload(
+    version_id: &str,
+    localization: &AppStoreLocalization,
+) -> Value {
+    json!({
+        "data": {
+            "type": "appStoreVersionLocalizations",
+            "attributes": app_store_localization_attributes(localization),
+            "relationships": {
+                "appStoreVersion": {
+                    "data": {"type": "appStoreVersions", "id": version_id}
+                }
+            }
+        }
+    })
+}
+
+fn app_store_localization_attributes(localization: &AppStoreLocalization) -> Value {
+    let mut attrs = serde_json::Map::new();
+    attrs.insert(
+        "locale".to_string(),
+        Value::String(localization.locale.clone()),
+    );
+    attrs.insert(
+        "description".to_string(),
+        Value::String(localization.description.clone()),
+    );
+    if let Some(value) = &localization.keywords {
+        attrs.insert("keywords".to_string(), Value::String(value.clone()));
+    }
+    if let Some(value) = &localization.marketing_url {
+        attrs.insert("marketingUrl".to_string(), Value::String(value.clone()));
+    }
+    if let Some(value) = &localization.promotional_text {
+        attrs.insert("promotionalText".to_string(), Value::String(value.clone()));
+    }
+    if let Some(value) = &localization.support_url {
+        attrs.insert("supportUrl".to_string(), Value::String(value.clone()));
+    }
+    if let Some(value) = &localization.whats_new {
+        attrs.insert("whatsNew".to_string(), Value::String(value.clone()));
+    }
+    Value::Object(attrs)
+}
+
+fn write_imported_app_store_localizations(
+    project_dir: &Path,
+    root: &ReleaseProviderToml,
+    locales_arg: Option<&str>,
+    remote: &[AppStoreLocalization],
+) -> Result<()> {
+    let selected = locales_arg.map(parse_locale_list).transpose()?;
+    let selected = selected.as_ref();
+    let fission_path = project_dir.join("fission.toml");
+    let metadata_path = active_release(root)
+        .and_then(|release| release.metadata.as_deref())
+        .map(|metadata| project_dir.join(metadata))
+        .context("active release metadata path is required for App Store metadata import")?;
+    let mut metadata_doc: toml::Value = if metadata_path.exists() {
+        toml::from_str(&fs::read_to_string(&metadata_path)?)?
+    } else {
+        toml::Value::Table(Default::default())
+    };
+    let mut fission_doc: toml::Value = toml::from_str(&fs::read_to_string(&fission_path)?)?;
+    for item in remote {
+        if selected.is_some_and(|selected| !selected.contains(&item.locale)) {
+            continue;
+        }
+        set_toml_path(
+            &mut metadata_doc,
+            &format!("app_store.{}.description", item.locale),
+            toml::Value::String(item.description.clone()),
+        )?;
+        if let Some(value) = &item.promotional_text {
+            set_toml_path(
+                &mut metadata_doc,
+                &format!("app_store.{}.promotional_text", item.locale),
+                toml::Value::String(value.clone()),
+            )?;
+        }
+        if let Some(value) = &item.support_url {
+            set_toml_path(
+                &mut fission_doc,
+                &format!(
+                    "release.store_listing.app_store.{}.support_url",
+                    item.locale
+                ),
+                toml::Value::String(value.clone()),
+            )?;
+        }
+        if let Some(value) = &item.marketing_url {
+            set_toml_path(
+                &mut fission_doc,
+                &format!(
+                    "release.store_listing.app_store.{}.marketing_url",
+                    item.locale
+                ),
+                toml::Value::String(value.clone()),
+            )?;
+        }
+        if let Some(value) = &item.keywords {
+            set_toml_path(
+                &mut fission_doc,
+                &format!("release.store_listing.app_store.{}.keywords", item.locale),
+                toml::Value::Array(
+                    value
+                        .split(',')
+                        .map(|item| toml::Value::String(item.trim().to_string()))
+                        .collect(),
+                ),
+            )?;
+        }
+    }
+    if let Some(parent) = metadata_path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    fs::write(
+        &metadata_path,
+        toml::to_string_pretty(&metadata_doc)? + "\n",
+    )?;
+    fs::write(&fission_path, toml::to_string_pretty(&fission_doc)? + "\n")?;
+    Ok(())
+}
+
+fn app_store_localization_diff(
+    local: &[AppStoreLocalization],
+    remote: &[AppStoreLocalization],
+) -> Value {
+    let mut remote_by_locale = remote
+        .iter()
+        .map(|item| (item.locale.as_str(), item))
+        .collect::<BTreeMap<_, _>>();
+    let mut diffs = Vec::new();
+    for local_item in local {
+        match remote_by_locale.remove(local_item.locale.as_str()) {
+            Some(remote_item) => {
+                push_field_diff(&mut diffs, &local_item.locale, "description", &local_item.description, &remote_item.description);
+                push_option_diff(&mut diffs, &local_item.locale, "keywords", &local_item.keywords, &remote_item.keywords);
+                push_option_diff(&mut diffs, &local_item.locale, "marketing_url", &local_item.marketing_url, &remote_item.marketing_url);
+                push_option_diff(&mut diffs, &local_item.locale, "promotional_text", &local_item.promotional_text, &remote_item.promotional_text);
+                push_option_diff(&mut diffs, &local_item.locale, "support_url", &local_item.support_url, &remote_item.support_url);
+                push_option_diff(&mut diffs, &local_item.locale, "whats_new", &local_item.whats_new, &remote_item.whats_new);
+            }
+            None => diffs.push(json!({"locale": local_item.locale, "field": "localization", "local": "present", "remote": "missing"})),
+        }
+    }
+    Value::Array(diffs)
+}
+
+fn push_option_diff(
+    diffs: &mut Vec<Value>,
+    locale: &str,
+    field: &str,
+    local: &Option<String>,
+    remote: &Option<String>,
+) {
+    if local != remote {
+        diffs.push(json!({"locale": locale, "field": field, "local": local, "remote": remote}));
+    }
+}
+
 fn fetch_play_listings(
     client: &Client,
     token: &str,
@@ -1416,7 +1939,7 @@ fn parse_locale_list(locales: &str) -> Result<Vec<String>> {
 
 fn unsupported_release_config(provider: publish::DistributionProvider, action: &str) -> Result<()> {
     bail!(
-        "{} release-config {} is not exposed by the current provider API backend; Google Play listing import/diff/push is implemented",
+        "{} release-config {} is not exposed by the current provider API backend; Google Play and App Store metadata import/diff/push are implemented",
         provider.as_str(),
         action
     )
@@ -1971,6 +2494,37 @@ groups = ["qa@example.com"]
                 .pointer("/data/relationships/betaGroups/data/0/id")
                 .and_then(Value::as_str),
             Some("group-123")
+        );
+    }
+
+    #[test]
+    fn app_store_localization_payload_uses_version_level_fields() {
+        let localization = AppStoreLocalization {
+            id: None,
+            locale: "en-US".to_string(),
+            description: "A focused task manager.".to_string(),
+            keywords: Some("todo,tasks".to_string()),
+            marketing_url: Some("https://example.com".to_string()),
+            promotional_text: Some("Better planning.".to_string()),
+            support_url: Some("https://example.com/support".to_string()),
+            whats_new: Some("New editor.".to_string()),
+        };
+        let payload = app_store_localization_create_payload("version-123", &localization);
+        assert_eq!(
+            payload.pointer("/data/type").and_then(Value::as_str),
+            Some("appStoreVersionLocalizations")
+        );
+        assert_eq!(
+            payload
+                .pointer("/data/attributes/locale")
+                .and_then(Value::as_str),
+            Some("en-US")
+        );
+        assert_eq!(
+            payload
+                .pointer("/data/relationships/appStoreVersion/data/id")
+                .and_then(Value::as_str),
+            Some("version-123")
         );
     }
 }
