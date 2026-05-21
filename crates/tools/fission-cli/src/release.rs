@@ -680,7 +680,13 @@ fn edit_release_config(project_dir: &Path, tui: bool) -> Result<()> {
     let path = project_dir.join("fission.toml");
     fs::metadata(&path).with_context(|| format!("{} does not exist", path.display()))?;
     if tui {
-        bail!("release-config TUI editing is part of the CLI lifecycle surface, but the editor screen is not wired yet; use `fission release-config edit` to open fission.toml in $EDITOR");
+        return crate::ui::run_ui(crate::ui::UiOptions {
+            project_dir: project_dir.to_path_buf(),
+            screenshot: None,
+            exit_after_render: false,
+            width: None,
+            height: None,
+        });
     }
     let editor = env::var("VISUAL")
         .or_else(|_| env::var("EDITOR"))
