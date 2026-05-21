@@ -14,6 +14,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 mod files;
 mod package;
+mod stores;
 
 const ARTIFACT_MANIFEST: &str = "artifact-manifest.json";
 
@@ -134,6 +135,7 @@ pub(crate) struct ReadinessOptions {
     pub(crate) provider: Option<DistributionProvider>,
     pub(crate) artifact: Option<PathBuf>,
     pub(crate) site: String,
+    pub(crate) track: Option<String>,
     pub(crate) json: bool,
 }
 
@@ -252,6 +254,9 @@ struct DistributionManifest {
     onedrive: BTreeMap<String, OneDriveConfig>,
     #[serde(default)]
     dropbox: BTreeMap<String, DropboxConfig>,
+    play_store: Option<PlayStoreConfig>,
+    app_store: Option<AppStoreConfig>,
+    microsoft_store: Option<MicrosoftStoreConfig>,
     #[serde(default)]
     github_pages: BTreeMap<String, GithubPagesConfig>,
     #[serde(default)]
@@ -291,6 +296,40 @@ struct DropboxConfig {
     path_prefix: Option<String>,
     mode: Option<String>,
     autorename: Option<bool>,
+}
+
+#[derive(Clone, Debug, Deserialize, Default)]
+struct PlayStoreConfig {
+    package_name: Option<String>,
+    default_track: Option<String>,
+    service_account: Option<String>,
+    release_status: Option<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Default)]
+struct AppStoreConfig {
+    bundle_id: Option<String>,
+    issuer_id: Option<String>,
+    key_id: Option<String>,
+    api_key_path: Option<String>,
+    default_track: Option<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Default)]
+struct MicrosoftStoreConfig {
+    product_id: Option<String>,
+    package_identity_name: Option<String>,
+    tenant_id: Option<String>,
+    client_id: Option<String>,
+    seller_id: Option<String>,
+    package_url: Option<String>,
+    package_type: Option<String>,
+    languages: Option<Vec<String>>,
+    architectures: Option<Vec<String>>,
+    is_silent_install: Option<bool>,
+    installer_parameters: Option<String>,
+    generic_doc_url: Option<String>,
+    submit: Option<bool>,
 }
 
 #[derive(Clone, Debug, Deserialize, Default)]
@@ -376,6 +415,7 @@ pub(crate) fn readiness(options: ReadinessOptions) -> Result<()> {
                 &options.project_dir,
                 provider,
                 &options.site,
+                options.track.as_deref(),
                 options.artifact.as_deref(),
                 &config,
             )?);
@@ -391,6 +431,7 @@ pub(crate) fn readiness(options: ReadinessOptions) -> Result<()> {
                 &options.project_dir,
                 provider,
                 &options.site,
+                options.track.as_deref(),
                 artifact,
                 &config,
             )
@@ -473,6 +514,7 @@ fn publish_artifact(options: &DistributeOptions, config: &PublishManifest) -> Re
         &options.project_dir,
         options.provider,
         &options.site,
+        options.track.as_deref(),
         Some(&artifact_path),
         config,
     )?;
@@ -507,10 +549,14 @@ fn publish_artifact(options: &DistributeOptions, config: &PublishManifest) -> Re
         DistributionProvider::Dropbox => {
             files::publish_dropbox(options, config, &artifact_path, &manifest)?
         }
-        DistributionProvider::PlayStore
-        | DistributionProvider::AppStore
-        | DistributionProvider::MicrosoftStore => {
-            publish_manual_provider(options, &artifact_path, &manifest)?
+        DistributionProvider::PlayStore => {
+            stores::publish_play_store(options, config, &artifact_path, &manifest)?
+        }
+        DistributionProvider::AppStore => {
+            stores::publish_app_store(options, config, &artifact_path, &manifest)?
+        }
+        DistributionProvider::MicrosoftStore => {
+            stores::publish_microsoft_store(options, config, &artifact_path, &manifest)?
         }
     };
     write_receipt(&options.project_dir, &receipt)?;
@@ -579,6 +625,7 @@ fn setup_non_static_provider(options: &DistributeOptions, config: &PublishManife
         &options.project_dir,
         options.provider,
         &options.site,
+        options.track.as_deref(),
         options.artifact.as_deref(),
         config,
     )?;
@@ -874,34 +921,6 @@ fn publish_netlify(
             .as_ref()
             .filter(|value| !value.trim().is_empty())
             .map(|domain| format!("https://{}", domain.trim()))
-    })
-}
-
-fn publish_manual_provider(
-    options: &DistributeOptions,
-    artifact_path: &Path,
-    manifest: &ArtifactManifest,
-) -> Result<DistributionReceipt> {
-    let provider = options.provider.as_str();
-    Ok(DistributionReceipt {
-        schema_version: 1,
-        created_at_unix_seconds: now_unix_seconds(),
-        provider: provider.to_string(),
-        site: options.site.clone(),
-        action: "publish".to_string(),
-        artifact_manifest: Some(artifact_path.display().to_string()),
-        deployment_id: options.deploy.clone(),
-        canonical_url: None,
-        preview_url: None,
-        custom_domain: None,
-        status: "manual-provider-required".to_string(),
-        stdout: None,
-        stderr: None,
-        manual_follow_up: vec![format!(
-            "{provider} provider upload is represented in the lifecycle model, but direct upload automation is not wired in this CLI build. Track: {}. Artifact root: {}",
-            options.track.as_deref().unwrap_or("<provider default>"),
-            manifest.root_dir
-        )],
     })
 }
 
@@ -1248,6 +1267,7 @@ fn readiness_distribute(
     project_dir: &Path,
     provider: DistributionProvider,
     site: &str,
+    track: Option<&str>,
     artifact: Option<&Path>,
     config: &PublishManifest,
 ) -> Result<Vec<ReadinessCheck>> {
@@ -1261,18 +1281,20 @@ fn readiness_distribute(
         ));
         if path.exists() {
             let manifest = read_artifact_manifest(path)?;
-            checks.push(check(
-                "release.distribution.static_root_exists",
-                CheckSeverity::Error,
-                if Path::new(&manifest.root_dir).join("index.html").exists() {
-                    CheckStatus::Passed
-                } else {
-                    CheckStatus::Missing
-                },
-                "static artifact root contains index.html",
-                Some(manifest.root_dir),
-                vec!["Rebuild the static package and ensure the output includes index.html."],
-            ));
+            if provider_requires_static_root(provider) {
+                checks.push(check(
+                    "release.distribution.static_root_exists",
+                    CheckSeverity::Error,
+                    if Path::new(&manifest.root_dir).join("index.html").exists() {
+                        CheckStatus::Passed
+                    } else {
+                        CheckStatus::Missing
+                    },
+                    "static artifact root contains index.html",
+                    Some(manifest.root_dir),
+                    vec!["Rebuild the static package and ensure the output includes index.html."],
+                ));
+            }
         }
     }
 
@@ -1290,29 +1312,26 @@ fn readiness_distribute(
         }
         DistributionProvider::OneDrive => files::readiness_onedrive(site, config, &mut checks)?,
         DistributionProvider::Dropbox => files::readiness_dropbox(site, config, &mut checks)?,
-        DistributionProvider::PlayStore => readiness_store_provider(
-            "play_store",
-            "PLAY_STORE_SERVICE_ACCOUNT_JSON",
-            "Google Play service account credentials are available",
-            "Set PLAY_STORE_SERVICE_ACCOUNT_JSON or configure `fission auth import play-store`.",
-            &mut checks,
-        ),
-        DistributionProvider::AppStore => readiness_store_provider(
-            "app_store",
-            "APP_STORE_CONNECT_API_KEY",
-            "App Store Connect API credentials are available",
-            "Set APP_STORE_CONNECT_API_KEY or configure `fission auth import app-store`.",
-            &mut checks,
-        ),
-        DistributionProvider::MicrosoftStore => readiness_store_provider(
-            "microsoft_store",
-            "MICROSOFT_STORE_TOKEN",
-            "Microsoft Store credentials are available",
-            "Set MICROSOFT_STORE_TOKEN or configure `fission auth import microsoft-store`.",
-            &mut checks,
-        ),
+        DistributionProvider::PlayStore => {
+            stores::readiness_play_store(track, artifact, config, &mut checks)?
+        }
+        DistributionProvider::AppStore => {
+            stores::readiness_app_store(track, artifact, config, &mut checks)?
+        }
+        DistributionProvider::MicrosoftStore => {
+            stores::readiness_microsoft_store(track, artifact, config, &mut checks)?
+        }
     }
     Ok(checks)
+}
+
+fn provider_requires_static_root(provider: DistributionProvider) -> bool {
+    matches!(
+        provider,
+        DistributionProvider::GithubPages
+            | DistributionProvider::CloudflarePages
+            | DistributionProvider::Netlify
+    )
 }
 
 fn readiness_github_pages(
@@ -1467,28 +1486,6 @@ fn readiness_netlify(
         cfg.base_path.as_deref(),
     ));
     Ok(())
-}
-
-fn readiness_store_provider(
-    provider_id: &str,
-    credential_env: &str,
-    summary: &str,
-    remediation: &str,
-    checks: &mut Vec<ReadinessCheck>,
-) {
-    checks.push(required_env(
-        &format!("release.{provider_id}.credentials_available"),
-        credential_env,
-        remediation,
-    ));
-    checks.push(check(
-        format!("release.{provider_id}.metadata_backend"),
-        CheckSeverity::Warning,
-        CheckStatus::Warning,
-        summary,
-        Some("store package, signing, beta, metadata, and review operations are represented in the CLI surface; provider API submission still needs the concrete backend for this provider".to_string()),
-        vec!["Run package readiness first, then wire provider credentials and release metadata before store submission."],
-    ));
 }
 
 fn build_artifact_manifest(

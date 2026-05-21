@@ -150,6 +150,7 @@ where
             provider,
             artifact,
             site,
+            track,
             project_dir,
             json,
         } => publish::readiness(publish::ReadinessOptions {
@@ -160,6 +161,7 @@ where
             provider,
             artifact,
             site,
+            track,
             json,
         }),
         Command::ReleaseConfig { command } => release::release_config(command),

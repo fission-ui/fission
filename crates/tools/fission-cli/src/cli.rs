@@ -188,6 +188,9 @@ pub(crate) enum Command {
         /// Named distribution site/profile from fission.toml.
         #[arg(long, default_value = "production")]
         site: String,
+        /// Provider track/channel/group, such as internal, testflight, or production.
+        #[arg(long)]
+        track: Option<String>,
         /// Project directory; defaults to the current working directory.
         #[arg(long, default_value = ".")]
         project_dir: PathBuf,
