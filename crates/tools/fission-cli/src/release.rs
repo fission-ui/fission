@@ -13,6 +13,8 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+mod model;
+
 #[derive(Subcommand, Debug)]
 pub(crate) enum ReleaseConfigCommand {
     /// Open release configuration in an editor or the Fission terminal UI.
@@ -355,7 +357,10 @@ pub(crate) fn release_config(command: ReleaseConfigCommand) -> Result<()> {
             provider,
             project_dir,
             json,
-        } => print_report(validate_release_config(&project_dir, provider)?, json),
+        } => print_report(
+            model::validate_release_config_model(&project_dir, provider)?,
+            json,
+        ),
         ReleaseConfigCommand::Set {
             field,
             value,
@@ -829,48 +834,6 @@ fn provider_operation_report(
         .checks
         .push(ok_check("release_config.confirmed", yes.to_string()));
     print_report(report, json)
-}
-
-fn validate_release_config(
-    project_dir: &Path,
-    provider: Option<publish::DistributionProvider>,
-) -> Result<LifecycleReport> {
-    let mut report = base_report("release-config.validate", provider, None);
-    let path = project_dir.join("fission.toml");
-    report.checks.push(path_check(
-        "release_config.fission_toml_exists",
-        path.clone(),
-        "fission.toml exists",
-    ));
-    if path.exists() {
-        let data = fs::read_to_string(&path)?;
-        match toml::from_str::<toml::Value>(&data) {
-            Ok(value) => {
-                report.checks.push(ok_check(
-                    "release_config.toml_parses",
-                    "fission.toml parses",
-                ));
-                report.checks.push(value_path_check(
-                    &value,
-                    "app",
-                    "release_config.app_table",
-                    "[app] table exists",
-                ));
-                report.checks.push(value_path_check(
-                    &value,
-                    "releases",
-                    "release_config.releases",
-                    "[[releases]] entries exist or are ready to be added",
-                ));
-            }
-            Err(error) => report.checks.push(failed_check(
-                "release_config.toml_parses",
-                error.to_string(),
-            )),
-        }
-    }
-    finalize_status(&mut report);
-    Ok(report)
 }
 
 fn validate_release_content(
