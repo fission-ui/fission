@@ -34,3 +34,4 @@ aws-config = "1"
 aws-sdk-s3 = "1"
 tokio = { version = "1", features = ["rt", "rt-multi-thread"] }
 jsonwebtoken = "9"
+zip = { version = "2", default-features = false, features = ["deflate"] }

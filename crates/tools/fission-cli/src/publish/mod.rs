@@ -14,6 +14,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 mod files;
 mod package;
+mod static_hosts;
 mod stores;
 
 const ARTIFACT_MANIFEST: &str = "artifact-manifest.json";
@@ -537,7 +538,7 @@ fn publish_artifact(options: &DistributeOptions, config: &PublishManifest) -> Re
             publish_cloudflare_pages(options, config, &artifact_path, &manifest)?
         }
         DistributionProvider::Netlify => {
-            publish_netlify(options, config, &artifact_path, &manifest)?
+            static_hosts::publish_netlify(options, config, &artifact_path, &manifest)?
         }
         DistributionProvider::S3 => files::publish_s3(options, config, &artifact_path, &manifest)?,
         DistributionProvider::GoogleDrive => {
@@ -560,10 +561,20 @@ fn publish_artifact(options: &DistributeOptions, config: &PublishManifest) -> Re
         }
     };
     write_receipt(&options.project_dir, &receipt)?;
+    print_distribution_receipt(options, &receipt)
+}
+
+fn print_distribution_receipt(
+    options: &DistributeOptions,
+    receipt: &DistributionReceipt,
+) -> Result<()> {
     if options.json {
         println!("{}", serde_json::to_string_pretty(&receipt)?);
     } else {
-        println!("{} publish status: {}", receipt.provider, receipt.status);
+        println!(
+            "{} {} status: {}",
+            receipt.provider, receipt.action, receipt.status
+        );
         if let Some(url) = &receipt.canonical_url {
             println!("URL: {url}");
         }
@@ -583,12 +594,7 @@ fn provider_status(options: &DistributeOptions, config: &PublishManifest) -> Res
             "wrangler",
             cloudflare_status_args(config, &options.site)?,
         )?,
-        DistributionProvider::Netlify => command_status_receipt(
-            options,
-            "netlify",
-            "netlify",
-            netlify_status_args(config, &options.site)?,
-        )?,
+        DistributionProvider::Netlify => static_hosts::netlify_status(options, config)?,
         DistributionProvider::S3
         | DistributionProvider::GoogleDrive
         | DistributionProvider::OneDrive
@@ -608,16 +614,21 @@ fn provider_status(options: &DistributeOptions, config: &PublishManifest) -> Res
     Ok(())
 }
 
-fn provider_lifecycle(options: &DistributeOptions, _config: &PublishManifest) -> Result<()> {
-    bail!(
-        "{} currently supports setup, publish, and status; {} requires provider-specific deployment APIs that are not wired yet",
-        options.provider.as_str(),
-        match options.action {
-            DistributeAction::Promote => "promote",
-            DistributeAction::Rollback => "rollback",
-            _ => "this operation",
-        }
-    )
+fn provider_lifecycle(options: &DistributeOptions, config: &PublishManifest) -> Result<()> {
+    let receipt = match options.provider {
+        DistributionProvider::Netlify => static_hosts::netlify_lifecycle(options, config)?,
+        _ => bail!(
+            "{} currently supports setup, publish, and status; {} is not exposed by this provider backend",
+            options.provider.as_str(),
+            match options.action {
+                DistributeAction::Promote => "promote",
+                DistributeAction::Rollback => "rollback",
+                _ => "this operation",
+            }
+        ),
+    };
+    write_receipt(&options.project_dir, &receipt)?;
+    print_distribution_receipt(options, &receipt)
 }
 
 fn setup_non_static_provider(options: &DistributeOptions, config: &PublishManifest) -> Result<()> {
@@ -897,33 +908,6 @@ fn publish_cloudflare_pages(
     )
 }
 
-fn publish_netlify(
-    options: &DistributeOptions,
-    config: &PublishManifest,
-    artifact_path: &Path,
-    manifest: &ArtifactManifest,
-) -> Result<DistributionReceipt> {
-    let cfg = netlify_config(config, &options.site)?;
-    let mut args = vec![
-        "deploy".to_string(),
-        "--dir".to_string(),
-        manifest.root_dir.clone(),
-    ];
-    if cfg.production.unwrap_or(true) {
-        args.push("--prod".to_string());
-    }
-    if let Some(site_id) = cfg.site_id.as_deref() {
-        args.push("--site".to_string());
-        args.push(site_id.to_string());
-    }
-    run_publish_command(options, "netlify", "netlify", args, artifact_path, || {
-        cfg.custom_domain
-            .as_ref()
-            .filter(|value| !value.trim().is_empty())
-            .map(|domain| format!("https://{}", domain.trim()))
-    })
-}
-
 fn generic_status_receipt(options: &DistributeOptions) -> DistributionReceipt {
     DistributionReceipt {
         schema_version: 1,
@@ -1079,16 +1063,6 @@ fn cloudflare_status_args(config: &PublishManifest, site: &str) -> Result<Vec<St
         "--project-name".to_string(),
         project_name,
     ])
-}
-
-fn netlify_status_args(config: &PublishManifest, site: &str) -> Result<Vec<String>> {
-    let cfg = netlify_config(config, site)?;
-    let mut args = vec!["status".to_string()];
-    if let Some(site_id) = cfg.site_id {
-        args.push("--site".to_string());
-        args.push(site_id);
-    }
-    Ok(args)
 }
 
 fn readiness_package(
@@ -1474,12 +1448,7 @@ fn readiness_netlify(
     checks.push(required_env(
         "release.netlify.token_available",
         "NETLIFY_AUTH_TOKEN",
-        "Create a Netlify access token and store it in CI secrets or your shell environment.",
-    ));
-    checks.push(check_tool(
-        "release.netlify.cli_available",
-        "netlify",
-        "Install the Netlify CLI or wait for the direct Rust API deploy backend.",
+        "Create a Netlify access token and store it in CI secrets, your shell environment, or the Fission release vault.",
     ));
     checks.push(base_path_check(
         "release.netlify.base_path_root",
