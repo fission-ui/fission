@@ -223,6 +223,11 @@ pub(crate) enum Command {
         #[command(subcommand)]
         command: release::ReviewsCommand,
     },
+    /// Run project-defined release workflows.
+    ReleaseWorkflow {
+        #[command(subcommand)]
+        command: release::ReleaseWorkflowCommand,
+    },
     /// Manage release provider authentication.
     Auth {
         #[command(subcommand)]

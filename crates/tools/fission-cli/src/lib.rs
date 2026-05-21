@@ -169,6 +169,7 @@ where
         Command::Beta { command } => release::beta(command),
         Command::Signing { command } => release::signing(command),
         Command::Reviews { command } => release::reviews(command),
+        Command::ReleaseWorkflow { command } => release::release_workflow(command),
         Command::Auth { command } => release::auth(command),
         Command::Logs {
             target,

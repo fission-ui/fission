@@ -17,6 +17,7 @@ mod content;
 mod model;
 mod signing_ops;
 mod store_ops;
+mod workflow_ops;
 
 #[derive(Subcommand, Debug)]
 pub(crate) enum ReleaseConfigCommand {
@@ -293,6 +294,27 @@ pub(crate) enum ReviewsCommand {
 }
 
 #[derive(Subcommand, Debug)]
+pub(crate) enum ReleaseWorkflowCommand {
+    /// List configured release workflows.
+    List {
+        #[arg(long, default_value = ".")]
+        project_dir: PathBuf,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Run a named release workflow from fission.toml.
+    Run {
+        name: String,
+        #[arg(long, default_value = ".")]
+        project_dir: PathBuf,
+        #[arg(long)]
+        dry_run: bool,
+        #[arg(long)]
+        json: bool,
+    },
+}
+
+#[derive(Subcommand, Debug)]
 pub(crate) enum AuthCommand {
     Login {
         #[arg(value_enum)]
@@ -557,6 +579,20 @@ pub(crate) fn reviews(command: ReviewsCommand) -> Result<()> {
             dry_run,
             json,
         ),
+    }
+}
+
+pub(crate) fn release_workflow(command: ReleaseWorkflowCommand) -> Result<()> {
+    match command {
+        ReleaseWorkflowCommand::List { project_dir, json } => {
+            workflow_ops::list(&project_dir, json)
+        }
+        ReleaseWorkflowCommand::Run {
+            name,
+            project_dir,
+            dry_run,
+            json,
+        } => workflow_ops::run(&project_dir, &name, dry_run, json),
     }
 }
 
