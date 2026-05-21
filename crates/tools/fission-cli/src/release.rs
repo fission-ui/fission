@@ -15,6 +15,7 @@ use std::process::Command;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 mod content;
+mod microsoft_store_ops;
 mod model;
 mod signing_ops;
 mod store_ops;

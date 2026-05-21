@@ -287,6 +287,14 @@ pub(super) fn release_config_import(
         publish::DistributionProvider::AppStore => {
             app_store_release_config_import(project_dir, locales.as_deref(), yes, json_output)
         }
+        publish::DistributionProvider::MicrosoftStore => {
+            super::microsoft_store_ops::release_config_import(
+                project_dir,
+                locales.as_deref(),
+                yes,
+                json_output,
+            )
+        }
         _ => unsupported_release_config(provider, "import"),
     }
 }
@@ -302,6 +310,9 @@ pub(super) fn release_config_diff(
         }
         publish::DistributionProvider::AppStore => {
             app_store_release_config_diff(project_dir, json_output)
+        }
+        publish::DistributionProvider::MicrosoftStore => {
+            super::microsoft_store_ops::release_config_diff(project_dir, json_output)
         }
         _ => unsupported_release_config(provider, "diff"),
     }
@@ -326,6 +337,15 @@ pub(super) fn release_config_push(
             yes,
             json_output,
         ),
+        publish::DistributionProvider::MicrosoftStore => {
+            super::microsoft_store_ops::release_config_push(
+                project_dir,
+                locales.as_deref(),
+                dry_run,
+                yes,
+                json_output,
+            )
+        }
         _ => unsupported_release_config(provider, "push"),
     }
 }
@@ -1939,7 +1959,7 @@ fn parse_locale_list(locales: &str) -> Result<Vec<String>> {
 
 fn unsupported_release_config(provider: publish::DistributionProvider, action: &str) -> Result<()> {
     bail!(
-        "{} release-config {} is not exposed by the current provider API backend; Google Play and App Store metadata import/diff/push are implemented",
+        "{} release-config {} is not exposed by the current provider API backend; Google Play, App Store, and Microsoft Store metadata import/diff/push are implemented",
         provider.as_str(),
         action
     )
