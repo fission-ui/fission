@@ -616,6 +616,7 @@ fn provider_status(options: &DistributeOptions, config: &PublishManifest) -> Res
 fn provider_lifecycle(options: &DistributeOptions, config: &PublishManifest) -> Result<()> {
     let receipt = match options.provider {
         DistributionProvider::Netlify => static_hosts::netlify_lifecycle(options, config)?,
+        DistributionProvider::CloudflarePages => cloudflare_pages_lifecycle(options, config)?,
         _ => bail!(
             "{} currently supports setup, publish, and status; {} is not exposed by this provider backend",
             options.provider.as_str(),
@@ -628,6 +629,109 @@ fn provider_lifecycle(options: &DistributeOptions, config: &PublishManifest) -> 
     };
     write_receipt(&options.project_dir, &receipt)?;
     print_distribution_receipt(options, &receipt)
+}
+
+fn cloudflare_pages_lifecycle(
+    options: &DistributeOptions,
+    config: &PublishManifest,
+) -> Result<DistributionReceipt> {
+    let cfg = cloudflare_config(config, &options.site)?;
+    let account_id = cfg
+        .account_id
+        .clone()
+        .or_else(|| env::var("CLOUDFLARE_ACCOUNT_ID").ok())
+        .context(
+            "distribution.cloudflare_pages.<site>.account_id or CLOUDFLARE_ACCOUNT_ID is required",
+        )?;
+    let project_name = cfg
+        .project_name
+        .as_deref()
+        .context("distribution.cloudflare_pages.<site>.project_name is required")?;
+    let deploy = options
+        .deploy
+        .as_deref()
+        .context("cloudflare-pages promote/rollback requires --deploy <deployment-id>")?;
+    if options.dry_run {
+        return Ok(DistributionReceipt {
+            schema_version: 1,
+            created_at_unix_seconds: now_unix_seconds(),
+            provider: "cloudflare-pages".to_string(),
+            site: options.site.clone(),
+            action: match options.action {
+                DistributeAction::Promote => "promote",
+                DistributeAction::Rollback => "rollback",
+                _ => "lifecycle",
+            }
+            .to_string(),
+            artifact_manifest: None,
+            deployment_id: Some(deploy.to_string()),
+            canonical_url: cloudflare_url(&cfg),
+            preview_url: None,
+            custom_domain: non_empty(cfg.custom_domain.clone()),
+            status: "dry-run".to_string(),
+            stdout: None,
+            stderr: None,
+            manual_follow_up: vec![format!(
+                "Would make Cloudflare Pages deployment {deploy} live by calling the provider rollback endpoint."
+            )],
+        });
+    }
+    let token = release::provider_secret(
+        DistributionProvider::CloudflarePages,
+        &["CLOUDFLARE_API_TOKEN"],
+    )?
+    .context("CLOUDFLARE_API_TOKEN or Fission vault credentials are required")?;
+    let url = format!(
+        "https://api.cloudflare.com/client/v4/accounts/{account_id}/pages/projects/{project_name}/deployments/{deploy}/rollback"
+    );
+    let response = reqwest::blocking::Client::builder()
+        .user_agent("fission-cli-publish/0.1")
+        .build()?
+        .post(url)
+        .bearer_auth(token)
+        .send()
+        .context("failed to rollback Cloudflare Pages deployment")?;
+    let status = response.status();
+    let text = response.text()?;
+    if !status.is_success() {
+        bail!("Cloudflare Pages rollback failed with {status}: {text}");
+    }
+    let value: serde_json::Value = serde_json::from_str(&text)
+        .with_context(|| format!("failed to parse Cloudflare Pages rollback response: {text}"))?;
+    let result = value.get("result").unwrap_or(&value);
+    Ok(DistributionReceipt {
+        schema_version: 1,
+        created_at_unix_seconds: now_unix_seconds(),
+        provider: "cloudflare-pages".to_string(),
+        site: options.site.clone(),
+        action: match options.action {
+            DistributeAction::Promote => "promote",
+            DistributeAction::Rollback => "rollback",
+            _ => "lifecycle",
+        }
+        .to_string(),
+        artifact_manifest: None,
+        deployment_id: result
+            .get("id")
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_string)
+            .or_else(|| Some(deploy.to_string())),
+        canonical_url: cloudflare_url(&cfg),
+        preview_url: result
+            .get("url")
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_string),
+        custom_domain: non_empty(cfg.custom_domain.clone()),
+        status: result
+            .pointer("/latest_stage/status")
+            .or_else(|| result.get("status"))
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("rollback-requested")
+            .to_string(),
+        stdout: Some(serde_json::to_string_pretty(&value)?),
+        stderr: None,
+        manual_follow_up: Vec::new(),
+    })
 }
 
 fn setup_non_static_provider(options: &DistributeOptions, config: &PublishManifest) -> Result<()> {
