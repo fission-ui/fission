@@ -9,6 +9,7 @@ use clap::Subcommand;
 use serde::{Deserialize, Serialize};
 use std::env;
 use std::fs;
+use std::io::{self, IsTerminal, Read};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -602,10 +603,7 @@ pub(crate) fn auth(command: AuthCommand) -> Result<()> {
             print_report(auth_report("auth.status", provider), json)
         }
         AuthCommand::Audit { json } => print_report(auth_report("auth.audit", None), json),
-        AuthCommand::Login { provider } => {
-            println!("{} authentication requires provider OAuth/API-key flow wiring; use `fission auth import {}` for CI tokens once the secure vault backend is configured.", provider.as_str(), provider.as_str());
-            Ok(())
-        }
+        AuthCommand::Login { provider } => login_provider(provider),
         AuthCommand::Logout { provider, yes } => {
             if !yes {
                 bail!(
@@ -654,6 +652,69 @@ pub(crate) fn auth(command: AuthCommand) -> Result<()> {
             println!("Rotated {} vault encryption record", provider.as_str());
             Ok(())
         }
+    }
+}
+
+fn login_provider(provider: publish::DistributionProvider) -> Result<()> {
+    print_login_instructions(provider);
+    let secret = if io::stdin().is_terminal() {
+        println!("Paste the provider token, service-account JSON, API key contents, or a file:<path>/env:<name> source, then press Enter:");
+        let mut line = String::new();
+        io::stdin().read_line(&mut line)?;
+        line.trim().to_string()
+    } else {
+        let mut text = String::new();
+        io::stdin().read_to_string(&mut text)?;
+        text.trim().to_string()
+    };
+    if secret.is_empty() {
+        bail!("no credential was provided for {}", provider.as_str());
+    }
+    let resolved = if secret.starts_with("env:") || secret.starts_with("file:") {
+        read_secret_source(&secret)?
+    } else {
+        secret
+    };
+    store_provider_secret(provider, resolved.as_bytes())?;
+    println!(
+        "Stored {} credentials in the encrypted Fission release vault",
+        provider.as_str()
+    );
+    Ok(())
+}
+
+fn print_login_instructions(provider: publish::DistributionProvider) {
+    match provider {
+        publish::DistributionProvider::PlayStore => println!(
+            "Google Play uses an Android Publisher API service-account JSON file or a short-lived access token."
+        ),
+        publish::DistributionProvider::AppStore => println!(
+            "App Store Connect uses an issuer id, key id, and .p8 API private key; paste the key contents or import APP_STORE_CONNECT_API_KEY_PATH separately."
+        ),
+        publish::DistributionProvider::MicrosoftStore => println!(
+            "Microsoft Store uses Partner Center/Entra credentials; paste the client secret or pipe it from your secret manager."
+        ),
+        publish::DistributionProvider::GithubPages => println!(
+            "GitHub Pages uses a GitHub token with repository Pages/workflow permissions when direct API access is needed."
+        ),
+        publish::DistributionProvider::CloudflarePages => println!(
+            "Cloudflare Pages uses an API token with Pages project edit/deploy permissions."
+        ),
+        publish::DistributionProvider::Netlify => println!(
+            "Netlify uses a personal access token with deploy permissions for the configured site."
+        ),
+        publish::DistributionProvider::S3 => println!(
+            "S3-compatible uploads normally use AWS_PROFILE or access-key environment variables; paste a provider credential only for local vault-backed workflows."
+        ),
+        publish::DistributionProvider::GoogleDrive => println!(
+            "Google Drive uses an OAuth access token for the target account or service account flow you manage outside the project."
+        ),
+        publish::DistributionProvider::OneDrive => println!(
+            "OneDrive uses a Microsoft Graph OAuth access token for the target account."
+        ),
+        publish::DistributionProvider::Dropbox => println!(
+            "Dropbox uses an OAuth access token with files.content.write/read scopes."
+        ),
     }
 }
 
