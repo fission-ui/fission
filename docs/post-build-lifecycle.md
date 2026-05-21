@@ -67,6 +67,14 @@ fission distribute --project-dir . --provider s3 --artifact <manifest>
 fission distribute --project-dir . --provider google-drive --artifact <manifest>
 fission distribute --project-dir . --provider onedrive --artifact <manifest>
 fission distribute --project-dir . --provider dropbox --artifact <manifest>
+fission distribute --project-dir . --provider github-releases --artifact <manifest> --site production --deploy v1.2.3
+fission distribute --project-dir . --provider github-pages --artifact <manifest> --site production
+fission distribute --project-dir . --provider cloudflare-pages --artifact <manifest> --site production
+fission distribute --project-dir . --provider netlify --artifact <manifest> --site production
+fission distribute setup --project-dir . --provider github-pages --site production
+fission distribute status --project-dir . --provider cloudflare-pages --site production
+fission distribute promote --project-dir . --provider netlify --deploy <deploy-id> --site production
+fission distribute rollback --project-dir . --provider netlify --deploy <deploy-id> --site production
 fission distribute --project-dir . --provider play-store --artifact <manifest> --track internal
 fission distribute --project-dir . --provider app-store --artifact <manifest> --track testflight
 fission distribute --project-dir . --provider microsoft-store --artifact <manifest> --track public
@@ -213,6 +221,52 @@ prefix = "todo/releases/{version}/"
 visibility = "presigned"
 presign_ttl_seconds = 604800
 
+[distribution.github_pages.production]
+owner = "example"
+repo = "todo-site"
+mode = "actions"
+source = "github-actions"
+site_kind = "project"
+base_path = "/todo-site/"
+custom_domain = ""
+enforce_https = true
+
+[distribution.github_pages.docs]
+owner = "example"
+repo = "todo"
+mode = "branch"
+source_branch = "gh-pages"
+source_path = "/"
+site_kind = "project"
+base_path = "/todo/"
+custom_domain = "docs.example.com"
+enforce_https = true
+
+[distribution.github_releases.production]
+owner = "example"
+repo = "todo"
+tag = "v1.2.3"
+name = "Todo 1.2.3"
+notes_file = "release-content/metadata/1.2.3+42/notes/en-US.md"
+draft = true
+prerelease = false
+replace_assets = true
+upload_artifact_manifest = true
+
+[distribution.cloudflare_pages.production]
+account_id = "00000000000000000000000000000000"
+project_name = "todo"
+environment = "production"
+custom_domain = "todo.example.com"
+base_path = "/"
+
+[distribution.netlify.production]
+site_id = "00000000-0000-0000-0000-000000000000"
+team_slug = "example"
+production = true
+custom_domain = "todo.example.com"
+base_path = "/"
+
 [distribution.play_store]
 package_name = "com.example.todo"
 default_track = "internal"
@@ -226,6 +280,14 @@ default_track = "testflight"
 [distribution.microsoft_store]
 product_id = "9N0000000000"
 package_identity_name = "ExampleSoftware.Todo"
+package_type = "msix"
+submit = false
+# Optional private flight used when running `--track private`.
+flight_id = "insiders"
+# Optional staged package rollout percentage for committed submissions.
+package_rollout_percentage = 25
+# Optional CI mode. When false, Fission expects `msstore` to already be configured.
+msstore_reconfigure = false
 
 [release]
 default_locales = ["en-US"]
@@ -325,6 +387,7 @@ The CLI MUST validate that:
 - release-content output roots are inside the project or an explicitly allowed workspace path.
 - screenshot scenarios reference runnable Fission test scripts or declarative app states.
 - beta group names, track names, and tester sources are valid for the selected provider.
+- static-site distribution entries match the generated site's base path, custom-domain mode, and provider publishing source.
 - signing asset references point to keychain/certificate-store/vault entries or CI secret names, not plaintext secrets.
 
 ## 6. Artifact manifest
@@ -479,6 +542,10 @@ fission_release
   signing_assets
   distribute
     s3
+    github_releases
+    github_pages
+    cloudflare_pages
+    netlify
     google_drive
     onedrive
     dropbox
@@ -510,6 +577,19 @@ trait Distributor {
 }
 ```
 
+Providers that support ongoing lifecycle management SHOULD also implement an extended static-hosting/provider lifecycle trait:
+
+```rust
+trait DistributionLifecycle {
+    fn setup(&self, ctx: &ReleaseContext) -> anyhow::Result<ProviderSetupReceipt>;
+    fn status(&self, ctx: &ReleaseContext) -> anyhow::Result<ProviderStatus>;
+    fn promote(&self, ctx: &ReleaseContext, deployment: DeploymentId) -> anyhow::Result<DistributionReceipt>;
+    fn rollback(&self, ctx: &ReleaseContext, deployment: DeploymentId) -> anyhow::Result<DistributionReceipt>;
+}
+```
+
+Unsupported operations must fail with stable diagnostics, not silent no-ops. For example, a provider that cannot rollback through an API must return `release.provider.rollback_unsupported` with the exact provider and deployment state.
+
 Readiness checks MUST be available without building or packaging. Package validation MUST be available without uploading. Release-config validation MUST validate `fission.toml` and all referenced release files without contacting a store unless the user explicitly requests provider-side diffing. Release-content validation MUST validate rendered assets without contacting a store unless provider-side validation is requested. Beta tester and signing asset operations MUST have dry-run modes that show intended changes before modifying provider state.
 
 ## 8. Rust-first dependency policy
@@ -528,6 +608,10 @@ The release tooling should prefer Rust for Fission-owned control flow and data h
 | Android AAB | bundle inputs, feature/module configuration, validation orchestration, and receipts | `bundletool` and Android SDK tools | `bundletool` is the underlying tool used by Android Studio, Android Gradle Plugin, and Google Play for app bundles [R1]. |
 | iOS IPA | app metadata, asset staging, provisioning selection, and readiness checks | Xcode signing/export tools and Transporter | Device/App Store IPAs require Apple signing assets and provisioning. |
 | S3-compatible upload | AWS SDK for Rust | none by default | AWS provides Rust SDK S3 examples for upload and multipart flows [R20]. |
+| GitHub Releases | release metadata, artifact manifest interpretation, duplicate-asset policy, status, receipts, and `gh` command orchestration | GitHub CLI for release creation, editing, status, and asset upload | GitHub CLI exposes release create/view/edit/upload commands and uses the same authenticated account model developers already use for GitHub Pages workflows [R64][R65]. |
+| GitHub Pages | GitHub REST/GraphQL clients, workflow generation, branch publish staging, DNS/readiness checks, and receipts | GitHub Actions for artifact deployment when `mode = "actions"` | GitHub Pages supports branch sources and custom GitHub Actions workflows; Actions deployments use `configure-pages`, `upload-pages-artifact`, and `deploy-pages` with `pages: write` and `id-token: write` permissions [R54][R55]. |
+| Cloudflare Pages | Cloudflare API client for projects, deployments, domains, status, credentials, and receipts; Wrangler as the explicit upload backend | Cloudflare-provided tooling for prebuilt upload | Cloudflare Pages supports Direct Upload of prebuilt assets through Wrangler and API-token based Pages API access [R58][R59]. |
+| Netlify | Netlify API client for site lookup/create, atomic deploys, domains, status polling, and receipts | Netlify CLI only as a fallback when a new API capability is not yet implemented | Netlify supports API deployments using file digests or ZIP uploads and supports custom domain management through UI/API flows [R61][R62][R63]. |
 | Google Drive | `reqwest` + OAuth crates | none by default | Drive supports resumable uploads for large files [R21]. |
 | OneDrive | `reqwest` + OAuth crates | none by default | Microsoft Graph supports upload sessions for large files [R23]. |
 | Dropbox | `reqwest` + OAuth crates | none by default | Dropbox supports OAuth and upload sessions [R24]. |
@@ -814,15 +898,21 @@ Microsoft's MSIX signing documentation states that self-signed certificates are 
 fission distribute --provider microsoft-store --artifact <manifest> --track public
 ```
 
-Fission MUST support Microsoft Store submission automation where Microsoft's APIs allow it. Microsoft documents Store submission APIs for programmatic package submissions and Partner Center workflows [R18][R19]. The CLI MUST also support guided manual first setup because product creation, name reservation, account verification, age rating, pricing, and policy fields may require Partner Center interaction.
+Fission MUST support Microsoft Store submission automation where Microsoft's platform tooling and APIs allow it. Microsoft documents Store submission APIs for programmatic MSI/EXE package submissions and Partner Center workflows [R18][R19]. Microsoft also provides the Microsoft Store Developer CLI for publishing MSIX packages, package flights, and submission status from local and CI environments [R66][R67]. Fission uses those official paths instead of implementing a custom MSIX uploader.
 
 Microsoft Store release automation MUST handle listing metadata from `fission.toml`, screenshots, logos, trailers, and flight configuration. Microsoft documents screenshots, logos, trailers, and other Store listing image assets for MSIX submissions, including required and optional screenshot counts by device family [R50]. Microsoft also documents package flights through the Store submission APIs [R51]. Fission's Microsoft Store provider must therefore support public submissions and private/test flights through the same artifact/content manifest model.
+
+MSI/EXE submissions use the Store submission API and require a durable HTTPS `package_url` because the Store pulls the installer package from that location. MSIX and MSIXUPLOAD submissions use `msstore publish` against the package file recorded in the artifact manifest. For MSIX, `distribution.microsoft_store.package_type = "msix"` selects this path; `--track public` publishes to the public submission, `--track private` uses `distribution.microsoft_store.flight_id`, and any other non-empty `--track <value>` is treated as the Partner Center package-flight id.
+
+By default, Fission keeps MSIX submissions as drafts by passing the no-commit option to the Store developer CLI. A committed submission requires explicit release intent: set `distribution.microsoft_store.submit = true` or run with `--track public --yes`. If `package_rollout_percentage` is present, Fission passes it to the Store developer CLI during MSIX publishing. `msstore_project` can point at the project directory that `msstore publish` should use; if it is omitted, Fission passes the Fission project directory and relies on the explicit `--inputFile` artifact. If `msstore_reconfigure = true`, Fission configures the Store developer CLI from `tenant_id`, `client_id`, `seller_id`, and the Partner Center client secret before publishing; otherwise it assumes the developer or CI runner has already configured the tool.
 
 Readiness MUST check:
 
 - Partner Center authentication;
 - product id or reserved app name;
 - package identity name matches the Store product identity;
+- Microsoft Store Developer CLI availability for MSIX/MSIXUPLOAD artifacts;
+- `package_url` only for MSI/EXE submissions;
 - required visual assets exist;
 - `fission.toml` release root entries and referenced release metadata files exist for each configured language;
 - screenshot/trailer assets match Microsoft Store requirements for the selected app type;
@@ -1017,13 +1107,185 @@ Readiness MUST check:
 - service worker/PWA settings when enabled;
 - icon sizes and web manifest fields.
 
-Distribution providers for web may be S3-compatible object stores, Google Drive, OneDrive, Dropbox, or later dedicated hosting/CDN providers. Static web distribution MUST preserve content type metadata. A `.wasm` object uploaded as `application/octet-stream` when the hosting provider requires `application/wasm` is a release bug.
+Static-site packages MUST include a route manifest, asset manifest, MIME map, cache policy, redirect/header files where the selected provider supports them, and the resolved canonical URL/base path used during rendering. The renderer must know whether the site will live at `/`, at a repository subpath such as `/todo/`, or behind a custom domain. Links, canonical URLs, Open Graph images, service-worker scope, and web manifest URLs must be generated against that resolved public base.
 
-## 15. Cloud/file distribution providers
+Distribution providers for web include dedicated static hosting providers, S3-compatible object stores, Google Drive, OneDrive, and Dropbox. Dedicated static hosting providers are preferred when the output is a public website because they support production URLs, preview deployments, custom domains, HTTPS, cache behavior, deployment status, and rollback/status APIs. Object/file providers are still valid when the desired output is a downloadable archive, private review link, or internal distribution folder.
 
-Cloud providers use `fission distribute`. They upload artifacts and return durable links or provider IDs.
+Static web distribution MUST preserve content type metadata. A `.wasm` object uploaded as `application/octet-stream` when the hosting provider requires `application/wasm` is a release bug. Distribution receipts MUST record the deployed canonical URL, provider preview URL where available, provider deployment ID, custom-domain state, HTTPS state, and any DNS or provider-side manual work still required.
 
-### 15.1 S3-compatible object stores
+## 15. Static hosting and cloud/file distribution providers
+
+Static hosting and cloud/file providers use `fission distribute`. They upload artifacts and return durable links, provider IDs, deployment status, and receipts. Public website providers also participate in post-build lifecycle management: domain readiness, HTTPS readiness, preview/production promotion, rollback metadata, deployment status, and link reporting. GitHub Releases is deliberately separate from GitHub Pages: it is an artifact distribution channel for binaries, installers, bundles, archives, debug symbols, checksums, and optionally a zipped static-site package.
+
+Static hosting providers MUST implement the lifecycle operations they can support:
+
+- `setup`: create or validate the provider-side site/project, configure the selected publishing source, and attach custom domains where provider APIs allow it;
+- `distribute`: upload or deploy the artifact manifest output;
+- `status`: fetch the latest deployment, domain, HTTPS, and provider processing state;
+- `promote`: move a preview/draft deployment to production where the provider supports it;
+- `rollback`: restore a previous deployment where the provider supports it, or emit a precise unsupported-operation diagnostic;
+- `observe`: record provider events, build/deploy logs, URLs, and pending manual actions into receipts.
+
+### 15.1 GitHub Releases
+
+```text
+fission distribute --provider github-releases --artifact <manifest> --site production --deploy v1.2.3
+```
+
+GitHub Releases distribution MUST work for any package artifact emitted by `fission package`. It is not a static-site provider and must not require `index.html`, route manifests, web base paths, or custom-domain configuration. It can distribute Linux `.run` installers, macOS `.app` archives or `.pkg` installers, Windows `.exe`, `.msi`, and `.msix` installers, Android `.apk` and `.aab` files, iOS `.ipa` files, zipped static-site output, debug symbols, crash diagnostics, checksums, SBOMs, and any other files listed in the artifact manifest.
+
+Configuration:
+
+```toml
+[distribution.github_releases.production]
+owner = "example"
+repo = "todo"
+tag = "v1.2.3"
+name = "Todo 1.2.3"
+notes_file = "release-content/metadata/1.2.3+42/notes/en-US.md"
+draft = true
+prerelease = false
+replace_assets = true
+upload_artifact_manifest = true
+```
+
+Publishing behavior:
+
+- resolve owner/repository from `distribution.github_releases.<site>` or the GitHub origin remote;
+- resolve the release tag from `--deploy`, `distribution.github_releases.<site>.tag`, or the package version as `v<version>`;
+- create the release if the tag has no release yet, otherwise update the existing release metadata;
+- upload every file listed in the artifact manifest, not just static-site files or a hard-coded extension list;
+- optionally upload `artifact-manifest.json` itself so consumers and CI can verify hashes, sizes, MIME types, target, format, profile, and validation state;
+- fail if a same-named asset already exists unless `replace_assets = true`, in which case the existing asset is deleted and re-uploaded;
+- preserve draft/prerelease/latest behavior through explicit config rather than inferring release status from filenames;
+- write a distribution receipt containing the GitHub release ID, release URL, uploaded asset JSON, and any manual follow-up.
+
+Fission MUST use the GitHub CLI for GitHub Releases rather than implementing direct REST calls in the first-party provider. This keeps GitHub authentication consistent with GitHub Pages/local repository workflows: a developer who has already run `gh auth login` can publish releases without separately teaching Fission about GitHub credentials. Internally Fission still owns package-manifest validation, tag resolution, release metadata resolution, duplicate-asset policy, receipts, and dry-run output. The provider backend invokes `gh release view`, `gh release create`, `gh release edit`, and `gh release upload --clobber` as needed [R64][R65].
+
+Readiness MUST check:
+
+- owner and repository are configured or inferable;
+- `gh` is installed and authenticated, or `GH_TOKEN`/`GITHUB_TOKEN`/Fission vault credentials are available for the GitHub CLI process;
+- a tag can be resolved before publishing;
+- the artifact manifest exists and contains at least one existing uploadable file;
+- duplicate-asset policy is explicit when republishing is expected;
+- release notes file exists when configured.
+
+Authentication:
+
+- GitHub Releases primarily uses `gh auth login`.
+- CI can use `GH_TOKEN` or `GITHUB_TOKEN`, and the Fission vault may inject `GH_TOKEN` for the `gh` subprocess when no token is already present.
+- Publishing requires repository Contents write permission because release and release-asset operations mutate repository release state [R64][R65].
+- Public status checks may work unauthenticated, but Fission should still prefer the user's `gh` authentication so private repositories and draft releases behave consistently.
+
+### 15.2 GitHub Pages
+
+```text
+fission distribute --provider github-pages --artifact <manifest> --site production
+```
+
+GitHub Pages distribution MUST support publishing both without a custom domain and with a custom domain.
+
+Supported modes:
+
+- `mode = "actions"`: Fission generates or validates a GitHub Actions workflow that builds the static site package, uploads the Pages artifact, and deploys through GitHub's Pages Actions path.
+- `mode = "branch"`: Fission publishes the packaged static output to a configured branch and folder, normally `gh-pages:/`, for repositories that want branch-source publishing.
+- `mode = "manual"`: Fission emits setup instructions and readiness checks only, useful when an organization owns deployment workflows outside Fission.
+
+`mode = "actions"` SHOULD be the default for repositories hosted on GitHub. GitHub documents custom workflows for Pages using `configure-pages`, `upload-pages-artifact`, and `deploy-pages`; the deploy job requires `pages: write` and `id-token: write` permissions [R55]. This mode avoids committing generated static files into the source repository and works with Fission's static site builder. Readiness MUST check that the repository Pages source is set to GitHub Actions, or emit a remediation explaining how to set it. The generated workflow must run `fission site build --release`, upload the produced static directory as the Pages artifact, and deploy it only from the configured production branch.
+
+`mode = "branch"` is still required because some projects and organizations prefer branch-source publishing. GitHub documents publishing from a selected branch and folder [R54]. Fission MUST generate `.nojekyll` in the published output unless the user explicitly disables it. If the site uses a custom domain in branch mode, Fission MUST write a root `CNAME` file containing exactly that domain because branch-source GitHub Pages uses that file as part of the custom-domain workflow. If the branch is updated from GitHub Actions, Fission MUST warn that commits made with the default `GITHUB_TOKEN` do not trigger a Pages build in the branch-source path [R54].
+
+Custom-domain behavior:
+
+- without `custom_domain`, a project site defaults to `https://<owner>.github.io/<repo>/`, so `base_path` normally must be `/<repo>/`;
+- without `custom_domain`, a user or organization site defaults to `https://<owner>.github.io/`, so `base_path` normally must be `/`;
+- with `custom_domain`, `base_path` normally must be `/` unless the user intentionally serves below a path;
+- for Actions-based Pages publishing, GitHub states that a `CNAME` file is not required and existing `CNAME` files are ignored; Fission MUST configure or validate the custom domain through repository settings/API instead [R56];
+- for branch-source publishing, Fission MUST keep the `CNAME` file in the publishing root and verify that the repository Pages settings agree with it;
+- readiness MUST run GitHub's Pages DNS health check API where credentials permit it and must report required DNS records when it cannot fix them automatically [R57].
+
+Authentication:
+
+- CI Actions mode SHOULD use the built-in workflow token with explicit `pages: write` and `id-token: write` permissions.
+- Local mode SHOULD use `gh` authentication when available or a GitHub App installation token/fine-grained personal access token stored in the Fission vault.
+- Secrets MUST not be written to the workflow. Generated workflows should rely on GitHub's token where possible.
+
+Required behavior:
+
+- verify repository ownership and Pages availability;
+- verify the selected source mode;
+- verify no generated site secrets are included in the artifact;
+- verify base path and custom-domain consistency;
+- upload/deploy the exact artifact manifest output;
+- poll deployment/build status;
+- record page URL, custom-domain URL, deployment ID, source branch/workflow run, and DNS/HTTPS status in the receipt.
+
+### 15.3 Cloudflare Pages
+
+```text
+fission distribute --provider cloudflare-pages --artifact <manifest> --site production
+```
+
+Cloudflare Pages is a good first dedicated static-hosting provider because it supports Direct Upload for prebuilt assets through the provider CLI and API-token based management. Cloudflare documents Direct Upload for prebuilt assets and CI use, including `wrangler pages deploy <DIRECTORY> --project-name=<PROJECT_NAME>` with `CLOUDFLARE_ACCOUNT_ID` and an API token [R58]. Cloudflare's Pages REST API uses bearer API tokens and documents Pages Read/Write permissions for project/deployment access [R59].
+
+Implementation approach:
+
+- Fission SHOULD use the Cloudflare API directly for account, project, deployment, custom-domain, DNS, status, and receipt operations.
+- Fission MUST invoke Wrangler as the Cloudflare Pages upload backend. This is not a fallback path; it is the supported provider-owned upload tool for prebuilt Pages assets.
+- Fission MUST store Cloudflare API tokens only in the vault or CI secrets.
+
+Custom-domain behavior:
+
+- without `custom_domain`, the canonical site URL is the Pages-provided `https://<project>.pages.dev` URL;
+- with a subdomain custom domain, readiness MUST require a CNAME pointing the desired host to `<project>.pages.dev` unless the zone is managed by the same Cloudflare account and can be changed automatically [R60];
+- with an apex custom domain, readiness MUST require that the apex domain is a Cloudflare zone in the same account before automation can complete [R60];
+- when the zone is managed by the same account, Fission MAY create or update the required DNS records after explicit confirmation or non-interactive `--yes`;
+- readiness MUST check CAA records where Cloudflare reports certificate issuance problems, because CAA can block certificate issuance [R60].
+
+Required behavior:
+
+- verify account ID, project name, token scopes, and project existence;
+- verify provider upload limits against the artifact manifest before starting an upload;
+- create the project only when explicitly requested by `fission distribute setup` or equivalent setup command;
+- deploy the static output to production or preview environment;
+- set or validate custom domains;
+- poll deployment status;
+- report preview URL, production URL, custom-domain status, deployment ID, and any DNS/certificate remediation.
+
+### 15.3 Netlify
+
+```text
+fission distribute --provider netlify --artifact <manifest> --site production
+```
+
+Netlify is a good first API-driven static-hosting provider because it exposes site/deploy APIs, supports direct manual deploys without Git integration, supports draft deploys, and uses bearer access tokens. Netlify documents API deployment using either file digests plus uploads or ZIP uploads, and documents polling deploy state until it becomes ready [R61]. Netlify also documents manual deploys and production deploys from the CLI, while the API remains the right integration point for Fission automation [R62].
+
+Implementation approach:
+
+- Fission SHOULD use the Netlify API directly with `reqwest` and the vault-managed access token.
+- Fission SHOULD prefer the file-digest deploy API for large repeated deploys because it avoids uploading files Netlify already has.
+- Fission MAY use ZIP upload for the first implementation or for small sites where the simpler path is acceptable.
+- Fission MUST poll deploy state and fail with provider diagnostics if processing fails.
+
+Custom-domain behavior:
+
+- without `custom_domain`, the canonical URL is the Netlify site URL returned by the provider;
+- with `custom_domain`, readiness MUST verify the domain is attached to the site or emit exact setup steps;
+- if Netlify DNS manages the domain, Fission MAY manage DNS records through Netlify APIs;
+- if DNS is external, Fission MUST report the required records and verify them where provider APIs expose enough information;
+- readiness MUST distinguish "domain attached", "DNS configured", "certificate ready", and "production deploy live".
+
+Required behavior:
+
+- verify token, team/site access, and site ID or site slug;
+- optionally create a site during setup;
+- deploy as draft or production according to config;
+- support deploy previews for pull-request/review flows;
+- poll deploy state;
+- return deploy ID, deploy URL, production URL, SSL URL, custom-domain status, and provider state in the receipt.
+
+### 15.4 S3-compatible object stores
 
 ```text
 fission distribute --provider s3 --artifact <manifest> --profile production
@@ -1043,7 +1305,7 @@ Required behavior:
 
 Readiness MUST check credentials, bucket existence/access, prefix writability, public/presigned mode, object overwrite policy, and clock skew if presigned URLs are used.
 
-### 15.2 Google Drive
+### 15.5 Google Drive
 
 Google Drive distribution MUST use OAuth and Drive resumable upload for large artifacts. Google documents resumable upload as the appropriate Drive upload type for files larger than 5 MB or unstable network conditions [R21]. Sharing links require permissions to be created or updated through the Drive permissions API [R22].
 
@@ -1056,7 +1318,7 @@ Required behavior:
 - create or update sharing permissions if `visibility = "link"`;
 - return file IDs and web links.
 
-### 15.3 OneDrive
+### 15.6 OneDrive
 
 OneDrive distribution MUST use Microsoft Graph. Microsoft Graph supports `createUploadSession` for large file uploads [R23]. Microsoft identity platform supports OAuth device code flow, which is useful for CLI and headless sign-in [R34].
 
@@ -1068,7 +1330,7 @@ Required behavior:
 - create sharing links when requested;
 - return drive item IDs and web URLs.
 
-### 15.4 Dropbox
+### 15.7 Dropbox
 
 Dropbox distribution MUST use Dropbox OAuth and upload sessions for large artifacts. Dropbox documents OAuth for API authorization and upload session endpoints for chunked uploads [R24].
 
@@ -1127,7 +1389,7 @@ The ciphertext MUST contain:
 ```json
 {
   "kind": "oauth_refresh_token | service_account_json | api_private_key | signing_password | access_key_pair",
-  "provider": "google-drive | onedrive | dropbox | play-store | app-store | microsoft-store | s3",
+  "provider": "github-pages | cloudflare-pages | netlify | google-drive | onedrive | dropbox | play-store | app-store | microsoft-store | s3",
   "account_label": "work-google",
   "scopes": ["..."],
   "expires_at": null,
@@ -1556,6 +1818,16 @@ release.beta.tester_import_invalid
 release.store.metadata_placeholder_text
 release.symbols.not_uploaded
 release.s3.bucket_not_writable
+release.github_pages.source_not_actions
+release.github_pages.custom_domain_dns_unhealthy
+release.github_pages.base_path_mismatch
+release.cloudflare_pages.token_missing
+release.cloudflare_pages.domain_not_active
+release.cloudflare_pages.upload_failed
+release.netlify.site_missing
+release.netlify.deploy_not_ready
+release.netlify.domain_not_configured
+release.provider.rollback_unsupported
 release.oauth.device_flow_timeout
 release.vault.keyring_unavailable
 ```
@@ -1586,12 +1858,15 @@ These are implementation milestones, not partial product definitions. The final 
 12. Implement store metadata import/diff/validate/push for supported providers using `fission.toml` plus referenced release files as the authoritative inputs.
 13. Implement beta group/tester/flight management for supported providers.
 14. Implement version-state queries, release recipes, and provider-side status observation.
-15. Implement S3-compatible distribution and receipts.
-16. Implement Google Drive, OneDrive, and Dropbox distribution.
-17. Implement store distribution for Google Play, App Store Connect/TestFlight, and Microsoft Store.
-18. Implement review/customer-feedback list/reply where provider APIs support it.
-19. Add install/upload/screenshot smoke tests and CI coverage for non-secret paths.
-20. Document provider setup walkthroughs and first-release manual checklists.
+15. Implement GitHub Pages distribution for Actions and branch-source modes, including custom-domain readiness and DNS health checks.
+16. Implement Cloudflare Pages distribution with API-token auth, Wrangler-based prebuilt upload, project/domain readiness, and receipts.
+17. Implement Netlify distribution with token auth, API deploys, draft/production deploys, custom-domain readiness, and receipts.
+18. Implement S3-compatible distribution and receipts.
+19. Implement Google Drive, OneDrive, and Dropbox distribution.
+20. Implement store distribution for Google Play, App Store Connect/TestFlight, and Microsoft Store.
+21. Implement review/customer-feedback list/reply where provider APIs support it.
+22. Add install/upload/screenshot smoke tests and CI coverage for non-secret paths.
+23. Document provider setup walkthroughs and first-release manual checklists.
 
 Each milestone MUST land with unit tests for config/readiness logic, integration tests for local packaging where possible, and mocked provider tests for distribution APIs.
 
@@ -1672,3 +1947,17 @@ The post-build lifecycle work is accepted when the following are true:
 [R51] Microsoft Learn, Manage package flights: https://learn.microsoft.com/en-us/windows/uwp/monetize/manage-flights  
 [R52] Google Play Developer API, Reply to reviews: https://developers.google.com/android-publisher/reply-to-reviews  
 [R53] Apple Developer, Create or update a response to a customer review: https://developer.apple.com/documentation/appstoreconnectapi/post-v1-customerreviewresponses
+[R54] GitHub Docs, Configuring a publishing source for your GitHub Pages site: https://docs.github.com/en/pages/getting-started-with-github-pages/configuring-a-publishing-source-for-your-github-pages-site
+[R55] GitHub Docs, Using custom workflows with GitHub Pages: https://docs.github.com/en/pages/getting-started-with-github-pages/using-custom-workflows-with-github-pages
+[R56] GitHub Docs, Managing a custom domain for your GitHub Pages site: https://docs.github.com/en/pages/configuring-a-custom-domain-for-your-github-pages-site/managing-a-custom-domain-for-your-github-pages-site
+[R57] GitHub Docs, REST API endpoints for GitHub Pages: https://docs.github.com/en/rest/pages
+[R58] Cloudflare Docs, Use Direct Upload with continuous integration: https://developers.cloudflare.com/pages/how-to/use-direct-upload-with-continuous-integration/
+[R59] Cloudflare Docs, Pages REST API: https://developers.cloudflare.com/pages/configuration/api/
+[R60] Cloudflare Docs, Pages custom domains: https://developers.cloudflare.com/pages/configuration/custom-domains/
+[R61] Netlify Docs, Get started with the Netlify API: https://docs.netlify.com/api-and-cli-guides/api-guides/get-started-with-api/
+[R62] Netlify Docs, Create deploys: https://docs.netlify.com/deploy/create-deploys/
+[R63] Netlify Docs, Manage domains for a site or app: https://docs.netlify.com/domains/manage-domains/manage-domains-for-a-site-app/
+[R64] GitHub CLI manual, `gh release create`: https://cli.github.com/manual/gh_release_create
+[R65] GitHub CLI manual, `gh release upload`: https://cli.github.com/manual/gh_release_upload
+[R66] Microsoft Learn, Microsoft Store Developer CLI overview: https://learn.microsoft.com/en-us/windows/apps/publish/msstore-dev-cli/overview
+[R67] Microsoft Learn, Microsoft Store Developer CLI commands: https://learn.microsoft.com/en-us/windows/apps/publish/msstore-dev-cli/commands

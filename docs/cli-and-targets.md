@@ -66,6 +66,36 @@ cargo fission test --project-dir my-app --target ios --headless
 cargo fission test --project-dir my-app --target android --headless
 ```
 
+Package, check, and publish release artifacts:
+
+```sh
+cargo fission package --project-dir my-app --target site --format static --release
+cargo fission package --project-dir my-app --target linux --format run --release
+cargo fission package --project-dir my-app --target macos --format app --release
+cargo fission package --project-dir my-app --target android --format apk --release
+cargo fission readiness release --project-dir my-app --target site --format static --provider github-pages --site production
+cargo fission readiness distribute --project-dir my-app --provider github-pages --site production --artifact my-app/target/fission/release/site/static/artifact-manifest.json
+cargo fission distribute setup --project-dir my-app --provider github-pages --site production
+cargo fission distribute --project-dir my-app --provider github-pages --site production --artifact my-app/target/fission/release/site/static/artifact-manifest.json
+cargo fission distribute --project-dir my-app --provider play-store --track internal --artifact my-app/target/fission/release/android/aab/artifact-manifest.json
+```
+
+Every package command stages output under `target/fission/<profile>/<target>/<format>` and writes `artifact-manifest.json` with file hashes and MIME types. Static site/web publishing supports GitHub Pages, Cloudflare Pages, Netlify, direct S3-compatible object storage uploads through the Rust AWS SDK, and direct OAuth-backed uploads to Google Drive, OneDrive, and Dropbox. Store providers are represented in the lifecycle command surface so release metadata, beta groups, signing checks, review operations, and authentication can be validated from the same project root before provider-specific store APIs mutate remote state.
+
+Release lifecycle commands are intentionally separate from packaging:
+
+```sh
+cargo fission release-config validate --project-dir my-app --provider play-store
+cargo fission release-config add-release --project-dir my-app --version 1.2.3 --build 42 --yes
+cargo fission release-content validate --project-dir my-app --provider app-store
+cargo fission beta groups list --project-dir my-app --provider app-store
+cargo fission signing status --project-dir my-app --target ios
+cargo fission reviews list --project-dir my-app --provider play-store --since 30d
+cargo fission auth status --json
+```
+
+The CLI keeps provider credentials out of `fission.toml`; auth commands can inspect environment-provided credentials or store imported secrets in an encrypted local vault whose key lives in the OS credential store.
+
 The generated project contains:
 
 - `src/main.rs` desktop entrypoint

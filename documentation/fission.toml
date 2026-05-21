@@ -25,6 +25,18 @@ enabled = true
 [site.search]
 enabled = true
 
+[distribution.github_pages.production]
+owner = "worka-ai"
+repo = "fission"
+mode = "actions"
+source = "github-actions"
+site_kind = "project"
+base_path = "/fission/"
+custom_domain = ""
+enforce_https = true
+workflow = "publish-website.yml"
+production_branch = "main"
+
 [[site.nav]]
 title = "Learn"
 href = "/docs/learn/overview/"

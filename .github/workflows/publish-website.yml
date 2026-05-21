@@ -45,25 +45,26 @@ jobs:
       - name: Check static site routes
         run: cargo run -p fission-cli --bin fission -- site check --project-dir documentation --release
 
-      - name: Build static site
-        run: cargo run -p fission-cli --bin fission -- site build --project-dir documentation --release
+      - name: Package static site
+        run: cargo run -p fission-cli --bin fission -- package --project-dir documentation --target site --format static --release
 
       - name: Verify generated static site
         run: |
-          test -f documentation/dist/site/index.html
-          test -f documentation/dist/site/site.css
-          test -f documentation/dist/site/sitemap.xml
-          test -f documentation/dist/site/robots.txt
-          test -f documentation/dist/site/search/search.js
-          test -f documentation/dist/site/search/manifest.json
-          test -f documentation/dist/site/search/docs.json
-          test -f documentation/dist/site/img/fission-mark.svg
-          test -f documentation/dist/site/img/charts/line-gradient-area.png
+          test -f documentation/target/fission/release/site/static/index.html
+          test -f documentation/target/fission/release/site/static/site.css
+          test -f documentation/target/fission/release/site/static/sitemap.xml
+          test -f documentation/target/fission/release/site/static/robots.txt
+          test -f documentation/target/fission/release/site/static/search/search.js
+          test -f documentation/target/fission/release/site/static/search/manifest.json
+          test -f documentation/target/fission/release/site/static/search/docs.json
+          test -f documentation/target/fission/release/site/static/img/fission-mark.svg
+          test -f documentation/target/fission/release/site/static/img/charts/line-gradient-area.png
+          test -f documentation/target/fission/release/site/static/artifact-manifest.json
 
       - name: Upload static site artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: documentation/dist/site
+          path: documentation/target/fission/release/site/static
 
   deploy:
     needs: build
