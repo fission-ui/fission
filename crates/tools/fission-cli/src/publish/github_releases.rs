@@ -1,16 +1,11 @@
 use super::*;
 use crate::release;
 use anyhow::{bail, Context, Result};
-use reqwest::blocking::{Client, RequestBuilder, Response};
-use reqwest::header::{ACCEPT, CONTENT_LENGTH, CONTENT_TYPE, USER_AGENT};
 use serde_json::{json, Value};
+use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::time::Duration;
-
-const GITHUB_API: &str = "https://api.github.com";
-const GITHUB_UPLOADS: &str = "https://uploads.github.com";
-const GITHUB_API_VERSION: &str = "2022-11-28";
+use std::process::{Command, Output};
 
 #[derive(Clone, Debug)]
 struct ReleaseAsset {
@@ -75,11 +70,22 @@ pub(super) fn readiness(
         "GitHub release repository is configured or inferable from git remote",
         "Set distribution.github_releases.<site>.repo or configure an origin GitHub remote.",
     ));
-    checks.push(required_provider_secret(
-        "release.github_releases.token_available",
-        DistributionProvider::GithubReleases,
-        &["GH_TOKEN", "GITHUB_TOKEN"],
-        "Create a GitHub token with repository Contents write permission and store it in CI secrets or the Fission release vault.",
+    checks.push(check_tool(
+        "release.github_releases.gh_available",
+        "gh",
+        "Install GitHub CLI and authenticate with `gh auth login`.",
+    ));
+    checks.push(check(
+        "release.github_releases.auth_available",
+        CheckSeverity::Error,
+        if gh_auth_available(project_dir) {
+            CheckStatus::Passed
+        } else {
+            CheckStatus::Missing
+        },
+        "GitHub CLI authentication is available",
+        Some("gh auth status, GH_TOKEN/GITHUB_TOKEN, or Fission vault credential".to_string()),
+        vec!["Run `gh auth login`, set GH_TOKEN/GITHUB_TOKEN, or import github-releases credentials into the Fission vault."],
     ));
     checks.push(check(
         "release.github_releases.replace_assets_explicit",
@@ -137,35 +143,10 @@ pub(super) fn status(
 ) -> Result<DistributionReceipt> {
     let cfg = github_releases_config(config, &options.site)?;
     let (owner, repo) = github_repo(&options.project_dir, &cfg)?;
-    let client = github_client()?;
-    let token = release::provider_secret(
-        DistributionProvider::GithubReleases,
-        &["GH_TOKEN", "GITHUB_TOKEN"],
-    )?;
-    let release = if let Some(tag) = options.deploy.as_deref().or(cfg.tag.as_deref()) {
-        github_json(
-            github_request(
-                &client,
-                token.as_deref(),
-                reqwest::Method::GET,
-                format!(
-                    "{GITHUB_API}/repos/{owner}/{repo}/releases/tags/{}",
-                    url_segment(tag)
-                ),
-            ),
-            "GitHub release status",
-        )?
-    } else {
-        github_json(
-            github_request(
-                &client,
-                token.as_deref(),
-                reqwest::Method::GET,
-                format!("{GITHUB_API}/repos/{owner}/{repo}/releases/latest"),
-            ),
-            "GitHub latest release status",
-        )?
-    };
+    let tag = options.deploy.as_deref().or(cfg.tag.as_deref());
+    let output = gh_release_view(&options.project_dir, &owner, &repo, tag)?;
+    let release: Value = serde_json::from_slice(&output.stdout)
+        .context("failed to parse gh release view JSON output")?;
     Ok(DistributionReceipt {
         schema_version: 1,
         created_at_unix_seconds: now_unix_seconds(),
@@ -173,25 +154,14 @@ pub(super) fn status(
         site: options.site.clone(),
         action: "status".to_string(),
         artifact_manifest: None,
-        deployment_id: release
-            .get("id")
-            .and_then(Value::as_i64)
-            .map(|id| id.to_string())
-            .or_else(|| {
-                release
-                    .get("tag_name")
-                    .and_then(Value::as_str)
-                    .map(str::to_string)
-            }),
-        canonical_url: release
-            .get("html_url")
-            .and_then(Value::as_str)
-            .map(str::to_string),
+        deployment_id: release_id(&release),
+        canonical_url: release_url(&release),
         preview_url: None,
         custom_domain: None,
-        status: github_release_state(&release),
+        status: gh_release_state(&release),
         stdout: Some(serde_json::to_string_pretty(&release)?),
-        stderr: None,
+        stderr: (!output.stderr.is_empty())
+            .then(|| String::from_utf8_lossy(&output.stderr).to_string()),
         manual_follow_up: Vec::new(),
     })
 }
@@ -229,57 +199,40 @@ pub(super) fn publish(
             status: "dry-run".to_string(),
             stdout: Some(serde_json::to_string_pretty(&json!({
                 "tag": tag,
-                "assets": assets.iter().map(asset_json).collect::<Vec<_>>()
+                "repo": repo_arg(&owner, &repo),
+                "assets": assets.iter().map(asset_json).collect::<Vec<_>>(),
+                "command": "gh release create/edit/upload"
             }))?),
             stderr: None,
             manual_follow_up: Vec::new(),
         });
     }
 
-    let token = release::provider_secret(
-        DistributionProvider::GithubReleases,
-        &["GH_TOKEN", "GITHUB_TOKEN"],
-    )?
-    .context(
-        "GH_TOKEN, GITHUB_TOKEN, or Fission vault credentials are required for GitHub Releases",
-    )?;
-    let client = github_client()?;
-    let release = upsert_release(
-        &client,
-        &token,
+    require_gh_authenticated(&options.project_dir)?;
+    let existing = gh_release_view(&options.project_dir, &owner, &repo, Some(&tag));
+    let release_output = match existing {
+        Ok(_) => gh_release_edit(&options.project_dir, &owner, &repo, &tag, &cfg)?,
+        Err(error) if is_not_found_error(&error) => {
+            gh_release_create(&options.project_dir, &owner, &repo, &tag, &cfg)?
+        }
+        Err(error) => return Err(error),
+    };
+    let uploaded = gh_release_upload(
+        &options.project_dir,
         &owner,
         &repo,
         &tag,
-        &cfg,
-        &options.project_dir,
+        &assets,
+        cfg.replace_assets.unwrap_or(false),
     )?;
-    let release_id = release
-        .get("id")
-        .and_then(Value::as_i64)
-        .context("GitHub release response did not contain id")?;
-    let existing = list_assets(&client, &token, &owner, &repo, release_id)?;
-    let replace_assets = cfg.replace_assets.unwrap_or(false);
-    let mut uploaded = Vec::new();
-    for asset in assets {
-        if let Some(existing_asset) = existing
-            .iter()
-            .find(|item| item.get("name").and_then(Value::as_str) == Some(asset.name.as_str()))
-        {
-            if !replace_assets {
-                bail!(
-                    "GitHub release asset `{}` already exists; set replace_assets = true to overwrite it",
-                    asset.name
-                );
-            }
-            delete_asset(&client, &token, &owner, &repo, existing_asset)?;
-        }
-        uploaded.push(upload_asset(
-            &client, &token, &owner, &repo, release_id, &asset,
-        )?);
-    }
+    let view = gh_release_view(&options.project_dir, &owner, &repo, Some(&tag))?;
+    let release: Value = serde_json::from_slice(&view.stdout)
+        .context("failed to parse gh release view JSON output after publish")?;
     let stdout = json!({
         "release": release,
-        "uploaded_assets": uploaded,
+        "release_command": command_output_json(&release_output),
+        "upload_command": command_output_json(&uploaded),
+        "uploaded_assets": assets.iter().map(asset_json).collect::<Vec<_>>(),
     });
     Ok(DistributionReceipt {
         schema_version: 1,
@@ -288,19 +241,11 @@ pub(super) fn publish(
         site: options.site.clone(),
         action: "publish".to_string(),
         artifact_manifest: Some(artifact_path.display().to_string()),
-        deployment_id: Some(release_id.to_string()),
-        canonical_url: release
-            .get("html_url")
-            .and_then(Value::as_str)
-            .map(str::to_string)
-            .or_else(|| {
-                Some(format!(
-                    "https://github.com/{owner}/{repo}/releases/tag/{tag}"
-                ))
-            }),
+        deployment_id: release_id(stdout.get("release").unwrap_or(&Value::Null)).or(Some(tag)),
+        canonical_url: release_url(stdout.get("release").unwrap_or(&Value::Null)),
         preview_url: None,
         custom_domain: None,
-        status: github_release_state(&release),
+        status: gh_release_state(stdout.get("release").unwrap_or(&Value::Null)),
         stdout: Some(serde_json::to_string_pretty(&stdout)?),
         stderr: None,
         manual_follow_up: cfg
@@ -346,100 +291,114 @@ fn release_tag(
         })
 }
 
-fn upsert_release(
-    client: &Client,
-    token: &str,
+fn gh_release_view(
+    project_dir: &Path,
+    owner: &str,
+    repo: &str,
+    tag: Option<&str>,
+) -> Result<Output> {
+    let repo_arg = repo_arg(owner, repo);
+    let mut args = vec!["release", "view"];
+    if let Some(tag) = tag.filter(|value| !value.trim().is_empty()) {
+        args.push(tag);
+    }
+    args.extend([
+        "--repo",
+        &repo_arg,
+        "--json",
+        "apiUrl,assets,author,body,createdAt,databaseId,id,isDraft,isImmutable,isPrerelease,name,publishedAt,tagName,targetCommitish,uploadUrl,url,zipballUrl,tarballUrl",
+    ]);
+    run_gh(project_dir, &args)
+}
+
+fn gh_release_create(
+    project_dir: &Path,
     owner: &str,
     repo: &str,
     tag: &str,
     cfg: &GithubReleasesConfig,
-    project_dir: &Path,
-) -> Result<Value> {
-    let get = github_request(
-        client,
-        Some(token),
-        reqwest::Method::GET,
-        format!(
-            "{GITHUB_API}/repos/{owner}/{repo}/releases/tags/{}",
-            url_segment(tag)
-        ),
-    )
-    .send()
-    .context("failed to query GitHub release by tag")?;
-    if get.status().is_success() {
-        let release = github_json_from_response(get, "GitHub release lookup")?;
-        let release_id = release
-            .get("id")
-            .and_then(Value::as_i64)
-            .context("GitHub release response did not contain id")?;
-        return github_json(
-            github_request(
-                client,
-                Some(token),
-                reqwest::Method::PATCH,
-                format!("{GITHUB_API}/repos/{owner}/{repo}/releases/{release_id}"),
-            )
-            .json(&release_payload(tag, cfg, project_dir)?),
-            "GitHub release update",
-        );
-    }
-    if get.status().as_u16() != 404 {
-        return github_json_from_response(get, "GitHub release lookup");
-    }
-    github_json(
-        github_request(
-            client,
-            Some(token),
-            reqwest::Method::POST,
-            format!("{GITHUB_API}/repos/{owner}/{repo}/releases"),
-        )
-        .json(&release_payload(tag, cfg, project_dir)?),
-        "GitHub release create",
-    )
+) -> Result<Output> {
+    let mut args = vec!["release".to_string(), "create".to_string(), tag.to_string()];
+    args.extend(["--repo".to_string(), repo_arg(owner, repo)]);
+    args.extend(release_metadata_args(cfg, project_dir)?);
+    run_gh_owned(project_dir, &args)
 }
 
-fn release_payload(tag: &str, cfg: &GithubReleasesConfig, project_dir: &Path) -> Result<Value> {
-    let mut payload = json!({
-        "tag_name": tag,
-        "name": cfg.name.as_deref().unwrap_or(tag),
-        "draft": cfg.draft.unwrap_or(false),
-        "prerelease": cfg.prerelease.unwrap_or(false),
-    });
-    if let Some(target_commitish) = cfg
+fn gh_release_edit(
+    project_dir: &Path,
+    owner: &str,
+    repo: &str,
+    tag: &str,
+    cfg: &GithubReleasesConfig,
+) -> Result<Output> {
+    let mut args = vec!["release".to_string(), "edit".to_string(), tag.to_string()];
+    args.extend(["--repo".to_string(), repo_arg(owner, repo)]);
+    args.extend(release_metadata_args(cfg, project_dir)?);
+    run_gh_owned(project_dir, &args)
+}
+
+fn gh_release_upload(
+    project_dir: &Path,
+    owner: &str,
+    repo: &str,
+    tag: &str,
+    assets: &[ReleaseAsset],
+    replace_assets: bool,
+) -> Result<Output> {
+    let mut args = vec!["release".to_string(), "upload".to_string(), tag.to_string()];
+    args.extend(assets.iter().map(|asset| asset.path.display().to_string()));
+    args.extend(["--repo".to_string(), repo_arg(owner, repo)]);
+    if replace_assets {
+        args.push("--clobber".to_string());
+    }
+    run_gh_owned(project_dir, &args)
+}
+
+fn release_metadata_args(cfg: &GithubReleasesConfig, project_dir: &Path) -> Result<Vec<String>> {
+    let mut args = Vec::new();
+    if let Some(name) = cfg.name.as_deref().filter(|value| !value.trim().is_empty()) {
+        args.extend(["--title".to_string(), name.to_string()]);
+    }
+    if let Some(target) = cfg
         .target_commitish
         .as_deref()
         .filter(|value| !value.trim().is_empty())
     {
-        payload["target_commitish"] = json!(target_commitish);
+        args.extend(["--target".to_string(), target.to_string()]);
     }
-    if let Some(make_latest) = cfg
+    if let Some(notes) = cfg.notes.as_ref().filter(|value| !value.trim().is_empty()) {
+        args.extend(["--notes".to_string(), notes.to_string()]);
+    } else if let Some(path) = cfg
+        .notes_file
+        .as_ref()
+        .filter(|value| !value.trim().is_empty())
+    {
+        args.extend([
+            "--notes-file".to_string(),
+            resolve_project_path(project_dir, path.clone())
+                .display()
+                .to_string(),
+        ]);
+    }
+    if cfg.draft.unwrap_or(false) {
+        args.push("--draft".to_string());
+    }
+    if cfg.prerelease.unwrap_or(false) {
+        args.push("--prerelease".to_string());
+    }
+    if let Some(latest) = cfg
         .make_latest
         .as_deref()
         .filter(|value| !value.trim().is_empty())
     {
-        payload["make_latest"] = json!(make_latest);
+        match latest {
+            "true" => args.push("--latest".to_string()),
+            "false" => args.push("--latest=false".to_string()),
+            "legacy" => {}
+            other => bail!("unsupported github-releases make_latest value `{other}`; use true, false, or legacy"),
+        }
     }
-    if let Some(body) = release_notes(cfg, project_dir)? {
-        payload["body"] = json!(body);
-    }
-    Ok(payload)
-}
-
-fn release_notes(cfg: &GithubReleasesConfig, project_dir: &Path) -> Result<Option<String>> {
-    if let Some(notes) = cfg.notes.as_ref().filter(|value| !value.trim().is_empty()) {
-        return Ok(Some(notes.clone()));
-    }
-    let Some(path) = cfg
-        .notes_file
-        .as_ref()
-        .filter(|value| !value.trim().is_empty())
-    else {
-        return Ok(None);
-    };
-    let path = resolve_project_path(project_dir, path.clone());
-    fs::read_to_string(&path)
-        .map(Some)
-        .with_context(|| format!("failed to read GitHub release notes {}", path.display()))
+    Ok(args)
 }
 
 fn release_assets(
@@ -485,136 +444,117 @@ fn release_asset_from_manifest_file(file: &ArtifactFile) -> Option<ReleaseAsset>
     })
 }
 
-fn list_assets(
-    client: &Client,
-    token: &str,
-    owner: &str,
-    repo: &str,
-    release_id: i64,
-) -> Result<Vec<Value>> {
-    let value = github_json(
-        github_request(
-            client,
-            Some(token),
-            reqwest::Method::GET,
-            format!("{GITHUB_API}/repos/{owner}/{repo}/releases/{release_id}/assets?per_page=100"),
-        ),
-        "GitHub release assets list",
-    )?;
-    Ok(value.as_array().cloned().unwrap_or_default())
+fn require_gh_authenticated(project_dir: &Path) -> Result<()> {
+    run_gh(project_dir, &["auth", "status"])
+        .map(|_| ())
+        .context("GitHub Releases requires an authenticated gh CLI session; run `gh auth login` or set GH_TOKEN/GITHUB_TOKEN")
 }
 
-fn delete_asset(
-    client: &Client,
-    token: &str,
-    owner: &str,
-    repo: &str,
-    asset: &Value,
-) -> Result<()> {
-    let asset_id = asset
-        .get("id")
-        .and_then(Value::as_i64)
-        .context("GitHub release asset did not contain id")?;
-    let response = github_request(
-        client,
-        Some(token),
-        reqwest::Method::DELETE,
-        format!("{GITHUB_API}/repos/{owner}/{repo}/releases/assets/{asset_id}"),
-    )
-    .send()
-    .context("failed to delete GitHub release asset")?;
-    if response.status().is_success() {
-        Ok(())
+fn gh_auth_available(project_dir: &Path) -> bool {
+    env::var_os("GH_TOKEN").is_some()
+        || env::var_os("GITHUB_TOKEN").is_some()
+        || release::provider_secret(DistributionProvider::GithubReleases, &[])
+            .ok()
+            .flatten()
+            .is_some()
+        || run_gh(project_dir, &["auth", "status"]).is_ok()
+}
+
+fn run_gh(project_dir: &Path, args: &[&str]) -> Result<Output> {
+    let args = args
+        .iter()
+        .map(|arg| (*arg).to_string())
+        .collect::<Vec<_>>();
+    run_gh_owned(project_dir, &args)
+}
+
+fn run_gh_owned(project_dir: &Path, args: &[String]) -> Result<Output> {
+    let output = Command::new("gh")
+        .args(args)
+        .current_dir(project_dir)
+        .envs(gh_env())
+        .output()
+        .with_context(|| {
+            "failed to run gh; install GitHub CLI and authenticate with `gh auth login`"
+        })?;
+    if output.status.success() {
+        Ok(output)
     } else {
-        github_json_from_response(response, "GitHub release asset delete").map(|_| ())
-    }
-}
-
-fn upload_asset(
-    client: &Client,
-    token: &str,
-    owner: &str,
-    repo: &str,
-    release_id: i64,
-    asset: &ReleaseAsset,
-) -> Result<Value> {
-    let bytes = fs::read(&asset.path)
-        .with_context(|| format!("failed to read release asset {}", asset.path.display()))?;
-    github_json(
-        github_request(
-            client,
-            Some(token),
-            reqwest::Method::POST,
-            format!(
-                "{GITHUB_UPLOADS}/repos/{owner}/{repo}/releases/{release_id}/assets?name={}",
-                query_value(&asset.name)
-            ),
+        bail!(
+            "gh {} failed with {}: {}",
+            args.join(" "),
+            output.status,
+            String::from_utf8_lossy(&output.stderr).trim()
         )
-        .header(CONTENT_TYPE, asset.mime_type.as_str())
-        .header(CONTENT_LENGTH, bytes.len().to_string())
-        .body(bytes),
-        "GitHub release asset upload",
-    )
-}
-
-fn github_client() -> Result<Client> {
-    Client::builder()
-        .timeout(Duration::from_secs(300))
-        .build()
-        .context("failed to build GitHub HTTP client")
-}
-
-fn github_request(
-    client: &Client,
-    token: Option<&str>,
-    method: reqwest::Method,
-    url: String,
-) -> RequestBuilder {
-    let mut request = client
-        .request(method, url)
-        .header(USER_AGENT, "fission-cli-release/0.1")
-        .header(ACCEPT, "application/vnd.github+json")
-        .header("X-GitHub-Api-Version", GITHUB_API_VERSION);
-    if let Some(token) = token.filter(|value| !value.trim().is_empty()) {
-        request = request.bearer_auth(token.trim());
     }
-    request
 }
 
-fn github_json(request: RequestBuilder, operation: &str) -> Result<Value> {
-    github_json_from_response(
-        request
-            .send()
-            .with_context(|| format!("failed to send {operation} request"))?,
-        operation,
-    )
-}
-
-fn github_json_from_response(response: Response, operation: &str) -> Result<Value> {
-    let status = response.status();
-    let text = response.text()?;
-    if !status.is_success() {
-        bail!("{operation} failed with {status}: {text}");
+fn gh_env() -> Vec<(&'static str, String)> {
+    let mut envs = Vec::new();
+    if env::var_os("GH_TOKEN").is_none() && env::var_os("GITHUB_TOKEN").is_none() {
+        if let Ok(Some(token)) = release::provider_secret(DistributionProvider::GithubReleases, &[])
+        {
+            envs.push(("GH_TOKEN", token));
+        }
     }
-    serde_json::from_str(&text).with_context(|| format!("failed to parse {operation}: {text}"))
+    envs
 }
 
-fn github_release_state(value: &Value) -> String {
-    if value.get("draft").and_then(Value::as_bool).unwrap_or(false) {
+fn is_not_found_error(error: &anyhow::Error) -> bool {
+    let text = format!("{error:#}").to_ascii_lowercase();
+    text.contains("not found") || text.contains("http 404") || text.contains("could not find")
+}
+
+fn release_id(value: &Value) -> Option<String> {
+    value
+        .get("databaseId")
+        .and_then(Value::as_i64)
+        .map(|id| id.to_string())
+        .or_else(|| value.get("id").and_then(Value::as_str).map(str::to_string))
+        .or_else(|| {
+            value
+                .get("tagName")
+                .and_then(Value::as_str)
+                .map(str::to_string)
+        })
+}
+
+fn release_url(value: &Value) -> Option<String> {
+    value.get("url").and_then(Value::as_str).map(str::to_string)
+}
+
+fn gh_release_state(value: &Value) -> String {
+    if value
+        .get("isDraft")
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
+    {
         "draft".to_string()
     } else if value
-        .get("prerelease")
+        .get("isPrerelease")
         .and_then(Value::as_bool)
         .unwrap_or(false)
     {
         "prerelease".to_string()
     } else {
         value
-            .get("tag_name")
+            .get("tagName")
             .and_then(Value::as_str)
             .map(|tag| format!("published:{tag}"))
             .unwrap_or_else(|| "published".to_string())
     }
+}
+
+fn command_output_json(output: &Output) -> Value {
+    json!({
+        "status": output.status.code(),
+        "stdout": String::from_utf8_lossy(&output.stdout).trim(),
+        "stderr": String::from_utf8_lossy(&output.stderr).trim(),
+    })
+}
+
+fn repo_arg(owner: &str, repo: &str) -> String {
+    format!("{owner}/{repo}")
 }
 
 fn asset_json(asset: &ReleaseAsset) -> Value {
@@ -629,10 +569,6 @@ fn asset_json(asset: &ReleaseAsset) -> Value {
 
 fn url_segment(value: &str) -> String {
     percent_encode(value, false)
-}
-
-fn query_value(value: &str) -> String {
-    percent_encode(value, true)
 }
 
 fn percent_encode(value: &str, encode_slash: bool) -> String {
@@ -729,13 +665,5 @@ mod tests {
         assert!(names.contains(&"index.html"));
         assert!(names.contains(&"artifact-manifest.json"));
         let _ = fs::remove_dir_all(&dir);
-    }
-
-    #[test]
-    fn upload_asset_names_are_query_encoded() {
-        assert_eq!(
-            query_value("App 1.0.0 (macOS).zip"),
-            "App%201.0.0%20%28macOS%29.zip"
-        );
     }
 }

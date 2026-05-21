@@ -600,7 +600,7 @@ The release tooling should prefer Rust for Fission-owned control flow and data h
 | Android AAB | bundle inputs, feature/module configuration, validation orchestration, and receipts | `bundletool` and Android SDK tools | `bundletool` is the underlying tool used by Android Studio, Android Gradle Plugin, and Google Play for app bundles [R1]. |
 | iOS IPA | app metadata, asset staging, provisioning selection, and readiness checks | Xcode signing/export tools and Transporter | Device/App Store IPAs require Apple signing assets and provisioning. |
 | S3-compatible upload | AWS SDK for Rust | none by default | AWS provides Rust SDK S3 examples for upload and multipart flows [R20]. |
-| GitHub Releases | GitHub REST API client for releases and release assets, release metadata, asset upload receipts, duplicate-asset policy, and status | none by default | GitHub's Releases API creates and updates releases, while the release assets API uploads raw binary assets to the release-specific upload endpoint [R64][R65]. |
+| GitHub Releases | release metadata, artifact manifest interpretation, duplicate-asset policy, status, receipts, and `gh` command orchestration | GitHub CLI for release creation, editing, status, and asset upload | GitHub CLI exposes release create/view/edit/upload commands and uses the same authenticated account model developers already use for GitHub Pages workflows [R64][R65]. |
 | GitHub Pages | GitHub REST/GraphQL clients, workflow generation, branch publish staging, DNS/readiness checks, and receipts | GitHub Actions for artifact deployment when `mode = "actions"` | GitHub Pages supports branch sources and custom GitHub Actions workflows; Actions deployments use `configure-pages`, `upload-pages-artifact`, and `deploy-pages` with `pages: write` and `id-token: write` permissions [R54][R55]. |
 | Cloudflare Pages | Cloudflare API client for projects, deployments, domains, status, credentials, and receipts; Wrangler as the explicit upload backend | Cloudflare-provided tooling for prebuilt upload | Cloudflare Pages supports Direct Upload of prebuilt assets through Wrangler and API-token based Pages API access [R58][R59]. |
 | Netlify | Netlify API client for site lookup/create, atomic deploys, domains, status polling, and receipts | Netlify CLI only as a fallback when a new API capability is not yet implemented | Netlify supports API deployments using file digests or ZIP uploads and supports custom domain management through UI/API flows [R61][R62][R63]. |
@@ -1146,12 +1146,12 @@ Publishing behavior:
 - preserve draft/prerelease/latest behavior through explicit config rather than inferring release status from filenames;
 - write a distribution receipt containing the GitHub release ID, release URL, uploaded asset JSON, and any manual follow-up.
 
-GitHub's REST API creates releases with `tag_name`, optional `target_commitish`, `name`, `body`, `draft`, `prerelease`, and `make_latest` fields [R64]. Release assets are uploaded as raw binary data to the release-specific upload URL with a required asset `name`; GitHub returns asset metadata including browser download URL, size, state, and digest where available [R65].
+Fission MUST use the GitHub CLI for GitHub Releases rather than implementing direct REST calls in the first-party provider. This keeps GitHub authentication consistent with GitHub Pages/local repository workflows: a developer who has already run `gh auth login` can publish releases without separately teaching Fission about GitHub credentials. Internally Fission still owns package-manifest validation, tag resolution, release metadata resolution, duplicate-asset policy, receipts, and dry-run output. The provider backend invokes `gh release view`, `gh release create`, `gh release edit`, and `gh release upload --clobber` as needed [R64][R65].
 
 Readiness MUST check:
 
 - owner and repository are configured or inferable;
-- `GH_TOKEN`, `GITHUB_TOKEN`, or a Fission vault credential is available for private repositories and publishing;
+- `gh` is installed and authenticated, or `GH_TOKEN`/`GITHUB_TOKEN`/Fission vault credentials are available for the GitHub CLI process;
 - a tag can be resolved before publishing;
 - the artifact manifest exists and contains at least one existing uploadable file;
 - duplicate-asset policy is explicit when republishing is expected;
@@ -1159,9 +1159,10 @@ Readiness MUST check:
 
 Authentication:
 
-- GitHub Releases uses the same environment variables as GitHub Pages, but with different required permissions.
+- GitHub Releases primarily uses `gh auth login`.
+- CI can use `GH_TOKEN` or `GITHUB_TOKEN`, and the Fission vault may inject `GH_TOKEN` for the `gh` subprocess when no token is already present.
 - Publishing requires repository Contents write permission because release and release-asset operations mutate repository release state [R64][R65].
-- Public status checks may work unauthenticated, but Fission should still use stored credentials when present so private repositories and draft releases behave consistently.
+- Public status checks may work unauthenticated, but Fission should still prefer the user's `gh` authentication so private repositories and draft releases behave consistently.
 
 ### 15.2 GitHub Pages
 
@@ -1942,5 +1943,5 @@ The post-build lifecycle work is accepted when the following are true:
 [R61] Netlify Docs, Get started with the Netlify API: https://docs.netlify.com/api-and-cli-guides/api-guides/get-started-with-api/
 [R62] Netlify Docs, Create deploys: https://docs.netlify.com/deploy/create-deploys/
 [R63] Netlify Docs, Manage domains for a site or app: https://docs.netlify.com/domains/manage-domains/manage-domains-for-a-site-app/
-[R64] GitHub Docs, REST API endpoints for releases: https://docs.github.com/en/rest/releases/releases
-[R65] GitHub Docs, REST API endpoints for release assets: https://docs.github.com/en/rest/releases/assets
+[R64] GitHub CLI manual, `gh release create`: https://cli.github.com/manual/gh_release_create
+[R65] GitHub CLI manual, `gh release upload`: https://cli.github.com/manual/gh_release_upload

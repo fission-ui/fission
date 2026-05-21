@@ -706,7 +706,7 @@ fn print_login_instructions(provider: publish::DistributionProvider) {
             "GitHub Pages uses a GitHub token with repository Pages/workflow permissions when direct API access is needed."
         ),
         publish::DistributionProvider::GithubReleases => println!(
-            "GitHub Releases uses a GitHub token with repository Contents write permission for creating releases and uploading release assets."
+            "GitHub Releases uses the GitHub CLI. Run `gh auth login`, set GH_TOKEN/GITHUB_TOKEN, or import a token into the Fission vault."
         ),
         publish::DistributionProvider::CloudflarePages => println!(
             "Cloudflare Pages uses an API token with Pages project edit/deploy permissions."
@@ -932,9 +932,9 @@ fn provider_auth_spec(provider: publish::DistributionProvider) -> ProviderAuthSp
             permissions: "repository contents/workflows/pages permissions for local API operations; Actions deployment uses repository workflow permissions",
         },
         publish::DistributionProvider::GithubReleases => ProviderAuthSpec {
-            kind: "GitHub token or GitHub App installation token",
+            kind: "Authenticated GitHub CLI session, GitHub token, or GitHub App installation token",
             env: &["GH_TOKEN", "GITHUB_TOKEN"],
-            command: "fission auth import github-releases --from env:GH_TOKEN --yes",
+            command: "gh auth login",
             permissions: "repository Contents write permission to create/update releases and upload/delete release assets",
         },
         publish::DistributionProvider::CloudflarePages => ProviderAuthSpec {
