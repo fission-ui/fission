@@ -37,6 +37,8 @@ pub(crate) enum ReleaseConfigCommand {
         yes: bool,
         #[arg(long, default_value = ".")]
         project_dir: PathBuf,
+        #[arg(long)]
+        json: bool,
     },
     /// Diff local release metadata against provider state.
     Diff {
@@ -388,22 +390,13 @@ pub(crate) fn release_config(command: ReleaseConfigCommand) -> Result<()> {
             locales,
             yes,
             project_dir,
-        } => provider_operation_report(
-            "release-config.import",
-            &project_dir,
-            provider,
-            locales,
-            yes,
-            false,
-        ),
+            json,
+        } => store_ops::release_config_import(provider, locales, yes, &project_dir, json),
         ReleaseConfigCommand::Diff {
             provider,
             project_dir,
             json,
-        } => print_report(
-            provider_backend_report("release-config.diff", &project_dir, provider),
-            json,
-        ),
+        } => store_ops::release_config_diff(provider, &project_dir, json),
         ReleaseConfigCommand::Push {
             provider,
             locales,
@@ -411,19 +404,7 @@ pub(crate) fn release_config(command: ReleaseConfigCommand) -> Result<()> {
             yes,
             project_dir,
             json,
-        } => {
-            let mut report = provider_backend_report("release-config.push", &project_dir, provider);
-            report.checks.push(ok_check(
-                "release_config.push.intent",
-                format!(
-                    "locales = {}, dry_run = {}, confirmed = {}",
-                    locales.unwrap_or_else(|| "<provider default>".to_string()),
-                    dry_run,
-                    yes
-                ),
-            ));
-            print_report(report, json)
-        }
+        } => store_ops::release_config_push(provider, locales, dry_run, yes, &project_dir, json),
     }
 }
 
@@ -760,25 +741,6 @@ fn edit_release_file(
         bail!("editor exited with {status}");
     }
     Ok(())
-}
-
-fn provider_operation_report(
-    area: &str,
-    project_dir: &Path,
-    provider: publish::DistributionProvider,
-    locales: Option<String>,
-    yes: bool,
-    json: bool,
-) -> Result<()> {
-    let mut report = provider_backend_report(area, project_dir, provider);
-    report.checks.push(ok_check(
-        "release_config.locales",
-        locales.unwrap_or_else(|| "<provider default>".to_string()),
-    ));
-    report
-        .checks
-        .push(ok_check("release_config.confirmed", yes.to_string()));
-    print_report(report, json)
 }
 
 fn provider_backend_report(
