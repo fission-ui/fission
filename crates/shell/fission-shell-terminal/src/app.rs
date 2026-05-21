@@ -14,6 +14,7 @@ use crossterm::style::{
 };
 use crossterm::terminal::{self, Clear, ClearType, EnterAlternateScreen, LeaveAlternateScreen};
 use crossterm::{execute, queue};
+use fission_core::event::ImeEvent;
 use fission_core::lowering::build_layout_tree;
 use fission_core::ui::{Container, Node, Overlay, ZStack};
 use fission_core::{
@@ -60,6 +61,8 @@ where
     env: Env,
     sync_env: Option<Box<dyn Fn(&S, &mut Env)>>,
     state_update: Option<Box<dyn FnMut(&mut S, &mut RuntimeState, &Env) -> bool>>,
+    exit_request: Option<Box<dyn FnMut(&mut S, &mut RuntimeState, &Env) -> bool>>,
+    should_exit: Option<Box<dyn Fn(&S, &RuntimeState, &Env) -> bool>>,
     measurer: Arc<dyn TextMeasurer>,
     last_ir: Option<CoreIR>,
     last_snapshot: Option<LayoutSnapshot>,
@@ -96,6 +99,8 @@ where
             env,
             sync_env: None,
             state_update: None,
+            exit_request: None,
+            should_exit: None,
             measurer,
             last_ir: None,
             last_snapshot: None,
@@ -126,6 +131,22 @@ where
         F: FnMut(&mut S, &mut RuntimeState, &Env) -> bool + 'static,
     {
         self.state_update = Some(Box::new(update));
+        self
+    }
+
+    pub fn with_exit_request<F>(mut self, request: F) -> Self
+    where
+        F: FnMut(&mut S, &mut RuntimeState, &Env) -> bool + 'static,
+    {
+        self.exit_request = Some(Box::new(request));
+        self
+    }
+
+    pub fn with_should_exit<F>(mut self, should_exit: F) -> Self
+    where
+        F: Fn(&S, &RuntimeState, &Env) -> bool + 'static,
+    {
+        self.should_exit = Some(Box::new(should_exit));
         self
     }
 
@@ -167,7 +188,13 @@ where
                 })?;
 
         let renderer = TerminalRenderer::from_theme(&self.env.theme);
-        let frame = renderer.render(&cx.ir, &snapshot, width, height)?;
+        let frame = renderer.render(
+            &cx.ir,
+            &snapshot,
+            &self.runtime.runtime_state.scroll,
+            width,
+            height,
+        )?;
         self.last_ir = Some(cx.ir);
         self.last_snapshot = Some(snapshot);
         Ok(frame)
@@ -212,14 +239,26 @@ where
             }
 
             let mut dirty = self.update_state()?;
+            if self.should_exit()? {
+                break;
+            }
             let mut clear = false;
             match event::read()? {
-                Event::Key(key) if should_exit(key.code, key.modifiers) => break,
+                Event::Key(key) if should_exit_key(key.code, key.modifiers) => {
+                    if self.request_exit()? {
+                        break;
+                    }
+                    dirty = true;
+                }
                 Event::Key(key) => {
                     if let Some(input) = map_key_event(key.code, key.kind, key.modifiers) {
                         self.send_event(input)?;
                         dirty = true;
                     }
+                }
+                Event::Paste(text) => {
+                    self.send_event(InputEvent::Ime(ImeEvent::Commit { text }))?;
+                    dirty = true;
                 }
                 Event::Mouse(mouse) => {
                     if let Some(input) =
@@ -238,10 +277,13 @@ where
                     dirty = true;
                     clear = true;
                 }
-                Event::FocusGained | Event::FocusLost | Event::Paste(_) => {}
+                Event::FocusGained | Event::FocusLost => {}
             }
 
             if dirty {
+                if self.should_exit()? {
+                    break;
+                }
                 let next_size = terminal_size_or_options(&options)?;
                 clear |= next_size != current_size;
                 current_size = next_size;
@@ -250,6 +292,31 @@ where
             }
         }
         Ok(())
+    }
+
+    fn request_exit(&mut self) -> Result<bool> {
+        let Some(request) = &mut self.exit_request else {
+            return Ok(true);
+        };
+        let mut app_states = std::mem::take(&mut self.runtime.app_states);
+        let state = app_states
+            .get_mut(&std::any::TypeId::of::<S>())
+            .and_then(|state| state.downcast_mut::<S>())
+            .context("terminal app state is missing")?;
+        let should_exit = request(state, &mut self.runtime.runtime_state, &self.env);
+        self.runtime.app_states = app_states;
+        Ok(should_exit)
+    }
+
+    fn should_exit(&self) -> Result<bool> {
+        let Some(should_exit) = &self.should_exit else {
+            return Ok(false);
+        };
+        let state = self
+            .runtime
+            .get_app_state::<S>()
+            .context("terminal app state is missing")?;
+        Ok(should_exit(state, &self.runtime.runtime_state, &self.env))
     }
 
     fn update_state(&mut self) -> Result<bool> {
@@ -368,7 +435,7 @@ fn to_crossterm_color(color: TerminalColor) -> CtColor {
     }
 }
 
-fn should_exit(code: CtKeyCode, modifiers: KeyModifiers) -> bool {
+fn should_exit_key(code: CtKeyCode, modifiers: KeyModifiers) -> bool {
     matches!(code, CtKeyCode::Esc)
         || matches!(code, CtKeyCode::Char('q'))
         || (matches!(code, CtKeyCode::Char('c')) && modifiers.contains(KeyModifiers::CONTROL))

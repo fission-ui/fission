@@ -1,6 +1,8 @@
-use fission_core::ui::{Container, Text};
-use fission_core::{AppState, BuildCtx, Node, View, Widget};
-use fission_ir::op::Color;
+use fission_core::ui::{Column, Container, Scroll, Text, TextInput};
+use fission_core::{
+    AppState, BuildCtx, FlexDirection, InputEvent, LayoutPoint, Node, PointerEvent, View, Widget,
+};
+use fission_ir::op::{Color, Fill, LayoutOp, PaintOp};
 use fission_shell_terminal::{verify_terminal_ir, TerminalApp};
 
 #[derive(Default, Debug, Clone, PartialEq)]
@@ -18,6 +20,56 @@ impl Widget<State> for HelloApp {
             .bg(Color::WHITE)
             .border(Color::BLACK, 1.0)
             .into_node()
+    }
+}
+
+struct ScrollApp;
+
+impl Widget<State> for ScrollApp {
+    fn build(&self, _ctx: &mut BuildCtx<State>, _view: &View<State>) -> Node {
+        let children = (0..12)
+            .map(|idx| {
+                Text::new(format!("line-{idx:02}"))
+                    .color(Color::BLACK)
+                    .into_node()
+            })
+            .collect();
+        Scroll {
+            id: Some(fission_ir::NodeId::explicit("terminal_scroll")),
+            direction: FlexDirection::Column,
+            width: Some(18.0),
+            height: Some(8.0),
+            show_scrollbar: true,
+            child: Some(Box::new(
+                Column {
+                    gap: Some(0.0),
+                    children,
+                    ..Default::default()
+                }
+                .into_node(),
+            )),
+            ..Default::default()
+        }
+        .into_node()
+    }
+}
+
+struct TextInputApp;
+
+impl Widget<State> for TextInputApp {
+    fn build(&self, _ctx: &mut BuildCtx<State>, _view: &View<State>) -> Node {
+        TextInput {
+            id: Some(fission_ir::NodeId::explicit("terminal_text_input")),
+            value: "abc".to_string(),
+            width: Some(12.0),
+            height: Some(3.0),
+            text_color: Some(Color::BLACK),
+            background_fill: Some(Fill::Solid(Color::WHITE)),
+            border_color: Some(Color::BLACK),
+            focus_border_color: Some(Color::BLACK),
+            ..Default::default()
+        }
+        .into_node()
     }
 }
 
@@ -42,4 +94,100 @@ fn terminal_verifier_rejects_graphical_only_paint() {
     );
     ir.set_root(id);
     assert!(verify_terminal_ir(&ir).is_err());
+}
+
+#[test]
+fn terminal_verifier_documents_supported_and_unsupported_ir_shapes() {
+    let mut supported = fission_ir::CoreIR::new();
+    let root = fission_ir::NodeId::from_u128(10);
+    let text = fission_ir::NodeId::from_u128(11);
+    supported.add_node(
+        root,
+        fission_ir::Op::Layout(LayoutOp::Scroll {
+            direction: FlexDirection::Column,
+            show_scrollbar: true,
+            width: Some(20.0),
+            height: Some(4.0),
+            min_width: None,
+            max_width: None,
+            min_height: None,
+            max_height: None,
+            padding: [0.0; 4],
+            flex_grow: 0.0,
+            flex_shrink: 1.0,
+        }),
+        vec![text],
+    );
+    supported.add_node(
+        text,
+        fission_ir::Op::Paint(PaintOp::DrawText {
+            text: "terminal text".to_string(),
+            size: 12.0,
+            color: Color::BLACK,
+            underline: false,
+            wrap: true,
+            caret_index: Some(4),
+            caret_color: Some(Color::BLACK),
+            caret_width: Some(1.0),
+            caret_height: None,
+            caret_radius: None,
+            paragraph_style: None,
+        }),
+        Vec::new(),
+    );
+    supported.set_root(root);
+    assert!(verify_terminal_ir(&supported).is_ok());
+
+    let mut gradient = fission_ir::CoreIR::new();
+    let id = fission_ir::NodeId::from_u128(12);
+    gradient.add_node(
+        id,
+        fission_ir::Op::Paint(PaintOp::DrawRect {
+            fill: Some(Fill::LinearGradient {
+                start: (0.0, 0.0),
+                end: (1.0, 1.0),
+                stops: vec![(0.0, Color::BLACK), (1.0, Color::WHITE)],
+            }),
+            stroke: None,
+            corner_radius: 0.0,
+            shadow: None,
+        }),
+        Vec::new(),
+    );
+    gradient.set_root(id);
+    assert!(verify_terminal_ir(&gradient).is_err());
+}
+
+#[test]
+fn terminal_renderer_clips_and_offsets_scroll_content() {
+    let mut app = TerminalApp::<State, _>::new(ScrollApp);
+    let first = app.render_frame(24, 10).expect("initial render");
+    assert!(first.as_plain_text().contains("line-00"));
+
+    app.send_event(InputEvent::Pointer(PointerEvent::Scroll {
+        point: LayoutPoint::new(1.0, 1.0),
+        delta: LayoutPoint::new(0.0, 4.0),
+        modifiers: 0,
+    }))
+    .expect("scroll event");
+
+    let scrolled = app.render_frame(24, 10).expect("scrolled render");
+    let plain = scrolled.as_plain_text();
+    assert!(!plain.contains("line-00"));
+    assert!(plain.contains("line-04") || plain.contains("line-05"));
+    assert!(plain.contains('#'));
+}
+
+#[test]
+fn terminal_renderer_shows_text_input_caret_when_focused() {
+    let mut app = TerminalApp::<State, _>::new(TextInputApp);
+    app.render_frame(24, 6).expect("initial render");
+    app.send_event(InputEvent::Pointer(PointerEvent::Down {
+        point: LayoutPoint::new(2.0, 1.0),
+        button: fission_core::PointerButton::Primary,
+        modifiers: 0,
+    }))
+    .expect("focus input");
+    let focused = app.render_frame(24, 6).expect("focused render");
+    assert!(focused.as_plain_text().contains('|'));
 }
