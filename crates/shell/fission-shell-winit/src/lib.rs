@@ -47,7 +47,7 @@ use fission_render_vello::{RetainedSceneCache, VelloRenderer, VelloTextMeasurer}
 use fission_shell::async_host::{
     AsyncMessage, AsyncRegistry, RunningServiceHandle, ServiceControlMessage,
 };
-use fission_shell::{VideoBackend, VideoEvent, VideoPlayer};
+use fission_shell::{VideoEvent, VideoPlayer};
 use fission_theme::fonts;
 use fontique::{Blob, Collection, CollectionOptions, FontInfoOverride, SourceCache};
 
@@ -75,15 +75,9 @@ pub use pipeline::{InvalidationSet, Pipeline};
 mod software_renderer;
 use software_renderer::SoftwareRenderer;
 mod video_backend;
-#[cfg(target_os = "macos")]
-use video_backend::MacVideoBackend;
-#[cfg(not(target_os = "macos"))]
-use video_backend::MockVideoBackend;
+use video_backend::create_video_backend;
 mod web_backend;
-#[cfg(target_os = "macos")]
-use web_backend::MacWebBackend;
-#[cfg(not(target_os = "macos"))]
-use web_backend::MockWebBackend;
+use web_backend::PlatformWebBackend;
 
 mod clipboard;
 use clipboard::DesktopClipboard;
@@ -2841,14 +2835,14 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
         let mut active_services: HashMap<ServiceKey, ActiveServiceHandle> = HashMap::new();
         let mut service_bindings: HashMap<ServiceBindingKey, ServiceBindings> = HashMap::new();
 
-        #[cfg(target_os = "macos")]
-        let video_backend: Arc<dyn VideoBackend> = Arc::new(MacVideoBackend::new(&platform_window));
-        #[cfg(not(target_os = "macos"))]
-        let video_backend: Arc<dyn VideoBackend> = Arc::new(MockVideoBackend::new());
-        #[cfg(target_os = "macos")]
-        let web_backend = MacWebBackend::new(&platform_window);
-        #[cfg(not(target_os = "macos"))]
-        let web_backend = MockWebBackend::new();
+        #[cfg(not(target_os = "android"))]
+        let video_backend = create_video_backend(Some(&platform_window));
+        #[cfg(target_os = "android")]
+        let video_backend = create_video_backend(platform_window.as_deref());
+        #[cfg(not(target_os = "android"))]
+        let web_backend = PlatformWebBackend::new(Some(&platform_window));
+        #[cfg(target_os = "android")]
+        let web_backend = PlatformWebBackend::new(platform_window.as_deref());
         let mut players: HashMap<WidgetNodeId, ActivePlayer> = HashMap::new();
 
         let mut last_cursor_position: Option<PhysicalPosition<f64>> = None;

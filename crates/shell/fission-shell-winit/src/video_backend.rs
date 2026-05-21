@@ -1,12 +1,27 @@
 #![allow(unexpected_cfgs)]
 
 use fission_shell::{VideoBackend, VideoEvent, VideoPlayer};
+use std::sync::Arc;
+use winit::window::Window;
 
 #[cfg(target_os = "macos")]
 pub use mac::MacVideoBackend;
 
-#[cfg(not(target_os = "macos"))]
 pub use mock::MockVideoBackend;
+
+pub fn create_video_backend(window: Option<&Window>) -> Arc<dyn VideoBackend> {
+    #[cfg(target_os = "macos")]
+    if let Some(window) = window {
+        if let Some(backend) = MacVideoBackend::try_new(window) {
+            return Arc::new(backend);
+        }
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    let _ = window;
+
+    Arc::new(MockVideoBackend::new())
+}
 
 #[cfg(target_os = "macos")]
 #[allow(unexpected_cfgs)]
@@ -65,24 +80,24 @@ mod mac {
     }
 
     pub struct MacVideoBackend {
-        view: RetainedId,
+        view: Option<RetainedId>,
         layers: Mutex<HashMap<WidgetNodeId, VideoLayer>>,
         registry: Arc<PlayerRegistry>,
     }
 
     impl MacVideoBackend {
-        pub fn new(window: &Window) -> Self {
-            let ns_view = ns_view_from_window(window);
-            Self {
-                view: unsafe { RetainedId::new(ns_view) },
+        pub fn try_new(window: &Window) -> Option<Self> {
+            let ns_view = ns_view_from_window(window)?;
+            Some(Self {
+                view: Some(unsafe { RetainedId::new(ns_view) }),
                 layers: Mutex::new(HashMap::new()),
                 registry: Arc::new(PlayerRegistry::new()),
-            }
+            })
         }
 
-        fn ensure_layer_backing(&self) -> LayerContext {
+        fn ensure_layer_backing(&self) -> Option<LayerContext> {
             unsafe {
-                let view = self.view.as_id();
+                let view = self.view.as_ref()?.as_id();
                 let wants_layer: bool = msg_send![view, wantsLayer];
                 if !wants_layer {
                     let () = msg_send![view, setWantsLayer: YES];
@@ -103,11 +118,11 @@ mod mac {
 
                 let bounds: CGRect = msg_send![view, bounds];
 
-                LayerContext {
+                Some(LayerContext {
                     parent_view: view,
                     scale_factor: if scale == 0.0 { 1.0 } else { scale },
                     bounds_height: bounds.size.height,
-                }
+                })
             }
         }
 
@@ -127,13 +142,11 @@ mod mac {
         }
     }
 
-    fn ns_view_from_window(window: &Window) -> id {
-        let handle = window
-            .window_handle()
-            .expect("window handle unavailable on macOS");
+    fn ns_view_from_window(window: &Window) -> Option<id> {
+        let handle = window.window_handle().ok()?;
         match handle.as_raw() {
-            RawWindowHandle::AppKit(handle) => handle.ns_view.as_ptr() as id,
-            other => panic!("expected AppKit window handle, got {other:?}"),
+            RawWindowHandle::AppKit(handle) => Some(handle.ns_view.as_ptr() as id),
+            _ => None,
         }
     }
 
@@ -172,7 +185,15 @@ mod mac {
                 return;
             }
 
-            let ctx = self.ensure_layer_backing();
+            let Some(ctx) = self.ensure_layer_backing() else {
+                for layer in layers.values() {
+                    unsafe {
+                        layer.detach();
+                    }
+                }
+                layers.clear();
+                return;
+            };
             let mut seen = HashSet::new();
             for frame in frames {
                 seen.insert(frame.widget_id);
@@ -579,7 +600,6 @@ mod mac {
     }
 }
 
-#[cfg(not(target_os = "macos"))]
 mod mock {
     use super::{VideoBackend, VideoEvent, VideoPlayer};
     use std::path::{Path, PathBuf};

@@ -2,6 +2,7 @@
 
 use fission_ir::WidgetNodeId;
 use fission_render::LayoutRect;
+use winit::window::Window;
 
 #[derive(Clone, Debug)]
 pub struct WebSurfaceFrame {
@@ -14,8 +15,37 @@ pub struct WebSurfaceFrame {
 #[cfg(target_os = "macos")]
 pub use mac::MacWebBackend;
 
-#[cfg(not(target_os = "macos"))]
 pub use mock::MockWebBackend;
+
+pub enum PlatformWebBackend {
+    #[cfg(target_os = "macos")]
+    Native(MacWebBackend),
+    Mock(MockWebBackend),
+}
+
+impl PlatformWebBackend {
+    pub fn new(window: Option<&Window>) -> Self {
+        #[cfg(target_os = "macos")]
+        if let Some(window) = window {
+            if let Some(backend) = MacWebBackend::try_new(window) {
+                return Self::Native(backend);
+            }
+        }
+
+        #[cfg(not(target_os = "macos"))]
+        let _ = window;
+
+        Self::Mock(MockWebBackend::new())
+    }
+
+    pub fn present_surfaces(&self, frames: &[WebSurfaceFrame]) {
+        match self {
+            #[cfg(target_os = "macos")]
+            Self::Native(backend) => backend.present_surfaces(frames),
+            Self::Mock(backend) => backend.present_surfaces(frames),
+        }
+    }
+}
 
 #[cfg(target_os = "macos")]
 #[allow(unexpected_cfgs)]
@@ -62,17 +92,17 @@ mod mac {
     }
 
     pub struct MacWebBackend {
-        view: RetainedId,
+        view: Option<RetainedId>,
         views: Mutex<HashMap<WidgetNodeId, WebViewEntry>>,
     }
 
     impl MacWebBackend {
-        pub fn new(window: &Window) -> Self {
-            let ns_view = ns_view_from_window(window);
-            Self {
-                view: unsafe { RetainedId::retain(ns_view) },
+        pub fn try_new(window: &Window) -> Option<Self> {
+            let ns_view = ns_view_from_window(window)?;
+            Some(Self {
+                view: Some(unsafe { RetainedId::retain(ns_view) }),
                 views: Mutex::new(HashMap::new()),
-            }
+            })
         }
 
         pub fn present_surfaces(&self, frames: &[WebSurfaceFrame]) {
@@ -85,7 +115,13 @@ mod mac {
                 return;
             }
 
-            let ctx = self.context();
+            let Some(ctx) = self.context() else {
+                for view in views.values() {
+                    view.detach();
+                }
+                views.clear();
+                return;
+            };
             let mut seen = HashSet::new();
             for frame in frames {
                 seen.insert(frame.widget_id);
@@ -105,14 +141,14 @@ mod mac {
             });
         }
 
-        fn context(&self) -> ViewContext {
+        fn context(&self) -> Option<ViewContext> {
             unsafe {
-                let parent_view = self.view.as_id();
+                let parent_view = self.view.as_ref()?.as_id();
                 let bounds: CGRect = msg_send![parent_view, bounds];
-                ViewContext {
+                Some(ViewContext {
                     parent_view,
                     bounds_height: bounds.size.height,
-                }
+                })
             }
         }
     }
@@ -208,13 +244,11 @@ mod mac {
         }
     }
 
-    fn ns_view_from_window(window: &Window) -> id {
-        let handle = window
-            .window_handle()
-            .expect("window handle unavailable on macOS");
+    fn ns_view_from_window(window: &Window) -> Option<id> {
+        let handle = window.window_handle().ok()?;
         match handle.as_raw() {
-            RawWindowHandle::AppKit(handle) => handle.ns_view.as_ptr() as id,
-            other => panic!("expected AppKit window handle, got {other:?}"),
+            RawWindowHandle::AppKit(handle) => Some(handle.ns_view.as_ptr() as id),
+            _ => None,
         }
     }
 
@@ -238,7 +272,6 @@ mod mac {
     }
 }
 
-#[cfg(not(target_os = "macos"))]
 mod mock {
     use super::WebSurfaceFrame;
 
