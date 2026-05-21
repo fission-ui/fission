@@ -127,6 +127,124 @@ pub(super) fn publish_dropbox(
     ))
 }
 
+pub(super) fn s3_status(
+    options: &DistributeOptions,
+    config: &PublishManifest,
+) -> Result<DistributionReceipt> {
+    let cfg = s3_config(config, &options.site)?;
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .context("failed to create S3 status runtime")?;
+    let value = rt.block_on(s3_status_value(&cfg))?;
+    Ok(file_status_receipt(
+        options,
+        "s3",
+        "ok",
+        s3_canonical_url(&cfg, None),
+        value,
+    ))
+}
+
+pub(super) fn google_drive_status(
+    options: &DistributeOptions,
+    config: &PublishManifest,
+) -> Result<DistributionReceipt> {
+    let cfg = google_drive_config(config, &options.site)?;
+    let token = release::provider_secret(
+        DistributionProvider::GoogleDrive,
+        &["GOOGLE_DRIVE_ACCESS_TOKEN"],
+    )?
+    .context("Google Drive status requires GOOGLE_DRIVE_ACCESS_TOKEN or a stored google-drive credential")?;
+    let client = Client::new();
+    let value = if let Some(folder_id) = cfg.folder_id.as_deref().filter(|value| !value.is_empty())
+    {
+        let response = client
+            .get(format!("https://www.googleapis.com/drive/v3/files/{folder_id}?fields=id,name,webViewLink,capabilities"))
+            .bearer_auth(token.trim())
+            .send()
+            .context("failed to query Google Drive folder")?;
+        json_http_response(response, "Google Drive folder status")?
+    } else {
+        let response = client
+            .get("https://www.googleapis.com/drive/v3/about?fields=user,storageQuota")
+            .bearer_auth(token.trim())
+            .send()
+            .context("failed to query Google Drive account")?;
+        json_http_response(response, "Google Drive account status")?
+    };
+    Ok(file_status_receipt(
+        options,
+        "google-drive",
+        "ok",
+        value
+            .get("webViewLink")
+            .and_then(Value::as_str)
+            .map(str::to_string),
+        value,
+    ))
+}
+
+pub(super) fn onedrive_status(
+    options: &DistributeOptions,
+    config: &PublishManifest,
+) -> Result<DistributionReceipt> {
+    let cfg = onedrive_config(config, &options.site)?;
+    let token =
+        release::provider_secret(DistributionProvider::OneDrive, &["ONEDRIVE_ACCESS_TOKEN"])?
+            .context(
+                "OneDrive status requires ONEDRIVE_ACCESS_TOKEN or a stored onedrive credential",
+            )?;
+    let root = cfg
+        .root
+        .as_deref()
+        .unwrap_or("me/drive/root")
+        .trim_matches('/');
+    let url = if let Some(prefix) = cfg
+        .path_prefix
+        .as_deref()
+        .filter(|value| !value.trim().is_empty())
+    {
+        format!(
+            "https://graph.microsoft.com/v1.0/{root}:/{}/",
+            encode_path(prefix.trim_matches('/'))
+        )
+    } else {
+        format!("https://graph.microsoft.com/v1.0/{root}")
+    };
+    let response = Client::new()
+        .get(url)
+        .bearer_auth(token.trim())
+        .send()
+        .context("failed to query OneDrive destination")?;
+    let value = json_http_response(response, "OneDrive destination status")?;
+    Ok(file_status_receipt(
+        options,
+        "onedrive",
+        "ok",
+        value
+            .get("webUrl")
+            .and_then(Value::as_str)
+            .map(str::to_string),
+        value,
+    ))
+}
+
+pub(super) fn dropbox_status(
+    options: &DistributeOptions,
+    _config: &PublishManifest,
+) -> Result<DistributionReceipt> {
+    let token = release::provider_secret(DistributionProvider::Dropbox, &["DROPBOX_ACCESS_TOKEN"])?
+        .context("Dropbox status requires DROPBOX_ACCESS_TOKEN or a stored dropbox credential")?;
+    let response = Client::new()
+        .post("https://api.dropboxapi.com/2/users/get_current_account")
+        .bearer_auth(token.trim())
+        .send()
+        .context("failed to query Dropbox account")?;
+    let value = json_http_response(response, "Dropbox account status")?;
+    Ok(file_status_receipt(options, "dropbox", "ok", None, value))
+}
+
 pub(super) fn readiness_s3(
     site: &str,
     config: &PublishManifest,
@@ -244,6 +362,93 @@ pub(super) fn readiness_dropbox(
         Vec::new(),
     ));
     Ok(())
+}
+
+async fn s3_status_value(cfg: &S3Config) -> Result<Value> {
+    let bucket = cfg
+        .bucket
+        .as_deref()
+        .context("distribution.s3.<site>.bucket is required")?;
+    let mut loader = aws_config::defaults(BehaviorVersion::latest());
+    if let Some(region) = cfg
+        .region
+        .as_deref()
+        .filter(|value| !value.trim().is_empty())
+    {
+        loader = loader.region(Region::new(region.to_string()));
+    }
+    if let Some(profile) = cfg
+        .profile
+        .as_deref()
+        .filter(|value| !value.trim().is_empty())
+    {
+        loader = loader.profile_name(profile);
+    }
+    if let Some(endpoint) = cfg
+        .endpoint
+        .as_deref()
+        .filter(|value| !value.trim().is_empty())
+    {
+        loader = loader.endpoint_url(endpoint);
+    }
+    let shared = loader.load().await;
+    let mut builder = aws_sdk_s3::config::Builder::from(&shared);
+    if cfg.path_style.unwrap_or(false) {
+        builder = builder.force_path_style(true);
+    }
+    let client = aws_sdk_s3::Client::from_conf(builder.build());
+    let prefix = normalized_prefix(cfg.prefix.as_deref());
+    let result = client
+        .list_objects_v2()
+        .bucket(bucket)
+        .prefix(prefix.clone())
+        .max_keys(10)
+        .send()
+        .await
+        .with_context(|| format!("failed to list s3://{bucket}/{prefix}"))?;
+    Ok(json!({
+        "bucket": bucket,
+        "prefix": prefix,
+        "key_count": result.key_count(),
+        "objects": result.contents().iter().map(|object| json!({
+            "key": object.key(),
+            "size": object.size(),
+            "etag": object.e_tag(),
+        })).collect::<Vec<_>>()
+    }))
+}
+
+fn json_http_response(response: reqwest::blocking::Response, operation: &str) -> Result<Value> {
+    let status = response.status();
+    let text = response.text()?;
+    ensure_success(status, text.clone(), operation)?;
+    serde_json::from_str(&text)
+        .with_context(|| format!("failed to parse {operation} response: {text}"))
+}
+
+fn file_status_receipt(
+    options: &DistributeOptions,
+    provider: &str,
+    status: &str,
+    canonical_url: Option<String>,
+    value: Value,
+) -> DistributionReceipt {
+    DistributionReceipt {
+        schema_version: 1,
+        created_at_unix_seconds: now_unix_seconds(),
+        provider: provider.to_string(),
+        site: options.site.clone(),
+        action: "status".to_string(),
+        artifact_manifest: None,
+        deployment_id: options.deploy.clone(),
+        canonical_url,
+        preview_url: None,
+        custom_domain: None,
+        status: status.to_string(),
+        stdout: serde_json::to_string_pretty(&value).ok(),
+        stderr: None,
+        manual_follow_up: Vec::new(),
+    }
 }
 
 async fn upload_s3(

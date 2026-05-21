@@ -591,12 +591,13 @@ fn provider_status(options: &DistributeOptions, config: &PublishManifest) -> Res
         DistributionProvider::CloudflarePages => cloudflare_pages_status(options, config)?,
         DistributionProvider::Netlify => static_hosts::netlify_status(options, config)?,
         DistributionProvider::PlayStore => stores::play_store_status(options, config)?,
-        DistributionProvider::S3
-        | DistributionProvider::GoogleDrive
-        | DistributionProvider::OneDrive
-        | DistributionProvider::Dropbox
-        | DistributionProvider::AppStore
-        | DistributionProvider::MicrosoftStore => generic_status_receipt(options),
+        DistributionProvider::S3 => files::s3_status(options, config)?,
+        DistributionProvider::GoogleDrive => files::google_drive_status(options, config)?,
+        DistributionProvider::OneDrive => files::onedrive_status(options, config)?,
+        DistributionProvider::Dropbox => files::dropbox_status(options, config)?,
+        DistributionProvider::AppStore | DistributionProvider::MicrosoftStore => {
+            generic_status_receipt(options)
+        }
     };
     if options.json {
         println!("{}", serde_json::to_string_pretty(&receipt)?);
