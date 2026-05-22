@@ -173,9 +173,34 @@ privacy_url = "https://example.com/privacy"
 license = "MIT"
 
 [package]
-icon = "assets/app-icon.png"
 category = "Productivity"
 copyright = "Copyright (c) 2026 Example Software Ltd"
+
+[package.icons]
+mode = "generate"
+source = "assets/app-icon.png"
+background_color = "#070C1D"
+safe_zone = "platform"
+allow_upscale = false
+monochrome = "assets/app-icon-monochrome.svg"
+
+[package.icons.android]
+foreground = "assets/android-icon-foreground.svg"
+background = "assets/android-icon-background.svg"
+monochrome = "assets/android-icon-monochrome.svg"
+
+[package.icons.ios]
+source = "assets/app-icon-ios.png"
+
+[package.icons.macos]
+source = "assets/app-icon-macos.png"
+
+[package.icons.windows]
+source = "assets/app-icon-windows.png"
+
+[package.icons.web]
+favicon = "assets/favicon.svg"
+maskable = "assets/app-icon-maskable.png"
 
 [package.linux.run]
 install_name = "todo"
@@ -381,7 +406,7 @@ The CLI MUST validate that:
 - platform bundle/package identifiers match the corresponding store configuration.
 - `app.version` is semantic for Fission metadata, but platform-specific build numbers follow platform rules.
 - secrets are referenced by key name or provider account, not embedded as plaintext values.
-- icon and store asset paths exist before packaging.
+- icon source assets, provided icon outputs, and store asset paths exist before packaging.
 - `fission.toml` contains the required release root entries for the selected provider, release, and locales.
 - every file referenced by `[[releases]]` exists, is inside an allowed project path, and validates against the release-content schema.
 - release-content output roots are inside the project or an explicitly allowed workspace path.
@@ -389,6 +414,198 @@ The CLI MUST validate that:
 - beta group names, track names, and tester sources are valid for the selected provider.
 - static-site distribution entries match the generated site's base path, custom-domain mode, and provider publishing source.
 - signing asset references point to keychain/certificate-store/vault entries or CI secret names, not plaintext secrets.
+
+### 5.1 App icon intent, generation, and overrides
+
+`fission.toml` declares icon intent and source assets; it must not require users to hand-maintain every platform's generated icon output. `fission package` MUST generate platform-specific icon sets from those declared sources before the platform packager runs. `fission readiness package` MUST validate icon configuration before expensive build work starts.
+
+The authoritative schema is `[package.icons]`. The older shorthand:
+
+```toml
+[package]
+icon = "assets/app-icon.png"
+```
+
+MAY be accepted for compatibility, but it MUST be treated as a desugaring to:
+
+```toml
+[package.icons]
+mode = "generate"
+source = "assets/app-icon.png"
+```
+
+The package icon mode MUST be one of:
+
+- `generate`: Fission generates every required target icon output from declared source assets.
+- `provided`: the user provides the complete platform icon set and Fission validates/copies it without regenerating it.
+- `mixed`: platform-specific provided outputs win, and Fission generates any missing outputs from the shared/default sources.
+
+The shared icon declaration is:
+
+```toml
+[package.icons]
+mode = "generate"
+source = "assets/app-icon.png"
+monochrome = "assets/app-icon-monochrome.svg"
+background_color = "#070C1D"
+safe_zone = "platform"
+allow_upscale = false
+```
+
+`source` is the default full-colour launcher icon source. It SHOULD be SVG or a high-resolution square PNG. `monochrome` is an alpha/silhouette source used by platforms that support monochrome or themed icons. `background_color` is used when a generated target requires a solid backing plate or an adaptive-icon background and no explicit platform background is supplied. `safe_zone` controls padding/cropping and MUST accept at least `platform`, `none`, and a numeric fraction such as `0.72`. `allow_upscale = false` means readiness fails if a raster source is too small for the required target output.
+
+Platform-specific generation inputs are optional overrides:
+
+```toml
+[package.icons.android]
+foreground = "assets/android-icon-foreground.svg"
+background = "assets/android-icon-background.svg"
+monochrome = "assets/android-icon-monochrome.svg"
+
+[package.icons.ios]
+source = "assets/app-icon-ios.png"
+dark = "assets/app-icon-ios-dark.png"
+tinted = "assets/app-icon-ios-tinted.png"
+
+[package.icons.macos]
+source = "assets/app-icon-macos.png"
+
+[package.icons.windows]
+source = "assets/app-icon-windows.png"
+light = "assets/app-icon-windows-light.png"
+dark = "assets/app-icon-windows-dark.png"
+unplated = "assets/app-icon-windows-unplated.png"
+
+[package.icons.linux]
+source = "assets/app-icon-linux.png"
+
+[package.icons.web]
+favicon = "assets/favicon.svg"
+maskable = "assets/app-icon-maskable.png"
+monochrome = "assets/app-icon-monochrome.svg"
+```
+
+Manual output mode is explicit and must validate completeness:
+
+```toml
+[package.icons]
+mode = "provided"
+
+[package.icons.android.provided]
+res_dir = "platforms/android/app/src/main/res"
+
+[package.icons.ios.provided]
+appiconset = "platforms/ios/App/Assets.xcassets/AppIcon.appiconset"
+
+[package.icons.macos.provided]
+icns = "platforms/macos/AppIcon.icns"
+
+[package.icons.windows.provided]
+ico = "platforms/windows/AppIcon.ico"
+msix_assets = "platforms/windows/Assets"
+
+[package.icons.linux.provided]
+hicolor_dir = "platforms/linux/icons/hicolor"
+
+[package.icons.web.provided]
+manifest_icons_dir = "platforms/web/icons"
+favicon = "platforms/web/favicon.svg"
+```
+
+In `mixed` mode, any `[package.icons.<target>.provided]` block is authoritative for that target. Fission MUST generate only the missing targets from `[package.icons]` and platform-specific source overrides.
+
+The generated output root MUST be disposable and reproducible:
+
+```text
+target/fission/icons/android/
+target/fission/icons/ios/AppIcon.appiconset/
+target/fission/icons/macos/AppIcon.icns
+target/fission/icons/windows/AppIcon.ico
+target/fission/icons/windows/msix/
+target/fission/icons/linux/hicolor/
+target/fission/icons/web/
+target/fission/icons/icon-manifest.json
+```
+
+Packaging stages MUST consume the generated or validated icon manifest rather than re-reading icon configuration independently. The manifest MUST record source paths, source hashes, mode, target, generated output paths, dimensions, roles, and target package paths. Example:
+
+```json
+{
+  "mode": "generate",
+  "target": "android",
+  "sources": [
+    {
+      "role": "android_foreground",
+      "path": "assets/android-icon-foreground.svg",
+      "sha256": "..."
+    }
+  ],
+  "outputs": [
+    {
+      "role": "android_adaptive_icon",
+      "path": "target/fission/icons/android/mipmap-anydpi-v26/ic_launcher.xml",
+      "package_path": "res/mipmap-anydpi-v26/ic_launcher.xml"
+    }
+  ]
+}
+```
+
+Target generation requirements:
+
+| Target | Generated outputs |
+| --- | --- |
+| Android | Adaptive icon XML using foreground/background/monochrome layers where available, legacy density PNGs where required by the minimum SDK/package format, and launcher manifest/resource references. Android adaptive icons are layered and masked by the launcher, so safe-zone validation is mandatory [R68]. |
+| iOS | `AppIcon.appiconset` PNGs and `Contents.json` from the selected source, including dark/tinted variants when configured and supported by the selected iOS deployment target. Apple app icons use platform-shaped assets and high-resolution source art [R69]. |
+| macOS | `AppIcon.icns`, any required appiconset intermediates, and the bundle `Info.plist` icon key. |
+| Windows | Win32 `.ico` plus MSIX/Store visual assets, target-size PNGs, scale variants, and light/dark/unplated variants where configured. Windows selects exact icon sizes first and benefits from multiple target sizes [R70]. |
+| Linux | hicolor icon-theme directory outputs at required sizes plus desktop-entry and AppStream references. Freedesktop icon lookup is size/theme based [R35][R36][R72]. |
+| Web/static | favicon files, Apple touch icon where configured, web manifest `icons` entries with `sizes`, `type`, and `purpose`, including `any`, `maskable`, and `monochrome` roles where sources exist. The Web App Manifest defines icon purposes and safe zones for maskable icons [R71]. |
+
+Readiness MUST fail when:
+
+- configured source files do not exist;
+- a raster source is too small and `allow_upscale = false`;
+- a required platform output cannot be produced from the available sources;
+- `mode = "provided"` omits required platform files;
+- platform-provided directories contain inconsistent metadata, missing sizes, or unreadable images;
+- a source is not square where the target requires square source art;
+- transparent pixels or missing background declarations would produce invalid or low-quality outputs for the selected target;
+- generated outputs would overwrite user-authored source files.
+
+Readiness SHOULD warn when:
+
+- text-heavy icon art is used for mobile, maskable, monochrome, or small-size outputs;
+- the important artwork appears outside the selected safe zone;
+- the source is raster-only and cannot produce crisp large outputs;
+- platform-specific overrides would materially improve output quality;
+- generated Windows, Linux, or web icons will be scaled by the platform because an exact size is unavailable.
+
+The CLI implementation MUST keep all icon handling in a dedicated Rust module:
+
+```text
+crates/tools/fission-cli/src/icons/
+  mod.rs
+  config.rs
+  model.rs
+  validate.rs
+  generate.rs
+  manifest.rs
+  android.rs
+  ios.rs
+  macos.rs
+  windows.rs
+  linux.rs
+  web.rs
+```
+
+Packagers MUST call this module through a small API such as:
+
+```rust
+pub fn prepare_icons(ctx: &ReleaseContext, target: Target) -> anyhow::Result<IconManifest>;
+pub fn validate_icons(ctx: &ReleaseContext, target: Target) -> Vec<ReadinessCheck>;
+```
+
+No packager implementation may parse `[package.icons]`, discover conventional icon paths, or generate icon files directly. This keeps icon policy, validation, generation, hashing, and diagnostics in one place and prevents platform packagers from drifting apart.
 
 ## 6. Artifact manifest
 
@@ -424,6 +641,11 @@ Minimum schema:
       "mime_type": "application/octet-stream"
     }
   ],
+  "icon_manifest": {
+    "path": "target/fission/icons/icon-manifest.json",
+    "sha256": "...",
+    "outputs": 18
+  },
   "signing": {
     "state": "signed",
     "identity": "android-upload-key:upload",
@@ -436,6 +658,8 @@ Minimum schema:
   }
 }
 ```
+
+If the selected target uses application icons, the artifact manifest MUST include the icon manifest path and hash. This connects the signed/package artifact to the exact generated or validated icon set it consumed.
 
 The manifest MUST be immutable once distribution starts. A distribute command that modifies provider state MUST write a separate distribution receipt.
 
@@ -598,6 +822,7 @@ The release tooling should prefer Rust for Fission-owned control flow and data h
 
 | Area | Fission/Rust responsibility | Provider/platform tool | Notes |
 | --- | --- | --- | --- |
+| App icon generation | Dedicated `crates/tools/fission-cli/src/icons` module using `usvg`, `resvg`, `tiny-skia`, `image`, `png`, `ico`, `icns`, `plist`, `serde_json`, `quick-xml`, `sha2`, and optional `oxipng` | platform tools only for final platform-owned bundle/package signing or validation | Fission owns deterministic icon generation from `[package.icons]` into target-specific outputs. Platform packagers consume the generated icon manifest and must not implement their own icon parsing or generation [R73][R74][R75][R76][R77][R78][R79][R80][R81][R82][R83][R84]. |
 | Desktop bundle generation | `cargo-packager` integration where it fits, plus Fission manifest and asset staging | platform-specific packager | `cargo-packager` supports macOS `.app`, Linux AppImage/deb, Windows NSIS/WiX, but not every Fission-required format such as Linux `.run`, macOS `.pkg`, MSIX, AAB, or IPA [R25]. |
 | macOS `.app` basics | bundle metadata, assets, `Info.plist` inputs, and readiness checks | Xcode command-line tools for signing/notarization | `.app` bundle structure and `Info.plist` requirements are Apple platform rules [R8][R9]. |
 | macOS `.pkg` | configuration, staging, receipts, and readiness checks | `pkgbuild`, `productbuild`, `productsign` | Apple's package tools create installer component packages and product archives [R13]. |
@@ -1848,25 +2073,26 @@ These are implementation milestones, not partial product definitions. The final 
 2. Add credential vault and `fission auth` commands.
 3. Add release-config root schema in `fission.toml`, `[[releases]]` file references, referenced release-file schemas, TUI editing, non-interactive edit/import/diff/validate/push commands, screenshot scenario model, and content manifest.
 4. Add readiness engine with JSON output and stable error IDs.
-5. Implement Linux `.run` packager and smoke install/uninstall checks.
-6. Implement macOS `.app`, `.pkg`, signing, notarization, and readiness checks.
-7. Implement Windows `.exe`, `.msi`, `.msix`, signing/provider distinctions, and readiness checks.
-8. Implement Android APK/AAB packaging, bundle validation, signing, and Play readiness.
-9. Implement iOS IPA packaging, signing/provisioning readiness, and App Store/TestFlight distribution path.
-10. Implement web static packaging with MIME/cache metadata.
-11. Implement screenshot capture/rendering for web, Android, iOS, macOS, and Windows where device automation is available.
-12. Implement store metadata import/diff/validate/push for supported providers using `fission.toml` plus referenced release files as the authoritative inputs.
-13. Implement beta group/tester/flight management for supported providers.
-14. Implement version-state queries, release recipes, and provider-side status observation.
-15. Implement GitHub Pages distribution for Actions and branch-source modes, including custom-domain readiness and DNS health checks.
-16. Implement Cloudflare Pages distribution with API-token auth, Wrangler-based prebuilt upload, project/domain readiness, and receipts.
-17. Implement Netlify distribution with token auth, API deploys, draft/production deploys, custom-domain readiness, and receipts.
-18. Implement S3-compatible distribution and receipts.
-19. Implement Google Drive, OneDrive, and Dropbox distribution.
-20. Implement store distribution for Google Play, App Store Connect/TestFlight, and Microsoft Store.
-21. Implement review/customer-feedback list/reply where provider APIs support it.
-22. Add install/upload/screenshot smoke tests and CI coverage for non-secret paths.
-23. Document provider setup walkthroughs and first-release manual checklists.
+5. Add `[package.icons]`, the dedicated `crates/tools/fission-cli/src/icons` module, icon readiness checks, deterministic platform icon generation, manual/provided icon validation, and icon manifests before platform packagers consume icons.
+6. Implement Linux `.run` packager and smoke install/uninstall checks.
+7. Implement macOS `.app`, `.pkg`, signing, notarization, and readiness checks.
+8. Implement Windows `.exe`, `.msi`, `.msix`, signing/provider distinctions, and readiness checks.
+9. Implement Android APK/AAB packaging, bundle validation, signing, and Play readiness.
+10. Implement iOS IPA packaging, signing/provisioning readiness, and App Store/TestFlight distribution path.
+11. Implement web static packaging with MIME/cache metadata.
+12. Implement screenshot capture/rendering for web, Android, iOS, macOS, and Windows where device automation is available.
+13. Implement store metadata import/diff/validate/push for supported providers using `fission.toml` plus referenced release files as the authoritative inputs.
+14. Implement beta group/tester/flight management for supported providers.
+15. Implement version-state queries, release recipes, and provider-side status observation.
+16. Implement GitHub Pages distribution for Actions and branch-source modes, including custom-domain readiness and DNS health checks.
+17. Implement Cloudflare Pages distribution with API-token auth, Wrangler-based prebuilt upload, project/domain readiness, and receipts.
+18. Implement Netlify distribution with token auth, API deploys, draft/production deploys, custom-domain readiness, and receipts.
+19. Implement S3-compatible distribution and receipts.
+20. Implement Google Drive, OneDrive, and Dropbox distribution.
+21. Implement store distribution for Google Play, App Store Connect/TestFlight, and Microsoft Store.
+22. Implement review/customer-feedback list/reply where provider APIs support it.
+23. Add install/upload/screenshot smoke tests and CI coverage for non-secret paths.
+24. Document provider setup walkthroughs and first-release manual checklists.
 
 Each milestone MUST land with unit tests for config/readiness logic, integration tests for local packaging where possible, and mocked provider tests for distribution APIs.
 
@@ -1961,3 +2187,20 @@ The post-build lifecycle work is accepted when the following are true:
 [R65] GitHub CLI manual, `gh release upload`: https://cli.github.com/manual/gh_release_upload
 [R66] Microsoft Learn, Microsoft Store Developer CLI overview: https://learn.microsoft.com/en-us/windows/apps/publish/msstore-dev-cli/overview
 [R67] Microsoft Learn, Microsoft Store Developer CLI commands: https://learn.microsoft.com/en-us/windows/apps/publish/msstore-dev-cli/commands
+[R68] Android Developers, Adaptive icons: https://developer.android.com/develop/ui/views/launch/icon_design_adaptive
+[R69] Apple Developer, App icons: https://developer.apple.com/design/human-interface-guidelines/app-icons/
+[R70] Microsoft Learn, Construct your Windows app's icon: https://learn.microsoft.com/en-us/windows/apps/design/iconography/app-icon-construction
+[R71] W3C, Web Application Manifest icon purposes and masks: https://www.w3.org/TR/appmanifest/
+[R72] Freedesktop Icon Theme Specification: https://specifications.freedesktop.org/icon-theme/latest/
+[R73] `usvg` crate documentation: https://docs.rs/usvg/
+[R74] `resvg` crate documentation: https://docs.rs/resvg/
+[R75] `tiny-skia` crate documentation: https://docs.rs/tiny-skia/
+[R76] `image` crate documentation: https://docs.rs/image/
+[R77] `png` crate documentation: https://docs.rs/png/
+[R78] `ico` crate documentation: https://docs.rs/ico/
+[R79] `icns` crate documentation: https://docs.rs/icns/
+[R80] `plist` crate documentation: https://docs.rs/plist/
+[R81] `quick-xml` crate documentation: https://docs.rs/quick-xml/
+[R82] `oxipng` crate documentation: https://docs.rs/oxipng/
+[R83] `serde_json` crate documentation: https://docs.rs/serde_json/
+[R84] `sha2` crate documentation: https://docs.rs/sha2/
