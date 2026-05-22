@@ -238,7 +238,7 @@ impl MarketingPageKind {
                 secondary_label: "Try fission ui",
                 secondary_href: "/reference/cli/overview/",
                 proof_label: "Built into the CLI",
-                proof_body: "The Fission CLI UI is implemented as a Fission terminal app with routes, screens, reducers, dialogs, settings, and command sessions.",
+                proof_body: "The Fission command UI is implemented as a Fission terminal app with routes, screens, reducers, dialogs, settings, and command sessions.",
                 features: TERMINAL_FEATURES,
                 workflow: TERMINAL_STEPS,
             },

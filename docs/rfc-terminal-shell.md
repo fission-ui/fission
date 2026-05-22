@@ -14,7 +14,7 @@ Unsupported widgets or render operations must fail during the terminal target bu
 
 ## 2. Goals
 
-- Add a terminal platform target that can be selected with normal Fission CLI commands.
+- Add a terminal platform target that can be selected with normal Fission command commands.
 - Render Fission UI into a deterministic terminal cell buffer.
 - Support keyboard-first interaction, focus traversal, selection, text input, scroll, dialogs, menus, buttons, forms, tables, lists, and progress indicators.
 - Fail the terminal build for unsupported lowered operations in declared routes/screens/states.

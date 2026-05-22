@@ -17,7 +17,7 @@ You have a Fission app and you want to reach another platform: the browser, Andr
 
 You do not want to fork the app into separate codebases. You want one shared runtime model and multiple real hosts around it.
 
-That is what `cargo fission add-target` is for.
+That is what `fission add-target` is for.
 
 ## Step 1: choose the first target by product need
 
@@ -50,7 +50,7 @@ That is why target generation matters: it gives you the platform wrapper without
 From the project root, run:
 
 ```bash
-cargo fission add-target web ios android --project-dir my-app
+fission add-target web ios android --project-dir my-app
 ```
 
 The command-line interface, or command-line interface, is the tool that generates these host folders.
@@ -60,12 +60,12 @@ If you are already standing inside the generated project directory, `my-app` is 
 For example, if you only need the browser host right now, this is also valid:
 
 ```bash
-cargo fission add-target web --project-dir my-app
+fission add-target web --project-dir my-app
 ```
 
 A beginner-friendly way to read the command is:
 
-- `cargo fission` means "run the Fission command-line interface through Cargo"
+- `fission` means "run the Fission command-line interface through Cargo"
 - `add-target` means "generate more host wrappers for this app"
 - `web ios android` are the host targets you want
 - `--project-dir my-app` tells the command-line interface which existing app to update

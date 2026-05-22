@@ -51,7 +51,7 @@ export ANDROID_MIN_API_LEVEL=24
 ./examples/mobile-smoke/platforms/android/test-emulator.sh
 ```
 
-The package script auto-detects the newest installed NDK, the matching NDK LLVM host toolchain, the latest installed Android platform, and build-tools. Use `cargo fission doctor android --project-dir examples/mobile-smoke` when your SDK layout needs explicit environment variables.
+The package script auto-detects the newest installed NDK, the matching NDK LLVM host toolchain, the latest installed Android platform, and build-tools. Use `fission doctor android --project-dir examples/mobile-smoke` when your SDK layout needs explicit environment variables.
 
 Android emulator controls:
 

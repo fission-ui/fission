@@ -34,7 +34,7 @@ RESTART_EMULATOR="${ANDROID_EMULATOR_RESTART:-0}"
 
 for tool in "$ADB" "$EMULATOR_BIN" "$AVDMANAGER"; do
   if [[ ! -x "$tool" ]]; then
-    printf 'Required Android tool is missing or not executable: %s\nRun `cargo fission doctor android --project-dir examples/mobile-smoke` for setup help.\n' "$tool" >&2
+    printf 'Required Android tool is missing or not executable: %s\nRun `fission doctor android --project-dir examples/mobile-smoke` for setup help.\n' "$tool" >&2
     exit 1
   fi
 done

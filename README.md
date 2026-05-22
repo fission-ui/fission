@@ -44,20 +44,20 @@ The project documentation and marketing site are now a Fission static site under
 Run locally:
 
 ```sh
-cargo fission site serve --project-dir documentation
+fission site serve --project-dir documentation
 ```
 
 Build for deployment:
 
 ```sh
-cargo fission site build --project-dir documentation
+fission site build --project-dir documentation
 ```
 
 Useful checks:
 
 ```sh
-cargo fission site routes --project-dir documentation
-cargo fission site check --project-dir documentation
+fission site routes --project-dir documentation
+fission site check --project-dir documentation
 ```
 
 The static site supports custom widget routes, Markdown/MDX content routes, sidebars, generated table-of-contents navigation, copied assets, favicon support, light and dark themes, generated CSS, optional client-side search, optional code highlighting, sitemap and robots output, JSON-LD structured data, and internal-link validation.
@@ -136,7 +136,7 @@ Fission now ships a first-party scaffolding CLI for the basic project lifecycle:
 fission init my-app
 
 # Cargo subcommand alias
-cargo fission add-target web ios android --project-dir my-app
+fission add-target web ios android --project-dir my-app
 ```
 
 The CLI currently does three things:
@@ -642,7 +642,14 @@ fission/
 │   │   ├── fission-shell-mobile/  # Mobile shell (iOS / Android)
 │   │   └── fission-shell-web/     # Web shell (WASM / browser)
 │   └── tools/
-│       ├── fission-cli/           # `fission` / `cargo fission` scaffolding CLI
+│       ├── cargo-fission/         # Package that installs the `fission` command
+│       ├── fission-command-core/   # Shared command models and project manifest helpers
+│       ├── fission-command-run/    # Run, build, test, logs, and doctor workflows
+│       ├── fission-command-site/   # Static site build/check/serve workflows
+│       ├── fission-command-package/ # Packaging, readiness, and distribution workflows
+│       ├── fission-command-release/ # Release metadata, auth, signing, beta, and review workflows
+│       ├── fission-command-ui/     # Terminal UI for the same command model
+│       ├── fission-credentials/    # Local credential vault helpers
 │       ├── fission-diagnostics/   # Structured diagnostic logging
 │       ├── fission-test/          # Test utilities
 │       └── fission-test-driver/   # LiveTestClient and test protocol
@@ -734,7 +741,14 @@ For the iOS, Android, and browser smoke commands, see `docs/platform-smoke-tests
 | [`fission-shell-desktop`](crates/shell/fission-shell-desktop) | Desktop shell wrapper around the shared winit runtime |
 | [`fission-shell-mobile`](crates/shell/fission-shell-mobile) | Mobile shell (iOS / Android) -- simulator/emulator smoke paths verified |
 | [`fission-shell-web`](crates/shell/fission-shell-web) | Web shell (WASM + browser) -- checked-in browser smoke path and CLI scaffolding |
-| [`fission-cli`](crates/tools/fission-cli) | Project scaffolding CLI and `cargo fission` entrypoint |
+| [`cargo-fission`](crates/tools/cargo-fission) | Package that installs the single `fission` project command |
+| [`fission-command-core`](crates/tools/fission-command-core) | Shared command models and project manifest helpers |
+| [`fission-command-run`](crates/tools/fission-command-run) | Run, build, test, logs, and doctor workflows |
+| [`fission-command-site`](crates/tools/fission-command-site) | Static site build/check/serve workflows |
+| [`fission-command-package`](crates/tools/fission-command-package) | Packaging, readiness, and distribution workflows |
+| [`fission-command-release`](crates/tools/fission-command-release) | Release metadata, auth, signing, beta, and review workflows |
+| [`fission-command-ui`](crates/tools/fission-command-ui) | Terminal UI app for the same command model |
+| [`fission-credentials`](crates/tools/fission-credentials) | Local credential vault helpers used by release/publish commands |
 | [`fission-diagnostics`](crates/tools/fission-diagnostics) | Structured diagnostic logging and performance tracing |
 | [`fission-test`](crates/tools/fission-test) | Test utilities and helpers |
 | [`fission-test-driver`](crates/tools/fission-test-driver) | LiveTestClient and JSON test protocol |
