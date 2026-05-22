@@ -1,0 +1,37 @@
+---
+title: Release and distribute
+description: Publish Fission artifacts to app stores, static hosts, object stores, GitHub Releases, testers, tracks, rollouts, and release receipts.
+---
+
+# Release and distribute
+
+Release is where package artifacts, store metadata, screenshots, credentials, tracks, testers, and provider-specific workflows meet. Fission makes that a project workflow instead of leaving every app to invent its own release scripts.
+
+## Provider families
+
+| Provider family | What Fission manages |
+| --- | --- |
+| App stores | Google Play APK/AAB upload, App Store Connect IPA upload, Microsoft Store MSI/EXE API path, Microsoft Store MSIX/MSIXUPLOAD Partner Center path through `msstore`. |
+| Static hosting | GitHub Pages, Cloudflare Pages, Netlify, custom domain readiness, and generated static site assets. |
+| Artifact distribution | GitHub Releases, S3-compatible object stores, Google Drive, OneDrive, Dropbox, and direct artifact upload receipts. |
+| Release content | Screenshots, preview videos, feature graphics, logos, trailers, notes, privacy metadata, review attachments, and provider-specific validation. |
+| Release management | Testers, beta groups, tracks, package flights, staged rollout, status queries, receipts, and CI JSON output. |
+
+## Typical release flow
+
+```bash
+fission readiness release --project-dir . --target windows --format msix --provider microsoft-store
+fission package --project-dir . --target windows --format msix --release
+fission release-content validate --project-dir . --provider microsoft-store
+fission distribute --project-dir . --provider microsoft-store --artifact target/fission/release/windows/msix/artifact-manifest.json --track public --yes
+```
+
+The exact commands vary by provider, but the shape stays consistent: check readiness, build the artifact, validate release content, publish, then keep the receipt.
+
+## Credentials
+
+Provider credentials should not be committed to the repository. Fission supports environment variables, CI secrets, authenticated provider tools, and its encrypted release credential vault. The project manifest stores references and provider metadata, while secrets stay outside plain-text project config.
+
+## Where to go next
+
+Read [Production lifecycle](/product/production-lifecycle/) for the high-level model, [Build and package](/docs/build-and-package/overview/) for artifacts, and [Post-build lifecycle](/docs/release-and-distribute/post-build-lifecycle/) for the RFC-level detail.

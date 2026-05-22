@@ -1,12 +1,12 @@
 ---
 title: Reference overview
-description: The technical map of Fission's runtime, shells, command-line interface, and widget surface.
+description: The technical map of Fission's runtime, shells, command-line interface, widgets, charts, targets, and lifecycle tooling.
 slug: /overview/overview
 ---
 
 # Reference overview
 
-The Learn section teaches the framework in a guided order. The Reference section is the place you come back to when you already know roughly what you are building and need to confirm a contract, a type, a lifecycle rule, or the right subsystem for a problem.
+The Learn and Docs sections teach Fission in lifecycle order. The Reference section is the place you come back to when you already know roughly what you are building and need to confirm a contract, a type, a lifecycle rule, or the right subsystem for a problem.
 
 That difference matters.
 
@@ -26,7 +26,7 @@ The fastest way to use this reference well is to identify the layer your questio
 
 If your question is about app behavior, start in the core runtime pages. That is where the shared contracts live: widgets, state, reducers, effects, resources, environment, input, the rendering pipeline, testing, and diagnostics.
 
-If your question is about how the app reaches desktop, web, Android, or iOS, move to the platform pages. Those pages explain shells, targets, target-level testing, and where platform responsibility begins and ends.
+If your question is about how the app reaches desktop, web, Android, iOS, terminal, or static HTML output, move to the platform pages. Those pages explain shells, targets, target-level testing, and where platform responsibility begins and ends.
 
 If your question is about scaffolding or day-to-day project setup, go to the command-line interface page. If your question is about authoring user interface, go to the widget catalog and then into the relevant widget family.
 
@@ -34,7 +34,7 @@ In other words, treat the reference as a subsystem map. Do not search for type n
 
 ## Core runtime reference
 
-The core runtime is the heart of Fission. These pages describe the shared model that stays consistent across desktop, web, Android, and iOS.
+The core runtime is the heart of Fission. These pages describe the shared model that stays consistent across desktop, web, Android, iOS, terminal, and static site targets.
 
 Start with [Widget trait](/reference/core/widget-trait) when you need to confirm what a widget is, what `build()` is allowed to do, or how `BuildCtx` and `View` divide responsibility.
 
@@ -50,7 +50,7 @@ Round that out with [Platform runtime](/reference/core/platform-runtime), [Testi
 
 The platform pages explain what happens after the shared runtime reaches a real host.
 
-[Targets](/reference/platform/targets) is the page to open when you need to understand generated host output, target folders, and the practical expectations for desktop, web, Android, and iOS.
+[Targets](/reference/platform/targets) is the page to open when you need to understand generated host output, target folders, and the practical expectations for desktop, web, Android, iOS, terminal, and static site targets.
 
 [Accessibility and internationalization](/reference/platform/accessibility-and-i18n) focuses on how semantic meaning and locale-sensitive behavior connect to platform adapters and testing.
 
@@ -58,7 +58,7 @@ The platform pages explain what happens after the shared runtime reaches a real 
 
 ## command-line interface reference
 
-The command-line interface is intentionally small, but it is part of the public workflow.
+The command-line interface is part of the public workflow, from project setup through run, logs, readiness, package, release content, distribution, and release receipts.
 
 Open [command-line interface overview](/reference/cli/overview) when you want the exact scaffold and target-management commands, the meaning of their major flags, and the files they generate.
 

@@ -14,7 +14,7 @@ pretty_urls = true
 generate_sitemap = true
 generate_robots = true
 title = "Fission"
-description = "Build production desktop, web, Android, and iOS apps with Fission."
+description = "Build, test, package, and release production Rust apps across desktop, mobile, web, terminal, and static site targets."
 logo = "/img/fission-mark.svg"
 favicon = "/img/fission-mark.svg"
 asset_dirs = ["static"]
@@ -38,28 +38,28 @@ workflow = "publish-website.yml"
 production_branch = "main"
 
 [[site.nav]]
+title = "Product"
+href = "/product/overview/"
+
+[[site.nav]]
+title = "Setup"
+href = "/docs/learn/quickstart/"
+
+[[site.nav]]
 title = "Learn"
 href = "/docs/learn/overview/"
 
 [[site.nav]]
-title = "Guides"
-href = "/docs/guides/app-structure/"
+title = "Build"
+href = "/docs/build-and-package/overview/"
 
 [[site.nav]]
-title = "Charts"
-href = "/reference/charts/overview/"
+title = "Test"
+href = "/docs/test-and-debug/overview/"
 
 [[site.nav]]
-title = "Cookbook"
-href = "/docs/cookbook/build-a-counter/"
-
-[[site.nav]]
-title = "Reference"
-href = "/reference/overview/overview/"
-
-[[site.nav]]
-title = "Examples"
-href = "/docs/learn/examples-and-targets/"
+title = "Publish"
+href = "/docs/release-and-distribute/overview/"
 
 [[site.routes]]
 kind = "content"

@@ -16,8 +16,8 @@ impl Widget<DocsState> for HomePageHero {
         semantic_column(
             "site-home-hero",
             vec![
-                Pill::new("Production-ready Rust user interface").build(ctx, view),
-                Text::new("Build desktop, web, Android, and iOS apps in Rust.")
+                Pill::new("Rust application platform").build(ctx, view),
+                Text::new("Build, test, package, and release production apps in Rust.")
                     .size(tokens.typography.display_md_size)
                     .family(tokens.typography.font_family_serif.clone())
                     .line_height(
@@ -31,7 +31,7 @@ impl Widget<DocsState> for HomePageHero {
                     .semantics_identifier("site-home-hero-title")
                     .flex_shrink(1.0)
                     .into_node(),
-                Text::new("Fission is a cross-platform user interface framework with one shared runtime, explicit state, explicit side effects, and a GPU-backed rendering pipeline.")
+                Text::new("Fission is a full application platform for desktop, mobile, web, terminal, and static site targets, with one shared app model and lifecycle tooling around it.")
                     .size(tokens.typography.font_size_lg)
                     .line_height(tokens.typography.font_size_lg * tokens.typography.line_height_relaxed)
                     .color(tokens.colors.text_secondary)
@@ -40,7 +40,7 @@ impl Widget<DocsState> for HomePageHero {
                     .text_align(TextAlign::Center)
                     .flex_shrink(1.0)
                     .into_node(),
-                Text::new("You write app state as plain Rust data, update it with reducers, and let Fission keep layout, input, time, rendering, and platform boundaries consistent across every target.")
+                Text::new("Write product state as plain Rust data, render with widgets, run through target shells, then use the CLI for devices, tests, preflight checks, packages, signing, release content, and distribution.")
                     .size(tokens.typography.body_large_size)
                     .line_height(tokens.typography.body_large_size * tokens.typography.line_height_relaxed)
                     .color(tokens.colors.text_muted)
@@ -51,23 +51,11 @@ impl Widget<DocsState> for HomePageHero {
                     .into_node(),
                 Row {
                     children: vec![
-                        Cta::new("Start with Quickstart ->", "/docs/learn/quickstart/", true)
+                        Cta::new("Start building ->", "/docs/learn/quickstart/", true)
                             .build(ctx, view),
-                        Cta::new("Read Learn overview", "/docs/learn/overview/", false)
+                        Cta::new("Explore platform", "/product/overview/", false)
                             .build(ctx, view),
-                        NavLink::new("Browse Reference ->", "/reference/overview/overview/")
-                            .build(ctx, view),
-                    ],
-                    gap: Some(tokens.spacing.m),
-                    wrap: FlexWrap::Wrap,
-                    justify_content: JustifyContent::Center,
-                    ..Default::default()
-                }
-                .into_node(),
-                Row {
-                    children: vec![
-                        CodeCard::new("Run a real app", "cargo run -p counter").build(ctx, view),
-                        CodeCard::new("Create your own project", "fission init my-app")
+                        NavLink::new("Release workflow ->", "/docs/release-and-distribute/overview/")
                             .build(ctx, view),
                     ],
                     gap: Some(tokens.spacing.m),
@@ -78,10 +66,24 @@ impl Widget<DocsState> for HomePageHero {
                 .into_node(),
                 Row {
                     children: vec![
-                        StatusText::new("Rust 1.77+").build(ctx, view),
-                        StatusText::new("MIT licensed").build(ctx, view),
-                        StatusText::new("v0.1.0 alpha").build(ctx, view),
-                        StatusText::new("Renders on Vello + wgpu").build(ctx, view),
+                        CodeCard::new("Create an app", "fission init my-app").build(ctx, view),
+                        CodeCard::new("Run on a target", "fission run --project-dir my-app")
+                            .build(ctx, view),
+                        CodeCard::new("Check release readiness", "fission readiness release --target windows --format msix --provider microsoft-store").build(ctx, view),
+                    ],
+                    gap: Some(tokens.spacing.m),
+                    wrap: FlexWrap::Wrap,
+                    justify_content: JustifyContent::Center,
+                    ..Default::default()
+                }
+                .into_node(),
+                Row {
+                    children: vec![
+                        StatusText::new("Desktop").build(ctx, view),
+                        StatusText::new("Web/WASM").build(ctx, view),
+                        StatusText::new("Android + iOS").build(ctx, view),
+                        StatusText::new("Terminal UI").build(ctx, view),
+                        StatusText::new("Static HTML").build(ctx, view),
                     ],
                     gap: Some(tokens.spacing.l),
                     wrap: FlexWrap::Wrap,
@@ -107,42 +109,42 @@ impl Widget<DocsState> for ProofStrip {
             vec![
                 SectionHeader::new(
                     "What Fission is",
-                    "A cross-platform Rust framework built for real products.",
-                    "Fission keeps state flow, layout, semantics, input routing, and rendering in one runtime, while platform shells handle packaging, windows, browser surfaces, lifecycle, and operating-system integration.",
+                    "One platform for the whole application lifecycle.",
+                    "Fission combines a Rust UI runtime, target shells, developer workflow, package readiness, release content, and distribution tooling so teams do not have to invent a platform around the framework.",
                 )
                 .build(ctx, view),
                 Row {
                     children: vec![
                         LinkCard::new(
-                            "Runtime",
-                            "One shared runtime",
-                            "State, reducers, layout, semantics, and rendering stay in one app model.",
-                            "See the model ->",
-                            "/docs/learn/runtime-model/",
+                            "Build",
+                            "Shared product model",
+                            "State, reducers, selectors, widgets, design systems, charts, commands, jobs, and services stay in Rust.",
+                            "Learn the model ->",
+                            "/docs/learn/overview/",
                         )
                         .build(ctx, view),
                         LinkCard::new(
-                            "Targets",
-                            "Four real target families",
-                            "Desktop, web, Android, and iOS hosts already exist around the same app code.",
+                            "Run",
+                            "Real target shells",
+                            "Desktop, web, mobile, terminal, and static site shells host the same app model.",
                             "See targets ->",
-                            "/docs/learn/examples-and-targets/",
+                            "/product/cross-platform-apps/",
                         )
                         .build(ctx, view),
                         LinkCard::new(
-                            "Testing",
-                            "Built for verification",
-                            "Live tests, diagnostics, semantics, and layout inspection are part of the runtime story.",
-                            "See testing ->",
-                            "/docs/guides/testing-and-diagnostics/",
+                            "Verify",
+                            "Tests and diagnostics",
+                            "Unit, widget, shell, screenshot, device, readiness, and future inspector tools are part of the platform story.",
+                            "Debug path ->",
+                            "/docs/test-and-debug/overview/",
                         )
                         .build(ctx, view),
                         LinkCard::new(
-                            "CLI",
-                            "Target scaffolding included",
-                            "Project setup and host generation are already part of the command-line workflow.",
-                            "See host setup ->",
-                            "/docs/guides/platform-shells-cli-and-testing/",
+                            "Ship",
+                            "Post-build lifecycle",
+                            "Package, sign, publish, manage testers, rollouts, tracks, static hosts, app stores, and release receipts.",
+                            "Release path ->",
+                            "/product/production-lifecycle/",
                         )
                         .build(ctx, view),
                     ],
@@ -156,6 +158,84 @@ impl Widget<DocsState> for ProofStrip {
             Some(tokens.spacing.xl),
             AlignItems::Center,
         )
+    }
+}
+
+#[derive(Clone, Debug)]
+pub(super) struct LifecycleSection;
+
+impl Widget<DocsState> for LifecycleSection {
+    fn build(&self, ctx: &mut BuildCtx<DocsState>, view: &View<DocsState>) -> Node {
+        let tokens = &view.env.theme.tokens;
+        ShellSection::new(
+            Column {
+                children: vec![
+                    Row {
+                        children: vec![
+                            Column {
+                                children: vec![
+                                    Text::new("Application lifecycle")
+                                        .size(tokens.typography.font_size_sm)
+                                        .weight(tokens.typography.font_weight_bold)
+                                        .color(tokens.colors.secondary)
+                                        .into_node(),
+                                    Text::new("From first run to store rollout.")
+                                        .size(tokens.typography.heading2_size)
+                                        .family(tokens.typography.font_family_serif.clone())
+                                        .line_height(tokens.typography.heading2_size * tokens.typography.line_height_heading)
+                                        .weight(tokens.typography.font_weight_bold)
+                                        .color(tokens.colors.heading)
+                                        .into_node(),
+                                ],
+                                gap: Some(tokens.spacing.m),
+                                flex_grow: 1.0,
+                                ..Default::default()
+                            }
+                            .into_node(),
+                            Text::new("The docs now follow the path teams actually take: setup, develop, test, debug, package, sign, release, distribute, and keep receipts for automation.")
+                                .size(tokens.typography.body_large_size)
+                                .line_height(tokens.typography.body_large_size * tokens.typography.line_height_relaxed)
+                                .color(tokens.colors.text_secondary)
+                                .flex_grow(1.0)
+                                .into_node(),
+                        ],
+                        gap: Some(tokens.spacing.xl),
+                        wrap: FlexWrap::Wrap,
+                        align_items: AlignItems::Start,
+                        ..Default::default()
+                    }
+                    .into_node(),
+                    Row {
+                        children: vec![
+                            lifecycle_step(tokens, "01", "Start", "init, project shape, targets"),
+                            lifecycle_step(tokens, "02", "Develop", "run, devices, logs, shells"),
+                            lifecycle_step(tokens, "03", "Debug", "tests, screenshots, inspectors"),
+                            lifecycle_step(tokens, "04", "Package", "artifacts, signing, preflight"),
+                            lifecycle_step(tokens, "05", "Release", "stores, hosts, rollouts, receipts"),
+                        ],
+                        gap: Some(tokens.spacing.s),
+                        wrap: FlexWrap::Wrap,
+                        justify_content: JustifyContent::SpaceBetween,
+                        ..Default::default()
+                    }
+                    .into_node(),
+                    Row {
+                        children: vec![
+                            Cta::new("Open lifecycle docs", "/docs/release-and-distribute/overview/", true).build(ctx, view),
+                            Cta::new("Read product page", "/product/production-lifecycle/", false).build(ctx, view),
+                        ],
+                        gap: Some(tokens.spacing.s),
+                        wrap: FlexWrap::Wrap,
+                        ..Default::default()
+                    }
+                    .into_node(),
+                ],
+                gap: Some(tokens.spacing.l),
+                ..Default::default()
+            }
+            .into_node(),
+        )
+        .build(ctx, view)
     }
 }
 
@@ -307,16 +387,17 @@ impl Widget<DocsState> for TargetsSection {
             vec![
                 SectionHeader::new(
                     "Targets",
-                    "Desktop, web, Android, and iOS stay in the same orbit.",
-                    "Start on the host that answers your next product question fastest, then keep the shared model intact.",
+                    "Desktop, mobile, web, terminal, and static HTML are first-class outputs.",
+                    "Start on the host that answers your next product question fastest, then validate on every real target your users will touch.",
                 )
                 .build(ctx, view),
                 Column {
                     children: vec![
-                        TargetRowCard::new("Desktop", "Supported", "macOS - Linux - Windows", "cargo run -p counter", "Fast local loop for reducers, overlays, layout, and diagnostics.", "/docs/learn/examples-and-targets/", "Desktop path ->").build(ctx, view),
-                        TargetRowCard::new("Web", "Smoke path", "WASM", "./examples/web-smoke/platforms/web/run-browser.sh", "Browser host path and generated launcher folder around the same app model.", "/docs/guides/platform-shells-cli-and-testing/", "Web path ->").build(ctx, view),
-                        TargetRowCard::new("Android", "Smoke path", "Emulator", "./examples/mobile-smoke/platforms/android/run-emulator.sh", "Checked-in emulator path and generated Android host folder.", "/docs/guides/platform-shells-cli-and-testing/", "Android path ->").build(ctx, view),
-                        TargetRowCard::new("iOS", "Smoke path", "Simulator", "./examples/mobile-smoke/platforms/ios/run-sim.sh", "Checked-in simulator path and generated iOS host folder.", "/docs/guides/platform-shells-cli-and-testing/", "iOS path ->").build(ctx, view),
+                        TargetRowCard::new("Desktop", "First-class", "macOS - Linux - Windows", "fission run --target desktop", "Native windows, rendering, input, diagnostics, package readiness, and desktop release paths.", "/product/cross-platform-apps/", "Desktop path ->").build(ctx, view),
+                        TargetRowCard::new("Web", "First-class", "WASM", "fission run --target web", "Browser delivery with the same shared app model and web/static packaging workflow.", "/product/cross-platform-apps/", "Web path ->").build(ctx, view),
+                        TargetRowCard::new("Mobile", "First-class", "Android - iOS", "fission devices", "Generated mobile hosts, emulator/simulator workflow, APK/AAB/IPA readiness, and store publishing.", "/product/cross-platform-apps/", "Mobile path ->").build(ctx, view),
+                        TargetRowCard::new("Terminal UI", "First-class", "Windows - macOS - Linux", "fission ui", "Interactive terminal apps built from normal Fission widgets, reducers, screens, and routes.", "/product/terminal-apps/", "Terminal path ->").build(ctx, view),
+                        TargetRowCard::new("Static HTML", "First-class", "Sites - Docs - Marketing", "fission site build", "SEO-friendly static HTML from Fission widgets, Markdown content, search, metadata, and assets.", "/product/static-sites/", "Site path ->").build(ctx, view),
                     ],
                     gap: Some(tokens.spacing.s),
                     ..Default::default()
@@ -432,12 +513,12 @@ impl Widget<DocsState> for ExamplesSection {
     fn build(&self, ctx: &mut BuildCtx<DocsState>, view: &View<DocsState>) -> Node {
         CenteredSection::new(
             "Examples",
-            "Small loop, real app shell, large custom tool surface.",
-            "Start where your evaluation needs the most signal.",
+            "Examples across the platform, not only the widget layer.",
+            "Start with the smallest app, then inspect the examples that prove targets, charts, static sites, terminal tooling, and release workflow.",
             vec![
                 ExampleCard::new("Starter", "Counter", "cargo run -p counter", "The smallest complete Fission app loop: plain state, two reducers, a widget tree, and buttons bound with the public prelude macros.", "typed actions and reducers", "single-file starter app", "/docs/cookbook/build-a-counter/", "/reference/core/state-system/").build(ctx, view),
-                ExampleCard::new("Product shell", "Inbox", "cargo run -p inbox", "A product-like mail app that exercises portals, theme switching, locale switching, routing, and host capabilities in one shell.", "translation bundles and locale sync", "OPEN_URL host capability flow", "/docs/guides/theming-and-i18n/", "/reference/core/environment-input-and-ime/").build(ctx, view),
-                ExampleCard::new("Custom surface", "Fission Editor", "cargo run -p fission-editor -- .", "The deepest example in the repo: custom editing surface, jobs, timers, portals, terminal panel, and extensive live tests.", "custom render node path", "resource-driven jobs and timers", "/docs/guides/resources-and-async/", "/reference/widgets/media/").build(ctx, view),
+                ExampleCard::new("Site", "Documentation", "fission site build --project-dir documentation", "This website is a Fission static site: custom homepage widgets, Markdown content routes, generated search, metadata, sidebars, and GitHub Pages output.", "static HTML shell", "content routes and custom widgets", "/docs/guides/static-sites/", "/product/static-sites/").build(ctx, view),
+                ExampleCard::new("Terminal", "Fission CLI UI", "fission ui --project-dir .", "The CLI includes a terminal Fission app with screens, routes, reducers, dialogs, command sessions, logs, settings, density, and theme switching.", "terminal shell", "non-blocking command workflow", "/docs/guides/terminal-user-interfaces/", "/product/terminal-apps/").build(ctx, view),
             ],
         )
         .build(ctx, view)
@@ -454,7 +535,7 @@ impl Widget<DocsState> for FinalCta {
             Column {
                 children: vec![
                     Pill::new("Next").build(ctx, view),
-                    Text::new("Run an app, inspect a host, then go deeper where you need detail.")
+                    Text::new("Pick a lifecycle stage and keep moving.")
                         .size(tokens.typography.heading1_size)
                         .family(tokens.typography.font_family_serif.clone())
                         .line_height(
@@ -464,7 +545,7 @@ impl Widget<DocsState> for FinalCta {
                         .color(tokens.colors.heading)
                         .text_align(TextAlign::Center)
                         .into_node(),
-                    Text::new("The shared runtime is sitting right there. The next product question is one cargo command away.")
+                    Text::new("Start with the app model, add the targets you need, then use Fission's tooling to verify, package, and release the product.")
                         .size(tokens.typography.body_large_size)
                         .line_height(tokens.typography.body_large_size * tokens.typography.line_height_relaxed)
                         .color(tokens.colors.text_secondary)
@@ -472,9 +553,9 @@ impl Widget<DocsState> for FinalCta {
                         .into_node(),
                     Row {
                         children: vec![
-                            Cta::new("Run examples", "/docs/learn/examples-and-targets/", true).build(ctx, view),
-                            Cta::new("Inspect hosts", "/docs/guides/platform-shells-cli-and-testing/", false).build(ctx, view),
-                            NavLink::new("Review testing ->", "/docs/guides/testing-and-diagnostics/").build(ctx, view),
+                            Cta::new("Start docs", "/docs/intro/", true).build(ctx, view),
+                            Cta::new("Product overview", "/product/overview/", false).build(ctx, view),
+                            NavLink::new("Reference ->", "/reference/overview/overview/").build(ctx, view),
                         ],
                         gap: Some(tokens.spacing.m),
                         wrap: FlexWrap::Wrap,
@@ -553,6 +634,48 @@ fn boundary_panel(
     .border(tokens.colors.border, 1.0)
     .border_radius(tokens.radii.xxl)
     .flex_grow(1.0)
+    .into_node()
+}
+
+fn lifecycle_step(
+    tokens: &Tokens,
+    number: &'static str,
+    title: &'static str,
+    body: &'static str,
+) -> Node {
+    Container::new(
+        Column {
+            children: vec![
+                Text::new(number)
+                    .size(tokens.typography.font_size_xs)
+                    .family(tokens.typography.font_family_mono.clone())
+                    .weight(tokens.typography.font_weight_bold)
+                    .color(tokens.colors.primary)
+                    .into_node(),
+                Text::new(title)
+                    .size(tokens.typography.font_size_lg)
+                    .weight(tokens.typography.font_weight_bold)
+                    .color(tokens.colors.heading)
+                    .into_node(),
+                Text::new(body)
+                    .size(tokens.typography.font_size_sm)
+                    .line_height(
+                        tokens.typography.font_size_sm * tokens.typography.line_height_normal,
+                    )
+                    .color(tokens.colors.text_secondary)
+                    .into_node(),
+            ],
+            gap: Some(tokens.spacing.s),
+            ..Default::default()
+        }
+        .into_node(),
+    )
+    .padding_all(tokens.spacing.m)
+    .bg_fill(Fill::Solid(tokens.colors.surface_raised))
+    .border(tokens.colors.border, 1.0)
+    .border_radius(tokens.radii.large)
+    .width(tokens.spacing.xxxxl * 1.85)
+    .flex_shrink(1.0)
     .into_node()
 }
 

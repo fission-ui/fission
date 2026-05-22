@@ -1,6 +1,6 @@
 use super::home_widgets::semantic_row;
 use super::state::DocsState;
-use fission::op::{AlignItems, Fill, FlexWrap, JustifyContent};
+use fission::op::{AlignItems, Fill, FlexWrap, JustifyContent, TextAlign};
 use fission::prelude::*;
 
 #[derive(Clone, Debug)]
@@ -14,65 +14,58 @@ impl Widget<DocsState> for DocsFooter {
                 children: vec![
                     Row {
                         children: vec![
-                            footer_brand(ctx, view),
+                            FooterColumn::new(
+                                "Setup",
+                                &[
+                                    ("Quickstart", "/docs/learn/quickstart/"),
+                                    ("Add targets", "/docs/cookbook/add-platform-targets/"),
+                                    ("Project structure", "/docs/guides/app-structure/"),
+                                ],
+                            )
+                            .build(ctx, view),
                             FooterColumn::new(
                                 "Learn",
                                 &[
                                     ("Overview", "/docs/learn/overview/"),
-                                    ("Quickstart", "/docs/learn/quickstart/"),
                                     ("Runtime model", "/docs/learn/runtime-model/"),
+                                    ("Widgets", "/docs/guides/layout-and-widgets/"),
+                                    ("Design systems", "/docs/guides/design-system/"),
+                                    ("Charts", "/docs/charts/overview/"),
                                 ],
                             )
                             .build(ctx, view),
                             FooterColumn::new(
-                                "Guides",
+                                "Build",
                                 &[
-                                    ("App structure", "/docs/guides/app-structure/"),
-                                    ("Resources and async", "/docs/guides/resources-and-async/"),
-                                    (
-                                        "Testing and diagnostics",
-                                        "/docs/guides/testing-and-diagnostics/",
-                                    ),
-                                    ("Theming and i18n", "/docs/guides/theming-and-i18n/"),
                                     (
                                         "Platform shells",
                                         "/docs/guides/platform-shells-cli-and-testing/",
                                     ),
+                                    ("Terminal UI", "/docs/guides/terminal-user-interfaces/"),
+                                    ("Static sites", "/docs/guides/static-sites/"),
+                                    ("Packaging", "/docs/build-and-package/overview/"),
+                                ],
+                            )
+                            .build(ctx, view),
+                            FooterColumn::new(
+                                "Test",
+                                &[
+                                    ("Testing lifecycle", "/docs/test-and-debug/overview/"),
+                                    ("Diagnostics", "/docs/guides/testing-and-diagnostics/"),
+                                    ("Live UI test", "/docs/cookbook/write-a-live-ui-test/"),
+                                ],
+                            )
+                            .build(ctx, view),
+                            FooterColumn::new(
+                                "Publish",
+                                &[
+                                    ("Release overview", "/docs/release-and-distribute/overview/"),
                                     (
-                                        "Terminal interfaces",
-                                        "/docs/guides/terminal-user-interfaces/",
+                                        "Lifecycle details",
+                                        "/docs/release-and-distribute/post-build-lifecycle/",
                                     ),
-                                ],
-                            )
-                            .build(ctx, view),
-                            FooterColumn::new(
-                                "Charts",
-                                &[
-                                    ("Overview", "/reference/charts/overview/"),
-                                    ("Catalog", "/docs/charts/catalog/"),
-                                    ("Data and interaction", "/docs/charts/data-and-interaction/"),
-                                    ("3D and GL", "/docs/charts/three-dimensional-and-gl/"),
-                                ],
-                            )
-                            .build(ctx, view),
-                            FooterColumn::new(
-                                "Cookbook",
-                                &[
-                                    ("Build a counter", "/docs/cookbook/build-a-counter/"),
-                                    ("Add platform targets", "/docs/cookbook/add-platform-targets/"),
-                                    (
-                                        "Write a live interface test",
-                                        "/docs/cookbook/write-a-live-ui-test/",
-                                    ),
-                                ],
-                            )
-                            .build(ctx, view),
-                            FooterColumn::new(
-                                "Explore",
-                                &[
-                                    ("Reference", "/reference/overview/overview/"),
+                                    ("CLI reference", "/reference/cli/overview/"),
                                     ("Examples", "/docs/learn/examples-and-targets/"),
-                                    ("GitHub", "https://github.com/worka-ai/fission"),
                                 ],
                             )
                             .build(ctx, view),
@@ -80,34 +73,14 @@ impl Widget<DocsState> for DocsFooter {
                         gap: Some(tokens.spacing.xxl),
                         wrap: FlexWrap::Wrap,
                         align_items: AlignItems::Start,
-                        justify_content: JustifyContent::SpaceBetween,
+                        justify_content: JustifyContent::Center,
                         ..Default::default()
                     }
                     .into_node(),
-                    Container::new(
-                        Row {
-                            children: vec![
-                                Text::new("Copyright (c) 2026 Fission - MIT License")
-                                    .size(tokens.typography.font_size_sm)
-                                    .color(tokens.colors.text_muted)
-                                    .into_node(),
-                                Text::new("The Fission framework is ready to use today, but some areas are actively under development. Widget APIs are expected to remain stable; some runtime or shell APIs may get breaking changes before 1.0.0.")
-                                    .size(tokens.typography.font_size_sm)
-                                    .color(tokens.colors.text_muted)
-                                    .into_node(),
-                            ],
-                            gap: Some(tokens.spacing.l),
-                            wrap: FlexWrap::Wrap,
-                            justify_content: JustifyContent::SpaceBetween,
-                            ..Default::default()
-                        }
-                        .into_node(),
-                    )
-                    .padding([0.0, 0.0, tokens.spacing.l, 0.0])
-                    .border(tokens.colors.border, 1.0)
-                    .into_node(),
+                    footer_identity(ctx, view),
                 ],
                 gap: Some(tokens.spacing.xxl),
+                align_items: AlignItems::Center,
                 ..Default::default()
             }
             .into_node(),
@@ -119,56 +92,81 @@ impl Widget<DocsState> for DocsFooter {
     }
 }
 
-fn footer_brand(ctx: &mut BuildCtx<DocsState>, view: &View<DocsState>) -> Node {
+fn footer_identity(ctx: &mut BuildCtx<DocsState>, view: &View<DocsState>) -> Node {
     let tokens = &view.env.theme.tokens;
-    Column {
-        children: vec![
-            semantic_row(
-                "site-route:/",
-                vec![
-                    Image {
-                        source: "/img/fission-mark.svg".to_string(),
-                        width: Some(tokens.spacing.l),
-                        height: Some(tokens.spacing.l),
-                        ..Default::default()
-                    }
-                    .into_node(),
-                    Text::new("Fission")
-                        .size(tokens.typography.font_size_lg)
-                        .weight(tokens.typography.font_weight_bold)
-                        .color(tokens.colors.heading)
+    Container::new(
+        Column {
+            children: vec![
+                semantic_row(
+                    "site-route:/",
+                    vec![
+                        Image {
+                            source: "/img/fission-mark.svg".to_string(),
+                            width: Some(tokens.spacing.l),
+                            height: Some(tokens.spacing.l),
+                            ..Default::default()
+                        }
                         .into_node(),
-                ],
-                Some(tokens.spacing.s),
-                FlexWrap::NoWrap,
-                AlignItems::Center,
-                JustifyContent::Start,
-            ),
-            Text::new("A cross-platform, GPU-accelerated user interface framework for Rust. MIT licensed.")
-                .size(tokens.typography.body_medium_size)
-                .line_height(tokens.typography.body_medium_size * tokens.typography.line_height_normal)
-                .color(tokens.colors.text_secondary)
+                        Text::new("Fission")
+                            .size(tokens.typography.font_size_lg)
+                            .weight(tokens.typography.font_weight_bold)
+                            .color(tokens.colors.heading)
+                            .into_node(),
+                    ],
+                    Some(tokens.spacing.s),
+                    FlexWrap::NoWrap,
+                    AlignItems::Center,
+                    JustifyContent::Center,
+                ),
+                Text::new("A cross-platform, GPU-accelerated user interface framework for Rust. MIT licensed.")
+                    .size(tokens.typography.body_medium_size)
+                    .line_height(tokens.typography.body_medium_size * tokens.typography.line_height_normal)
+                    .color(tokens.colors.text_secondary)
+                    .max_width(tokens.spacing.xxxxl * 7.0)
+                    .text_align(TextAlign::Center)
+                    .flex_shrink(1.0)
+                    .into_node(),
+                Text::new("Copyright (c) 2026 Fission")
+                    .size(tokens.typography.font_size_sm)
+                    .color(tokens.colors.text_muted)
+                    .text_align(TextAlign::Center)
+                    .into_node(),
+                Text::new("Ready to use today. Widget APIs are expected to remain stable; some runtime and shell APIs may change before 1.0.0.")
+                    .size(tokens.typography.font_size_sm)
+                    .line_height(tokens.typography.font_size_sm * tokens.typography.line_height_normal)
+                    .color(tokens.colors.text_muted)
+                    .max_width(tokens.spacing.xxxxl * 8.0)
+                    .text_align(TextAlign::Center)
+                    .flex_shrink(1.0)
+                    .into_node(),
+                Row {
+                    children: vec![
+                        FooterLink::new("GitHub", "https://github.com/worka-ai/fission")
+                            .build(ctx, view),
+                        FooterLink::new("Quickstart", "/docs/learn/quickstart/").build(ctx, view),
+                        FooterLink::new("Reference", "/reference/overview/overview/")
+                            .build(ctx, view),
+                    ],
+                    gap: Some(tokens.spacing.m),
+                    wrap: FlexWrap::Wrap,
+                    justify_content: JustifyContent::Center,
+                    ..Default::default()
+                }
                 .into_node(),
-            Row {
-                children: vec![
-                    FooterLink::new("GitHub", "https://github.com/worka-ai/fission").build(ctx, view),
-                    FooterLink::new("Quickstart", "/docs/learn/quickstart/").build(ctx, view),
-                ],
-                gap: Some(tokens.spacing.m),
-                wrap: FlexWrap::Wrap,
-                ..Default::default()
-            }
-            .into_node(),
-            Text::new("main - v0.1.0 alpha")
-                .size(tokens.typography.font_size_sm)
-                .family(tokens.typography.font_family_mono.clone())
-                .color(tokens.colors.text_muted)
-                .into_node(),
-        ],
-        gap: Some(tokens.spacing.m),
-        flex_shrink: 1.0,
-        ..Default::default()
-    }
+                Text::new("main - v0.1.0 alpha")
+                    .size(tokens.typography.font_size_sm)
+                    .family(tokens.typography.font_family_mono.clone())
+                    .color(tokens.colors.text_muted)
+                    .text_align(TextAlign::Center)
+                    .into_node(),
+            ],
+            gap: Some(tokens.spacing.m),
+            align_items: AlignItems::Center,
+            ..Default::default()
+        }
+        .into_node(),
+    )
+    .padding([0.0, 0.0, tokens.spacing.l, 0.0])
     .into_node()
 }
 
@@ -187,23 +185,28 @@ impl FooterColumn {
 impl Widget<DocsState> for FooterColumn {
     fn build(&self, ctx: &mut BuildCtx<DocsState>, view: &View<DocsState>) -> Node {
         let tokens = &view.env.theme.tokens;
-        Column {
-            children: std::iter::once(
-                Text::new(self.title)
-                    .size(tokens.typography.font_size_sm)
-                    .weight(tokens.typography.font_weight_bold)
-                    .color(tokens.colors.heading)
-                    .into_node(),
-            )
-            .chain(
-                self.links
-                    .iter()
-                    .map(|(label, href)| FooterLink::new(label, href).build(ctx, view)),
-            )
-            .collect(),
-            gap: Some(tokens.spacing.s),
-            ..Default::default()
-        }
+        Container::new(
+            Column {
+                children: std::iter::once(
+                    Text::new(self.title)
+                        .size(tokens.typography.font_size_sm)
+                        .weight(tokens.typography.font_weight_bold)
+                        .color(tokens.colors.heading)
+                        .into_node(),
+                )
+                .chain(
+                    self.links
+                        .iter()
+                        .map(|(label, href)| FooterLink::new(label, href).build(ctx, view)),
+                )
+                .collect(),
+                gap: Some(tokens.spacing.s),
+                ..Default::default()
+            }
+            .into_node(),
+        )
+        .width(tokens.spacing.xxxxl * 1.75)
+        .flex_shrink(1.0)
         .into_node()
     }
 }

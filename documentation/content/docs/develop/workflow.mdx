@@ -1,0 +1,38 @@
+---
+title: Develop workflow
+description: Use the Fission CLI, targets, shells, devices, logs, and project configuration during day-to-day app development.
+---
+
+# Develop workflow
+
+The Fission development workflow starts with one project and grows by adding targets. You do not create a separate product for every platform. You keep product behavior in shared Rust and let Fission generate or run the shell needed for the current target.
+
+## Daily loop
+
+1. Create or open a project with `fission.toml` at the root.
+2. Add the targets your product needs.
+3. Run the fastest target while building shared behavior.
+4. Switch to the real host whenever the question depends on browser, mobile, terminal, or static-site behavior.
+5. Keep logs attached while the app runs.
+6. Use readiness checks before packaging or publishing.
+
+```bash
+fission init my-app
+cargo fission add-target web android ios --project-dir my-app
+fission devices --project-dir my-app
+fission run --project-dir my-app
+```
+
+## Targets and shells
+
+A target is the output family you want to run or build. A shell is the host layer that boots the shared app model for that target. Desktop, web, mobile, terminal, and static site targets use different shell code, but the state, reducers, widgets, and design system stay shared.
+
+That distinction keeps your codebase maintainable. Product modules should not know whether they are inside a native window, browser, phone, terminal, or static page unless the feature itself depends on that host.
+
+## Configuration belongs in `fission.toml`
+
+`fission.toml` is the authoritative project root for targets, app metadata, site config, distribution config, release roots, and provider references. Keep long-form release notes, localized listing text, screenshots, and large provider metadata in referenced release-content files so the root manifest stays readable.
+
+## Where to go next
+
+Read [Platform shells, CLI, and testing](/docs/guides/platform-shells-cli-and-testing/) for the shell model, [Examples and targets](/docs/learn/examples-and-targets/) for target examples, and [Reference: CLI](/reference/cli/overview/) for command details.

@@ -1,0 +1,32 @@
+---
+title: Test and debug
+description: Structure Fission testing and diagnostics around reducers, widgets, shells, screenshots, logs, inspectors, and target-specific validation.
+---
+
+# Test and debug
+
+Fission's testing story follows the architecture. Test pure behavior where it is pure, test widget output where the widget tree is the question, and test the live host when the host is part of the behavior.
+
+## Testing layers
+
+| Layer | Use it for |
+| --- | --- |
+| Unit tests | Reducers, selectors, state transitions, parsers, helpers, and deterministic business logic. |
+| Widget tests | Rendered widget structure, semantics, layout intent, bindings, and state-derived UI. |
+| Runtime smoke tests | Shell startup, route rendering, command/job wiring, capability boundaries, and target compatibility. |
+| Screenshot tests | Release screenshots, visual regression checks, docs/gallery captures, and store content validation. |
+| Device/browser tests | Mobile safe areas, soft keyboards, browser behavior, accessibility bridges, pointer/touch handling, and packaging validation. |
+
+## Developer tools direction
+
+Fission's developer tools are designed around inspection rather than guesswork. The tooling surface should expose widget trees, Core IR, layout boxes, semantics, reducer/action history, logs, resource calls, frame timing, screenshots, and device output. IDE plugins should make those tools discoverable from normal development environments.
+
+The principle is simple: if the runtime can see a boundary, developers should be able to inspect it.
+
+## Debug without breaking the model
+
+Do not add hidden host callbacks just to make debugging easier. Keep reducers explicit, host work named, resources typed, and shell behavior observable. That gives tools a stable surface to inspect and keeps the production app understandable.
+
+## Where to go next
+
+Read [Testing and diagnostics](/docs/guides/testing-and-diagnostics/) for current practices, [Developer tools](/product/developer-tools/) for the product view, and [Platform testing reference](/reference/platform/testing/) for target-level details.

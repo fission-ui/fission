@@ -1,7 +1,7 @@
 use super::home_nav::HomePageNav;
 use super::home_sections::{
-    ArchitectureSection, ChartsSection, ExamplesSection, FinalCta, HomePageHero, ModelSection,
-    ProofStrip, TargetsSection,
+    ArchitectureSection, ChartsSection, ExamplesSection, FinalCta, HomePageHero, LifecycleSection,
+    ModelSection, ProofStrip, TargetsSection,
 };
 use super::home_widgets::{content_width, page_fill};
 use super::state::DocsState;
@@ -52,6 +52,7 @@ impl Widget<DocsState> for HomePage {
                                 children: vec![
                                     HomePageHero.build(ctx, view),
                                     ProofStrip.build(ctx, view),
+                                    LifecycleSection.build(ctx, view),
                                     ArchitectureSection.build(ctx, view),
                                     ChartsSection.build(ctx, view),
                                     ModelSection.build(ctx, view),

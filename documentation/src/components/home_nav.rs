@@ -6,12 +6,12 @@ use fission::op::{AlignItems, Fill, FlexWrap, JustifyContent};
 use fission::prelude::*;
 
 const NAV_ITEMS: &[(&str, &str)] = &[
+    ("Product", "/product/overview/"),
+    ("Setup", "/docs/learn/quickstart/"),
     ("Learn", "/docs/learn/overview/"),
-    ("Guides", "/docs/guides/app-structure/"),
-    ("Charts", "/reference/charts/overview/"),
-    ("Cookbook", "/docs/cookbook/build-a-counter/"),
-    ("Reference", "/reference/overview/overview/"),
-    ("Examples", "/docs/learn/examples-and-targets/"),
+    ("Build", "/docs/build-and-package/overview/"),
+    ("Test", "/docs/test-and-debug/overview/"),
+    ("Publish", "/docs/release-and-distribute/overview/"),
 ];
 
 #[derive(Clone, Debug)]

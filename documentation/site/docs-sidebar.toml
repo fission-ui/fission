@@ -4,14 +4,40 @@ href = "/docs/intro/"
 level = 0
 
 [[items]]
-title = "Learn"
+title = "Start"
+href = "/docs/intro/"
+level = 1
+group = true
+
+[[items]]
+title = "Introduction"
+href = "/docs/intro/"
+level = 2
+
+[[items]]
+title = "Quickstart"
+href = "/docs/learn/quickstart/"
+level = 2
+
+[[items]]
+title = "Project structure"
+href = "/docs/guides/app-structure/"
+level = 2
+
+[[items]]
+title = "Add platform targets"
+href = "/docs/cookbook/add-platform-targets/"
+level = 2
+
+[[items]]
+title = "Learn Fission"
 href = "/docs/learn/overview/"
 level = 1
 group = true
 
 [[items]]
-title = "Quickstart"
-href = "/docs/learn/quickstart/"
+title = "Overview"
+href = "/docs/learn/overview/"
 level = 2
 
 [[items]]
@@ -25,19 +51,8 @@ href = "/docs/learn/rendering-pipeline/"
 level = 2
 
 [[items]]
-title = "Examples and targets"
-href = "/docs/learn/examples-and-targets/"
-level = 2
-
-[[items]]
-title = "Guides"
-href = "/docs/guides/app-structure/"
-level = 1
-group = true
-
-[[items]]
-title = "Resources and async"
-href = "/docs/guides/resources-and-async/"
+title = "Layout and widgets"
+href = "/docs/guides/layout-and-widgets/"
 level = 2
 
 [[items]]
@@ -46,8 +61,8 @@ href = "/docs/guides/input-events-text-and-env/"
 level = 2
 
 [[items]]
-title = "Layout and widgets"
-href = "/docs/guides/layout-and-widgets/"
+title = "State, resources, and async"
+href = "/docs/guides/resources-and-async/"
 level = 2
 
 [[items]]
@@ -66,18 +81,29 @@ href = "/docs/guides/media-animation-portals-and-3d/"
 level = 2
 
 [[items]]
-title = "Platform shells, CLI, and testing"
+title = "Develop"
+href = "/docs/develop/workflow/"
+level = 1
+group = true
+
+[[items]]
+title = "Development workflow"
+href = "/docs/develop/workflow/"
+level = 2
+
+[[items]]
+title = "Platform shells and CLI"
 href = "/docs/guides/platform-shells-cli-and-testing/"
+level = 2
+
+[[items]]
+title = "Examples and targets"
+href = "/docs/learn/examples-and-targets/"
 level = 2
 
 [[items]]
 title = "Terminal user interfaces"
 href = "/docs/guides/terminal-user-interfaces/"
-level = 2
-
-[[items]]
-title = "Testing and diagnostics"
-href = "/docs/guides/testing-and-diagnostics/"
 level = 2
 
 [[items]]
@@ -90,6 +116,11 @@ title = "Charts"
 href = "/docs/charts/overview/"
 level = 1
 group = true
+
+[[items]]
+title = "Charts overview"
+href = "/docs/charts/overview/"
+level = 2
 
 [[items]]
 title = "Catalog"
@@ -109,6 +140,54 @@ level = 2
 [[items]]
 title = "Three-dimensional and GL"
 href = "/docs/charts/three-dimensional-and-gl/"
+level = 2
+
+[[items]]
+title = "Test and debug"
+href = "/docs/test-and-debug/overview/"
+level = 1
+group = true
+
+[[items]]
+title = "Testing lifecycle"
+href = "/docs/test-and-debug/overview/"
+level = 2
+
+[[items]]
+title = "Testing and diagnostics"
+href = "/docs/guides/testing-and-diagnostics/"
+level = 2
+
+[[items]]
+title = "Write a live UI test"
+href = "/docs/cookbook/write-a-live-ui-test/"
+level = 2
+
+[[items]]
+title = "Build and package"
+href = "/docs/build-and-package/overview/"
+level = 1
+group = true
+
+[[items]]
+title = "Packaging overview"
+href = "/docs/build-and-package/overview/"
+level = 2
+
+[[items]]
+title = "Release and distribute"
+href = "/docs/release-and-distribute/overview/"
+level = 1
+group = true
+
+[[items]]
+title = "Release overview"
+href = "/docs/release-and-distribute/overview/"
+level = 2
+
+[[items]]
+title = "Release lifecycle details"
+href = "/docs/release-and-distribute/post-build-lifecycle/"
 level = 2
 
 [[items]]
@@ -143,16 +222,27 @@ href = "/docs/cookbook/modal-text-flow/"
 level = 2
 
 [[items]]
-title = "Add platform targets"
-href = "/docs/cookbook/add-platform-targets/"
-level = 2
-
-[[items]]
-title = "Write a live UI test"
-href = "/docs/cookbook/write-a-live-ui-test/"
-level = 2
+title = "Reference"
+href = "/reference/overview/overview/"
+level = 1
+group = true
 
 [[items]]
 title = "Reference overview"
 href = "/reference/overview/overview/"
-level = 1
+level = 2
+
+[[items]]
+title = "CLI reference"
+href = "/reference/cli/overview/"
+level = 2
+
+[[items]]
+title = "Widget reference"
+href = "/reference/widgets/catalog/"
+level = 2
+
+[[items]]
+title = "Chart reference"
+href = "/reference/charts/overview/"
+level = 2

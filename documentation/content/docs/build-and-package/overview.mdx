@@ -1,0 +1,40 @@
+---
+title: Build and package
+description: Package Fission apps for desktop, mobile, web, terminal, and static site targets with preflight checks and artifact manifests.
+---
+
+# Build and package
+
+Packaging turns a built app into an artifact another system can install, upload, host, or verify. Fission treats packaging as a first-class workflow because production releases fail when packaging is handled as a pile of shell scripts nobody understands.
+
+## Package outputs
+
+| Target | Package formats |
+| --- | --- |
+| Linux | `.run` |
+| macOS | `.app`, `.pkg` |
+| Windows | `.exe`, `.msi`, `.msix` |
+| Android | `.apk`, `.aab` |
+| iOS | `.ipa` |
+| Web/site | static HTML/CSS/JS asset directory or archive |
+
+Every package flow writes an `artifact-manifest.json` describing the output: project identity, target, format, profile, artifact paths, relative paths, file sizes, hashes, MIME types, and validation checks.
+
+## Preflight checks
+
+Run readiness checks before you package or release:
+
+```bash
+fission readiness package --project-dir . --target windows --format msix
+fission readiness release --project-dir . --target android --format aab --provider play-store
+```
+
+Readiness checks are deliberately concrete. They look for SDKs, NDKs, Xcode tools, Windows packaging tools, package scripts, signing tools, credentials, provider config, and artifact shape. The goal is to tell you what is missing before the release is blocked at the end of the process.
+
+## Signing
+
+Signing is platform-owned. Fission should orchestrate checks, configuration, and receipts, but it should use the tools provided by the platform owner for the part of the process they own. Signing secrets should come from environment variables, CI secret stores, authenticated platform tooling, or the Fission credential vault, not from plain text committed into `fission.toml`.
+
+## Where to go next
+
+Read [Production lifecycle](/product/production-lifecycle/) for the platform view and [Release and distribute](/docs/release-and-distribute/overview/) when you are ready to publish artifacts.
