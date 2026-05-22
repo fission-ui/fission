@@ -136,23 +136,22 @@ fn import_android(
     let relative = project_relative_or_absolute(project_dir, &keystore);
     let path = project_dir.join("fission.toml");
     let data = fs::read_to_string(&path).unwrap_or_default();
-    let mut root: toml::Value = if data.trim().is_empty() {
-        toml::Value::Table(Default::default())
+    let mut root = if data.trim().is_empty() {
+        toml_edit::DocumentMut::new()
     } else {
-        toml::from_str(&data).with_context(|| format!("failed to parse {}", path.display()))?
+        parse_toml_edit_document(&data, &path)?
     };
-    set_toml_path(
+    set_toml_edit_path(
         &mut root,
         "package.android.keystore",
-        toml::Value::String(relative.clone()),
+        toml_edit::value(relative.clone()),
     )?;
-    set_toml_path(
+    set_toml_edit_path(
         &mut root,
         "package.android.keystore_alias",
-        toml::Value::String(alias.clone()),
+        toml_edit::value(alias.clone()),
     )?;
-    fs::write(&path, toml::to_string_pretty(&root)? + "\n")
-        .with_context(|| format!("failed to write {}", path.display()))?;
+    write_toml_edit_document(&path, &root)?;
     report.checks.push(ok_check(
         "signing.android.config_written",
         format!("package.android.keystore = {relative}, alias = {alias}"),

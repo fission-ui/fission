@@ -23,6 +23,7 @@ serde_json = "1.0"
 sha2 = "0.10"
 tar = "0.4"
 toml = "0.8"
+toml_edit = "0.23"
 fission = { path = "../../authoring/fission", version = "0.1.1", default-features = false, features = ["terminal-shell"] }
 fission-shell-site = { path = "../../shell/fission-shell-site", version = "0.1.1" }
 base64 = "0.22"

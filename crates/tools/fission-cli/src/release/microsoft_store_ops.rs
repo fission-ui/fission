@@ -435,40 +435,40 @@ fn write_imported_microsoft_listings(
         .as_deref()
         .context("active release metadata path is required for Microsoft Store metadata import")?;
     let toml_path = project_dir.join("fission.toml");
-    let mut fission_doc: toml::Value = toml::from_str(&fs::read_to_string(&toml_path)?)?;
+    let mut fission_doc = parse_toml_edit_document(&fs::read_to_string(&toml_path)?, &toml_path)?;
     for listing in remote {
         if let Some(title) = listing.title.clone() {
-            set_toml_path(
+            set_toml_edit_path(
                 &mut fission_doc,
                 &format!(
                     "release.store_listing.microsoft_store.{}.title",
                     listing.language
                 ),
-                toml::Value::String(title),
+                toml_edit::value(title),
             )?;
         }
         if let Some(short_description) = listing.short_description.clone() {
-            set_toml_path(
+            set_toml_edit_path(
                 &mut fission_doc,
                 &format!(
                     "release.store_listing.microsoft_store.{}.short_description",
                     listing.language
                 ),
-                toml::Value::String(short_description),
+                toml_edit::value(short_description),
             )?;
         }
         if let Some(privacy_url) = listing.privacy_url.clone() {
-            set_toml_path(
+            set_toml_edit_path(
                 &mut fission_doc,
                 &format!(
                     "release.store_listing.microsoft_store.{}.privacy_url",
                     listing.language
                 ),
-                toml::Value::String(privacy_url),
+                toml_edit::value(privacy_url),
             )?;
         }
     }
-    fs::write(&toml_path, toml::to_string_pretty(&fission_doc)? + "\n")?;
+    write_toml_edit_document(&toml_path, &fission_doc)?;
 
     let metadata_abs = project_dir.join(metadata_path);
     let mut metadata_doc: toml::Value = if metadata_abs.exists() {

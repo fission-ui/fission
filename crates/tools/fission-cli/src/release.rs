@@ -13,6 +13,10 @@ use std::io::{self, IsTerminal, Read};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::{SystemTime, UNIX_EPOCH};
+use toml_edit::{
+    Array as TomlEditArray, DocumentMut, Item as TomlEditItem, Table as TomlEditTable,
+    Value as TomlEditValue,
+};
 
 mod content;
 mod microsoft_store_ops;
@@ -780,11 +784,9 @@ fn set_release_field(project_dir: &Path, field: &str, value: &str, yes: bool) ->
     let path = project_dir.join("fission.toml");
     let data =
         fs::read_to_string(&path).with_context(|| format!("failed to read {}", path.display()))?;
-    let mut doc: toml::Value =
-        toml::from_str(&data).with_context(|| format!("failed to parse {}", path.display()))?;
-    set_toml_path(&mut doc, field, toml::Value::String(value.to_string()))?;
-    fs::write(&path, toml::to_string_pretty(&doc)? + "\n")
-        .with_context(|| format!("failed to write {}", path.display()))?;
+    let mut doc = parse_toml_edit_document(&data, &path)?;
+    set_toml_edit_path(&mut doc, field, toml_edit::value(value.to_string()))?;
+    write_toml_edit_document(&path, &doc)?;
     Ok(())
 }
 
@@ -810,6 +812,41 @@ fn add_release(
     }
     fs::write(&path, text).with_context(|| format!("failed to write {}", path.display()))?;
     Ok(())
+}
+
+fn parse_toml_edit_document(text: &str, path: &Path) -> Result<DocumentMut> {
+    text.parse::<DocumentMut>()
+        .with_context(|| format!("failed to parse {}", path.display()))
+}
+
+fn write_toml_edit_document(path: &Path, doc: &DocumentMut) -> Result<()> {
+    fs::write(path, format!("{doc}\n"))
+        .with_context(|| format!("failed to write {}", path.display()))
+}
+
+fn set_toml_edit_path(root: &mut DocumentMut, path: &str, value: TomlEditItem) -> Result<()> {
+    let parts = path.split('.').collect::<Vec<_>>();
+    if parts.is_empty() || parts.iter().any(|part| part.trim().is_empty()) {
+        bail!("field path must be dot-separated and non-empty");
+    }
+    let mut current = root.as_table_mut();
+    for part in &parts[..parts.len() - 1] {
+        current = current
+            .entry(part)
+            .or_insert(TomlEditItem::Table(TomlEditTable::new()))
+            .as_table_mut()
+            .context("field path traversed through a non-table value")?;
+    }
+    current[parts[parts.len() - 1]] = value;
+    Ok(())
+}
+
+fn toml_edit_string_array(values: impl IntoIterator<Item = String>) -> TomlEditItem {
+    let mut array = TomlEditArray::default();
+    for value in values {
+        array.push(value);
+    }
+    TomlEditItem::Value(TomlEditValue::Array(array))
 }
 
 fn edit_release_file(
@@ -1282,6 +1319,7 @@ fn print_report(mut report: LifecycleReport, json: bool) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs;
 
     #[test]
     fn auth_setup_documents_provider_credentials_without_secrets() {
@@ -1301,5 +1339,24 @@ mod tests {
                     .as_deref()
                     .is_some_and(|details| details.contains("Pages"))
         }));
+    }
+
+    #[test]
+    fn release_config_set_preserves_existing_comments_and_formatting() {
+        let dir =
+            std::env::temp_dir().join(format!("fission-release-config-set-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("fission.toml");
+        fs::write(&path, "# keep this comment\n[app]\nname = \"Todo\"\n").unwrap();
+
+        set_release_field(&dir, "app.version", "1.2.3", true).unwrap();
+
+        let text = fs::read_to_string(&path).unwrap();
+        assert!(text.contains("# keep this comment"));
+        assert!(text.contains("version = \"1.2.3\""));
+        assert!(text.contains("name = \"Todo\""));
+
+        let _ = fs::remove_dir_all(&dir);
     }
 }

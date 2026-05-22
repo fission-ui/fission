@@ -1557,7 +1557,8 @@ fn write_imported_app_store_localizations(
     } else {
         toml::Value::Table(Default::default())
     };
-    let mut fission_doc: toml::Value = toml::from_str(&fs::read_to_string(&fission_path)?)?;
+    let mut fission_doc =
+        parse_toml_edit_document(&fs::read_to_string(&fission_path)?, &fission_path)?;
     for item in remote {
         if selected.is_some_and(|selected| !selected.contains(&item.locale)) {
             continue;
@@ -1575,34 +1576,34 @@ fn write_imported_app_store_localizations(
             )?;
         }
         if let Some(value) = &item.support_url {
-            set_toml_path(
+            set_toml_edit_path(
                 &mut fission_doc,
                 &format!(
                     "release.store_listing.app_store.{}.support_url",
                     item.locale
                 ),
-                toml::Value::String(value.clone()),
+                toml_edit::value(value.clone()),
             )?;
         }
         if let Some(value) = &item.marketing_url {
-            set_toml_path(
+            set_toml_edit_path(
                 &mut fission_doc,
                 &format!(
                     "release.store_listing.app_store.{}.marketing_url",
                     item.locale
                 ),
-                toml::Value::String(value.clone()),
+                toml_edit::value(value.clone()),
             )?;
         }
         if let Some(value) = &item.keywords {
-            set_toml_path(
+            set_toml_edit_path(
                 &mut fission_doc,
                 &format!("release.store_listing.app_store.{}.keywords", item.locale),
-                toml::Value::Array(
+                toml_edit_string_array(
                     value
                         .split(',')
-                        .map(|item| toml::Value::String(item.trim().to_string()))
-                        .collect(),
+                        .map(|item| item.trim().to_string())
+                        .collect::<Vec<_>>(),
                 ),
             )?;
         }
@@ -1614,7 +1615,7 @@ fn write_imported_app_store_localizations(
         &metadata_path,
         toml::to_string_pretty(&metadata_doc)? + "\n",
     )?;
-    fs::write(&fission_path, toml::to_string_pretty(&fission_doc)? + "\n")?;
+    write_toml_edit_document(&fission_path, &fission_doc)?;
     Ok(())
 }
 
@@ -1830,32 +1831,30 @@ fn write_imported_play_listings(
     let fission_path = project_dir.join("fission.toml");
     let data = fs::read_to_string(&fission_path)
         .with_context(|| format!("failed to read {}", fission_path.display()))?;
-    let mut doc: toml::Value = toml::from_str(&data)
-        .with_context(|| format!("failed to parse {}", fission_path.display()))?;
+    let mut doc = parse_toml_edit_document(&data, &fission_path)?;
     for listing in listings {
-        set_toml_path(
+        set_toml_edit_path(
             &mut doc,
             &format!("release.store_listing.play_store.{}.title", listing.locale),
-            toml::Value::String(listing.title.clone()),
+            toml_edit::value(listing.title.clone()),
         )?;
-        set_toml_path(
+        set_toml_edit_path(
             &mut doc,
             &format!(
                 "release.store_listing.play_store.{}.short_description",
                 listing.locale
             ),
-            toml::Value::String(listing.short_description.clone()),
+            toml_edit::value(listing.short_description.clone()),
         )?;
         if let Some(video) = &listing.video {
-            set_toml_path(
+            set_toml_edit_path(
                 &mut doc,
                 &format!("release.store_listing.play_store.{}.video", listing.locale),
-                toml::Value::String(video.clone()),
+                toml_edit::value(video.clone()),
             )?;
         }
     }
-    fs::write(&fission_path, toml::to_string_pretty(&doc)? + "\n")
-        .with_context(|| format!("failed to write {}", fission_path.display()))?;
+    write_toml_edit_document(&fission_path, &doc)?;
 
     let metadata_path = active_release(root)
         .and_then(|release| release.metadata.as_deref())
