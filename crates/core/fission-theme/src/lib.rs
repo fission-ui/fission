@@ -2248,6 +2248,7 @@ include!(concat!(
 /// Bundled font files embedded at compile time.
 ///
 /// Provides Noto Sans Regular (the default) and Inter 24pt Regular.
+#[cfg(feature = "bundled-fonts")]
 pub mod fonts {
     pub const NOTO_SANS_REGULAR_TTF: &[u8] =
         include_bytes!("../fonts/Noto_Sans/static/NotoSans-Regular.ttf");
@@ -2256,5 +2257,13 @@ pub mod fonts {
     #[inline]
     pub fn default_font_bytes() -> &'static [u8] {
         NOTO_SANS_REGULAR_TTF
+    }
+}
+
+#[cfg(not(feature = "bundled-fonts"))]
+pub mod fonts {
+    #[inline]
+    pub fn default_font_bytes() -> &'static [u8] {
+        &[]
     }
 }

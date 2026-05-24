@@ -1,33 +1,26 @@
 use anyhow::Result;
 use fission_layout::TextMeasurer;
 use fission_render::{
-    surface_placeholder_color, BoxShadow, Color as RenderColor, DisplayList, DisplayOp, Fill,
-    ImageFit, RenderScene, Renderer, Stroke,
+    surface_placeholder_color, Color as RenderColor, DisplayList, DisplayOp, Fill, ImageFit,
+    RenderScene, Renderer,
 };
-use fission_theme::fonts;
 use once_cell::sync::OnceCell;
 use skia_safe::textlayout::{
-    FontCollection, ParagraphBuilder, ParagraphStyle, TextDecoration, TextStyle,
-    TypefaceFontProvider,
+    FontCollection, ParagraphBuilder, ParagraphStyle, TextStyle, TypefaceFontProvider,
 };
-use skia_safe::wrapper::NativeTransmutableWrapper;
 use skia_safe::{
-    BlurStyle, Canvas, Color as SkColor, Data, Font, FontArguments, FontMetrics, FontMgr,
-    MaskFilter, Matrix, Paint, RRect, Rect, Typeface, Vector,
+    BlurStyle, Canvas, Color as SkColor, FontMgr, FontStyle, MaskFilter, Matrix, Paint, RRect, Rect,
+    Typeface,
 };
 use std::fs;
 
 pub struct SkiaRenderer<'a> {
     canvas: &'a Canvas,
-    font_mgr: FontMgr,
 }
 
 impl<'a> SkiaRenderer<'a> {
     pub fn new(canvas: &'a Canvas) -> Self {
-        Self {
-            canvas,
-            font_mgr: FontMgr::new(),
-        }
+        Self { canvas }
     }
 }
 
@@ -38,9 +31,29 @@ static DEFAULT_TYPEFACE: OnceCell<Typeface> = OnceCell::new();
 fn default_typeface() -> &'static Typeface {
     DEFAULT_TYPEFACE.get_or_init(|| {
         let fm = FontMgr::new();
-        fm.new_from_data(fission_theme::fonts::default_font_bytes(), None)
-            .expect("Failed to load bundled UI font")
+        let bytes = fission_theme::fonts::default_font_bytes();
+        if bytes.is_empty() {
+            fm.legacy_make_typeface(None, FontStyle::normal())
+                .expect("Failed to load system font")
+        } else {
+            fm.new_from_data(bytes, None)
+                .expect("Failed to load bundled UI font")
+        }
     })
+}
+
+fn sk_color_from_render_color(color: &RenderColor) -> SkColor {
+    SkColor::from_argb(color.a, color.r, color.g, color.b)
+}
+
+fn sk_color_from_fill(fill: &Fill) -> SkColor {
+    match fill {
+        Fill::Solid(color) => sk_color_from_render_color(color),
+        Fill::LinearGradient { stops, .. } | Fill::RadialGradient { stops, .. } => stops
+            .first()
+            .map(|(_, color)| sk_color_from_render_color(color))
+            .unwrap_or(SkColor::TRANSPARENT),
+    }
 }
 
 impl SkiaTextMeasurer {
@@ -68,7 +81,7 @@ impl SkiaTextMeasurer {
         builder.add_text(text);
 
         let mut paragraph = builder.build();
-        let width = max_width.unwrap_or(10000.0);
+        let width = max_width.unwrap_or(f32::INFINITY);
         paragraph.layout(width);
         paragraph
     }
@@ -181,7 +194,7 @@ impl<'r> SkiaRenderer<'r> {
                 }
                 DisplayOp::OpacityLayer { alpha, bounds } => {
                     let rect = Rect::new(bounds.x(), bounds.y(), bounds.right(), bounds.bottom());
-                    self.canvas.save_layer_alpha_f(Some(&rect), *alpha);
+                    self.canvas.save_layer_alpha_f(Some(rect), *alpha);
                 }
                 DisplayOp::Translate(point) => {
                     self.canvas.translate((point.x, point.y));
@@ -205,8 +218,8 @@ impl<'r> SkiaRenderer<'r> {
                     stroke,
                     corner_radius,
                     shadow,
-                    bounds,
-                    node_id,
+                    bounds: _,
+                    node_id: _,
                 } => {
                     if let Some(shadow) = shadow {
                         let mut shadow_paint = Paint::default();
@@ -241,12 +254,7 @@ impl<'r> SkiaRenderer<'r> {
 
                     if let Some(fill) = fill {
                         let mut paint = Paint::default();
-                        paint.set_color(SkColor::from_argb(
-                            fill.color.a,
-                            fill.color.r,
-                            fill.color.g,
-                            fill.color.b,
-                        ));
+                        paint.set_color(sk_color_from_fill(fill));
 
                         if *corner_radius > 0.0 {
                             self.canvas.draw_rrect(
@@ -268,12 +276,7 @@ impl<'r> SkiaRenderer<'r> {
                     if let Some(stroke) = stroke {
                         let mut paint = Paint::default();
                         paint.set_style(skia_safe::PaintStyle::Stroke);
-                        paint.set_color(SkColor::from_argb(
-                            stroke.color.a,
-                            stroke.color.r,
-                            stroke.color.g,
-                            stroke.color.b,
-                        ));
+                        paint.set_color(sk_color_from_fill(&stroke.fill));
                         paint.set_stroke_width(stroke.width);
 
                         if *corner_radius > 0.0 {
@@ -299,7 +302,7 @@ impl<'r> SkiaRenderer<'r> {
                     size,
                     color,
                     bounds,
-                    underline,
+                    underline: _,
                     wrap,
                     ..
                 } => {
@@ -327,7 +330,7 @@ impl<'r> SkiaRenderer<'r> {
                     builder.add_text(text);
 
                     let mut paragraph = builder.build();
-                    let width = max_width.unwrap_or(10000.0);
+                    let width = max_width.unwrap_or(f32::INFINITY);
                     paragraph.layout(width);
 
                     paragraph.paint(self.canvas, (position.x, position.y));
@@ -367,7 +370,7 @@ impl<'r> SkiaRenderer<'r> {
                     } else {
                         None
                     };
-                    let width = max_width.unwrap_or(10000.0);
+                    let width = max_width.unwrap_or(f32::INFINITY);
                     paragraph.layout(width);
 
                     paragraph.paint(self.canvas, (position.x, position.y));
@@ -376,8 +379,8 @@ impl<'r> SkiaRenderer<'r> {
                     rect,
                     source,
                     fit,
-                    bounds,
-                    node_id,
+                    bounds: _,
+                    node_id: _,
                 } => {
                     if let Ok(data) = fs::read(source) {
                         if let Some(image) =

@@ -31,6 +31,9 @@ members = [
     "documentation",
     "examples/*"
 ]
+exclude = [
+    "crates/rendering/fission-render-skia",
+]
 resolver = "2"
 
 [workspace.lints.rust]
