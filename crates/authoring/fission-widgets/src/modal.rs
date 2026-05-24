@@ -235,7 +235,14 @@ impl<S: fission_core::AppState> Widget<S> for Modal {
             right: Some(0.0),
             top: Some(0.0),
             bottom: Some(0.0),
-            child: Some(Box::new(root)),
+            child: Some(Box::new(
+                fission_core::ui::widgets::FocusScope {
+                    id: None,
+                    is_barrier: true,
+                    children: vec![root],
+                }
+                .into_node(),
+            )),
             ..Default::default()
         }
         .into_node();

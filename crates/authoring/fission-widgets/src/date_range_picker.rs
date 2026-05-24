@@ -43,6 +43,9 @@ impl<S: fission_core::AppState> Widget<S> for DateRangePicker {
                     value: self.start,
                     is_open: self.is_start_open,
                     width: None,
+                    view_year: None,
+                    view_month: None,
+                    on_navigate: None,
                     on_change: cb.clone().map(|f| {
                         Arc::new(move |d| f(Some(d), e))
                             as Arc<dyn Fn(NaiveDate) -> ActionEnvelope + Send + Sync>
@@ -57,6 +60,9 @@ impl<S: fission_core::AppState> Widget<S> for DateRangePicker {
                     value: self.end,
                     is_open: self.is_end_open,
                     width: None,
+                    view_year: None,
+                    view_month: None,
+                    on_navigate: None,
                     on_change: cb.map(|f| {
                         Arc::new(move |d| f(s, Some(d)))
                             as Arc<dyn Fn(NaiveDate) -> ActionEnvelope + Send + Sync>

@@ -6,6 +6,7 @@ use std::f32::consts::PI;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct CircularProgress {
+    pub id: Option<fission_core::WidgetNodeId>,
     pub value: Option<f32>, // 0.0 to 1.0. If None, indeterminate (spinner).
     pub size: f32,
     pub color: Option<Color>,
@@ -16,6 +17,7 @@ pub struct CircularProgress {
 impl Default for CircularProgress {
     fn default() -> Self {
         Self {
+            id: None,
             value: None,
             size: 40.0,
             color: None,
@@ -26,12 +28,12 @@ impl Default for CircularProgress {
 }
 
 impl<S: fission_core::AppState> Widget<S> for CircularProgress {
-    fn build(&self, _ctx: &mut BuildCtx<S>, view: &View<S>) -> Node {
+    fn build(&self, ctx: &mut BuildCtx<S>, view: &View<S>) -> Node {
         let tokens = &view.env.theme.tokens;
         let color = self.color.unwrap_or(tokens.colors.primary);
         let track_color = self.track_color.unwrap_or(tokens.colors.border);
 
-        Node::Custom(fission_core::ui::CustomNode {
+        let custom_node = Node::Custom(fission_core::ui::CustomNode {
             debug_tag: "CircularProgress".into(),
             lowerer: Some(std::sync::Arc::new(CircularProgressLowerer {
                 value: self.value,
@@ -41,7 +43,28 @@ impl<S: fission_core::AppState> Widget<S> for CircularProgress {
                 thickness: self.thickness,
             })),
             render_object: None,
-        })
+        });
+
+        if self.value.is_none() {
+            if let Some(id) = self.id {
+                ctx.anim_for(id).request(fission_core::AnimationRequest {
+                    property: fission_core::AnimationPropertyId::Rotation,
+                    from: fission_core::AnimationStartValue::Explicit(0.0),
+                    to: 2.0 * std::f32::consts::PI,
+                    duration_ms: 1000,
+                    repeat: true,
+                    delay_ms: 0,
+                    frame_interval_ms: Some(16),
+                    easing: Default::default(),
+                });
+                return fission_core::ui::Composite::new(custom_node)
+                    .repaint_boundary(true)
+                    .animated_rotation(id, 0.0)
+                    .into_node();
+            }
+        }
+
+        custom_node
     }
 }
 

@@ -21,6 +21,9 @@ id: WidgetNodeId::explicit("publish_date"),
 value: view.state.publish_date,
 is_open: view.state.publish_date_open,
 width: Some(200.0),
+view_year: None,
+view_month: None,
+on_navigate: None,
 on_change: Some(Arc::new(move |date: NaiveDate| ActionEnvelope {
     id: set_publish_date_id,
     payload: serde_json::to_vec(&SetPublishDate(date)).unwrap(),
@@ -41,6 +44,9 @@ A common reducer flow is: `on_toggle` opens the picker, `on_change` stores the s
 | `value` | `Option<NaiveDate>` | Currently selected date, or no date yet. | Controlled by app state. |
 | `is_open` | `bool` | Whether the popup calendar is visible. | Controlled by app state. |
 | `width` | `Option<f32>` | Preferred trigger width. | Defaults to `164.0`, then clamps against the viewport when needed. |
+| `view_year` | `Option<i32>` | Calendar year currently shown in the popup. | Defaults to the selected date's year, or today. |
+| `view_month` | `Option<u32>` | Calendar month currently shown in the popup. | Defaults to the selected date's month, or today. |
+| `on_navigate` | `Option<Arc<dyn Fn(i32, u32) -> ActionEnvelope + Send + Sync>>` | Closure that creates the action for previous/next month navigation. | Use with `view_year` and `view_month` for controlled month state. |
 | `on_change` | `Option<Arc<dyn Fn(NaiveDate) -> ActionEnvelope + Send + Sync>>` | Closure that creates the action for a chosen day. | Called when the user selects a date. |
 | `on_toggle` | `Option<ActionEnvelope>` | Action for opening or toggling the popup. | Usually flips `is_open`. |
 | `on_close` | `Option<ActionEnvelope>` | Action for explicit popup dismissal. | Use this to close on outside click without overloading your toggle logic. |
@@ -49,7 +55,7 @@ A common reducer flow is: `on_toggle` opens the picker, `on_change` stores the s
 
 The checked-in `DatePicker` uses an outline [`Button`](/reference/widgets/button) as its trigger and opens a calendar popover. It does not currently parse free-form typed dates. If `value` is `None`, the trigger reads "Select Date". If a date exists, it is displayed in `YYYY-MM-DD` form.
 
-The popup calendar opens around the selected date or today. If you need a richer month-navigation state model, the current wrapper does not own that state for you; compose with the lower-level calendar pieces instead.
+The popup calendar opens around the selected date or today unless `view_year` and `view_month` are supplied. When you provide `on_navigate`, the previous/next controls dispatch your action with the next visible year and month so app state can keep the calendar view controlled.
 
 ## Product pitfalls to avoid
 
@@ -58,4 +64,3 @@ Store a real `NaiveDate` in state, not a locale-formatted display string. A disp
 ## Related
 
 [`DateRangePicker`](/reference/widgets/date-range-picker), [`TimePicker`](/reference/widgets/time-picker), [`TextInput`](/reference/widgets/text-input), and [`FormControl`](/reference/widgets/form-control).
-

@@ -81,9 +81,8 @@ impl<S: fission_core::AppState> Widget<S> for NumberInput {
                         value: display_text,
                         width: Some(field_width),
                         borderless: true,
-                        // TODO: Parse text input back to float for on_change
-                        // Needs `on_change` logic similar to slider?
-                        // MVP: Just display value.
+                        keyboard_type: fission_ir::semantics::TextInputType::Number,
+                        on_change: self.on_change.clone(),
                         ..Default::default()
                     }
                     .into_node(),

@@ -1750,7 +1750,17 @@ impl TextInputController {
             .iter()
             .find(|e| e.trigger == fission_ir::semantics::ActionTrigger::Change)
         {
-            let payload = serde_json::to_vec(&new_text).unwrap();
+            let payload =
+                if semantics.text_input_type == fission_ir::semantics::TextInputType::Number {
+                    if let Ok(parsed) = new_text.trim().parse::<f32>() {
+                        serde_json::to_vec(&parsed).unwrap()
+                    } else {
+                        return; // Skip dispatch if invalid float
+                    }
+                } else {
+                    serde_json::to_vec(&new_text).unwrap()
+                };
+
             let envelope = ActionEnvelope {
                 id: ActionId::from_u128(action_entry.action_id),
                 payload,

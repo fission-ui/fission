@@ -10,6 +10,9 @@ pub struct DatePicker {
     pub value: Option<NaiveDate>,
     pub is_open: bool,
     pub width: Option<f32>,
+    pub view_year: Option<i32>,
+    pub view_month: Option<u32>,
+    pub on_navigate: Option<Arc<dyn Fn(i32, u32) -> ActionEnvelope + Send + Sync>>,
     pub on_change: Option<Arc<dyn Fn(NaiveDate) -> ActionEnvelope + Send + Sync>>,
     pub on_toggle: Option<ActionEnvelope>,
     pub on_close: Option<ActionEnvelope>,
@@ -81,20 +84,13 @@ impl<S: fission_core::AppState> Widget<S> for DatePicker {
 
             Box::new(
                 Calendar {
-                    year: display_date.year(),
-                    month: display_date.month(),
+                    year: self.view_year.unwrap_or(display_date.year()),
+                    month: self.view_month.unwrap_or(display_date.month()),
                     selected_date: self.value,
-                    on_select: self.on_change.clone(), // When selected, close? logic handles that
-                    on_navigate: None, // TODO: Wiring navigation state requires DatePicker to own month state?
+                    on_select: self.on_change.clone(),
+                    on_navigate: self.on_navigate.clone(),
                     cell_size: None,
                     padding: None,
-                    // Yes, DatePicker needs `view_month` state separate from `value`.
-                    // For MVP, we navigate relative to `value` or `today`.
-                    // Calendar needs `on_navigate` to update `view_month`.
-                    // DatePicker doesn't store `view_month` in this struct.
-                    // It relies on AppState.
-                    // User must provide `view_month` in AppState?
-                    // Yes, standard Fission pattern.
                 }
                 .build(_ctx, view),
             )

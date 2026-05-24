@@ -164,18 +164,18 @@ impl Widget<EditorState> for FileTree {
         let new_file_action = ActionEnvelope {
             id: create_file_id,
             payload: serde_json::to_vec(&CreateFile(format!("{}/untitled", root_path_str)))
-                .unwrap(),
+                .unwrap_or_default(),
         };
 
         let new_folder_action = ActionEnvelope {
             id: create_folder_id,
             payload: serde_json::to_vec(&CreateFolder(format!("{}/new_folder", root_path_str)))
-                .unwrap(),
+                .unwrap_or_default(),
         };
 
         let refresh_action = ActionEnvelope {
             id: refresh_id,
-            payload: serde_json::to_vec(&RefreshTree).unwrap(),
+            payload: serde_json::to_vec(&RefreshTree).unwrap_or_default(),
         };
 
         let icon_color = tokens.colors.text_secondary;
@@ -355,12 +355,12 @@ fn build_tree_rows(
     let tap_action = if entry.is_dir {
         ActionEnvelope {
             id: toggle_id,
-            payload: serde_json::to_vec(&ToggleTreeNode(entry.path.clone())).unwrap(),
+            payload: serde_json::to_vec(&ToggleTreeNode(entry.path.clone())).unwrap_or_default(),
         }
     } else {
         ActionEnvelope {
             id: open_id,
-            payload: serde_json::to_vec(&OpenFile(entry.path.clone())).unwrap(),
+            payload: serde_json::to_vec(&OpenFile(entry.path.clone())).unwrap_or_default(),
         }
     };
 
@@ -372,7 +372,7 @@ fn build_tree_rows(
             y: 0.0,
             target: Some(entry.path.clone()),
         })
-        .unwrap(),
+        .unwrap_or_default(),
     };
 
     // Check if this entry is being renamed

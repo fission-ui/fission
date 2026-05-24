@@ -4,7 +4,7 @@ use fission_core::{ActionEnvelope, BuildCtx, View, Widget, WidgetNodeId};
 use serde::{Deserialize, Serialize};
 
 /// The edge from which a [`Drawer`] slides out.
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub enum DrawerSide {
     Left,
     Right,
@@ -34,16 +34,6 @@ pub struct Drawer {
 
 impl<S: fission_core::AppState> Widget<S> for Drawer {
     fn build(&self, ctx: &mut BuildCtx<S>, view: &View<S>) -> Node {
-        // Animation logic
-        // We want to animate the transform (TranslateX).
-        // If open: 0. If closed: -width (Left) or +width (Right).
-        // BUT we typically unmount the portal when closed.
-        // To support exit animation, we need the portal to stay mounted but be off-screen?
-        // Or we just snap for MVP.
-        // Let's implement simple enter animation if is_open changes from false to true.
-        // Since Widget `build` is stateless (re-run), we rely on `view` state.
-        // But `is_open` is passed in.
-
         if !self.is_open {
             return fission_core::ui::widgets::Spacer::default().into_node();
         }
@@ -57,8 +47,8 @@ impl<S: fission_core::AppState> Widget<S> for Drawer {
         };
         let width = self.width.unwrap_or(300.0).min(max_panel_width);
 
-        // Backdrop
-        let backdrop = GestureDetector {
+        // Backdrop with fade-in transition
+        let backdrop_inner = GestureDetector {
             on_tap: self.on_dismiss.clone(),
             child: Box::new(
                 Container::new(fission_core::ui::widgets::Spacer::default().into_node())
@@ -75,11 +65,27 @@ impl<S: fission_core::AppState> Widget<S> for Drawer {
         }
         .into_node();
 
+        let backdrop_anim_id = WidgetNodeId::from_u128(self.id.as_u128() ^ 0xBACD_u128);
+        ctx.anim_for(backdrop_anim_id)
+            .request(fission_core::AnimationRequest {
+                property: fission_core::AnimationPropertyId::Opacity,
+                from: fission_core::AnimationStartValue::Explicit(0.0),
+                to: 1.0,
+                duration_ms: 200,
+                repeat: false,
+                delay_ms: 0,
+                frame_interval_ms: None,
+                easing: Default::default(),
+            });
+        let backdrop = fission_core::ui::Composite::new(backdrop_inner)
+            .repaint_boundary(true)
+            .animated_opacity(backdrop_anim_id, 0.0)
+            .into_node();
+
         // Drawer Content
         let content_node = Container::new(*self.content.clone())
             .bg(tokens.colors.surface)
             .width(width)
-            // Height fills parent (Positioned top/bottom 0)
             .shadow(tokens.elevations.level3.unwrap_or(BoxShadow {
                 color: Color {
                     r: 0,
@@ -93,6 +99,27 @@ impl<S: fission_core::AppState> Widget<S> for Drawer {
             .padding_all(0.0)
             .into_node();
 
+        let slide_anim_id = WidgetNodeId::from_u128(self.id.as_u128() ^ 0xD00D_u128);
+        let slide_start = match self.side {
+            DrawerSide::Left => -width,
+            DrawerSide::Right => width,
+        };
+        ctx.anim_for(slide_anim_id)
+            .request(fission_core::AnimationRequest {
+                property: fission_core::AnimationPropertyId::TranslateX,
+                from: fission_core::AnimationStartValue::Explicit(slide_start),
+                to: 0.0,
+                duration_ms: 250,
+                repeat: false,
+                delay_ms: 0,
+                frame_interval_ms: None,
+                easing: Default::default(),
+            });
+        let animated_content = fission_core::ui::Composite::new(content_node)
+            .repaint_boundary(true)
+            .animated_translate_x(slide_anim_id, slide_start)
+            .into_node();
+
         let positioned_content = match self.side {
             DrawerSide::Left => fission_core::ui::Positioned {
                 left: Some(0.0),
@@ -100,7 +127,7 @@ impl<S: fission_core::AppState> Widget<S> for Drawer {
                 bottom: Some(0.0),
                 right: None,
                 width: Some(width),
-                child: Some(Box::new(content_node)),
+                child: Some(Box::new(animated_content)),
                 ..Default::default()
             },
             DrawerSide::Right => fission_core::ui::Positioned {
@@ -109,13 +136,11 @@ impl<S: fission_core::AppState> Widget<S> for Drawer {
                 bottom: Some(0.0),
                 left: None,
                 width: Some(width),
-                child: Some(Box::new(content_node)),
+                child: Some(Box::new(animated_content)),
                 ..Default::default()
             },
         }
         .into_node();
-
-        // TODO: slide animation for drawer open/close
 
         let root = ZStack {
             children: vec![
@@ -139,7 +164,14 @@ impl<S: fission_core::AppState> Widget<S> for Drawer {
             right: Some(0.0),
             top: Some(0.0),
             bottom: Some(0.0),
-            child: Some(Box::new(root)),
+            child: Some(Box::new(
+                fission_core::ui::widgets::FocusScope {
+                    id: None,
+                    is_barrier: true,
+                    children: vec![root],
+                }
+                .into_node(),
+            )),
             ..Default::default()
         }
         .into_node();

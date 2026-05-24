@@ -243,6 +243,9 @@ impl Widget<InboxState> for ComposeModal {
                             value: view.state.schedule_date,
                             is_open: view.state.is_date_picker_open,
                             width: None,
+                            view_year: None,
+                            view_month: None,
+                            on_navigate: None,
                             on_change: Some(Arc::new(move |d| ActionEnvelope {
                                 id: date_id,
                                 payload: serde_json::to_vec(&SetScheduleDate(d)).unwrap(),

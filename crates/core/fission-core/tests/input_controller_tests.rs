@@ -1823,11 +1823,11 @@ fn test_number_input_type_filters_ime_commit() {
         Some(&measurer),
     );
     let event = InputEvent::Ime(fission_core::event::ImeEvent::Commit {
-        text: "12ab-3".into(),
+        text: "12ab.3".into(),
     });
     assert!(controller.handle_event(&mut ctx, &event));
-    let new_text: String = serde_json::from_slice(&ctx.dispatched_actions[0].1.payload).unwrap();
-    assert_eq!(new_text, "12-3");
+    let new_val: f32 = serde_json::from_slice(&ctx.dispatched_actions[0].1.payload).unwrap();
+    assert_eq!(new_val, 12.3);
 }
 
 #[test]
