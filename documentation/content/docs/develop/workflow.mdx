@@ -1,6 +1,6 @@
 ---
 title: Develop workflow
-description: Use the Fission CLI, targets, shells, devices, logs, and project configuration during day-to-day app development.
+description: Use the Fission command, targets, shells, devices, logs, and project configuration during day-to-day app development.
 ---
 
 # Develop workflow
@@ -18,7 +18,7 @@ The Fission development workflow starts with one project and grows by adding tar
 
 ```bash
 fission init my-app
-cargo fission add-target web android ios --project-dir my-app
+fission add-target web android ios --project-dir my-app
 fission devices --project-dir my-app
 fission run --project-dir my-app
 ```

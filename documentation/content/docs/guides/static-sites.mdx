@@ -70,7 +70,7 @@ generate_sitemap = true
 generate_robots = true
 ```
 
-The `entry` value tells the command-line interface that this project has a Rust site app. When it is present, `cargo fission site build` runs the project's own site builder so custom routes, custom footers, theme choices, and content transforms are included. When it is absent, Fission can still build a content-only site from the configured content routes.
+The `entry` value tells the command-line interface that this project has a Rust site app. When it is present, `fission site build` runs the project's own site builder so custom routes, custom footers, theme choices, and content transforms are included. When it is absent, Fission can still build a content-only site from the configured content routes.
 
 A practical directory layout looks like this:
 
@@ -241,10 +241,10 @@ This documentation site enables those features because it is intended to be inde
 Use these commands from the repository or from a generated site project.
 
 ```sh
-cargo fission site routes --project-dir documentation
-cargo fission site check --project-dir documentation
-cargo fission site build --project-dir documentation
-cargo fission site serve --project-dir documentation --host 127.0.0.1 --port 8123
+fission site routes --project-dir documentation
+fission site check --project-dir documentation
+fission site build --project-dir documentation
+fission site serve --project-dir documentation --host 127.0.0.1 --port 8123
 ```
 
 `routes` lists custom and content routes without writing the site. `check` renders every route and validates generated links without producing a deployable directory. `build` writes the configured output directory. `serve` builds first, then starts a local static file server and opens the browser unless `--no-open` is provided.
@@ -252,8 +252,8 @@ cargo fission site serve --project-dir documentation --host 127.0.0.1 --port 812
 For release verification, use the same commands with `--release` where supported:
 
 ```sh
-cargo fission site check --project-dir documentation --release
-cargo fission site build --project-dir documentation --release
+fission site check --project-dir documentation --release
+fission site build --project-dir documentation --release
 ```
 
 ## Publishing
@@ -263,7 +263,7 @@ A production publishing job should build the site from the checked-in Fission pr
 That is the recommended model for hosted static sites:
 
 1. keep content, custom route widgets, sidebars, assets, and site config in source control;
-2. run `cargo fission site check` or `cargo fission site build` in continuous integration;
+2. run `fission site check` or `fission site build` in continuous integration;
 3. verify key outputs such as `index.html`, `site.css`, `sitemap.xml`, search files, and copied assets;
 4. upload the generated output directory to the host.
 

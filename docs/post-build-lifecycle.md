@@ -1,12 +1,12 @@
 # Post-build lifecycle: packaging, signing, distribution, and release automation
 
 Status: proposal/specification  
-Audience: Fission CLI, platform shell, tooling, and release engineering implementers  
+Audience: Fission command, platform shell, tooling, and release engineering implementers  
 Scope: everything after `fission build` produces a release binary or web bundle
 
 ## 1. Purpose
 
-Fission should manage the whole lifecycle of an application, not just compile and run it during development. A production team should be able to use the Fission CLI to answer four questions for every supported platform:
+Fission should manage the whole lifecycle of an application, not just compile and run it during development. A production team should be able to use the Fission command to answer four questions for every supported platform:
 
 1. Can this project be packaged for this platform on this machine?
 2. Can this project be signed or notarized where the platform requires it?
@@ -126,6 +126,37 @@ The TUI MUST only write `fission.toml`, asset files, or generated receipts that 
 ```text
 fission readiness release --target android --format aab --provider play-store --json
 ```
+
+### 4.1 Single public command, modular implementation
+
+Fission MUST present one command to developers: `fission`. A developer installs the command once and then uses that same executable for initialization, target management, running, testing, site generation, packaging, signing, release metadata, credentials, distribution, and lifecycle checks. The implementation MAY keep a Cargo-compatible helper binary for compatibility with Cargo subcommand discovery, but public documentation, examples, generated project files, and remediation messages MUST use `fission` and MUST NOT describe the product using implementation crate names.
+
+The Cargo package that distributes the command MAY be named `cargo-fission`, but that package name is an installation detail. After installation the product surface is the `fission` command.
+
+The single public command does not imply a monolithic Rust crate. The implementation SHOULD be split into internal crates with clear dependency boundaries:
+
+| Internal crate | Responsibility | Dependency rule |
+|---|---|---|
+| `cargo-fission` | Binary entrypoint, argument parsing, dispatch, compatibility shim, and command composition | Thin crate; should not own provider implementations or platform-specific packaging logic directly |
+| `fission-command-core` | Shared command models, manifest helpers, report schemas, target identifiers, diagnostics, and reusable process utilities | No store SDKs, no desktop shell, no mobile SDK bindings, no credential backend |
+| `fission-command-site` | Static-site route listing, check, build, serve, static artifact helpers, and site-only validation | No credential vault, no store provider SDK, no app-store/cloud upload clients |
+| `fission-command-run` | Device discovery, doctor checks, build/run/test/log workflows for desktop, web, Android, iOS, terminal, and future targets | Platform-specific detection must stay isolated behind this crate's public API |
+| `fission-command-package` | Artifact creation, package manifest generation, icon outputs, checksums, receipts, and target-format validation | May call platform vendor tools, but must not own provider upload logic |
+| `fission-command-release` | Release metadata, release-content capture/render/validate, beta groups/testers, reviews, signing metadata, and workflow orchestration | Uses provider traits; should not hard-wire a provider implementation into generic release logic |
+| `fission-command-ui` | Terminal UI app over the same command model | UI actions must delegate to the same command execution path as non-interactive commands |
+| `fission-credentials` | Vault records, OS credential-store integration, credential import/rotation/audit, and CI/env credential lookup | Credential backends are isolated here so unrelated commands do not learn provider-secret details |
+| Provider crates | GitHub Pages/Releases, S3-compatible storage, Cloudflare Pages, Netlify, Google Drive, OneDrive, Dropbox, Play Store, App Store, Microsoft Store | Each provider owns only its API/client/CLI orchestration and implements shared provider traits |
+
+This crate split is an implementation boundary, not a developer-facing product boundary. It is acceptable for `cargo install cargo-fission` to compile the crates needed by the default distribution, but command implementations must be organized so dependency leakage is visible and testable. For example, static-site route checks must not depend on DBus, desktop windowing, mobile SDKs, AWS, or store API clients. Release publishing may depend on provider clients and credential backends, but those dependencies must not be introduced through site, doctor, or plain run/build code paths.
+
+CI MUST include dependency-boundary checks for the important command families. At minimum:
+
+- the static-site command path must not contain DBus, desktop shell, mobile SDK, AWS, store-provider, or credential-vault dependencies;
+- the run/build/test path must not contain cloud or store-provider clients unless a platform target explicitly requires them;
+- provider crates must not be pulled into unrelated command-family tests;
+- the public command help and generated project text must consistently show `fission ...`.
+
+These checks do not replace normal Rust features. The preferred implementation is still normal Rust crates, explicit features, and target-specific dependencies. The key constraint is developer experience: no matter how many internal crates exist, developers use one `fission` command.
 
 The JSON schema MUST include:
 
@@ -583,7 +614,7 @@ Readiness SHOULD warn when:
 The CLI implementation MUST keep all icon handling in a dedicated Rust module:
 
 ```text
-crates/tools/fission-cli/src/icons/
+crates/tools/cargo-fission/src/icons/
   mod.rs
   config.rs
   model.rs
@@ -822,7 +853,7 @@ The release tooling should prefer Rust for Fission-owned control flow and data h
 
 | Area | Fission/Rust responsibility | Provider/platform tool | Notes |
 | --- | --- | --- | --- |
-| App icon generation | Dedicated `crates/tools/fission-cli/src/icons` module using `usvg`, `resvg`, `tiny-skia`, `image`, `png`, `ico`, `icns`, `plist`, `serde_json`, `quick-xml`, `sha2`, and optional `oxipng` | platform tools only for final platform-owned bundle/package signing or validation | Fission owns deterministic icon generation from `[package.icons]` into target-specific outputs. Platform packagers consume the generated icon manifest and must not implement their own icon parsing or generation [R73][R74][R75][R76][R77][R78][R79][R80][R81][R82][R83][R84]. |
+| App icon generation | Dedicated `crates/tools/fission-command-package/src/icons` module using `usvg`, `resvg`, `tiny-skia`, `image`, `png`, `ico`, `icns`, `plist`, `serde_json`, `quick-xml`, `sha2`, and optional `oxipng` | platform tools only for final platform-owned bundle/package signing or validation | Fission owns deterministic icon generation from `[package.icons]` into target-specific outputs. Platform packagers consume the generated icon manifest and must not implement their own icon parsing or generation [R73][R74][R75][R76][R77][R78][R79][R80][R81][R82][R83][R84]. |
 | Desktop bundle generation | `cargo-packager` integration where it fits, plus Fission manifest and asset staging | platform-specific packager | `cargo-packager` supports macOS `.app`, Linux AppImage/deb, Windows NSIS/WiX, but not every Fission-required format such as Linux `.run`, macOS `.pkg`, MSIX, AAB, or IPA [R25]. |
 | macOS `.app` basics | bundle metadata, assets, `Info.plist` inputs, and readiness checks | Xcode command-line tools for signing/notarization | `.app` bundle structure and `Info.plist` requirements are Apple platform rules [R8][R9]. |
 | macOS `.pkg` | configuration, staging, receipts, and readiness checks | `pkgbuild`, `productbuild`, `productsign` | Apple's package tools create installer component packages and product archives [R13]. |
@@ -1975,7 +2006,7 @@ fission readiness package --target windows --format msix --builder windows-ci
 
 Remote builder contracts MUST include:
 
-- same Fission CLI version or compatible protocol;
+- same Fission command version or compatible protocol;
 - clean checkout or artifact input;
 - credential source policy;
 - artifact return path;
@@ -2073,7 +2104,7 @@ These are implementation milestones, not partial product definitions. The final 
 2. Add credential vault and `fission auth` commands.
 3. Add release-config root schema in `fission.toml`, `[[releases]]` file references, referenced release-file schemas, TUI editing, non-interactive edit/import/diff/validate/push commands, screenshot scenario model, and content manifest.
 4. Add readiness engine with JSON output and stable error IDs.
-5. Add `[package.icons]`, the dedicated `crates/tools/fission-cli/src/icons` module, icon readiness checks, deterministic platform icon generation, manual/provided icon validation, and icon manifests before platform packagers consume icons.
+5. Add `[package.icons]`, the dedicated `crates/tools/fission-command-package/src/icons` module, icon readiness checks, deterministic platform icon generation, manual/provided icon validation, and icon manifests before platform packagers consume icons.
 6. Implement Linux `.run` packager and smoke install/uninstall checks.
 7. Implement macOS `.app`, `.pkg`, signing, notarization, and readiness checks.
 8. Implement Windows `.exe`, `.msi`, `.msix`, signing/provider distinctions, and readiness checks.

@@ -45,7 +45,7 @@ cargo install wasm-pack
 ./examples/web-smoke/platforms/web/run-browser.sh
 ```
 
-Build a generated app after `cargo fission add-target web`:
+Build a generated app after `fission add-target web`:
 
 ```sh
 ./platforms/web/run-browser.sh

@@ -1,0 +1,23 @@
+[package]
+name = "fission-command-release"
+version = "0.1.1"
+edition = "2021"
+license = "MIT"
+repository = "https://github.com/worka-ai/fission"
+description = "Release metadata, signing, beta, review, and auth workflows for the Fission command"
+
+[dependencies]
+anyhow = "1.0"
+base64 = "0.22"
+clap = { version = "4.5", features = ["derive"] }
+fission-command-core = { path = "../fission-command-core", version = "0.1.1" }
+fission-command-package = { path = "../fission-command-package", version = "0.1.1" }
+fission-command-ui = { path = "../fission-command-ui", version = "0.1.1" }
+fission-credentials = { path = "../fission-credentials", version = "0.1.1" }
+jsonwebtoken = "9"
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "multipart", "rustls-tls"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+sha2 = "0.10"
+toml = "0.8"
+toml_edit = "0.23"

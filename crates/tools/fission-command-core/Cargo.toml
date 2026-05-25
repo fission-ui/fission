@@ -1,0 +1,13 @@
+[package]
+name = "fission-command-core"
+version = "0.1.1"
+edition = "2021"
+license = "MIT"
+repository = "https://github.com/worka-ai/fission"
+description = "Shared project and target model for the Fission command"
+
+[dependencies]
+anyhow = "1.0"
+clap = { version = "4.5", features = ["derive"] }
+serde = { version = "1.0", features = ["derive"] }
+toml = "0.8"

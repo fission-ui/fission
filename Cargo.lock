@@ -1127,6 +1127,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "cargo-fission"
+version = "0.1.1"
+dependencies = [
+ "anyhow",
+ "clap",
+ "fission-command-core",
+ "fission-command-package",
+ "fission-command-release",
+ "fission-command-run",
+ "fission-command-site",
+ "fission-command-ui",
+]
+
+[[package]]
 name = "cbc"
 version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2095,21 +2109,29 @@ dependencies = [
 ]
 
 [[package]]
-name = "fission-cli"
+name = "fission-command-core"
+version = "0.1.1"
+dependencies = [
+ "anyhow",
+ "clap",
+ "serde",
+ "toml",
+]
+
+[[package]]
+name = "fission-command-package"
 version = "0.1.1"
 dependencies = [
  "anyhow",
  "aws-config",
  "aws-sdk-s3",
- "base64",
- "chacha20poly1305",
  "clap",
- "fission",
- "fission-shell-site",
+ "fission-command-core",
+ "fission-command-run",
+ "fission-command-site",
+ "fission-credentials",
  "flate2",
- "getrandom 0.2.17",
  "jsonwebtoken",
- "keyring",
  "reqwest",
  "serde",
  "serde_json",
@@ -2117,8 +2139,58 @@ dependencies = [
  "tar",
  "tokio",
  "toml",
- "toml_edit 0.23.9",
  "zip",
+]
+
+[[package]]
+name = "fission-command-release"
+version = "0.1.1"
+dependencies = [
+ "anyhow",
+ "base64",
+ "clap",
+ "fission-command-core",
+ "fission-command-package",
+ "fission-command-ui",
+ "fission-credentials",
+ "jsonwebtoken",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sha2",
+ "toml",
+ "toml_edit 0.23.9",
+]
+
+[[package]]
+name = "fission-command-run"
+version = "0.1.1"
+dependencies = [
+ "anyhow",
+ "fission-command-core",
+ "fission-command-site",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "fission-command-site"
+version = "0.1.1"
+dependencies = [
+ "anyhow",
+ "fission-shell-site",
+ "toml",
+]
+
+[[package]]
+name = "fission-command-ui"
+version = "0.1.1"
+dependencies = [
+ "anyhow",
+ "fission",
+ "fission-command-core",
+ "fission-command-run",
+ "serde",
 ]
 
 [[package]]
@@ -2141,6 +2213,20 @@ dependencies = [
  "serde",
  "serde_json",
  "unicode-segmentation",
+]
+
+[[package]]
+name = "fission-credentials"
+version = "0.1.1"
+dependencies = [
+ "anyhow",
+ "base64",
+ "chacha20poly1305",
+ "fission-command-core",
+ "getrandom 0.2.17",
+ "keyring",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

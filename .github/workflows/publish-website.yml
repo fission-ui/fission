@@ -42,11 +42,22 @@ jobs:
       - name: Configure GitHub Pages
         uses: actions/configure-pages@v5
 
+      - name: Verify static site dependency boundary
+        run: |
+          if cargo tree -p cargo-fission --target x86_64-unknown-linux-gnu -i libdbus-sys --locked | grep -q 'libdbus-sys'; then
+            echo "Static site commands must not pull libdbus-sys through the Fission command dependency graph." >&2
+            exit 1
+          fi
+          if cargo tree -p fission-command-site --locked | grep -E 'keyring|aws-sdk|dbus|secret-service'; then
+            echo "fission-command-site must remain independent of credentials and provider SDKs." >&2
+            exit 1
+          fi
+
       - name: Check static site routes
-        run: cargo run -p fission-cli --bin fission -- site check --project-dir documentation --release
+        run: cargo run -p cargo-fission --bin fission -- site check --project-dir documentation --release
 
       - name: Package static site
-        run: cargo run -p fission-cli --bin fission -- package --project-dir documentation --target site --format static --release
+        run: cargo run -p cargo-fission --bin fission -- package --project-dir documentation --target site --format static --release
 
       - name: Verify generated static site
         run: |

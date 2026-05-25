@@ -24,13 +24,8 @@ jobs:
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Install Linux DBus development package
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y pkg-config libdbus-1-dev
-
       - name: Test generated platform scripts
-        run: cargo test -p fission-cli
+        run: cargo test -p cargo-fission
 
   web:
     name: Web / wasm
@@ -46,11 +41,6 @@ jobs:
         with:
           targets: wasm32-unknown-unknown
 
-      - name: Install Linux DBus development package
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y pkg-config libdbus-1-dev
-
       - name: Check wasm core crates
         run: |
           cargo check -p fission-core --target wasm32-unknown-unknown
@@ -62,7 +52,7 @@ jobs:
         run: cargo install wasm-pack --version 0.13.1 --locked
 
       - name: Diagnose web toolchain
-        run: cargo run -p fission-cli --bin fission -- doctor web --project-dir examples/web-smoke
+        run: cargo run -p cargo-fission --bin fission -- doctor web --project-dir examples/web-smoke
 
       - name: Build web-smoke wasm package
         run: ./examples/web-smoke/platforms/web/build-wasm.sh
@@ -86,11 +76,6 @@ jobs:
         with:
           targets: aarch64-linux-android
 
-      - name: Install Linux DBus development package
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y pkg-config libdbus-1-dev
-
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
 
@@ -103,7 +88,7 @@ jobs:
             "ndk;${ANDROID_NDK_VERSION}"
 
       - name: Diagnose Android toolchain
-        run: cargo run -p fission-cli --bin fission -- doctor android --project-dir examples/mobile-smoke --strict
+        run: cargo run -p cargo-fission --bin fission -- doctor android --project-dir examples/mobile-smoke --strict
 
       - name: Check mobile-smoke for Android
         run: |
@@ -136,7 +121,7 @@ jobs:
           targets: aarch64-apple-ios-sim,aarch64-apple-ios
 
       - name: Diagnose iOS toolchain
-        run: cargo run -p fission-cli --bin fission -- doctor ios --project-dir examples/mobile-smoke --strict
+        run: cargo run -p cargo-fission --bin fission -- doctor ios --project-dir examples/mobile-smoke --strict
 
       - name: Check mobile-smoke for iOS simulator
         run: cargo check -p mobile-smoke --target aarch64-apple-ios-sim

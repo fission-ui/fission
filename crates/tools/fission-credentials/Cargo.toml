@@ -1,0 +1,17 @@
+[package]
+name = "fission-credentials"
+version = "0.1.1"
+edition = "2021"
+license = "MIT"
+repository = "https://github.com/worka-ai/fission"
+description = "Credential vault helpers for the Fission command"
+
+[dependencies]
+anyhow = "1.0"
+base64 = "0.22"
+chacha20poly1305 = "0.10"
+fission-command-core = { path = "../fission-command-core", version = "0.1.1" }
+getrandom = { version = "0.2", features = ["std"] }
+keyring = { version = "3", default-features = false, features = ["apple-native", "windows-native", "linux-native", "crypto-rust"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"

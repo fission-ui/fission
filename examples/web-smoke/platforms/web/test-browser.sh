@@ -83,7 +83,7 @@ raise SystemExit(f"web server did not serve {url}: {last_error}")
 PY
 
 CHROME=$(detect_chrome) || {
-  printf 'Chrome/Chromium was not found. Set FISSION_CHROME=/path/to/chrome or run `cargo fission doctor web --project-dir .`.\n' >&2
+  printf 'Chrome/Chromium was not found. Set FISSION_CHROME=/path/to/chrome or run `fission doctor web --project-dir .`.\n' >&2
   exit 1
 }
 

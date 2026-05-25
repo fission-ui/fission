@@ -1,0 +1,27 @@
+[package]
+name = "fission-command-package"
+version = "0.1.1"
+edition = "2021"
+license = "MIT"
+repository = "https://github.com/worka-ai/fission"
+description = "Packaging, readiness, and distribution workflows for the Fission command"
+
+[dependencies]
+anyhow = "1.0"
+aws-config = "1"
+aws-sdk-s3 = "1"
+clap = { version = "4.5", features = ["derive"] }
+fission-command-core = { path = "../fission-command-core", version = "0.1.1" }
+fission-command-run = { path = "../fission-command-run", version = "0.1.1" }
+fission-command-site = { path = "../fission-command-site", version = "0.1.1" }
+fission-credentials = { path = "../fission-credentials", version = "0.1.1" }
+flate2 = "1.0"
+jsonwebtoken = "9"
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "multipart", "rustls-tls"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+sha2 = "0.10"
+tar = "0.4"
+tokio = { version = "1", features = ["rt", "rt-multi-thread"] }
+toml = "0.8"
+zip = { version = "2", default-features = false, features = ["deflate"] }

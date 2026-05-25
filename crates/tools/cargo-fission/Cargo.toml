@@ -1,0 +1,29 @@
+[package]
+name = "cargo-fission"
+version = "0.1.1"
+edition = "2021"
+license = "MIT"
+repository = "https://github.com/worka-ai/fission"
+description = "Project scaffolding CLI for Fission"
+
+[[bin]]
+name = "fission"
+path = "src/main.rs"
+
+[[bin]]
+name = "cargo-fission"
+path = "src/bin/cargo-fission.rs"
+
+[lib]
+name = "fission_cli"
+path = "src/lib.rs"
+
+[dependencies]
+anyhow = "1.0"
+clap = { version = "4.5", features = ["derive"] }
+fission-command-core = { path = "../fission-command-core", version = "0.1.1" }
+fission-command-package = { path = "../fission-command-package", version = "0.1.1" }
+fission-command-release = { path = "../fission-command-release", version = "0.1.1" }
+fission-command-run = { path = "../fission-command-run", version = "0.1.1" }
+fission-command-site = { path = "../fission-command-site", version = "0.1.1" }
+fission-command-ui = { path = "../fission-command-ui", version = "0.1.1" }

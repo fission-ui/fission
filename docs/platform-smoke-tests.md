@@ -22,13 +22,13 @@ git submodule update --init --recursive
 Use the CLI doctor before platform work:
 
 ```sh
-cargo run -p fission-cli --bin fission -- doctor web ios android --project-dir examples/mobile-smoke
+fission doctor web ios android --project-dir examples/mobile-smoke
 ```
 
 For a generated app, run:
 
 ```sh
-cargo fission doctor web ios android --project-dir .
+fission doctor web ios android --project-dir .
 ```
 
 Doctor checks Rust targets, wasm-pack, Node.js CDP support, Chrome/Chromium, Xcode/simctl, Android SDK tools, installed Android platforms, build-tools, NDK, and the NDK clang linker for the selected Android minimum API.
@@ -164,8 +164,8 @@ A newly scaffolded app uses the same scripts:
 
 ```sh
 fission init /tmp/demo-app --local-path "$PWD"
-cargo fission add-target ios android web --project-dir /tmp/demo-app
-cargo fission doctor web ios android --project-dir /tmp/demo-app
+fission add-target ios android web --project-dir /tmp/demo-app
+fission doctor web ios android --project-dir /tmp/demo-app
 cd /tmp/demo-app
 ./platforms/ios/run-sim.sh
 ./platforms/ios/test-sim.sh

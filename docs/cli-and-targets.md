@@ -1,4 +1,4 @@
-# Fission CLI and target status
+# Fission command and target status
 
 ## Commands
 
@@ -25,59 +25,59 @@ fission init my-app --local-path /path/to/fission
 Add more platform targets:
 
 ```sh
-cargo fission add-target web ios android --project-dir my-app
+fission add-target web ios android --project-dir my-app
 ```
 
 Diagnose local SDKs, emulators, browsers, and Rust targets:
 
 ```sh
-cargo fission doctor web ios android --project-dir my-app
+fission doctor web ios android --project-dir my-app
 ```
 
 List the devices and runtime targets the CLI can launch:
 
 ```sh
-cargo fission devices --project-dir my-app
-cargo fission devices --project-dir my-app --json
+fission devices --project-dir my-app
+fission devices --project-dir my-app --json
 ```
 
 Run an app on the selected target. The command attaches by default, so desktop stdout/stderr, web server requests, iOS simulator logs, or Android `logcat` output stay in the terminal until you stop them:
 
 ```sh
-cargo fission run --project-dir my-app
-cargo fission run --project-dir my-app --target web
-cargo fission run --project-dir my-app --target ios --device <simulator-udid>
-cargo fission run --project-dir my-app --target android --device emulator-5554
+fission run --project-dir my-app
+fission run --project-dir my-app --target web
+fission run --project-dir my-app --target ios --device <simulator-udid>
+fission run --project-dir my-app --target android --device emulator-5554
 ```
 
 Start without attaching when you want the app to keep running in the background:
 
 ```sh
-cargo fission run --project-dir my-app --target web --detach
-cargo fission logs --project-dir my-app --target web --follow
+fission run --project-dir my-app --target web --detach
+fission logs --project-dir my-app --target web --follow
 ```
 
 Build or smoke-test a configured target:
 
 ```sh
-cargo fission build --project-dir my-app --target web --release
-cargo fission test --project-dir my-app --target web
-cargo fission test --project-dir my-app --target ios --headless
-cargo fission test --project-dir my-app --target android --headless
+fission build --project-dir my-app --target web --release
+fission test --project-dir my-app --target web
+fission test --project-dir my-app --target ios --headless
+fission test --project-dir my-app --target android --headless
 ```
 
 Package, check, and publish release artifacts:
 
 ```sh
-cargo fission package --project-dir my-app --target site --format static --release
-cargo fission package --project-dir my-app --target linux --format run --release
-cargo fission package --project-dir my-app --target macos --format app --release
-cargo fission package --project-dir my-app --target android --format apk --release
-cargo fission readiness release --project-dir my-app --target site --format static --provider github-pages --site production
-cargo fission readiness distribute --project-dir my-app --provider github-pages --site production --artifact my-app/target/fission/release/site/static/artifact-manifest.json
-cargo fission distribute setup --project-dir my-app --provider github-pages --site production
-cargo fission distribute --project-dir my-app --provider github-pages --site production --artifact my-app/target/fission/release/site/static/artifact-manifest.json
-cargo fission distribute --project-dir my-app --provider play-store --track internal --artifact my-app/target/fission/release/android/aab/artifact-manifest.json
+fission package --project-dir my-app --target site --format static --release
+fission package --project-dir my-app --target linux --format run --release
+fission package --project-dir my-app --target macos --format app --release
+fission package --project-dir my-app --target android --format apk --release
+fission readiness release --project-dir my-app --target site --format static --provider github-pages --site production
+fission readiness distribute --project-dir my-app --provider github-pages --site production --artifact my-app/target/fission/release/site/static/artifact-manifest.json
+fission distribute setup --project-dir my-app --provider github-pages --site production
+fission distribute --project-dir my-app --provider github-pages --site production --artifact my-app/target/fission/release/site/static/artifact-manifest.json
+fission distribute --project-dir my-app --provider play-store --track internal --artifact my-app/target/fission/release/android/aab/artifact-manifest.json
 ```
 
 Every package command stages output under `target/fission/<profile>/<target>/<format>` and writes `artifact-manifest.json` with file hashes and MIME types. Static site/web publishing supports GitHub Pages, Cloudflare Pages, Netlify, direct S3-compatible object storage uploads through the Rust AWS SDK, and direct OAuth-backed uploads to Google Drive, OneDrive, and Dropbox. Store providers are represented in the lifecycle command surface so release metadata, beta groups, signing checks, review operations, and authentication can be validated from the same project root before provider-specific store APIs mutate remote state.
@@ -85,13 +85,13 @@ Every package command stages output under `target/fission/<profile>/<target>/<fo
 Release lifecycle commands are intentionally separate from packaging:
 
 ```sh
-cargo fission release-config validate --project-dir my-app --provider play-store
-cargo fission release-config add-release --project-dir my-app --version 1.2.3 --build 42 --yes
-cargo fission release-content validate --project-dir my-app --provider app-store
-cargo fission beta groups list --project-dir my-app --provider app-store
-cargo fission signing status --project-dir my-app --target ios
-cargo fission reviews list --project-dir my-app --provider play-store --since 30d
-cargo fission auth status --json
+fission release-config validate --project-dir my-app --provider play-store
+fission release-config add-release --project-dir my-app --version 1.2.3 --build 42 --yes
+fission release-content validate --project-dir my-app --provider app-store
+fission beta groups list --project-dir my-app --provider app-store
+fission signing status --project-dir my-app --target ios
+fission reviews list --project-dir my-app --provider play-store --since 30d
+fission auth status --json
 ```
 
 The CLI keeps provider credentials out of `fission.toml`; auth commands can inspect environment-provided credentials or store imported secrets in an encrypted local vault whose key lives in the OS credential store.
@@ -108,12 +108,12 @@ The generated project contains:
 
 ## Verified flow
 
-This branch has a verified scaffolding smoke path for desktop, web, iOS simulator, and Android emulator scaffolding:
+This branch has a verified scaffolding smoke path for desktop, web, iOS simulator, and Android emulator scaffolding. From a checkout where the `fission` command is installed or otherwise on `PATH`:
 
 ```sh
-cargo run -p fission-cli --bin fission -- init /tmp/demo-app --local-path "$PWD"
-cargo run -p fission-cli --bin cargo-fission -- fission add-target web ios android --project-dir /tmp/demo-app
-cargo run -p fission-cli --bin fission -- doctor web ios android --project-dir /tmp/demo-app
+fission init /tmp/demo-app --local-path "$PWD"
+fission add-target web ios android --project-dir /tmp/demo-app
+fission doctor web ios android --project-dir /tmp/demo-app
 cd /tmp/demo-app
 cargo check
 ```
@@ -121,13 +121,13 @@ cargo check
 Generated-app commands from the scaffolded project root:
 
 ```sh
-cargo fission devices --project-dir .
-cargo fission run --target web --project-dir .
-cargo fission run --target ios --project-dir .
-cargo fission run --target android --project-dir .
-cargo fission test --target web --project-dir .
-cargo fission test --target ios --project-dir .
-cargo fission test --target android --project-dir .
+fission devices --project-dir .
+fission run --target web --project-dir .
+fission run --target ios --project-dir .
+fission run --target android --project-dir .
+fission test --target web --project-dir .
+fission test --target ios --project-dir .
+fission test --target android --project-dir .
 ```
 
 The repository also keeps checked-in smoke examples:
@@ -156,13 +156,13 @@ The repository also keeps checked-in smoke examples:
 
 The intended daily workflow is:
 
-1. `cargo fission doctor --project-dir .` before starting platform work, especially on a new machine or CI runner.
-2. `cargo fission devices --project-dir .` to see the local desktop target, Chrome/Chromium, Android devices/emulators, and iOS simulators.
-3. `cargo fission run --target <target> --device <id> --project-dir .` while developing. Omit `--device` for the interactive selector when more than one runnable device exists.
-4. `cargo fission run --target <target> --detach --project-dir .` when you want the launched app/server to keep running without owning the terminal.
-5. `cargo fission logs --target <target> --device <id> --project-dir . --follow` to attach logs later.
-6. `cargo fission build --target <target> --project-dir . --release` before producing artifacts for a tester.
-7. `cargo fission test --target <target> --project-dir .` to run the generated platform smoke test.
+1. `fission doctor --project-dir .` before starting platform work, especially on a new machine or CI runner.
+2. `fission devices --project-dir .` to see the local desktop target, Chrome/Chromium, Android devices/emulators, and iOS simulators.
+3. `fission run --target <target> --device <id> --project-dir .` while developing. Omit `--device` for the interactive selector when more than one runnable device exists.
+4. `fission run --target <target> --detach --project-dir .` when you want the launched app/server to keep running without owning the terminal.
+5. `fission logs --target <target> --device <id> --project-dir . --follow` to attach logs later.
+6. `fission build --target <target> --project-dir . --release` before producing artifacts for a tester.
+7. `fission test --target <target> --project-dir .` to run the generated platform smoke test.
 
 Device ids are stable enough for scripts: Android uses the `adb` serial, iOS uses the simulator UDID, web uses `chrome`, and desktop uses `desktop`.
 
@@ -177,7 +177,7 @@ rustup target add aarch64-apple-ios aarch64-apple-ios-sim aarch64-linux-android 
 Run doctor before platform work:
 
 ```sh
-cargo fission doctor web ios android --project-dir .
+fission doctor web ios android --project-dir .
 ```
 
 ### iOS
@@ -195,11 +195,11 @@ Commands:
 ./examples/mobile-smoke/platforms/ios/test-sim.sh
 ```
 
-Generated app command after `cargo fission add-target ios`:
+Generated app command after `fission add-target ios`:
 
 ```sh
-cargo fission run --target ios --project-dir .
-cargo fission test --target ios --project-dir .
+fission run --target ios --project-dir .
+fission test --target ios --project-dir .
 ```
 
 The generated iOS script opens the Simulator app by default. Set `IOS_SIM_HEADLESS=1` for CI or background-only runs.
@@ -234,11 +234,11 @@ Commands:
 ./examples/mobile-smoke/platforms/android/test-emulator.sh
 ```
 
-Generated app command after `cargo fission add-target android`:
+Generated app command after `fission add-target android`:
 
 ```sh
-cargo fission run --target android --project-dir .
-cargo fission test --target android --project-dir .
+fission run --target android --project-dir .
+fission test --target android --project-dir .
 ```
 
 ### Web / WASM
@@ -249,7 +249,7 @@ Required tools:
 rustup target add wasm32-unknown-unknown
 cargo install wasm-pack
 node --version # Node 22+ is required by the CDP smoke test
-cargo fission doctor web --project-dir .
+fission doctor web --project-dir .
 ```
 
 The browser test script uses Node.js plus Chrome/Chromium's DevTools Protocol endpoint. It starts a transient server, fails on browser runtime or console errors, and waits for a non-empty canvas. Set `FISSION_CHROME=/path/to/chrome` if the browser cannot be auto-detected.
@@ -261,16 +261,17 @@ Commands:
 ./examples/web-smoke/platforms/web/test-browser.sh
 ```
 
-Generated app command after `cargo fission add-target web`:
+Generated app command after `fission add-target web`:
 
 ```sh
-cargo fission run --target web --project-dir .
-cargo fission test --target web --project-dir .
+fission run --target web --project-dir .
+fission test --target web --project-dir .
 ```
 
 Relevant paths:
 
-- CLI: `crates/tools/fission-cli/`
+- command package: `crates/tools/cargo-fission/`
+- command implementation crates: `crates/tools/fission-command-*`
 - mobile shell: `crates/shell/fission-shell-mobile/`
 - web shell: `crates/shell/fission-shell-web/`
 - mobile smoke example: `examples/mobile-smoke/`
