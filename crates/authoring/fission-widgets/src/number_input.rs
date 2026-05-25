@@ -81,6 +81,9 @@ impl<S: fission_core::AppState> Widget<S> for NumberInput {
                         value: display_text,
                         width: Some(field_width),
                         borderless: true,
+                        // The input controller serializes numeric text changes
+                        // as f32 payloads and suppresses invalid intermediate
+                        // values such as "-".
                         keyboard_type: fission_ir::semantics::TextInputType::Number,
                         on_change: self.on_change.clone(),
                         ..Default::default()

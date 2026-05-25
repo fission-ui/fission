@@ -47,7 +47,9 @@ impl<S: fission_core::AppState> Widget<S> for Drawer {
         };
         let width = self.width.unwrap_or(300.0).min(max_panel_width);
 
-        // Backdrop with fade-in transition
+        // The drawer only mounts while open, so these are enter animations.
+        // Exit animation would need a retained closing state owned above this
+        // stateless widget.
         let backdrop_inner = GestureDetector {
             on_tap: self.on_dismiss.clone(),
             child: Box::new(
@@ -104,6 +106,8 @@ impl<S: fission_core::AppState> Widget<S> for Drawer {
             DrawerSide::Left => -width,
             DrawerSide::Right => width,
         };
+        // Start explicitly off-screen; relying on the current animation value
+        // would make the first open frame snap to the final position.
         ctx.anim_for(slide_anim_id)
             .request(fission_core::AnimationRequest {
                 property: fission_core::AnimationPropertyId::TranslateX,

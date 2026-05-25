@@ -82,6 +82,9 @@ impl<S: fission_core::AppState> Widget<S> for DatePicker {
             let today = chrono::Local::now().date_naive();
             let display_date = self.value.unwrap_or(today);
 
+            // The visible month is controlled by the parent, separate from the
+            // selected date. That lets callers browse months without mutating
+            // the committed value until a day is selected.
             Box::new(
                 Calendar {
                     year: self.view_year.unwrap_or(display_date.year()),

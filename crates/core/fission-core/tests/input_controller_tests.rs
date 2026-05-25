@@ -1831,6 +1831,42 @@ fn test_number_input_type_filters_ime_commit() {
 }
 
 #[test]
+fn test_number_input_type_skips_invalid_float_commit() {
+    let node_id = NodeId::derived(29, &[1]);
+    let mut ir = create_text_node(node_id, "", false);
+    set_input_type(&mut ir, node_id, TextInputType::Number);
+    let layout = LayoutSnapshot::new(LayoutSize::new(100.0, 100.0));
+    let mut text_edit = TextEditStateMap::default();
+    let mut interaction = InteractionStateMap::default();
+    let mut scroll = ScrollStateMap::default();
+    let mut gesture = fission_core::env::GestureState::default();
+    let clipboard: Arc<dyn Clipboard> = Arc::new(MockClipboard::new());
+    let measurer: Arc<dyn TextMeasurer> = Arc::new(MockTextMeasurer);
+
+    interaction.set_focused(Some(node_id));
+    text_edit.set_caret(node_id, 0, Some(0));
+
+    let mut controller = TextInputController;
+    let mut ctx = setup_ctx(
+        &ir,
+        &layout,
+        &mut text_edit,
+        &mut interaction,
+        &mut scroll,
+        &mut gesture,
+        &clipboard,
+        Some(&measurer),
+    );
+    let event = InputEvent::Ime(fission_core::event::ImeEvent::Commit { text: "-".into() });
+
+    assert!(controller.handle_event(&mut ctx, &event));
+    assert!(
+        ctx.dispatched_actions.is_empty(),
+        "invalid numeric text should update editing state without dispatching a f32 payload"
+    );
+}
+
+#[test]
 fn test_single_line_auto_scroll_with_rich_text_uses_local_coordinates() {
     let input_id = NodeId::derived(10, &[0]);
     let scroll_id = NodeId::derived(10, &[1]);
