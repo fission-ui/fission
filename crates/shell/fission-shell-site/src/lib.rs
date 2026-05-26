@@ -17,4 +17,7 @@ pub use build::{
     list_site_routes, SiteBuildOptions, SiteBuildReport, SiteContentRouteConfig, SiteRouteReport,
 };
 pub use html::{render_ir_to_html, CodeHighlightingOptions, HtmlRenderOptions, RenderedHtml};
-pub use site::{build_from_cli, ContentTransform, CustomRoute, FissionSite, SiteRenderContext};
+pub use site::{
+    build_from_cli, ContentTransform, CustomRoute, FissionSite, SitePageElement,
+    SitePageElementFilter, SitePageElementPlacement, SiteRenderContext,
+};

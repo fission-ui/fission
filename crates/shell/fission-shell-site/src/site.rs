@@ -13,6 +13,156 @@ pub type ContentTransform = dyn Fn(&str, &Path, &Path) -> Result<String> + Send 
 
 type RouteRenderer = dyn for<'a> Fn(&SiteRenderContext<'a>) -> Result<Node> + Send + Sync + 'static;
 
+/// Position where raw static-site page markup is inserted.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SitePageElementPlacement {
+    /// Insert immediately after the opening `<head>` tag, before generated metadata.
+    HeadStart,
+    /// Insert near the end of `<head>`, after generated metadata and generated assets.
+    HeadEnd,
+    /// Insert immediately after the opening `<body>` tag, before the rendered Fission root.
+    BodyStart,
+    /// Insert near the end of `<body>`, after the rendered Fission root.
+    BodyEnd,
+}
+
+impl SitePageElementPlacement {
+    pub(crate) fn parse(value: &str) -> Result<Self> {
+        match value.trim().to_ascii_lowercase().as_str() {
+            "head-start" | "head_start" | "head:start" => Ok(Self::HeadStart),
+            "head-end" | "head_end" | "head:end" | "head" => Ok(Self::HeadEnd),
+            "body-start" | "body_start" | "body:start" => Ok(Self::BodyStart),
+            "body-end" | "body_end" | "body:end" | "body" => Ok(Self::BodyEnd),
+            other => anyhow::bail!(
+                "unsupported static site page element placement `{other}`; expected head-start, head-end, body-start, or body-end"
+            ),
+        }
+    }
+}
+
+/// Route filter for a raw static-site page element.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum SitePageElementFilter {
+    /// Insert the element into every generated page.
+    All,
+    /// Insert the element only when the normalized route path exactly matches.
+    Exact(String),
+    /// Insert the element when the normalized route path starts with the prefix.
+    Prefix(String),
+}
+
+impl SitePageElementFilter {
+    /// Creates a filter that matches one normalized route path exactly.
+    ///
+    /// Use this for scripts or metadata that belong to a single custom page. The
+    /// path is normalized in the same way as site routes, so `"product"` and
+    /// `"/product/"` both match the generated `/product/` route.
+    pub fn exact(path: impl Into<String>) -> Self {
+        Self::Exact(normalize_site_path(&path.into()))
+    }
+
+    /// Creates a filter that matches every route below a normalized prefix.
+    ///
+    /// Use this for page families such as `/docs/` or `/reference/`. Prefix
+    /// matching is path-based and does not inspect page titles, source files, or
+    /// Markdown front matter.
+    pub fn prefix(path: impl Into<String>) -> Self {
+        Self::Prefix(normalize_site_path(&path.into()))
+    }
+
+    pub(crate) fn matches(&self, route_path: &str) -> bool {
+        let route_path = normalize_site_path(route_path);
+        match self {
+            Self::All => true,
+            Self::Exact(path) => route_path == *path,
+            Self::Prefix(prefix) => route_path.starts_with(prefix),
+        }
+    }
+}
+
+/// Raw static-site markup inserted into generated pages.
+///
+/// This is the escape hatch for host-owned page concerns such as analytics,
+/// consent managers, verification tags, script preloads, or product-specific
+/// metadata. It deliberately operates at the static-site shell boundary rather
+/// than inside widgets: widgets still render Fission nodes, while page elements
+/// describe document-level HTML that does not have a Fission widget equivalent.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SitePageElement {
+    /// Where the HTML fragment is inserted in the generated document.
+    pub placement: SitePageElementPlacement,
+    /// Raw HTML to insert. The static-site shell does not escape this value.
+    pub html: String,
+    /// Optional route filters. An empty list is treated the same as `All`.
+    pub filters: Vec<SitePageElementFilter>,
+}
+
+impl SitePageElement {
+    /// Creates an element inserted near the end of `<head>` on every page.
+    ///
+    /// This is the usual placement for analytics snippets, verification tags,
+    /// preload links, and other head-level metadata that must run or load after
+    /// generated SEO tags are present.
+    pub fn head(html: impl Into<String>) -> Self {
+        Self::new(SitePageElementPlacement::HeadEnd, html)
+    }
+
+    /// Creates an element inserted near the end of `<body>` on every page.
+    ///
+    /// Use this for scripts that should run after the rendered Fission page root
+    /// exists in the document. Prefer `defer` or event-driven scripts for
+    /// anything that fetches network resources.
+    pub fn body_end(html: impl Into<String>) -> Self {
+        Self::new(SitePageElementPlacement::BodyEnd, html)
+    }
+
+    /// Creates a page element for a specific document placement.
+    ///
+    /// The returned element applies to every route until `only_route`,
+    /// `route_prefix`, or `filter` is used. The `html` string is inserted as raw
+    /// trusted markup; do not pass untrusted user content.
+    pub fn new(placement: SitePageElementPlacement, html: impl Into<String>) -> Self {
+        Self {
+            placement,
+            html: html.into(),
+            filters: Vec::new(),
+        }
+    }
+
+    /// Restricts this element to one exact generated route.
+    ///
+    /// Use this when a script, metadata block, or verification tag belongs only
+    /// to one page. Calling this more than once adds another allowed route.
+    pub fn only_route(mut self, path: impl Into<String>) -> Self {
+        self.filters.push(SitePageElementFilter::exact(path));
+        self
+    }
+
+    /// Restricts this element to all routes under one route prefix.
+    ///
+    /// Use this when a page family needs a shared script or document fragment,
+    /// such as docs-only analytics, reference-only structured metadata, or a
+    /// product-section experiment.
+    pub fn route_prefix(mut self, path: impl Into<String>) -> Self {
+        self.filters.push(SitePageElementFilter::prefix(path));
+        self
+    }
+
+    /// Adds a custom route filter.
+    ///
+    /// This is useful when the caller already constructed filters from config.
+    /// Multiple filters are ORed together; the element is emitted when any
+    /// filter matches the current route.
+    pub fn filter(mut self, filter: SitePageElementFilter) -> Self {
+        self.filters.push(filter);
+        self
+    }
+
+    pub(crate) fn applies_to(&self, route_path: &str) -> bool {
+        self.filters.is_empty() || self.filters.iter().any(|filter| filter.matches(route_path))
+    }
+}
+
 #[derive(Clone)]
 pub struct CustomRoute {
     pub path: String,
@@ -39,6 +189,7 @@ pub struct FissionSite {
     pub(crate) theme_switching: bool,
     pub(crate) user_css: Vec<String>,
     pub(crate) footer: Option<Arc<RouteRenderer>>,
+    pub(crate) page_elements: Vec<SitePageElement>,
 }
 
 impl Default for FissionSite {
@@ -53,6 +204,7 @@ impl Default for FissionSite {
             theme_switching: false,
             user_css: Vec::new(),
             footer: None,
+            page_elements: Vec::new(),
         }
     }
 }
@@ -87,6 +239,36 @@ impl FissionSite {
     pub fn user_css(mut self, css: impl Into<String>) -> Self {
         self.user_css.push(css.into());
         self
+    }
+
+    /// Adds a raw document-level element to generated pages.
+    ///
+    /// Use this for page concerns that cannot be expressed as normal Fission
+    /// widgets, such as analytics scripts, verification tags, consent-manager
+    /// bootstraps, or provider-specific `<meta>` tags. The element can target
+    /// every page or a filtered route set. The HTML is trusted raw markup and is
+    /// not escaped by the renderer.
+    pub fn page_element(mut self, element: SitePageElement) -> Self {
+        self.page_elements.push(element);
+        self
+    }
+
+    /// Adds raw markup near the end of `<head>` for every generated page.
+    ///
+    /// This is a convenience wrapper around `page_element(SitePageElement::head(...))`.
+    /// Use `page_element` directly when the markup should only apply to selected
+    /// routes.
+    pub fn head_html(self, html: impl Into<String>) -> Self {
+        self.page_element(SitePageElement::head(html))
+    }
+
+    /// Adds raw markup near the end of `<body>` for every generated page.
+    ///
+    /// This is a convenience wrapper around `page_element(SitePageElement::body_end(...))`.
+    /// Use it for deferred scripts that need the rendered page root to already
+    /// exist.
+    pub fn body_end_html(self, html: impl Into<String>) -> Self {
+        self.page_element(SitePageElement::body_end(html))
     }
 
     pub fn route_widget<S, W>(

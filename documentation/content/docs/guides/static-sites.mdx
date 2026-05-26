@@ -35,6 +35,7 @@ The `documentation/` project uses the static site target to exercise the feature
 | Content transform | `documentation/src/charts.rs` | The site can expand generated chart catalog sections before rendering Markdown |
 | Light and dark themes | `FissionSite::light_dark_themes(...)` in `documentation/src/main.rs` | The generated CSS contains both theme modes and the page includes a small theme toggle script |
 | User CSS | `documentation/site/overrides.css` | Site-specific polish can be appended after generated CSS without replacing the renderer |
+| Page elements | `[[site.elements]]` and `FissionSite::page_element(...)` | Document-level scripts, verification tags, analytics snippets, and provider metadata can be inserted without hard-coding them into the generic shell |
 | Static assets | `documentation/static` | Logos, favicons, fonts, and chart screenshots are copied into the output directory |
 | Code highlighting | `[site.code_highlighting]` in `documentation/fission.toml` | Code blocks can opt into client-side syntax highlighting without loading it on pages that do not need it |
 | Client search | `[site.search]` in `documentation/fission.toml` | The build writes a client-side search index so the deployed site does not need a hosted search service |
@@ -208,6 +209,39 @@ enabled = true
 The build writes a client-side search bundle under `search/`. It includes the generated script, document metadata, and sharded index files. The browser downloads and queries that local index, so the deployed site does not require a search service or server-side API.
 
 Search is most useful on documentation and reference sites. For tiny marketing sites, leave it disabled and avoid shipping code that no route needs.
+
+## Page elements and scripts
+
+Most page content should come from Fission widgets or Markdown. A small number of document-level concerns do not belong in the widget tree: analytics tags, search-console verification tags, consent-manager bootstraps, provider-specific `<meta>` tags, or a script that only applies to a documentation section. The static site shell supports those as page elements.
+
+Use `[[site.elements]]` in `fission.toml` when the element is site configuration:
+
+```toml
+[[site.elements]]
+placement = "head-end"
+file = "site/analytics.html"
+
+[[site.elements]]
+placement = "body-end"
+html = "<script defer src=\"/scripts/docs-only.js\"></script>"
+route_prefixes = ["/docs/"]
+```
+
+`placement` accepts `head-start`, `head-end`, `body-start`, or `body-end`. Set either `html` for a short inline fragment or `file` for a checked-in HTML fragment. Use `routes` for exact route matches and `route_prefixes` for a whole section. If neither filter is present, the element is emitted on every generated page.
+
+Use the Rust API when the element is part of a custom site app:
+
+```rust
+use fission::site::{FissionSite, SitePageElement};
+
+let site = FissionSite::new()
+    .page_element(
+        SitePageElement::head(include_str!("../site/analytics.html"))
+            .route_prefix("/docs/"),
+    );
+```
+
+The HTML is inserted as trusted raw markup. Do not pass untrusted user content into page elements. If the markup is specific to your product, keep it in the site project, not in Fission's generic site shell. This documentation site uses that rule for its analytics snippet: the generic renderer supports page elements, while the real analytics id lives only under `documentation/site/`.
 
 ## Code highlighting
 

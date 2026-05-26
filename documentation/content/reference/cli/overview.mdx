@@ -338,7 +338,7 @@ Builds the static site and serves the generated output with a local static file 
 
 The `site` commands are for documentation, marketing, reference, blog, and other mostly-static routes. They are separate from `fission run --target web`, which launches an interactive web application. A site build starts from the same Fission widget model but resolves it ahead of time into crawlable HTML and CSS.
 
-The Fission documentation site in `documentation/` is the production example in this repository. It uses a custom home page widget, Markdown content routes, sidebars, a generated table of contents, light and dark themes, a custom footer, copied static assets, favicon support, generated search, optional code highlighting, sitemap and robots output, JSON-LD structured data, and link validation. You can inspect the route set with:
+The Fission documentation site in `documentation/` is the production example in this repository. It uses a custom home page widget, Markdown content routes, sidebars, a generated table of contents, light and dark themes, a custom footer, copied static assets, favicon support, generated search, optional code highlighting, route-filtered page elements, sitemap and robots output, JSON-LD structured data, and link validation. You can inspect the route set with:
 
 ```sh
 fission site routes --project-dir documentation

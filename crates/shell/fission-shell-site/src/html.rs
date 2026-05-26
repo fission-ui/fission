@@ -25,6 +25,10 @@ pub struct HtmlRenderOptions {
     pub code_highlighting: CodeHighlightingOptions,
     pub search_script_href: Option<String>,
     pub structured_data: Vec<String>,
+    pub head_start_html: Vec<String>,
+    pub head_end_html: Vec<String>,
+    pub body_start_html: Vec<String>,
+    pub body_end_html: Vec<String>,
 }
 
 impl Default for HtmlRenderOptions {
@@ -45,6 +49,10 @@ impl Default for HtmlRenderOptions {
             code_highlighting: CodeHighlightingOptions::default(),
             search_script_href: None,
             structured_data: Vec::new(),
+            head_start_html: Vec::new(),
+            head_end_html: Vec::new(),
+            body_start_html: Vec::new(),
+            body_end_html: Vec::new(),
         }
     }
 }
@@ -112,6 +120,10 @@ pub fn render_ir_to_html_with_styles(
 }
 
 fn render_document(body_html: &str, options: &HtmlRenderOptions, has_code_blocks: bool) -> String {
+    let head_start_html = raw_page_elements(&options.head_start_html, 4);
+    let head_end_html = raw_page_elements(&options.head_end_html, 4);
+    let body_start_html = raw_page_elements(&options.body_start_html, 4);
+    let body_end_html = raw_page_elements(&options.body_end_html, 4);
     let mut metadata = String::new();
     if let Some(value) = options.description.as_ref() {
         metadata.push_str(&format!(
@@ -192,11 +204,31 @@ fn render_document(body_html: &str, options: &HtmlRenderOptions, has_code_blocks
     let search_script = search_script(options);
     let enhancement_script = site_enhancement_script(options);
     format!(
-        "<!doctype html>\n<html lang=\"{}\"{theme_attr}>\n  <head>\n    <meta charset=\"utf-8\">\n    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">{metadata}\n    <title>{}</title>\n    <link rel=\"stylesheet\" href=\"{}\">{code_highlighting_assets}{search_script}{enhancement_script}\n  </head>\n  <body>\n    {body_html}\n  </body>\n</html>\n",
+        "<!doctype html>\n<html lang=\"{}\"{theme_attr}>\n  <head>{head_start_html}\n    <meta charset=\"utf-8\">\n    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">{metadata}\n    <title>{}</title>\n    <link rel=\"stylesheet\" href=\"{}\">{code_highlighting_assets}{search_script}{enhancement_script}{head_end_html}\n  </head>\n  <body>{body_start_html}\n    {body_html}{body_end_html}\n  </body>\n</html>\n",
         escape_attr(&options.lang),
         escape_text(&options.document_title),
         escape_attr(&options.stylesheet_href)
     )
+}
+
+fn raw_page_elements(elements: &[String], indent_spaces: usize) -> String {
+    if elements.is_empty() {
+        return String::new();
+    }
+    let indent = " ".repeat(indent_spaces);
+    let mut out = String::new();
+    for element in elements {
+        out.push('\n');
+        for line in element.trim().lines() {
+            out.push_str(&indent);
+            out.push_str(line);
+            out.push('\n');
+        }
+        if out.ends_with('\n') {
+            out.pop();
+        }
+    }
+    out
 }
 
 fn favicon_link_tags(href: &str) -> String {
