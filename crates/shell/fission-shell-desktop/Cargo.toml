@@ -5,6 +5,7 @@ edition = "2021"
 
 [features]
 default = []
+tray = ["fission-shell-winit/tray"]
 three-d = ["fission-shell-winit/three-d"]
 
 [dependencies]

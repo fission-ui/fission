@@ -179,6 +179,14 @@ pub use fission_widgets::{HStack, Icon, Spacer, VStack};
 ))]
 pub use fission_shell_desktop::DesktopApp;
 #[cfg(all(
+    feature = "desktop-tray",
+    not(any(target_os = "android", target_os = "ios", target_arch = "wasm32"))
+))]
+pub use fission_shell_desktop::{
+    TrayActivateBehavior, TrayConfig, TrayHostAction, TrayIconSource, TrayMenu, TrayMenuAction,
+    TrayMenuEntry, TrayMenuItem, TrayMenuWidget, WindowCloseBehavior,
+};
+#[cfg(all(
     any(
         feature = "android",
         feature = "ios",
@@ -216,6 +224,14 @@ pub mod prelude {
         Action, ActionEnvelope, ActionId, ActionScopeId, AnimationPropertyId, AnimationRequest,
         AnimationStartValue, AppState, BuildCtx, Effects, FlexDirection, Handler, NodeBuilder, Op,
         PortalLayer, ReducerContext, Selector, View, Widget, WidgetNodeId, WindowEnv, WindowTitle,
+    };
+    #[cfg(all(
+        feature = "desktop-tray",
+        not(any(target_os = "android", target_os = "ios", target_arch = "wasm32"))
+    ))]
+    pub use fission_shell_desktop::{
+        TrayActivateBehavior, TrayConfig, TrayHostAction, TrayIconSource, TrayMenu, TrayMenuAction,
+        TrayMenuEntry, TrayMenuItem, TrayMenuWidget, WindowCloseBehavior,
     };
 
     // Layout

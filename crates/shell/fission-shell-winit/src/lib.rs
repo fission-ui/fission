@@ -10,6 +10,8 @@ use std::collections::{HashMap, VecDeque};
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
+#[cfg(feature = "tray")]
+use winit::event::StartCause;
 #[cfg(target_os = "android")]
 use winit::platform::android::{activity::AndroidApp, EventLoopBuilderExtAndroid};
 #[cfg(target_os = "ios")]
@@ -86,6 +88,13 @@ mod clipboard;
 use clipboard::DesktopClipboard;
 mod ime;
 use ime::{DesktopImeHandler, TextInputConfig};
+#[cfg(feature = "tray")]
+pub mod tray;
+#[cfg(feature = "tray")]
+pub use tray::{
+    TrayActivateBehavior, TrayConfig, TrayHostAction, TrayIconSource, TrayMenu, TrayMenuAction,
+    TrayMenuEntry, TrayMenuItem, TrayMenuWidget, WindowCloseBehavior,
+};
 pub mod test_control;
 
 use fission_core::action::ActionEnvelope;
@@ -2207,6 +2216,8 @@ pub struct WinitApp<S: AppState, W: Widget<S>> {
     effect_result_rx: mpsc::Receiver<AsyncMessage>,
     async_registry: AsyncRegistry,
     startup_action: Option<ActionEnvelope>,
+    #[cfg(feature = "tray")]
+    tray_config: Option<tray::TrayConfig<S>>,
     _phantom: std::marker::PhantomData<S>,
 }
 
@@ -2261,6 +2272,8 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
             effect_result_rx,
             async_registry,
             startup_action: None,
+            #[cfg(feature = "tray")]
+            tray_config: None,
             _phantom: std::marker::PhantomData,
         }
     }
@@ -2345,6 +2358,12 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
         self
     }
 
+    #[cfg(feature = "tray")]
+    pub fn with_tray(mut self, config: tray::TrayConfig<S>) -> Self {
+        self.tray_config = Some(config);
+        self
+    }
+
     pub fn register_reducer(
         &mut self,
         action_id: ActionId,
@@ -2398,6 +2417,13 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
             .build()
             .map_err(|e| anyhow::anyhow!("Event loop error: {}", e))?;
         let event_proxy = event_loop.create_proxy();
+        #[cfg(feature = "tray")]
+        let tray_event_rx = self
+            .tray_config
+            .as_ref()
+            .map(|_| tray::install_event_forwarders(event_proxy.clone()));
+        #[cfg(feature = "tray")]
+        let tray_config = self.tray_config.clone();
         let window_title = self.title.clone();
         let web_mount_selector = self.web_mount_selector;
         let ime_handler = Arc::new(DesktopImeHandler::default());
@@ -2560,6 +2586,8 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
         let mut pending_capture_settle = false;
         let mut last_built_viewport: Option<LayoutSize> = None;
         let mut live_resize = LiveResizeController::new(resize_settle_delay);
+        #[cfg(feature = "tray")]
+        let mut active_tray: Option<tray::ActiveTray<S>> = None;
         let mut invalidations = InvalidationSet {
             build: true,
             layout: true,
@@ -3021,6 +3049,21 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                 };
 
                 match event {
+                    #[cfg(feature = "tray")]
+                    Event::NewEvents(StartCause::Init) => {
+                        if active_tray.is_none() {
+                            if let Some(config) = tray_config.clone() {
+                                match tray::ActiveTray::build(config) {
+                                    Ok(tray) => {
+                                        active_tray = Some(tray);
+                                    }
+                                    Err(error) => {
+                                        eprintln!("Fission tray setup error: {error:?}");
+                                    }
+                                }
+                            }
+                        }
+                    }
                     Event::Resumed => {
                         if debug_android_events {
                             eprintln!("[android-events] resumed");
@@ -3121,6 +3164,47 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                         };
                         #[cfg(target_os = "android")]
                         drain_pending_test_events();
+                        #[cfg(feature = "tray")]
+                        if let (Some(rx), Some(active)) =
+                            (tray_event_rx.as_ref(), active_tray.as_ref())
+                        {
+                            while let Ok(event) = rx.try_recv() {
+                                match active.handle_event(event, window, &mut runtime) {
+                                    Ok(outcome) => {
+                                        if outcome.quit {
+                                            elwt.exit();
+                                            return;
+                                        }
+                                        if outcome.redraw {
+                                            invalidations.mark_build();
+                                            if process_pending_effects(
+                                                &mut runtime,
+                                                &effect_result_tx,
+                                                &event_proxy,
+                                                &async_registry,
+                                                &mut active_services,
+                                                &mut service_bindings,
+                                                &mut next_service_instance_id,
+                                            ) {
+                                                invalidations.mark_build();
+                                            }
+                                            request_redraw_logged(
+                                                window,
+                                                elwt,
+                                                &mut last_redraw_at,
+                                                min_frame,
+                                                &mut redraw_pending,
+                                                &mut frame_trace,
+                                                "tray_menu_action",
+                                            );
+                                        }
+                                    }
+                                    Err(error) => {
+                                        eprintln!("Fission tray event error: {error:?}");
+                                    }
+                                }
+                            }
+                        }
                         let now = Instant::now();
 
                         // Video Logic
@@ -3935,8 +4019,28 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                         )
                                     };
 
+                                    #[cfg(feature = "tray")]
+                                    let tray_registry = if let Some(tray) = active_tray.as_mut() {
+                                        match tray.refresh_menu(&runtime, &env, &pipeline) {
+                                            Ok(registry) => Some(registry),
+                                            Err(err) => {
+                                                eprintln!(
+                                                    "Runtime tray menu rebuild error: {:?}",
+                                                    err
+                                                );
+                                                None
+                                            }
+                                        }
+                                    } else {
+                                        None
+                                    };
+
                                     runtime.clear_reducers();
                                     runtime.absorb_registry(registry);
+                                    #[cfg(feature = "tray")]
+                                    if let Some(registry) = tray_registry {
+                                        runtime.absorb_registry(registry);
+                                    }
                                     if let Err(err) = runtime.reconcile_resources(resources) {
                                         eprintln!(
                                             "Runtime resource reconciliation error: {:?}",
@@ -4396,6 +4500,18 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                 }
                             }
                             WindowEvent::CloseRequested => {
+                                #[cfg(feature = "tray")]
+                                if active_tray
+                                    .as_ref()
+                                    .map(|tray| {
+                                        tray.close_behavior()
+                                            == tray::WindowCloseBehavior::HideToTray
+                                    })
+                                    .unwrap_or(false)
+                                {
+                                    tray::hide_window_to_tray(window);
+                                    return;
+                                }
                                 elwt.exit();
                             }
                             // Input Handling — delegates to the same extracted functions

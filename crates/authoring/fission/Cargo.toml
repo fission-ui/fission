@@ -10,6 +10,7 @@ description = "Cross-platform GPU-accelerated UI framework for Rust"
 default = []
 charts = ["dep:fission-charts"]
 desktop = ["dep:fission-shell-desktop"]
+desktop-tray = ["desktop", "fission-shell-desktop?/tray"]
 icons-reflection = ["fission-icons/reflection"]
 ios = ["dep:fission-shell-mobile"]
 android = ["dep:fission-shell-mobile"]
