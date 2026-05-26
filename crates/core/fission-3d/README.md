@@ -6,7 +6,7 @@
 
 ```toml
 [dependencies]
-fission = { version = "0.1.1", features = ["desktop", "three-d"] }
+fission = { version = "0.2.0", features = ["desktop", "three-d"] }
 ```
 
 Use this crate directly only when you are extending the framework's 3D model or renderer integration.

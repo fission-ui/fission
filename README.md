@@ -1,7 +1,7 @@
 # Fission
 
 [![Crates.io](https://img.shields.io/crates/v/fission.svg)](https://crates.io/crates/fission)
-[![docs.rs](https://docs.rs/fission/badge.svg)](https://docs.rs/fission)
+[![Docs](https://img.shields.io/badge/docs-fission.rs-0f766e.svg)](https://fission.rs)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![CI](https://github.com/worka-ai/fission/actions/workflows/ci.yml/badge.svg)](https://github.com/worka-ai/fission/actions/workflows/ci.yml)
 

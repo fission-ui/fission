@@ -1,18 +1,21 @@
 [package]
 name = "fission-shell-site"
-version = "0.1.1"
+version = "0.2.0"
 edition = "2021"
 license = "MIT"
 repository = "https://github.com/worka-ai/fission"
-description = "Static site shell for lowering real Fission UI to static HTML"
+description = "Static site shell for lowering Fission widget trees and content routes to HTML"
 
+homepage = "https://fission.rs"
+documentation = "https://fission.rs"
+readme = "README.md"
 [dependencies]
 anyhow = "1.0"
-fission-core = { path = "../../core/fission-core", version = "0.1.1" }
-fission-ir = { path = "../../core/fission-ir", version = "0.1.1" }
-fission-layout = { path = "../../core/fission-layout", version = "0.1.1" }
-fission-theme = { path = "../../core/fission-theme", version = "0.1.1" }
-fission-widgets = { path = "../../authoring/fission-widgets", version = "0.1.1", default-features = false }
+fission-core = { path = "../../core/fission-core", version = "0.2.0" }
+fission-ir = { path = "../../core/fission-ir", version = "0.2.0" }
+fission-layout = { path = "../../core/fission-layout", version = "0.2.0" }
+fission-theme = { path = "../../core/fission-theme", version = "0.2.0" }
+fission-widgets = { path = "../../authoring/fission-widgets", version = "0.2.0", default-features = false }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 toml = "0.8"

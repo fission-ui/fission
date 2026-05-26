@@ -1,10 +1,13 @@
 [package]
 name = "fission-i18n"
-version = "0.1.1"
+version = "0.2.0"
 edition = "2021"
 license = "MIT"
 repository = "https://github.com/worka-ai/fission"
-description = "I18N"
+description = "Internationalization primitives for Fission applications"
 
+homepage = "https://fission.rs"
+documentation = "https://fission.rs"
+readme = "README.md"
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }

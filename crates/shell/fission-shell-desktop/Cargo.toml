@@ -1,27 +1,33 @@
 [package]
 name = "fission-shell-desktop"
-version = "0.1.1"
+version = "0.2.0"
 edition = "2021"
 
+license = "MIT"
+repository = "https://github.com/worka-ai/fission"
+homepage = "https://fission.rs"
+documentation = "https://fission.rs"
+description = "Desktop shell wrapper for Fission applications"
+readme = "README.md"
 [features]
 default = []
 tray = ["fission-shell-winit/tray"]
 three-d = ["fission-shell-winit/three-d"]
 
 [dependencies]
-fission-shell = { path = "../fission-shell" }
-fission-shell-winit = { path = "../fission-shell-winit", default-features = false }
-fission-core = { path = "../../core/fission-core" }
-fission-theme = { path = "../../core/fission-theme" }
+fission-shell = { path = "../fission-shell", version = "0.2.0" }
+fission-shell-winit = { path = "../fission-shell-winit", default-features = false, version = "0.2.0" }
+fission-core = { path = "../../core/fission-core", version = "0.2.0" }
+fission-theme = { path = "../../core/fission-theme", version = "0.2.0" }
 winit = "0.29.15"
 anyhow = "1.0"
 
 [dev-dependencies]
 serde = { version = "1", features = ["derive"] }
-fission-ir = { path = "../../core/fission-ir" }
-fission-layout = { path = "../../core/fission-layout" }
-fission-macros = { path = "../../authoring/fission-macros" }
-fission-render = { path = "../../rendering/fission-render" }
-fission-render-vello = { path = "../../rendering/fission-render-vello" }
-fission-widgets = { path = "../../authoring/fission-widgets" }
+fission-ir = { path = "../../core/fission-ir", version = "0.2.0" }
+fission-layout = { path = "../../core/fission-layout", version = "0.2.0" }
+fission-macros = { path = "../../authoring/fission-macros", version = "0.2.0" }
+fission-render = { path = "../../rendering/fission-render", version = "0.2.0" }
+fission-render-vello = { path = "../../rendering/fission-render-vello", version = "0.2.0" }
+fission-widgets = { path = "../../authoring/fission-widgets", version = "0.2.0" }
 lazy_static = "1"

@@ -1185,7 +1185,7 @@ dependencies = [
 
 [[package]]
 name = "cargo-fission"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -2172,7 +2172,7 @@ source = "git+https://github.com/wez/finl_unicode.git?branch=no_std#a1892f262455
 
 [[package]]
 name = "fission"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "fission-3d",
  "fission-charts",
@@ -2198,7 +2198,7 @@ dependencies = [
 
 [[package]]
 name = "fission-3d"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "bincode",
  "bytemuck",
@@ -2210,7 +2210,7 @@ dependencies = [
 
 [[package]]
 name = "fission-charts"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "chrono",
  "fission-core",
@@ -2223,7 +2223,7 @@ dependencies = [
 
 [[package]]
 name = "fission-command-core"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -2233,7 +2233,7 @@ dependencies = [
 
 [[package]]
 name = "fission-command-package"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "aws-config",
@@ -2257,7 +2257,7 @@ dependencies = [
 
 [[package]]
 name = "fission-command-release"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "base64",
@@ -2277,7 +2277,7 @@ dependencies = [
 
 [[package]]
 name = "fission-command-run"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "fission-command-core",
@@ -2288,7 +2288,7 @@ dependencies = [
 
 [[package]]
 name = "fission-command-site"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "fission-shell-site",
@@ -2297,7 +2297,7 @@ dependencies = [
 
 [[package]]
 name = "fission-command-ui"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "fission",
@@ -2308,7 +2308,7 @@ dependencies = [
 
 [[package]]
 name = "fission-core"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "blake3",
@@ -2330,7 +2330,7 @@ dependencies = [
 
 [[package]]
 name = "fission-credentials"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "base64",
@@ -2344,7 +2344,7 @@ dependencies = [
 
 [[package]]
 name = "fission-design-system-codegen"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "serde_json",
@@ -2352,7 +2352,7 @@ dependencies = [
 
 [[package]]
 name = "fission-diagnostics"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "bitflags 2.10.0",
  "once_cell",
@@ -2388,14 +2388,14 @@ dependencies = [
 
 [[package]]
 name = "fission-i18n"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "serde",
 ]
 
 [[package]]
 name = "fission-icons"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "heck 0.4.1",
  "serde_json",
@@ -2404,7 +2404,7 @@ dependencies = [
 
 [[package]]
 name = "fission-ir"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "blake3",
  "serde",
@@ -2414,7 +2414,7 @@ dependencies = [
 
 [[package]]
 name = "fission-layout"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "fission-diagnostics",
@@ -2424,7 +2424,7 @@ dependencies = [
 
 [[package]]
 name = "fission-macros"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "proc-macro-crate 3.4.0",
  "proc-macro2",
@@ -2434,7 +2434,7 @@ dependencies = [
 
 [[package]]
 name = "fission-render"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "fission-ir",
@@ -2445,7 +2445,7 @@ dependencies = [
 
 [[package]]
 name = "fission-render-vello"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "fission-diagnostics",
@@ -2462,7 +2462,7 @@ dependencies = [
 
 [[package]]
 name = "fission-semantics"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "fission-ir",
  "serde",
@@ -2471,7 +2471,7 @@ dependencies = [
 
 [[package]]
 name = "fission-shell"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "fission-core",
@@ -2485,7 +2485,7 @@ dependencies = [
 
 [[package]]
 name = "fission-shell-desktop"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "fission-core",
@@ -2505,7 +2505,7 @@ dependencies = [
 
 [[package]]
 name = "fission-shell-mobile"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "fission-core",
@@ -2517,7 +2517,7 @@ dependencies = [
 
 [[package]]
 name = "fission-shell-site"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "fission-core",
@@ -2532,7 +2532,7 @@ dependencies = [
 
 [[package]]
 name = "fission-shell-terminal"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "ab_glyph",
  "anyhow",
@@ -2548,7 +2548,7 @@ dependencies = [
 
 [[package]]
 name = "fission-shell-web"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "fission-core",
@@ -2559,7 +2559,7 @@ dependencies = [
 
 [[package]]
 name = "fission-shell-winit"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "arboard",
@@ -2601,7 +2601,7 @@ dependencies = [
 
 [[package]]
 name = "fission-test"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "fission-core",
@@ -2624,7 +2624,7 @@ dependencies = [
 
 [[package]]
 name = "fission-test-driver"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "base64",
@@ -2635,14 +2635,14 @@ dependencies = [
 
 [[package]]
 name = "fission-text-engine"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "ropey",
 ]
 
 [[package]]
 name = "fission-theme"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "fission-design-system-codegen",
  "fission-ir",
@@ -2651,7 +2651,7 @@ dependencies = [
 
 [[package]]
 name = "fission-widgets"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "arboard",

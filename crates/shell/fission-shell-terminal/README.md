@@ -8,7 +8,7 @@ Application developers normally enable it through the facade crate:
 
 ```toml
 [dependencies]
-fission = { version = "0.1.1", features = ["terminal-shell"] }
+fission = { version = "0.2.0", features = ["terminal-shell"] }
 ```
 
 ## What it contains

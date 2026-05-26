@@ -1,20 +1,23 @@
 [package]
 name = "fission-shell-web"
-version = "0.1.1"
+version = "0.2.0"
 edition = "2021"
 license = "MIT"
 repository = "https://github.com/worka-ai/fission"
-description = "Shell Web"
+description = "Web and WebAssembly shell wrapper for Fission applications"
 
+homepage = "https://fission.rs"
+documentation = "https://fission.rs"
+readme = "README.md"
 [features]
 default = []
 three-d = ["fission-shell-winit/three-d"]
 
 [dependencies]
 anyhow = "1.0"
-fission-core = { path = "../../core/fission-core", version = "0.1.1" }
-fission-theme = { path = "../../core/fission-theme", version = "0.1.1" }
-fission-shell = { path = "../fission-shell", version = "0.1.1" }
-fission-shell-winit = { path = "../fission-shell-winit", version = "0.1.1", default-features = false }
+fission-core = { path = "../../core/fission-core", version = "0.2.0" }
+fission-theme = { path = "../../core/fission-theme", version = "0.2.0" }
+fission-shell = { path = "../fission-shell", version = "0.2.0" }
+fission-shell-winit = { path = "../fission-shell-winit", version = "0.2.0", default-features = false }
 
 [dev-dependencies]

@@ -23,7 +23,7 @@ assert_eq!(buffer.to_string(), "hello world");
 
 ## Documentation
 
-Start with the Fission text and input guides at [fission.rs](https://fission.rs). API documentation is available on docs.rs for crate-level details.
+Start with the Fission text and input guides at [fission.rs](https://fission.rs). API documentation and guides are available at https://fission.rs.
 
 ## License
 

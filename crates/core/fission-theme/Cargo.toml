@@ -1,10 +1,10 @@
 [package]
 name = "fission-theme"
-version = "0.1.1"
+version = "0.2.0"
 edition = "2021"
 license = "MIT"
 repository = "https://github.com/worka-ai/fission"
-description = "Design tokens and theming for the Fission UI framework"
+description = "Design tokens, Design System Package codegen output, and component themes for Fission"
 include = [
     "src/**/*",
     "design/**/*",
@@ -15,9 +15,12 @@ include = [
     "fonts/Noto_Sans/static/NotoSans-Regular.ttf",
 ]
 
+homepage = "https://fission.rs"
+documentation = "https://fission.rs"
+readme = "README.md"
 [dependencies]
-fission-ir = { path = "../fission-ir", version = "0.1.1" }
+fission-ir = { path = "../fission-ir", version = "0.2.0" }
 serde = { version = "1.0", features = ["derive"] }
 
 [build-dependencies]
-fission-design-system-codegen = { path = "../../tools/fission-design-system-codegen", version = "0.1.1" }
+fission-design-system-codegen = { path = "../../tools/fission-design-system-codegen", version = "0.2.0" }

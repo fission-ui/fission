@@ -1,14 +1,17 @@
 [package]
 name = "fission-command-run"
-version = "0.1.1"
+version = "0.2.0"
 edition = "2021"
 license = "MIT"
 repository = "https://github.com/worka-ai/fission"
-description = "Run, build, test, logs, and doctor workflows for the Fission command"
+description = "Run, build, test, logs, devices, and doctor workflows for the fission command"
 
+homepage = "https://fission.rs"
+documentation = "https://fission.rs"
+readme = "README.md"
 [dependencies]
 anyhow = "1.0"
-fission-command-core = { path = "../fission-command-core", version = "0.1.1" }
-fission-command-site = { path = "../fission-command-site", version = "0.1.1" }
+fission-command-core = { path = "../fission-command-core", version = "0.2.0" }
+fission-command-site = { path = "../fission-command-site", version = "0.2.0" }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"

@@ -1,12 +1,15 @@
 [package]
 name = "fission-command-site"
-version = "0.1.1"
+version = "0.2.0"
 edition = "2021"
 license = "MIT"
 repository = "https://github.com/worka-ai/fission"
-description = "Static site command implementation for the Fission command"
+description = "Static site command implementation for the fission command"
 
+homepage = "https://fission.rs"
+documentation = "https://fission.rs"
+readme = "README.md"
 [dependencies]
 anyhow = "1.0"
-fission-shell-site = { path = "../../shell/fission-shell-site", version = "0.1.1" }
+fission-shell-site = { path = "../../shell/fission-shell-site", version = "0.2.0" }
 toml = "0.8"

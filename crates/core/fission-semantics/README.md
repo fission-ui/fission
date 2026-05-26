@@ -38,4 +38,4 @@ assert!(!sem.disabled);
 
 ## License
 
-MIT -- see the [Fission repository](https://github.com/worka-ai/fission) for full documentation.
+MIT -- see the [Fission repository](https://github.com/worka-ai/fission) for full documentation at https://fission.rs.

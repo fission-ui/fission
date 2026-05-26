@@ -4,7 +4,7 @@
 
   "$package": {
     "name": "fission-design-system",
-    "version": "0.1.0",
+    "version": "0.2.0",
     "description": "Visual language for Fission — a cross-platform, GPU-accelerated UI framework for Rust. Mirrors the Material 3 token architecture used by the `fission-theme` crate; brand identity from the docs site (teal) + logo (orange/blue).",
     "license": "MIT",
     "framework": {

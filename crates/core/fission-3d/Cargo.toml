@@ -1,11 +1,17 @@
 [package]
 name = "fission-3d"
-version = "0.1.1"
+version = "0.2.0"
 edition = "2021"
 
+license = "MIT"
+repository = "https://github.com/worka-ai/fission"
+homepage = "https://fission.rs"
+documentation = "https://fission.rs"
+description = "3D scene primitives and rendering data types for Fission applications"
+readme = "README.md"
 [dependencies]
-fission-core = { path = "../fission-core" }
-fission-ir = { path = "../fission-ir" }
+fission-core = { path = "../fission-core", version = "0.2.0" }
+fission-ir = { path = "../fission-ir", version = "0.2.0" }
 serde = { version = "1.0", features = ["derive"] }
 wgpu = "26.0"
 bytemuck = { version = "1.18", features = ["derive"] }

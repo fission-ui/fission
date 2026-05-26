@@ -1,19 +1,22 @@
 [package]
 name = "fission-render-vello"
-version = "0.1.1"
+version = "0.2.0"
 edition = "2021"
 license = "MIT"
 repository = "https://github.com/worka-ai/fission"
-description = "Render Vello"
+description = "Vello renderer backend for Fission display lists"
 
+homepage = "https://fission.rs"
+documentation = "https://fission.rs"
+readme = "README.md"
 [dependencies]
-fission-render = { path = "../fission-render", version = "0.1.1" }
-fission-layout = { path = "../../core/fission-layout", version = "0.1.1" }
-fission-ir = { path = "../../core/fission-ir", version = "0.1.1" }
+fission-render = { path = "../fission-render", version = "0.2.0" }
+fission-layout = { path = "../../core/fission-layout", version = "0.2.0" }
+fission-ir = { path = "../../core/fission-ir", version = "0.2.0" }
 anyhow = "1.0"
 vello = { version = "0.6.0", features = ["wgpu"] }
 parley = "0.7.0"
-fission-diagnostics = { path = "../../tools/fission-diagnostics", version = "0.1.1" }
+fission-diagnostics = { path = "../../tools/fission-diagnostics", version = "0.2.0" }
 image = "0.24"
 lazy_static = "1.5.0"
 peniko = "0.5"

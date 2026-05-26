@@ -1,27 +1,32 @@
 [package]
 name = "fission-shell-winit"
-version = "0.1.1"
+version = "0.2.0"
 edition = "2021"
-description = "Shared winit shell runtime"
+description = "Shared winit shell runtime for desktop and mobile Fission hosts"
 
+license = "MIT"
+repository = "https://github.com/worka-ai/fission"
+homepage = "https://fission.rs"
+documentation = "https://fission.rs"
+readme = "README.md"
 [features]
 default = []
 tray = ["dep:tray-icon"]
 three-d = ["dep:fission-3d"]
 
 [dependencies]
-fission-shell = { path = "../fission-shell" }
-fission-render = { path = "../../rendering/fission-render" }
-fission-render-vello = { path = "../../rendering/fission-render-vello" }
-fission-core = { path = "../../core/fission-core" }
-fission-layout = { path = "../../core/fission-layout" } 
-fission-ir = { path = "../../core/fission-ir" }
-fission-semantics = { path = "../../core/fission-semantics" }
-fission-theme = { path = "../../core/fission-theme" }
-fission-3d = { path = "../../core/fission-3d", optional = true }
+fission-shell = { path = "../fission-shell", version = "0.2.0" }
+fission-render = { path = "../../rendering/fission-render", version = "0.2.0" }
+fission-render-vello = { path = "../../rendering/fission-render-vello", version = "0.2.0" }
+fission-core = { path = "../../core/fission-core", version = "0.2.0" }
+fission-layout = { path = "../../core/fission-layout", version = "0.2.0" } 
+fission-ir = { path = "../../core/fission-ir", version = "0.2.0" }
+fission-semantics = { path = "../../core/fission-semantics", version = "0.2.0" }
+fission-theme = { path = "../../core/fission-theme", version = "0.2.0" }
+fission-3d = { path = "../../core/fission-3d", optional = true, version = "0.2.0" }
 winit = "0.29.15"
-fission-diagnostics = { path = "../../tools/fission-diagnostics" }
-fission-test-driver = { path = "../../tools/fission-test-driver" }
+fission-diagnostics = { path = "../../tools/fission-diagnostics", version = "0.2.0" }
+fission-test-driver = { path = "../../tools/fission-test-driver", version = "0.2.0" }
 image = "0.25"
 tiny-skia = "0.11.4"
 fontdue = "0.9.3"
@@ -55,6 +60,6 @@ core-graphics = "0.23"
 
 [dev-dependencies]
 serde = { version = "1", features = ["derive"] }
-fission-macros = { path = "../../authoring/fission-macros" }
-fission-widgets = { path = "../../authoring/fission-widgets" }
+fission-macros = { path = "../../authoring/fission-macros", version = "0.2.0" }
+fission-widgets = { path = "../../authoring/fission-widgets", version = "0.2.0" }
 lazy_static = "1"

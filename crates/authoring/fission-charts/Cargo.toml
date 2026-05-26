@@ -1,13 +1,19 @@
 [package]
 name = "fission-charts"
-version = "0.1.1"
+version = "0.2.0"
 edition = "2021"
 
+license = "MIT"
+repository = "https://github.com/worka-ai/fission"
+homepage = "https://fission.rs"
+documentation = "https://fission.rs"
+description = "Native chart widgets and data visualization primitives for Fission applications"
+readme = "README.md"
 [dependencies]
 chrono = "0.4.44"
-fission-core = { path = "../../core/fission-core" }
-fission-ir = { path = "../../core/fission-ir" }
-fission-layout = { path = "../../core/fission-layout" }
-fission-widgets = { path = "../fission-widgets" }
+fission-core = { path = "../../core/fission-core", version = "0.2.0" }
+fission-ir = { path = "../../core/fission-ir", version = "0.2.0" }
+fission-layout = { path = "../../core/fission-layout", version = "0.2.0" }
+fission-widgets = { path = "../fission-widgets", version = "0.2.0" }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0.149"

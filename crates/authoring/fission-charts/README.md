@@ -6,7 +6,7 @@ Chart widgets and data-visualization primitives for Fission applications.
 
 ```toml
 [dependencies]
-fission = { version = "0.1.1", features = ["desktop", "charts"] }
+fission = { version = "0.2.0", features = ["desktop", "charts"] }
 ```
 
 Most application code should import from `fission::prelude::*` and `fission::charts::*` rather than depending on this crate directly. Depend on `fission-charts` only when you are extending the chart layer itself.

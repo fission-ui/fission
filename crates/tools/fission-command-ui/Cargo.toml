@@ -1,14 +1,17 @@
 [package]
 name = "fission-command-ui"
-version = "0.1.1"
+version = "0.2.0"
 edition = "2021"
 license = "MIT"
 repository = "https://github.com/worka-ai/fission"
-description = "Terminal UI application for the Fission command"
+description = "Terminal UI application for the fission command"
 
+homepage = "https://fission.rs"
+documentation = "https://fission.rs"
+readme = "README.md"
 [dependencies]
 anyhow = "1.0"
-fission = { path = "../../authoring/fission", version = "0.1.1", default-features = false, features = ["terminal-shell"] }
-fission-command-core = { path = "../fission-command-core", version = "0.1.1" }
-fission-command-run = { path = "../fission-command-run", version = "0.1.1" }
+fission = { path = "../../authoring/fission", version = "0.2.0", default-features = false, features = ["terminal-shell"] }
+fission-command-core = { path = "../fission-command-core", version = "0.2.0" }
+fission-command-run = { path = "../fission-command-run", version = "0.2.0" }
 serde = { version = "1.0", features = ["derive"] }
