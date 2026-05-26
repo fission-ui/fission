@@ -77,6 +77,43 @@ impl TextMeasurer for MockTextMeasurer {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::MockTextMeasurer;
+    use fission_ir::op::{Color, FontStyle, TextRun, TextStyle};
+    use fission_layout::TextMeasurer;
+
+    fn text_run(text: &str) -> TextRun {
+        TextRun {
+            text: text.to_string(),
+            style: TextStyle {
+                font_size: 14.0,
+                color: Color::BLACK,
+                underline: false,
+                font_family: None,
+                locale: None,
+                font_weight: 400,
+                font_style: FontStyle::Normal,
+                line_height: None,
+                letter_spacing: 0.0,
+                background_color: None,
+            },
+        }
+    }
+
+    #[test]
+    fn mock_text_measurer_uses_minimum_width_for_zero_or_tiny_constraints() {
+        let measurer = MockTextMeasurer;
+
+        assert_eq!(measurer.measure("abc", 14.0, Some(0.0)), (10.0, 60.0));
+        assert_eq!(measurer.measure("abc", 14.0, Some(4.0)), (10.0, 60.0));
+
+        let runs = vec![text_run("abc")];
+        assert_eq!(measurer.measure_rich_text(&runs, Some(0.0)), (10.0, 60.0));
+        assert_eq!(measurer.measure_rich_text(&runs, Some(4.0)), (10.0, 60.0));
+    }
+}
+
 const DEFAULT_TEST_FONT_FAMILY: &str = "Fission Default";
 
 fn should_use_mock_measurer() -> bool {

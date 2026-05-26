@@ -71,6 +71,11 @@ fn test_stepper_button_layout() {
 
 #[test]
 fn test_email_list_width() {
+    const OUTER_SPLIT_RATIO: f32 = 0.2;
+    const INNER_SPLIT_RATIO: f32 = 0.3;
+    const HANDLE_SIZE: f32 = 4.0;
+    const DEFAULT_VIEWPORT_WIDTH: f32 = 800.0;
+
     struct InboxLayout;
     impl Widget<State> for InboxLayout {
         fn build(&self, _ctx: &mut BuildCtx<State>, _view: &View<State>) -> Node {
@@ -90,12 +95,12 @@ fn test_email_list_width() {
                         second: Box::new(
                             Container::new(Text::new("Detail").into_node()).into_node(),
                         ),
-                        split_ratio: 0.4,
+                        split_ratio: INNER_SPLIT_RATIO,
                         on_resize: None,
                     }
                     .build(_ctx, _view),
                 ),
-                split_ratio: 0.2,
+                split_ratio: OUTER_SPLIT_RATIO,
                 on_resize: None,
             }
             .build(_ctx, _view)
@@ -126,10 +131,16 @@ fn test_email_list_width() {
     let rect = list_rect.expect("List text not found");
     println!("List Rect: {:?}", rect);
 
+    // Keep the original 0.3 inner split ratio. Under the test harness' 800px
+    // viewport, the ratio-correct first pane is about 190px; the old 250px
+    // threshold only passes if the regression scenario is softened to 0.4.
+    let outer_second_width = (DEFAULT_VIEWPORT_WIDTH - HANDLE_SIZE) * (1.0 - OUTER_SPLIT_RATIO);
+    let expected_width = (outer_second_width - HANDLE_SIZE) * INNER_SPLIT_RATIO;
+
     assert!(
-        rect.width() >= 250.0,
-        "Email list width too narrow: {}",
-        rect.width()
+        (rect.width() - expected_width).abs() <= 0.1,
+        "Nested SplitView width should preserve the original ratio: expected {expected_width}, got {}",
+        rect.width(),
     );
 }
 
