@@ -35,6 +35,7 @@ fn facade_exports_notifications_and_deep_links() {
         .with_notification_host(MemoryNotificationHost)
         .with_nfc_host(MemoryNfcHost::default())
         .with_biometric_host(MemoryBiometricHost::default())
+        .with_bluetooth_host(MemoryBluetoothHost::default())
         .with_barcode_scanner_host(MemoryBarcodeScannerHost::default())
         .with_camera_host(MemoryCameraHost::default())
         .with_clipboard_host(MemoryClipboardHost::default())
@@ -65,6 +66,10 @@ fn facade_exports_notifications_and_deep_links() {
     let _auth = BiometricAuthenticateRequest {
         reason: "Unlock".into(),
         required_strength: BiometricStrength::Strong,
+        ..Default::default()
+    };
+    let _bluetooth = BluetoothScanRequest {
+        service_uuids: vec!["180D".into()],
         ..Default::default()
     };
     let _barcode = BarcodeScanRequest {

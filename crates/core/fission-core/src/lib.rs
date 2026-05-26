@@ -54,6 +54,7 @@ pub mod media;
 pub mod platform;
 pub mod platform_barcode;
 pub mod platform_biometric;
+pub mod platform_bluetooth;
 pub mod platform_camera;
 pub mod platform_clipboard;
 pub mod platform_geolocation;
@@ -82,8 +83,8 @@ pub use capability::{
     PickOpenFilesResult, PickedFile, OPEN_URL, PICK_OPEN_FILES,
 };
 pub use context::{
-    BarcodeScannerEffects, BiometricEffects, CameraEffects, ClipboardEffects, Effects,
-    GeolocationEffects, HapticEffects, MicrophoneEffects, NfcEffects, NotificationEffects,
+    BarcodeScannerEffects, BiometricEffects, BluetoothEffects, CameraEffects, ClipboardEffects,
+    Effects, GeolocationEffects, HapticEffects, MicrophoneEffects, NfcEffects, NotificationEffects,
     ReducerContext,
 }; // New
 pub use effect::{ActionInput, Effect, EffectEnvelope, RuntimeEffect};
@@ -125,6 +126,20 @@ pub use platform_biometric::{
     BiometricAvailability, BiometricError, BiometricKind, BiometricStrength,
     CancelBiometricAuthenticationCapability, GetBiometricAvailabilityCapability,
     AUTHENTICATE_BIOMETRIC, CANCEL_BIOMETRIC_AUTHENTICATION, GET_BIOMETRIC_AVAILABILITY,
+};
+pub use platform_bluetooth::{
+    BluetoothAdvertiseReceipt, BluetoothAdvertiseRequest, BluetoothAvailability,
+    BluetoothConnectRequest, BluetoothConnection, BluetoothDevice, BluetoothDisconnectRequest,
+    BluetoothError, BluetoothMode, BluetoothPermission, BluetoothPermissionRequest,
+    BluetoothReadRequest, BluetoothReadResult, BluetoothScanRequest, BluetoothScanResult,
+    BluetoothStopAdvertiseRequest, BluetoothWriteRequest, ConnectBluetoothDeviceCapability,
+    DisconnectBluetoothDeviceCapability, GetBluetoothAvailabilityCapability,
+    ReadBluetoothCharacteristicCapability, RequestBluetoothPermissionCapability,
+    ScanBluetoothDevicesCapability, StartBluetoothAdvertisingCapability,
+    StopBluetoothAdvertisingCapability, WriteBluetoothCharacteristicCapability,
+    CONNECT_BLUETOOTH_DEVICE, DISCONNECT_BLUETOOTH_DEVICE, GET_BLUETOOTH_AVAILABILITY,
+    READ_BLUETOOTH_CHARACTERISTIC, REQUEST_BLUETOOTH_PERMISSION, SCAN_BLUETOOTH_DEVICES,
+    START_BLUETOOTH_ADVERTISING, STOP_BLUETOOTH_ADVERTISING, WRITE_BLUETOOTH_CHARACTERISTIC,
 };
 pub use platform_camera::{
     CameraAvailability, CameraCapture, CameraCaptureRequest, CameraDevice, CameraError,

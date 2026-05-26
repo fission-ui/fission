@@ -28,6 +28,14 @@ use crate::platform_biometric::{
     BiometricAuthenticateRequest, AUTHENTICATE_BIOMETRIC, CANCEL_BIOMETRIC_AUTHENTICATION,
     GET_BIOMETRIC_AVAILABILITY,
 };
+use crate::platform_bluetooth::{
+    BluetoothAdvertiseRequest, BluetoothConnectRequest, BluetoothDisconnectRequest,
+    BluetoothPermissionRequest, BluetoothReadRequest, BluetoothScanRequest,
+    BluetoothStopAdvertiseRequest, BluetoothWriteRequest, CONNECT_BLUETOOTH_DEVICE,
+    DISCONNECT_BLUETOOTH_DEVICE, GET_BLUETOOTH_AVAILABILITY, READ_BLUETOOTH_CHARACTERISTIC,
+    REQUEST_BLUETOOTH_PERMISSION, SCAN_BLUETOOTH_DEVICES, START_BLUETOOTH_ADVERTISING,
+    STOP_BLUETOOTH_ADVERTISING, WRITE_BLUETOOTH_CHARACTERISTIC,
+};
 use crate::platform_camera::{
     CameraCaptureRequest, CameraFlashlightRequest, CameraPermissionRequest, CANCEL_CAMERA_CAPTURE,
     CAPTURE_PHOTO, GET_CAMERA_AVAILABILITY, REQUEST_CAMERA_PERMISSION, SET_CAMERA_FLASHLIGHT,
@@ -199,6 +207,10 @@ impl<'a, S: AppState> Effects<'a, S> {
 
     pub fn biometrics(&mut self) -> BiometricEffects<'_, 'a, S> {
         BiometricEffects { effects: self }
+    }
+
+    pub fn bluetooth(&mut self) -> BluetoothEffects<'_, 'a, S> {
+        BluetoothEffects { effects: self }
     }
 
     pub fn barcode_scanner(&mut self) -> BarcodeScannerEffects<'_, 'a, S> {
@@ -433,6 +445,63 @@ impl<'a, 'b, S: AppState> BiometricEffects<'a, 'b, S> {
 
     pub fn cancel_authentication(self) -> EffectBuilder<'a, 'b, S> {
         self.effects.capability(CANCEL_BIOMETRIC_AUTHENTICATION, ())
+    }
+}
+
+/// Convenience builder for standard Bluetooth host capabilities.
+pub struct BluetoothEffects<'a, 'b, S: AppState> {
+    effects: &'a mut Effects<'b, S>,
+}
+
+impl<'a, 'b, S: AppState> BluetoothEffects<'a, 'b, S> {
+    pub fn availability(self) -> EffectBuilder<'a, 'b, S> {
+        self.effects.capability(GET_BLUETOOTH_AVAILABILITY, ())
+    }
+
+    pub fn request_permission(
+        self,
+        request: BluetoothPermissionRequest,
+    ) -> EffectBuilder<'a, 'b, S> {
+        self.effects
+            .capability(REQUEST_BLUETOOTH_PERMISSION, request)
+    }
+
+    pub fn scan_devices(self, request: BluetoothScanRequest) -> EffectBuilder<'a, 'b, S> {
+        self.effects.capability(SCAN_BLUETOOTH_DEVICES, request)
+    }
+
+    pub fn connect_device(self, request: BluetoothConnectRequest) -> EffectBuilder<'a, 'b, S> {
+        self.effects.capability(CONNECT_BLUETOOTH_DEVICE, request)
+    }
+
+    pub fn disconnect_device(
+        self,
+        request: BluetoothDisconnectRequest,
+    ) -> EffectBuilder<'a, 'b, S> {
+        self.effects
+            .capability(DISCONNECT_BLUETOOTH_DEVICE, request)
+    }
+
+    pub fn read_characteristic(self, request: BluetoothReadRequest) -> EffectBuilder<'a, 'b, S> {
+        self.effects
+            .capability(READ_BLUETOOTH_CHARACTERISTIC, request)
+    }
+
+    pub fn write_characteristic(self, request: BluetoothWriteRequest) -> EffectBuilder<'a, 'b, S> {
+        self.effects
+            .capability(WRITE_BLUETOOTH_CHARACTERISTIC, request)
+    }
+
+    pub fn start_advertising(self, request: BluetoothAdvertiseRequest) -> EffectBuilder<'a, 'b, S> {
+        self.effects
+            .capability(START_BLUETOOTH_ADVERTISING, request)
+    }
+
+    pub fn stop_advertising(
+        self,
+        request: BluetoothStopAdvertiseRequest,
+    ) -> EffectBuilder<'a, 'b, S> {
+        self.effects.capability(STOP_BLUETOOTH_ADVERTISING, request)
     }
 }
 

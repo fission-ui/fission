@@ -4,13 +4,14 @@ use fission_shell::async_host::AsyncRegistry;
 use fission_shell_winit::WinitApp;
 
 pub use fission_shell_winit::{
-    BarcodeScannerHost, BiometricHost, CameraHost, ClipboardHost, GeolocationHost, HapticHost,
-    MemoryBarcodeScannerHost, MemoryBiometricHost, MemoryCameraHost, MemoryClipboardHost,
-    MemoryGeolocationHost, MemoryHapticHost, MemoryMicrophoneHost, MemoryNfcHost,
-    MemoryNotificationHost, MicrophoneHost, NfcHost, NotificationHost,
-    UnsupportedBarcodeScannerHost, UnsupportedBiometricHost, UnsupportedCameraHost,
-    UnsupportedGeolocationHost, UnsupportedHapticHost, UnsupportedMicrophoneHost,
-    UnsupportedNfcHost, UnsupportedNotificationHost,
+    BarcodeScannerHost, BiometricHost, BluetoothHost, CameraHost, ClipboardHost, GeolocationHost,
+    HapticHost, MemoryBarcodeScannerHost, MemoryBiometricHost, MemoryBluetoothHost,
+    MemoryCameraHost, MemoryClipboardHost, MemoryGeolocationHost, MemoryHapticHost,
+    MemoryMicrophoneHost, MemoryNfcHost, MemoryNotificationHost, MicrophoneHost, NfcHost,
+    NotificationHost, UnsupportedBarcodeScannerHost, UnsupportedBiometricHost,
+    UnsupportedBluetoothHost, UnsupportedCameraHost, UnsupportedGeolocationHost,
+    UnsupportedHapticHost, UnsupportedMicrophoneHost, UnsupportedNfcHost,
+    UnsupportedNotificationHost,
 };
 
 #[cfg(target_os = "android")]
@@ -111,6 +112,14 @@ impl<S: AppState + Default, W: Widget<S> + 'static> MobileApp<S, W> {
         H: BiometricHost,
     {
         self.inner = self.inner.with_biometric_host(host);
+        self
+    }
+
+    pub fn with_bluetooth_host<H>(mut self, host: H) -> Self
+    where
+        H: BluetoothHost,
+    {
+        self.inner = self.inner.with_bluetooth_host(host);
         self
     }
 

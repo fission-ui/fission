@@ -381,6 +381,7 @@ mod tests {
             "add-capability",
             "nfc",
             "biometric",
+            "bluetooth",
             "barcode-scanner",
             "camera",
             "geolocation",
@@ -398,6 +399,9 @@ mod tests {
         assert!(project
             .capabilities
             .contains(&fission_command_core::PlatformCapability::Biometric));
+        assert!(project
+            .capabilities
+            .contains(&fission_command_core::PlatformCapability::Bluetooth));
         assert!(project
             .capabilities
             .contains(&fission_command_core::PlatformCapability::BarcodeScanner));
@@ -419,6 +423,9 @@ mod tests {
         assert!(android_manifest.contains("android.permission.NFC"));
         assert!(android_manifest.contains("android.hardware.nfc"));
         assert!(android_manifest.contains("android.permission.USE_BIOMETRIC"));
+        assert!(android_manifest.contains("android.permission.BLUETOOTH_SCAN"));
+        assert!(android_manifest.contains("android.permission.BLUETOOTH_CONNECT"));
+        assert!(android_manifest.contains("android.hardware.bluetooth_le"));
         assert!(android_manifest.contains("android.permission.CAMERA"));
         assert!(android_manifest.contains("android.hardware.camera.flash"));
         assert!(android_manifest.contains("android.permission.ACCESS_FINE_LOCATION"));
@@ -428,6 +435,7 @@ mod tests {
         let ios_info = std::fs::read_to_string(dir.join("platforms/ios/Info.plist")).unwrap();
         assert!(ios_info.contains("NFCReaderUsageDescription"));
         assert!(ios_info.contains("NSFaceIDUsageDescription"));
+        assert!(ios_info.contains("NSBluetoothAlwaysUsageDescription"));
         assert!(ios_info.contains("NSCameraUsageDescription"));
         assert!(ios_info.contains("NSLocationWhenInUseUsageDescription"));
         assert!(ios_info.contains("NSMicrophoneUsageDescription"));

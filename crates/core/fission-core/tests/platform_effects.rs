@@ -5,6 +5,7 @@ use fission_core::{
 };
 use fission_core::{BarcodeFormat, BarcodeScanRequest, SCAN_BARCODE};
 use fission_core::{BiometricAuthenticateRequest, AUTHENTICATE_BIOMETRIC};
+use fission_core::{BluetoothScanRequest, SCAN_BLUETOOTH_DEVICES};
 use fission_core::{CameraCaptureRequest, CameraFacing, CAPTURE_PHOTO};
 use fission_core::{ClipboardWriteTextRequest, WRITE_CLIPBOARD_TEXT};
 use fission_core::{GeolocationPositionRequest, GET_CURRENT_POSITION};
@@ -113,6 +114,27 @@ fn biometric_convenience_builder_emits_capability_effect() {
     assert_eq!(op.capability_name, AUTHENTICATE_BIOMETRIC.name);
     let decoded: BiometricAuthenticateRequest = serde_json::from_slice(&op.request).unwrap();
     assert_eq!(decoded.reason, "Unlock secure data");
+}
+
+#[test]
+fn bluetooth_convenience_builder_emits_capability_effect() {
+    let mut registry = ActionRegistry::<TestState>::new();
+    let mut effects = Effects::new(12, &mut registry);
+
+    effects.bluetooth().scan_devices(BluetoothScanRequest {
+        service_uuids: vec!["180D".into()],
+        ..Default::default()
+    });
+
+    assert_eq!(effects.out.len(), 1);
+    assert_eq!(effects.out[0].req_id, 12);
+    let Effect::Capability(CapabilityInvocationPayload::Operation(op)) = &effects.out[0].effect
+    else {
+        panic!("expected Bluetooth capability effect");
+    };
+    assert_eq!(op.capability_name, SCAN_BLUETOOTH_DEVICES.name);
+    let decoded: BluetoothScanRequest = serde_json::from_slice(&op.request).unwrap();
+    assert_eq!(decoded.service_uuids, vec!["180D"]);
 }
 
 #[test]

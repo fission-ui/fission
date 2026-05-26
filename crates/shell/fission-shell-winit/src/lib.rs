@@ -94,6 +94,8 @@ mod barcode;
 pub use barcode::{BarcodeScannerHost, MemoryBarcodeScannerHost, UnsupportedBarcodeScannerHost};
 mod biometric;
 pub use biometric::{BiometricHost, MemoryBiometricHost, UnsupportedBiometricHost};
+mod bluetooth;
+pub use bluetooth::{BluetoothHost, MemoryBluetoothHost, UnsupportedBluetoothHost};
 mod camera;
 pub use camera::{CameraHost, MemoryCameraHost, UnsupportedCameraHost};
 mod ime;
@@ -168,6 +170,7 @@ fn register_builtin_operation_capabilities(async_registry: &mut AsyncRegistry) {
     );
     nfc::register_nfc_capabilities(async_registry, Arc::new(UnsupportedNfcHost));
     biometric::register_biometric_capabilities(async_registry, Arc::new(UnsupportedBiometricHost));
+    bluetooth::register_bluetooth_capabilities(async_registry, Arc::new(UnsupportedBluetoothHost));
     barcode::register_barcode_scanner_capabilities(
         async_registry,
         Arc::new(UnsupportedBarcodeScannerHost),
@@ -2450,6 +2453,14 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
         H: BiometricHost,
     {
         biometric::register_biometric_capabilities(&mut self.async_registry, Arc::new(host));
+        self
+    }
+
+    pub fn with_bluetooth_host<H>(mut self, host: H) -> Self
+    where
+        H: BluetoothHost,
+    {
+        bluetooth::register_bluetooth_capabilities(&mut self.async_registry, Arc::new(host));
         self
     }
 
