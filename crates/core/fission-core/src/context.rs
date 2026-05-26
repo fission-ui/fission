@@ -32,6 +32,10 @@ use crate::platform_clipboard::{
     ClipboardContent, ClipboardWriteTextRequest, CLEAR_CLIPBOARD, READ_CLIPBOARD_CONTENT,
     READ_CLIPBOARD_TEXT, WRITE_CLIPBOARD_CONTENT, WRITE_CLIPBOARD_TEXT,
 };
+use crate::platform_geolocation::{
+    GeolocationPermissionRequest, GeolocationPositionRequest, GET_CURRENT_POSITION,
+    GET_GEOLOCATION_PERMISSION, REQUEST_GEOLOCATION_PERMISSION,
+};
 use crate::platform_nfc::{
     NfcEmulationRequest, NfcScanRequest, NfcWriteRequest, CANCEL_NFC_SESSION, EMULATE_NFC_TAG,
     GET_NFC_AVAILABILITY, SCAN_NFC_TAG, WRITE_NFC_TAG,
@@ -191,6 +195,10 @@ impl<'a, S: AppState> Effects<'a, S> {
 
     pub fn clipboard(&mut self) -> ClipboardEffects<'_, 'a, S> {
         ClipboardEffects { effects: self }
+    }
+
+    pub fn geolocation(&mut self) -> GeolocationEffects<'_, 'a, S> {
+        GeolocationEffects { effects: self }
     }
 
     pub fn app<J: JobSpec>(
@@ -447,6 +455,29 @@ impl<'a, 'b, S: AppState> ClipboardEffects<'a, 'b, S> {
 
     pub fn clear(self) -> EffectBuilder<'a, 'b, S> {
         self.effects.capability(CLEAR_CLIPBOARD, ())
+    }
+}
+
+/// Convenience builder for standard geolocation host capabilities.
+pub struct GeolocationEffects<'a, 'b, S: AppState> {
+    effects: &'a mut Effects<'b, S>,
+}
+
+impl<'a, 'b, S: AppState> GeolocationEffects<'a, 'b, S> {
+    pub fn permission(self) -> EffectBuilder<'a, 'b, S> {
+        self.effects.capability(GET_GEOLOCATION_PERMISSION, ())
+    }
+
+    pub fn request_permission(
+        self,
+        request: GeolocationPermissionRequest,
+    ) -> EffectBuilder<'a, 'b, S> {
+        self.effects
+            .capability(REQUEST_GEOLOCATION_PERMISSION, request)
+    }
+
+    pub fn current_position(self, request: GeolocationPositionRequest) -> EffectBuilder<'a, 'b, S> {
+        self.effects.capability(GET_CURRENT_POSITION, request)
     }
 }
 

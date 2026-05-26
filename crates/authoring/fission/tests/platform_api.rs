@@ -37,6 +37,7 @@ fn facade_exports_notifications_and_deep_links() {
         .with_biometric_host(MemoryBiometricHost::default())
         .with_barcode_scanner_host(MemoryBarcodeScannerHost::default())
         .with_clipboard_host(MemoryClipboardHost::default())
+        .with_geolocation_host(MemoryGeolocationHost::default())
         .with_deep_link_config(
             DeepLinkConfig::new()
                 .scheme("fission")
@@ -69,5 +70,9 @@ fn facade_exports_notifications_and_deep_links() {
     };
     let _clipboard = ClipboardWriteTextRequest {
         text: "copied".into(),
+    };
+    let _geo = GeolocationPositionRequest {
+        high_accuracy: true,
+        ..Default::default()
     };
 }

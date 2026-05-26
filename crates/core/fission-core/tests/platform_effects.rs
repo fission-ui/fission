@@ -6,6 +6,7 @@ use fission_core::{
 use fission_core::{BarcodeFormat, BarcodeScanRequest, SCAN_BARCODE};
 use fission_core::{BiometricAuthenticateRequest, AUTHENTICATE_BIOMETRIC};
 use fission_core::{ClipboardWriteTextRequest, WRITE_CLIPBOARD_TEXT};
+use fission_core::{GeolocationPositionRequest, GET_CURRENT_POSITION};
 use fission_core::{NfcRecord, NfcScanRequest, NfcTechnology, SCAN_NFC_TAG};
 
 #[derive(Debug, Default)]
@@ -151,4 +152,27 @@ fn clipboard_convenience_builder_emits_capability_effect() {
     assert_eq!(op.capability_name, WRITE_CLIPBOARD_TEXT.name);
     let decoded: ClipboardWriteTextRequest = serde_json::from_slice(&op.request).unwrap();
     assert_eq!(decoded.text, "copied");
+}
+
+#[test]
+fn geolocation_convenience_builder_emits_capability_effect() {
+    let mut registry = ActionRegistry::<TestState>::new();
+    let mut effects = Effects::new(19, &mut registry);
+
+    effects
+        .geolocation()
+        .current_position(GeolocationPositionRequest {
+            high_accuracy: true,
+            ..Default::default()
+        });
+
+    assert_eq!(effects.out.len(), 1);
+    assert_eq!(effects.out[0].req_id, 19);
+    let Effect::Capability(CapabilityInvocationPayload::Operation(op)) = &effects.out[0].effect
+    else {
+        panic!("expected geolocation capability effect");
+    };
+    assert_eq!(op.capability_name, GET_CURRENT_POSITION.name);
+    let decoded: GeolocationPositionRequest = serde_json::from_slice(&op.request).unwrap();
+    assert!(decoded.high_accuracy);
 }

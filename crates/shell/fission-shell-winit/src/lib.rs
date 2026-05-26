@@ -86,6 +86,8 @@ use web_backend::MockWebBackend;
 mod clipboard;
 use clipboard::DesktopClipboard;
 pub use clipboard::{ClipboardHost, MemoryClipboardHost};
+mod geolocation;
+pub use geolocation::{GeolocationHost, MemoryGeolocationHost, UnsupportedGeolocationHost};
 mod barcode;
 pub use barcode::{BarcodeScannerHost, MemoryBarcodeScannerHost, UnsupportedBarcodeScannerHost};
 mod biometric;
@@ -165,6 +167,10 @@ fn register_builtin_operation_capabilities(async_registry: &mut AsyncRegistry) {
         Arc::new(UnsupportedBarcodeScannerHost),
     );
     clipboard::register_clipboard_capabilities(async_registry, Arc::new(DesktopClipboard::new()));
+    geolocation::register_geolocation_capabilities(
+        async_registry,
+        Arc::new(UnsupportedGeolocationHost),
+    );
 }
 
 fn collect_startup_deep_links(config: &DeepLinkConfig) -> Vec<DeepLink> {
@@ -2448,6 +2454,14 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
         H: ClipboardHost,
     {
         clipboard::register_clipboard_capabilities(&mut self.async_registry, Arc::new(host));
+        self
+    }
+
+    pub fn with_geolocation_host<H>(mut self, host: H) -> Self
+    where
+        H: GeolocationHost,
+    {
+        geolocation::register_geolocation_capabilities(&mut self.async_registry, Arc::new(host));
         self
     }
 

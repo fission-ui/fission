@@ -6,10 +6,11 @@ use fission_shell::async_host::AsyncRegistry;
 use fission_shell_winit::WinitApp;
 
 pub use fission_shell_winit::{
-    test_control, BarcodeScannerHost, BiometricHost, ClipboardHost, InvalidationSet,
-    MemoryBarcodeScannerHost, MemoryBiometricHost, MemoryClipboardHost, MemoryNfcHost,
-    MemoryNotificationHost, NfcHost, NotificationHost, Pipeline, UnsupportedBarcodeScannerHost,
-    UnsupportedBiometricHost, UnsupportedNfcHost, UnsupportedNotificationHost,
+    test_control, BarcodeScannerHost, BiometricHost, ClipboardHost, GeolocationHost,
+    InvalidationSet, MemoryBarcodeScannerHost, MemoryBiometricHost, MemoryClipboardHost,
+    MemoryGeolocationHost, MemoryNfcHost, MemoryNotificationHost, NfcHost, NotificationHost,
+    Pipeline, UnsupportedBarcodeScannerHost, UnsupportedBiometricHost, UnsupportedGeolocationHost,
+    UnsupportedNfcHost, UnsupportedNotificationHost,
 };
 
 pub struct DesktopApp<S: AppState, W: Widget<S>> {
@@ -123,6 +124,14 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
         H: ClipboardHost,
     {
         self.inner = self.inner.with_clipboard_host(host);
+        self
+    }
+
+    pub fn with_geolocation_host<H>(mut self, host: H) -> Self
+    where
+        H: GeolocationHost,
+    {
+        self.inner = self.inner.with_geolocation_host(host);
         self
     }
 
