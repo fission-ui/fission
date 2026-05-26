@@ -109,6 +109,36 @@ Inputs, badges, tabs, cards, modals, tooltips, and progress bars follow the same
 
 The important rule is that JSON stops at build time. Runtime code sees Rust values.
 
+## Start from a bundled system when it fits
+
+Fission ships several bundled DSP packages for common product directions. They are not magic modes inside the renderer. Each one is a normal `dsp.json` and `tokens.json` package under `crates/core/fission-theme/design`, generated into a Rust `DesignSystem` implementation at build time.
+
+| Preset | Generated Rust type | Use when |
+| --- | --- | --- |
+| Fission default | `FissionDefaultDesignSystem` | You want the Fission documentation and example visual language. |
+| Material Design 3 | `FissionMaterialDesign3DesignSystem` | You want an Android-oriented, role-based design system with Material-style color, shape, and component density. |
+| Fluent 2 | `FissionFluent2DesignSystem` | You want a Microsoft productivity-app feel with Fluent-style density, neutral surfaces, Segoe-style typography, and restrained radius. |
+| Liquid Glass | `FissionLiquidGlassDesignSystem` | You want layered translucent surfaces, luminous tint, larger radius, and depth-forward presentation. |
+| Cupertino | `FissionCupertinoDesignSystem` | You want UIKit-style iOS conventions while using the cross-platform Cupertino naming convention. |
+
+Use a preset exactly the same way you use a generated app design system:
+
+```rust
+use fission::prelude::*;
+use fission::theme::{DesignMode, FissionCupertinoDesignSystem};
+
+DesktopApp::new(MyApp)
+    .with_design_system::<FissionCupertinoDesignSystem>(DesignMode::Light)
+    .with_sync_env(|state: &MyState, env: &mut Env| {
+        env.theme = FissionCupertinoDesignSystem::theme(state.theme_mode);
+    })
+    .run()?;
+```
+
+Presets are a good starting point, not a cage. If your product needs a slightly different brand color, radius scale, chart palette, or component state table, copy the preset package into your app's `design/` folder and edit the JSON there. Your app's build script can then generate `AppDesignSystem` from that copy.
+
+That keeps the same architecture: design information enters as DSP JSON at build time, and widgets consume typed Rust theme values at runtime.
+
 ## Where to get DSP and token files
 
 You can start from Fission's default package, export from a design tool, or use public token systems as reference material.
