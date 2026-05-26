@@ -54,4 +54,4 @@ Used in production by `fission-shell-desktop`.
 
 ## License
 
-MIT -- see the [Fission repository](https://github.com/niclasburger/fission) for full documentation.
+MIT -- see the [Fission repository](https://github.com/worka-ai/fission) for full documentation.
