@@ -36,6 +36,7 @@ Fission exposes these public command-line interface entry points:
 | --- | --- | --- |
 | `fission init <path>` | Creates a new Fission project scaffold | When you are starting a new app |
 | `fission add-target <targets...>` | Adds generated host folders for more platforms | When your existing app needs another host |
+| `fission add-capability <capabilities...>` | Declares host capabilities and updates generated platform config | Before using device features such as camera, microphone, NFC, Bluetooth, Wi-Fi, or geolocation |
 | `fission doctor [targets...]` | Checks local SDKs, browsers, emulators, and Rust targets | When setting up a machine or diagnosing a broken platform loop |
 | `fission devices` | Lists runnable desktop, browser, simulator, emulator, and device targets | Before choosing where to run the app |
 | `fission run` | Builds and launches the app, attaching output or device logs by default | During normal development |
@@ -243,6 +244,16 @@ fission add-target <targets...> [--project-dir <dir>]
 
 Adds one or more generated host targets to an existing Fission project.
 
+### `fission add-capability`
+
+```sh
+fission add-capability <capabilities...> [--project-dir <dir>]
+```
+
+Records host capabilities in `fission.toml` and updates generated platform config where Fission can do that safely. Current values include `nfc`, `biometric`, `passkeys`, `bluetooth`, `barcode-scanner`, `camera`, `geolocation`, `haptics`, `microphone`, `volume-control`, and `wifi`.
+
+Android changes are written to `platforms/android/AndroidManifest.xml`. iOS usage strings are written to `platforms/ios/Info.plist`, and entitlement-backed features such as NFC and Wi-Fi update `platforms/ios/Entitlements.plist`. See [Platform capabilities](/docs/guides/platform-capabilities/) before shipping because some features still need app-specific routes, usage text, app-store setup, or provider implementation.
+
 ### `fission doctor`
 
 ```sh
@@ -327,7 +338,7 @@ Builds the static site and serves the generated output with a local static file 
 
 The `site` commands are for documentation, marketing, reference, blog, and other mostly-static routes. They are separate from `fission run --target web`, which launches an interactive web application. A site build starts from the same Fission widget model but resolves it ahead of time into crawlable HTML and CSS.
 
-The Fission documentation site in `documentation/` is the production example in this repository. It uses a custom home page widget, Markdown content routes, sidebars, a generated table of contents, light and dark themes, a custom footer, copied static assets, favicon support, generated search, optional code highlighting, sitemap and robots output, JSON-LD structured data, and link validation. You can inspect the route set with:
+The Fission documentation site in `documentation/` is the production example in this repository. It uses a custom home page widget, Markdown content routes, sidebars, a generated table of contents, light and dark themes, a custom footer, copied static assets, favicon support, generated search, optional code highlighting, route-filtered page elements, sitemap and robots output, JSON-LD structured data, and link validation. You can inspect the route set with:
 
 ```sh
 fission site routes --project-dir documentation

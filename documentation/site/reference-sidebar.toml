@@ -35,6 +35,92 @@ href = "/reference/core/resources-and-capabilities/"
 level = 1
 
 [[items]]
+title = "Platform capabilities"
+href = "/reference/core/platform-capabilities/"
+level = 1
+
+[[items]]
+title = "Capability reference"
+href = "/reference/capabilities/matrix/"
+level = 1
+group = true
+
+[[items]]
+title = "Capability matrix"
+href = "/reference/capabilities/matrix/"
+level = 2
+
+[[items]]
+title = "Notifications"
+href = "/reference/capabilities/notifications/"
+level = 2
+
+[[items]]
+title = "Deep links"
+href = "/reference/capabilities/deep-links/"
+level = 2
+
+[[items]]
+title = "NFC"
+href = "/reference/capabilities/nfc/"
+level = 2
+
+[[items]]
+title = "Biometrics"
+href = "/reference/capabilities/biometrics/"
+level = 2
+
+[[items]]
+title = "Passkeys"
+href = "/reference/capabilities/passkeys/"
+level = 2
+
+[[items]]
+title = "Barcode scanner"
+href = "/reference/capabilities/barcode-scanner/"
+level = 2
+
+[[items]]
+title = "Camera and flashlight"
+href = "/reference/capabilities/camera/"
+level = 2
+
+[[items]]
+title = "Clipboard"
+href = "/reference/capabilities/clipboard/"
+level = 2
+
+[[items]]
+title = "Geolocation"
+href = "/reference/capabilities/geolocation/"
+level = 2
+
+[[items]]
+title = "Haptics"
+href = "/reference/capabilities/haptics/"
+level = 2
+
+[[items]]
+title = "Microphone"
+href = "/reference/capabilities/microphone/"
+level = 2
+
+[[items]]
+title = "Bluetooth"
+href = "/reference/capabilities/bluetooth/"
+level = 2
+
+[[items]]
+title = "Wi-Fi"
+href = "/reference/capabilities/wifi/"
+level = 2
+
+[[items]]
+title = "Volume control"
+href = "/reference/capabilities/volume-control/"
+level = 2
+
+[[items]]
 title = "Environment, input, and input method editor"
 href = "/reference/core/environment-input-and-ime/"
 level = 1

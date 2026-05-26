@@ -1,0 +1,85 @@
+---
+title: Platform capabilities
+description: Reference for Fission's built-in host capability contracts and generated platform configuration.
+---
+
+# Platform capabilities
+
+Platform capabilities are typed host contracts. Shared app code uses `ctx.effects` to request them. Shell hosts register providers. The command-line interface records requested capabilities in `fission.toml` and updates generated platform files where possible.
+
+## Public shape
+
+| Concept | Public API | Purpose |
+| --- | --- | --- |
+| Capability identity | `CapabilityType<C>` | Stable name and typed request/result contract |
+| Operation contract | `OperationCapability` | Associates `Request`, `Ok`, and `Err` payload types |
+| Reducer helper | `Effects::<group>()` | Convenience builders such as `effects.camera()` or `effects.bluetooth()` |
+| Provider registration | `with_<name>_host(...)` or `AsyncRegistry::register_operation_capability(...)` | Connects host implementation to the runtime |
+| CLI declaration | `fission add-capability <name>` | Updates `fission.toml` and generated platform config |
+
+## Built-in groups
+
+| Group | Effect helper | Provider trait | Test provider | Detailed reference |
+| --- | --- | --- | --- | --- |
+| Notifications | `effects.notifications()` | `NotificationHost` | `MemoryNotificationHost` | [Notifications](/reference/capabilities/notifications/) |
+| Deep links | `DeepLinkReceived` | `DeepLinkConfig` | action-envelope tests | [Deep links](/reference/capabilities/deep-links/) |
+| NFC | `effects.nfc()` | `NfcHost` | `MemoryNfcHost` | [NFC](/reference/capabilities/nfc/) |
+| Biometrics | `effects.biometrics()` | `BiometricHost` | `MemoryBiometricHost` | [Biometrics](/reference/capabilities/biometrics/) |
+| Passkeys | `effects.passkeys()` | `PasskeyHost` | `MemoryPasskeyHost` | [Passkeys](/reference/capabilities/passkeys/) |
+| Barcode scanner | `effects.barcode_scanner()` | `BarcodeScannerHost` | `MemoryBarcodeScannerHost` | [Barcode scanner](/reference/capabilities/barcode-scanner/) |
+| Camera and flashlight | `effects.camera()` | `CameraHost` | `MemoryCameraHost` | [Camera and flashlight](/reference/capabilities/camera/) |
+| Clipboard | `effects.clipboard()` | `ClipboardHost` | `MemoryClipboardHost` | [Clipboard](/reference/capabilities/clipboard/) |
+| Geolocation | `effects.geolocation()` | `GeolocationHost` | `MemoryGeolocationHost` | [Geolocation](/reference/capabilities/geolocation/) |
+| Haptics | `effects.haptics()` | `HapticHost` | `MemoryHapticHost` | [Haptics](/reference/capabilities/haptics/) |
+| Microphone | `effects.microphone()` | `MicrophoneHost` | `MemoryMicrophoneHost` | [Microphone](/reference/capabilities/microphone/) |
+| Bluetooth | `effects.bluetooth()` | `BluetoothHost` | `MemoryBluetoothHost` | [Bluetooth](/reference/capabilities/bluetooth/) |
+| Wi-Fi | `effects.wifi()` | `WifiHost` | `MemoryWifiHost` | [Wi-Fi](/reference/capabilities/wifi/) |
+| Volume control | `effects.volume()` | `VolumeHost` | `MemoryVolumeHost` | [Volume control](/reference/capabilities/volume-control/) |
+
+Use the [Capability matrix](/reference/capabilities/matrix/) to compare platform support across web, Windows, macOS, Linux, Android, and iOS.
+
+## CLI-supported platform config
+
+| CLI value | Android generated config | iOS generated config |
+| --- | --- | --- |
+| `nfc` | `android.permission.NFC`, optional NFC feature | `NFCReaderUsageDescription`, `com.apple.developer.nfc.readersession.formats` |
+| `biometric` | `USE_BIOMETRIC`, legacy `USE_FINGERPRINT` | `NSFaceIDUsageDescription` |
+| `passkeys` | none generated; Digital Asset Links are product-domain-specific | none generated; associated domains such as `webcredentials:<domain>` are product-domain-specific |
+| `barcode-scanner` | `CAMERA`, optional camera feature | `NSCameraUsageDescription` |
+| `camera` | `CAMERA`, optional camera/front/flash features | `NSCameraUsageDescription` |
+| `geolocation` | `ACCESS_COARSE_LOCATION`, `ACCESS_FINE_LOCATION` | `NSLocationWhenInUseUsageDescription` |
+| `haptics` | `VIBRATE` | none |
+| `microphone` | `RECORD_AUDIO` | `NSMicrophoneUsageDescription` |
+| `bluetooth` | `BLUETOOTH`, `BLUETOOTH_ADMIN`, `BLUETOOTH_SCAN`, `BLUETOOTH_CONNECT`, `BLUETOOTH_ADVERTISE`, optional Bluetooth features | `NSBluetoothAlwaysUsageDescription` |
+| `wifi` | Wi-Fi/network permissions, `NEARBY_WIFI_DEVICES`, pre-Android 13 `ACCESS_FINE_LOCATION`, optional Wi-Fi features | Wi-Fi info and hotspot entitlements, `NSLocationWhenInUseUsageDescription` where needed |
+| `volume-control` | `MODIFY_AUDIO_SETTINGS` | none |
+
+Clipboard has no generated platform config. Passkeys are recorded in `fission.toml`, but domain association is product-specific, so Fission should not invent Digital Asset Links or associated domains. Notifications and deep links are built into shell setup but usually need app-specific notification categories, URL schemes, associated domains, or Android intent filters before a production release. Those values are product routes and identifiers, so the CLI should not invent them.
+
+## Generated files
+
+| File | Platform | Role |
+| --- | --- | --- |
+| `fission.toml` | all | Stores the canonical `capabilities = [...]` list |
+| `platforms/android/AndroidManifest.xml` | Android | Declares permissions and optional hardware features |
+| `platforms/ios/Info.plist` | iOS | Declares user-facing usage descriptions for permission prompts |
+| `platforms/ios/Entitlements.plist` | iOS | Declares capabilities that Apple gates through entitlements |
+| packaged app `Contents/Info.plist` | macOS | Declares usage descriptions for packaged desktop apps when a capability needs camera, microphone, location, Bluetooth, or barcode camera access |
+
+## Provider failure behavior
+
+Unsupported default providers return typed errors. They do not silently succeed. App code should handle capability errors in the same reducer flow it uses for jobs and services.
+
+```rust
+ctx.effects
+    .microphone()
+    .capture_audio(MicrophoneCaptureRequest::default())
+    .on_ok(ctx.effects.bind(AudioCaptured, reduce_with!(on_audio_captured)))
+    .on_err(ctx.effects.bind(AudioCaptureFailed, reduce_with!(on_audio_failed)));
+```
+
+## Custom capabilities
+
+Applications and libraries can define their own `OperationCapability` types without changing Fission core. Use reverse-DNS capability names for product-specific host work, register the provider in the shell, and keep platform config explicit in your own project files.
+
+For a teaching guide, read [Platform capabilities](/docs/guides/platform-capabilities/). For the lower-level capability model, read [Resources and capabilities](/reference/core/resources-and-capabilities/).

@@ -1,0 +1,33 @@
+---
+title: Capability matrix
+description: Compare Fission built-in capabilities across web, desktop, Android, and iOS targets.
+---
+
+# Capability matrix
+
+Use this page when you need to answer a practical question: can this feature work on the platform I am targeting, and where do I read the detailed setup notes?
+
+The matrix describes Fission's built-in capability contracts and the platform reality behind them. A cell marked **Yes** means the platform has a normal product path for the feature. **Provider** means the Fission API is ready and the platform has native APIs, but the app or shell still needs a concrete provider and packaging configuration. **Limited** means support depends heavily on browser, hardware, distribution, or policy. **No general API** means the platform does not expose a normal app-level API for that feature.
+
+| Capability | Reference | Web | Windows | macOS | Linux | Android | iOS | CLI config |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| [Notifications](/docs/capabilities/notifications/) | [API](/reference/capabilities/notifications/) | Provider | Provider | Provider | Limited | Yes | Yes | Yes |
+| [Deep links](/docs/capabilities/deep-links/) | [API](/reference/capabilities/deep-links/) | Yes | Provider | Provider | Limited | Yes | Yes | Yes |
+| [NFC](/docs/capabilities/nfc/) | [API](/reference/capabilities/nfc/) | Limited mobile | Hardware provider | Hardware provider | Hardware provider | Yes | Yes | Yes |
+| [Biometrics](/docs/capabilities/biometrics/) | [API](/reference/capabilities/biometrics/) | Use passkeys | Provider | Provider | Limited | Yes | Yes | Yes |
+| [Passkeys](/docs/capabilities/passkeys/) | [API](/reference/capabilities/passkeys/) | Yes | Provider | Provider | Limited | Yes | Yes | Yes |
+| [Barcode scanner](/docs/capabilities/barcode-scanner/) | [API](/reference/capabilities/barcode-scanner/) | Provider | Provider | Provider | Limited | Yes | Yes | Yes |
+| [Camera and flashlight](/docs/capabilities/camera/) | [API](/reference/capabilities/camera/) | Yes | Provider | Provider | Limited | Yes | Yes | Yes |
+| [Clipboard](/docs/capabilities/clipboard/) | [API](/reference/capabilities/clipboard/) | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
+| [Geolocation](/docs/capabilities/geolocation/) | [API](/reference/capabilities/geolocation/) | Yes | Provider | Provider | Limited | Yes | Yes | Yes |
+| [Haptics](/docs/capabilities/haptics/) | [API](/reference/capabilities/haptics/) | Limited | Hardware provider | Hardware provider | Hardware provider | Yes | Yes | Yes |
+| [Microphone](/docs/capabilities/microphone/) | [API](/reference/capabilities/microphone/) | Yes | Provider | Provider | Limited | Yes | Yes | Yes |
+| [Bluetooth](/docs/capabilities/bluetooth/) | [API](/reference/capabilities/bluetooth/) | Limited | Provider | Provider | Limited | Yes | Yes | Yes |
+| [Wi-Fi](/docs/capabilities/wifi/) | [API](/reference/capabilities/wifi/) | No general API | Provider | Provider | Provider | Yes | Constrained | Yes |
+| [Volume control](/docs/capabilities/volume-control/) | [API](/reference/capabilities/volume-control/) | No system API | Provider | Provider | Provider | Yes | Limited | Yes |
+
+Desktop support deserves a careful reading. Windows and macOS increasingly expose camera, microphone, notifications, Bluetooth, local authentication, clipboard, location, and volume APIs that a Fission host can connect to. Linux often has an equivalent route, but it may depend on portals, desktop services, BlueZ, NetworkManager, PulseAudio or PipeWire, and distribution packaging. For that reason Linux cells are more often marked limited or provider-driven.
+
+Web biometrics deserve a separate note. When a site appears to authenticate with a fingerprint, it is usually using a passkey or WebAuthn credential. The browser or password manager may use fingerprint or face recognition to unlock the credential, but the web app receives a credential assertion rather than direct biometric access. Fission models that as the separate [Passkeys](/docs/capabilities/passkeys/) credential capability, not as raw biometric scanning.
+
+For conceptual guidance, read [Platform capabilities](/docs/guides/platform-capabilities/). For lower-level request, provider, and configuration details, start with [Platform capabilities reference](/reference/core/platform-capabilities/).

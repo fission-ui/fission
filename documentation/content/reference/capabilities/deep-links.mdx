@@ -1,0 +1,44 @@
+---
+title: Deep links
+description: Reference for the deep links capability API, provider, operations, and platform configuration.
+---
+
+# Deep links
+
+Deep links let the host deliver an external URL to the app as a typed action so reducers can route the user to the correct screen.
+
+## Public API
+
+| Item | Value |
+| --- | --- |
+| Effect helper | `DeepLinkReceived action` |
+| Provider trait or host contract | `DeepLinkConfig` |
+| Test provider or test entrypoint | `DeepLinkReceived action` |
+| Primary request types | `DeepLink` |
+| Primary success types | `DeepLinkReceived` |
+| Error type | `n/a` |
+| CLI value | `built into shell setup` |
+
+## Operations
+
+| Method or operation | What it is for |
+| --- | --- |
+| `DeepLinkConfig::scheme` | Emits or handles the `Deep links` host operation for this capability. |
+| `DeepLinkConfig::domain` | Emits or handles the `Deep links` host operation for this capability. |
+| `DeepLinkConfig::path_prefix` | Emits or handles the `Deep links` host operation for this capability. |
+| `DeepLinkConfig::matches` | Emits or handles the `Deep links` host operation for this capability. |
+| `DeepLinkConfig::source_for` | Emits or handles the `Deep links` host operation for this capability. |
+
+## Platform configuration
+
+Deep links are product routes, so the shell needs explicit app-specific config. Android uses intent filters. iOS uses URL schemes and associated domains. Desktop targets use OS registration for schemes or file associations. Static sites and web targets use ordinary URL paths and browser routing.
+
+The CLI records the capability in `fission.toml` when the capability has a CLI value. Generated mobile configuration is written to the platform files that the host target already owns: Android uses `platforms/android/AndroidManifest.xml`; iOS uses `platforms/ios/Info.plist` and `platforms/ios/Entitlements.plist` when the feature needs entitlements. Desktop package metadata is target-specific and should be reviewed during packaging because Windows, macOS, and Linux expose different permission and distribution systems.
+
+## Runtime behavior
+
+A provider should return a typed unsupported error when the host cannot perform the operation. It should not silently succeed. That lets reducers show a useful message, hide unsupported controls, or offer another path without guessing from the platform name.
+
+## Guide
+
+Read the [Deep links guide](/docs/capabilities/deep-links/) for reducer examples and product guidance.

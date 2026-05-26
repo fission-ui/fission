@@ -31,9 +31,10 @@ use fission_core::env::VideoStatus;
 use fission_core::lowering::LoweringContext;
 use fission_core::ui::custom_render::downcast_render_object;
 use fission_core::{
-    Action, ActionId, AppState, BuildCtx, Env, InputEvent, KeyCode, KeyEvent as FissionKeyEvent,
-    OpenUrlRequest, PointerButton, PointerEvent, Runtime, RuntimeEffect, ServiceBindings, View,
-    Widget, OPEN_URL,
+    Action, ActionId, ActionRegistry, AppState, BuildCtx, DeepLink, DeepLinkConfig,
+    DeepLinkReceived, Env, InputEvent, KeyCode, KeyEvent as FissionKeyEvent, NotificationResponse,
+    NotificationResponseReceived, OpenUrlRequest, PointerButton, PointerEvent, Runtime,
+    RuntimeEffect, ServiceBindings, View, Widget, OPEN_URL,
 };
 use fission_core::{ActionInput, CapabilityInvocationPayload, Effect};
 use fission_diagnostics::prelude as diag;
@@ -86,8 +87,29 @@ use web_backend::MockWebBackend;
 
 mod clipboard;
 use clipboard::DesktopClipboard;
+pub use clipboard::{ClipboardHost, MemoryClipboardHost};
+mod geolocation;
+pub use geolocation::{GeolocationHost, MemoryGeolocationHost, UnsupportedGeolocationHost};
+mod haptics;
+pub use haptics::{HapticHost, MemoryHapticHost, UnsupportedHapticHost};
+mod barcode;
+pub use barcode::{BarcodeScannerHost, MemoryBarcodeScannerHost, UnsupportedBarcodeScannerHost};
+mod biometric;
+pub use biometric::{BiometricHost, MemoryBiometricHost, UnsupportedBiometricHost};
+mod bluetooth;
+pub use bluetooth::{BluetoothHost, MemoryBluetoothHost, UnsupportedBluetoothHost};
+mod camera;
+pub use camera::{CameraHost, MemoryCameraHost, UnsupportedCameraHost};
 mod ime;
 use ime::{DesktopImeHandler, TextInputConfig};
+mod microphone;
+pub use microphone::{MemoryMicrophoneHost, MicrophoneHost, UnsupportedMicrophoneHost};
+mod notifications;
+pub use notifications::{MemoryNotificationHost, NotificationHost, UnsupportedNotificationHost};
+mod nfc;
+pub use nfc::{MemoryNfcHost, NfcHost, UnsupportedNfcHost};
+mod passkey;
+pub use passkey::{MemoryPasskeyHost, PasskeyHost, UnsupportedPasskeyHost};
 #[cfg(feature = "tray")]
 pub mod tray;
 #[cfg(feature = "tray")]
@@ -96,6 +118,10 @@ pub use tray::{
     TrayMenuEntry, TrayMenuItem, TrayMenuWidget, WindowCloseBehavior,
 };
 pub mod test_control;
+mod wifi;
+pub use wifi::{MemoryWifiHost, UnsupportedWifiHost, WifiHost};
+mod volume;
+pub use volume::{MemoryVolumeHost, UnsupportedVolumeHost, VolumeHost};
 
 use fission_core::action::ActionEnvelope;
 
@@ -153,6 +179,75 @@ fn register_builtin_operation_capabilities(async_registry: &mut AsyncRegistry) {
             Ok(())
         },
     );
+    notifications::register_notification_capabilities(
+        async_registry,
+        Arc::new(UnsupportedNotificationHost),
+    );
+    nfc::register_nfc_capabilities(async_registry, Arc::new(UnsupportedNfcHost));
+    biometric::register_biometric_capabilities(async_registry, Arc::new(UnsupportedBiometricHost));
+    passkey::register_passkey_capabilities(async_registry, Arc::new(UnsupportedPasskeyHost));
+    bluetooth::register_bluetooth_capabilities(async_registry, Arc::new(UnsupportedBluetoothHost));
+    barcode::register_barcode_scanner_capabilities(
+        async_registry,
+        Arc::new(UnsupportedBarcodeScannerHost),
+    );
+    camera::register_camera_capabilities(async_registry, Arc::new(UnsupportedCameraHost));
+    clipboard::register_clipboard_capabilities(async_registry, Arc::new(DesktopClipboard::new()));
+    geolocation::register_geolocation_capabilities(
+        async_registry,
+        Arc::new(UnsupportedGeolocationHost),
+    );
+    haptics::register_haptic_capabilities(async_registry, Arc::new(UnsupportedHapticHost));
+    microphone::register_microphone_capabilities(
+        async_registry,
+        Arc::new(UnsupportedMicrophoneHost),
+    );
+    wifi::register_wifi_capabilities(async_registry, Arc::new(UnsupportedWifiHost));
+    volume::register_volume_capabilities(async_registry, Arc::new(UnsupportedVolumeHost));
+}
+
+fn collect_startup_deep_links(config: &DeepLinkConfig) -> Vec<DeepLink> {
+    let args = std::env::args().skip(1).collect::<Vec<_>>();
+    let mut env_values = Vec::new();
+    if let Ok(value) = std::env::var("FISSION_DEEP_LINK_URL") {
+        env_values.push(value);
+    }
+    if let Ok(value) = std::env::var("FISSION_DEEP_LINKS") {
+        env_values.extend(
+            value
+                .split('\n')
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(ToOwned::to_owned),
+        );
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    if let Some(window) = web_sys::window() {
+        if let Ok(href) = window.location().href() {
+            env_values.push(href);
+        }
+    }
+
+    collect_startup_deep_links_from(config, args, env_values)
+}
+
+fn collect_startup_deep_links_from(
+    config: &DeepLinkConfig,
+    args: impl IntoIterator<Item = String>,
+    env_values: impl IntoIterator<Item = String>,
+) -> Vec<DeepLink> {
+    let mut links = Vec::new();
+    for url in env_values.into_iter().chain(args) {
+        if config.matches(&url) {
+            links.push(
+                DeepLink::new(url.clone())
+                    .cold_start(true)
+                    .source(config.source_for(&url)),
+            );
+        }
+    }
+    links
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -2218,6 +2313,9 @@ pub struct WinitApp<S: AppState, W: Widget<S>> {
     startup_action: Option<ActionEnvelope>,
     #[cfg(feature = "tray")]
     tray_config: Option<tray::TrayConfig<S>>,
+    deep_link_config: DeepLinkConfig,
+    startup_deep_links: Vec<DeepLink>,
+    startup_notification_responses: Vec<NotificationResponse>,
     _phantom: std::marker::PhantomData<S>,
 }
 
@@ -2274,6 +2372,9 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
             startup_action: None,
             #[cfg(feature = "tray")]
             tray_config: None,
+            deep_link_config: DeepLinkConfig::default(),
+            startup_deep_links: Vec::new(),
+            startup_notification_responses: Vec::new(),
             _phantom: std::marker::PhantomData,
         }
     }
@@ -2353,6 +2454,174 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
         self
     }
 
+    /// Registers the host implementation used for notification effects.
+    ///
+    /// `host` receives requests emitted by `ctx.effects.notifications()`. Use
+    /// this to install a real OS/browser notification provider in a shell, or a
+    /// deterministic memory provider in tests.
+    pub fn with_notification_host<H>(mut self, host: H) -> Self
+    where
+        H: NotificationHost,
+    {
+        notifications::register_notification_capabilities(&mut self.async_registry, Arc::new(host));
+        self
+    }
+
+    /// Registers the host implementation used for NFC effects.
+    ///
+    /// `host` owns scanning, writing, emulation, and cancellation. Install a
+    /// provider only for targets or attached reader hardware that can satisfy the
+    /// NFC contract.
+    pub fn with_nfc_host<H>(mut self, host: H) -> Self
+    where
+        H: NfcHost,
+    {
+        nfc::register_nfc_capabilities(&mut self.async_registry, Arc::new(host));
+        self
+    }
+
+    /// Registers the host implementation used for biometric authentication effects.
+    ///
+    /// `host` should map Fission requests to the platform local-authentication
+    /// system and return typed errors for missing enrollment, cancellation, or
+    /// unsupported hardware.
+    pub fn with_biometric_host<H>(mut self, host: H) -> Self
+    where
+        H: BiometricHost,
+    {
+        biometric::register_biometric_capabilities(&mut self.async_registry, Arc::new(host));
+        self
+    }
+
+    /// Registers the host implementation used for passkey/WebAuthn effects.
+    ///
+    /// `host` should map Fission registration and authentication requests to
+    /// the platform credential APIs and return WebAuthn data for server-side
+    /// verification. It should not treat local biometric unlock as proof of
+    /// identity without server verification.
+    pub fn with_passkey_host<H>(mut self, host: H) -> Self
+    where
+        H: PasskeyHost,
+    {
+        passkey::register_passkey_capabilities(&mut self.async_registry, Arc::new(host));
+        self
+    }
+
+    /// Registers the host implementation used for Bluetooth effects.
+    ///
+    /// `host` owns adapter state, permission, scanning, connecting, reads, writes,
+    /// and advertising. Use this boundary to keep platform Bluetooth APIs out of
+    /// shared app reducers.
+    pub fn with_bluetooth_host<H>(mut self, host: H) -> Self
+    where
+        H: BluetoothHost,
+    {
+        bluetooth::register_bluetooth_capabilities(&mut self.async_registry, Arc::new(host));
+        self
+    }
+
+    /// Registers the host implementation used for barcode scanner effects.
+    ///
+    /// `host` may run live camera scanning, decode supplied image bytes, or both.
+    /// Reducers should rely on this provider instead of depending on a specific
+    /// camera or decoder library.
+    pub fn with_barcode_scanner_host<H>(mut self, host: H) -> Self
+    where
+        H: BarcodeScannerHost,
+    {
+        barcode::register_barcode_scanner_capabilities(&mut self.async_registry, Arc::new(host));
+        self
+    }
+
+    /// Registers the host implementation used for camera and flashlight effects.
+    ///
+    /// `host` owns camera availability, permission, photo capture, torch control,
+    /// and cancellation. Use memory hosts for tests and real OS providers for
+    /// production shells.
+    pub fn with_camera_host<H>(mut self, host: H) -> Self
+    where
+        H: CameraHost,
+    {
+        camera::register_camera_capabilities(&mut self.async_registry, Arc::new(host));
+        self
+    }
+
+    /// Registers the host implementation used for clipboard effects.
+    ///
+    /// `host` owns text and typed clipboard access. This is useful for tests,
+    /// custom shells, or platforms where clipboard behavior differs from the
+    /// default desktop provider.
+    pub fn with_clipboard_host<H>(mut self, host: H) -> Self
+    where
+        H: ClipboardHost,
+    {
+        clipboard::register_clipboard_capabilities(&mut self.async_registry, Arc::new(host));
+        self
+    }
+
+    /// Registers the host implementation used for geolocation effects.
+    ///
+    /// `host` owns permission checks and current-position requests. It should map
+    /// Fission accuracy and cache controls to the platform location service where
+    /// available.
+    pub fn with_geolocation_host<H>(mut self, host: H) -> Self
+    where
+        H: GeolocationHost,
+    {
+        geolocation::register_geolocation_capabilities(&mut self.async_registry, Arc::new(host));
+        self
+    }
+
+    /// Registers the host implementation used for haptic feedback effects.
+    ///
+    /// `host` owns impact, notification, selection, and pattern playback. It
+    /// should return unsupported errors on devices without tactile hardware.
+    pub fn with_haptic_host<H>(mut self, host: H) -> Self
+    where
+        H: HapticHost,
+    {
+        haptics::register_haptic_capabilities(&mut self.async_registry, Arc::new(host));
+        self
+    }
+
+    /// Registers the host implementation used for microphone effects.
+    ///
+    /// `host` owns input-device availability, permission, bounded recording, and
+    /// cancellation. Keep recording code behind this provider boundary.
+    pub fn with_microphone_host<H>(mut self, host: H) -> Self
+    where
+        H: MicrophoneHost,
+    {
+        microphone::register_microphone_capabilities(&mut self.async_registry, Arc::new(host));
+        self
+    }
+
+    /// Registers the host implementation used for Wi-Fi effects.
+    ///
+    /// `host` owns adapter availability, permission, scanning, connection, and
+    /// disconnection. Platform Wi-Fi APIs are permission-sensitive, so unsupported
+    /// and denied states should be reported explicitly.
+    pub fn with_wifi_host<H>(mut self, host: H) -> Self
+    where
+        H: WifiHost,
+    {
+        wifi::register_wifi_capabilities(&mut self.async_registry, Arc::new(host));
+        self
+    }
+
+    /// Registers the host implementation used for volume-control effects.
+    ///
+    /// `host` maps Fission volume streams to the platform mixer or media control
+    /// model. It should return unsupported errors when the target cannot expose
+    /// system volume control to apps.
+    pub fn with_volume_host<H>(mut self, host: H) -> Self
+    where
+        H: VolumeHost,
+    {
+        volume::register_volume_capabilities(&mut self.async_registry, Arc::new(host));
+        self
+    }
+
     pub fn with_startup_action<A: Action>(mut self, action: A) -> Self {
         self.startup_action = Some(action.into());
         self
@@ -2361,6 +2630,86 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
     #[cfg(feature = "tray")]
     pub fn with_tray(mut self, config: tray::TrayConfig<S>) -> Self {
         self.tray_config = Some(config);
+        self
+    }
+
+    /// Installs the deep-link filter used by this shell.
+    ///
+    /// `config` declares accepted schemes, domains, and path prefixes. The shell
+    /// uses it to classify inbound links before dispatching `DeepLinkReceived`
+    /// actions into the app.
+    pub fn with_deep_link_config(mut self, config: DeepLinkConfig) -> Self {
+        self.deep_link_config = config;
+        self
+    }
+
+    /// Adds one accepted custom deep-link scheme.
+    ///
+    /// `scheme` is normalized by `DeepLinkConfig`. Use this for app-specific
+    /// routes such as `myapp://item/123`.
+    pub fn with_deep_link_scheme(mut self, scheme: impl Into<String>) -> Self {
+        self.deep_link_config = self.deep_link_config.scheme(scheme);
+        self
+    }
+
+    /// Adds one accepted HTTP or HTTPS deep-link domain.
+    ///
+    /// `domain` is normalized by `DeepLinkConfig`. Use this for verified app
+    /// links, universal links, or web URLs that should enter the app.
+    pub fn with_deep_link_domain(mut self, domain: impl Into<String>) -> Self {
+        self.deep_link_config = self.deep_link_config.domain(domain);
+        self
+    }
+
+    /// Queues a deep link to dispatch after the app starts.
+    ///
+    /// Use this from host startup code when the platform launched the app because
+    /// of an external URL. The link is delivered through the normal action path.
+    pub fn with_startup_deep_link(mut self, link: DeepLink) -> Self {
+        self.startup_deep_links.push(link);
+        self
+    }
+
+    /// Queues a notification response to dispatch after the app starts.
+    ///
+    /// Use this when a notification action or tap launched the app. The response
+    /// is delivered as `NotificationResponseReceived` through the normal reducer
+    /// path.
+    pub fn with_startup_notification_response(mut self, response: NotificationResponse) -> Self {
+        self.startup_notification_responses.push(response);
+        self
+    }
+
+    /// Registers a reducer handler for inbound deep links.
+    ///
+    /// `handler` receives `DeepLinkReceived` actions from startup links and
+    /// runtime host events. Use it to update routing state rather than parsing
+    /// deep links inside widgets.
+    pub fn on_deep_link<H>(mut self, handler: H) -> Self
+    where
+        H: fission_core::registry::IntoHandler<S, DeepLinkReceived> + Send + Sync + 'static,
+    {
+        let mut registry = ActionRegistry::<S>::new();
+        registry.register(handler);
+        self.runtime.absorb_persistent_registry(registry);
+        self
+    }
+
+    /// Registers a reducer handler for notification responses.
+    ///
+    /// `handler` receives `NotificationResponseReceived` actions when the user
+    /// taps or acts on a notification. Use it to route the user or process action
+    /// ids in normal app state.
+    pub fn on_notification_response<H>(mut self, handler: H) -> Self
+    where
+        H: fission_core::registry::IntoHandler<S, NotificationResponseReceived>
+            + Send
+            + Sync
+            + 'static,
+    {
+        let mut registry = ActionRegistry::<S>::new();
+        registry.register(handler);
+        self.runtime.absorb_persistent_registry(registry);
         self
     }
 
@@ -2462,7 +2811,20 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
         #[cfg(not(target_os = "android"))]
         platform_window.request_redraw();
 
+        let mut startup_deep_links = self.startup_deep_links.clone();
+        startup_deep_links.extend(collect_startup_deep_links(&self.deep_link_config));
+        let startup_notification_responses = self.startup_notification_responses.clone();
+
         let mut runtime = self.runtime;
+        for link in startup_deep_links {
+            runtime.dispatch(DeepLinkReceived { link }.into(), NodeId::derived(0, &[0]))?;
+        }
+        for response in startup_notification_responses {
+            runtime.dispatch(
+                NotificationResponseReceived { response }.into(),
+                NodeId::derived(0, &[0]),
+            )?;
+        }
         let mut layout_engine = self.layout_engine;
         let root_widget = self.root_widget;
         let mut env = self.env;
@@ -5291,10 +5653,11 @@ fn native_window_size_for_logical_viewport(size: LayoutSize) -> winit::dpi::Logi
 #[cfg(test)]
 mod tests {
     use super::{
-        animation_redraw_interval, clamp_copy_extent_to_texture, cursor_icon_for,
-        downscale_rgba_box, layout_size_to_image_dimensions, logical_viewport_to_physical_size,
-        logical_viewport_to_render_target_size, native_window_size_for_logical_viewport,
-        normalize_scale_factor, normalize_winit_scroll_delta, physical_position_to_layout_point,
+        animation_redraw_interval, clamp_copy_extent_to_texture, collect_startup_deep_links_from,
+        cursor_icon_for, downscale_rgba_box, layout_size_to_image_dimensions,
+        logical_viewport_to_physical_size, logical_viewport_to_render_target_size,
+        native_window_size_for_logical_viewport, normalize_scale_factor,
+        normalize_winit_scroll_delta, physical_position_to_layout_point,
         physical_size_to_layout_size, repeating_animation_redraw_interval, resize_is_unsettled,
         resolve_build_viewport, sync_tracked_target_texture_size_to_surface,
         texture_plans_fit_device_limits, LiveResizeController, WindowViewportState,
@@ -5302,7 +5665,7 @@ mod tests {
     use crate::pipeline::CompositorTexturePlan;
     use crate::InvalidationSet;
     use fission_core::env::{ActiveAnimation, AnimationStateMap};
-    use fission_core::{AnimationPropertyId, WidgetNodeId};
+    use fission_core::{AnimationPropertyId, DeepLinkConfig, WidgetNodeId};
     use fission_ir::semantics::MouseCursor;
     use fission_layout::{LayoutRect, LayoutSize};
     use std::collections::HashMap;
@@ -5753,5 +6116,29 @@ mod tests {
         ];
         let downscaled = downscale_rgba_box(&rgba, 2, 2, 1, 1).expect("downscale");
         assert_eq!(downscaled, vec![40, 50, 60, 255]);
+    }
+
+    #[test]
+    fn startup_deep_link_collection_filters_to_declared_config() {
+        let config = DeepLinkConfig::new()
+            .scheme("fission")
+            .domain("example.com")
+            .path_prefix("/tasks");
+
+        let links = collect_startup_deep_links_from(
+            &config,
+            vec![
+                "--ignored".to_string(),
+                "fission://open/tasks/1".to_string(),
+                "other://open/tasks/1".to_string(),
+            ],
+            vec!["https://example.com/tasks/2?source=email".to_string()],
+        );
+
+        assert_eq!(links.len(), 2);
+        assert_eq!(links[0].url, "https://example.com/tasks/2?source=email");
+        assert!(links[0].cold_start);
+        assert_eq!(links[1].url, "fission://open/tasks/1");
+        assert!(links[1].cold_start);
     }
 }

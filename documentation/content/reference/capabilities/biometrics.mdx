@@ -1,0 +1,42 @@
+---
+title: Biometrics
+description: Reference for the biometrics capability API, provider, operations, and platform configuration.
+---
+
+# Biometrics
+
+Biometrics ask the host to verify the current user with platform authentication such as fingerprint, face, or device credential fallback.
+
+## Public API
+
+| Item | Value |
+| --- | --- |
+| Effect helper | `ctx.effects.biometrics()` |
+| Provider trait or host contract | `BiometricHost` |
+| Test provider or test entrypoint | `MemoryBiometricHost` |
+| Primary request types | `BiometricAuthenticateRequest` |
+| Primary success types | `BiometricAvailability / BiometricAuthenticateResult` |
+| Error type | `BiometricError` |
+| CLI value | `biometric` |
+
+## Operations
+
+| Method or operation | What it is for |
+| --- | --- |
+| `availability` | Emits or handles the `Biometrics` host operation for this capability. |
+| `authenticate` | Emits or handles the `Biometrics` host operation for this capability. |
+| `cancel_authentication` | Emits or handles the `Biometrics` host operation for this capability. |
+
+## Platform configuration
+
+Run `fission add-capability biometric --project-dir .`. Android receives biometric permissions. iOS receives the Face ID usage string. macOS and Windows can support local biometric checks through their platform authentication APIs when the desktop host provider is implemented. Web sign-in prompts that use fingerprint are usually passkeys/WebAuthn, which Fission models as the separate passkeys credential capability rather than raw biometric access.
+
+The CLI records the capability in `fission.toml` when the capability has a CLI value. Generated mobile configuration is written to the platform files that the host target already owns: Android uses `platforms/android/AndroidManifest.xml`; iOS uses `platforms/ios/Info.plist` and `platforms/ios/Entitlements.plist` when the feature needs entitlements. Desktop package metadata is target-specific and should be reviewed during packaging because Windows, macOS, and Linux expose different permission and distribution systems.
+
+## Runtime behavior
+
+A provider should return a typed unsupported error when the host cannot perform the operation. It should not silently succeed. That lets reducers show a useful message, hide unsupported controls, or offer another path without guessing from the platform name.
+
+## Guide
+
+Read the [Biometrics guide](/docs/capabilities/biometrics/) for reducer examples and product guidance.

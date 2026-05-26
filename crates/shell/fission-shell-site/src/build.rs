@@ -7,7 +7,10 @@ use crate::html::{
     HtmlRenderOptions, StyleRegistry,
 };
 use crate::search::{write_search_index, SiteSearchOptions};
-use crate::site::{normalize_site_path, ContentTransform, FissionSite, SiteRenderContext};
+use crate::site::{
+    normalize_site_path, ContentTransform, FissionSite, SitePageElement, SitePageElementFilter,
+    SitePageElementPlacement, SiteRenderContext,
+};
 use anyhow::{bail, Context, Result};
 use fission_core::ui::Column;
 use fission_core::{BuildCtx, Env, LoweringContext, Node, RuntimeState, View, Widget};
@@ -34,6 +37,7 @@ pub struct SiteBuildOptions {
     pub default_locale: String,
     pub site_nav: Vec<SiteNavLink>,
     pub user_css: Vec<String>,
+    pub page_elements: Vec<SitePageElement>,
     pub content_routes: Vec<SiteContentRouteConfig>,
     pub asset_dirs: Vec<PathBuf>,
     pub generate_sitemap: bool,
@@ -65,6 +69,7 @@ impl SiteBuildOptions {
             default_locale: "en".to_string(),
             site_nav: Vec::new(),
             user_css: Vec::new(),
+            page_elements: Vec::new(),
             content_routes: vec![SiteContentRouteConfig {
                 path: "/content".to_string(),
                 source: project_dir.join("content"),
@@ -119,6 +124,7 @@ impl SiteBuildOptions {
                     .with_context(|| format!("failed to read site CSS {}", path.display()))
             })
             .collect::<Result<Vec<_>>>()?;
+        let page_elements = load_project_page_elements(&project_dir, site.elements)?;
         let output_dir = resolve_project_path(
             &project_dir,
             site.out_dir
@@ -169,6 +175,7 @@ impl SiteBuildOptions {
             default_locale,
             site_nav,
             user_css,
+            page_elements,
             content_routes,
             asset_dirs,
             generate_sitemap,
@@ -591,6 +598,41 @@ fn load_sidebar(path: Option<&Path>) -> Result<Vec<SidebarLink>> {
         .collect())
 }
 
+fn load_project_page_elements(
+    project_dir: &Path,
+    elements: Vec<ProjectSitePageElement>,
+) -> Result<Vec<SitePageElement>> {
+    elements
+        .into_iter()
+        .map(|element| {
+            let placement = SitePageElementPlacement::parse(&element.placement)?;
+            let html = match (element.html, element.file) {
+                (Some(html), None) => html,
+                (None, Some(path)) => {
+                    let path = resolve_project_path(project_dir, PathBuf::from(path));
+                    fs::read_to_string(&path).with_context(|| {
+                        format!("failed to read static site page element {}", path.display())
+                    })?
+                }
+                (Some(_), Some(_)) => {
+                    bail!("static site page element cannot set both `html` and `file`")
+                }
+                (None, None) => {
+                    bail!("static site page element requires either `html` or `file`")
+                }
+            };
+            let mut out = SitePageElement::new(placement, html);
+            for route in element.routes {
+                out = out.filter(SitePageElementFilter::exact(route));
+            }
+            for prefix in element.route_prefixes {
+                out = out.filter(SitePageElementFilter::prefix(prefix));
+            }
+            Ok(out)
+        })
+        .collect()
+}
+
 fn site_has_content_routes(options: &SiteBuildOptions) -> bool {
     !options.content_routes.is_empty()
 }
@@ -742,6 +784,30 @@ fn render_node_to_html(
             title,
             description.as_deref(),
             route_path,
+        ),
+        head_start_html: page_elements_for_route(
+            options,
+            site,
+            route_path,
+            SitePageElementPlacement::HeadStart,
+        ),
+        head_end_html: page_elements_for_route(
+            options,
+            site,
+            route_path,
+            SitePageElementPlacement::HeadEnd,
+        ),
+        body_start_html: page_elements_for_route(
+            options,
+            site,
+            route_path,
+            SitePageElementPlacement::BodyStart,
+        ),
+        body_end_html: page_elements_for_route(
+            options,
+            site,
+            route_path,
+            SitePageElementPlacement::BodyEnd,
         ),
         ..Default::default()
     };
@@ -1003,6 +1069,21 @@ fn structured_data_for_route(
     data
 }
 
+fn page_elements_for_route(
+    options: &SiteBuildOptions,
+    site: &FissionSite,
+    route_path: &str,
+    placement: SitePageElementPlacement,
+) -> Vec<String> {
+    options
+        .page_elements
+        .iter()
+        .chain(site.page_elements.iter())
+        .filter(|element| element.placement == placement && element.applies_to(route_path))
+        .map(|element| element.html.clone())
+        .collect()
+}
+
 fn validate_generated_internal_links(output_dir: &Path) -> Result<()> {
     let mut html_files = Vec::new();
     collect_generated_html_files(output_dir, &mut html_files)?;
@@ -1217,6 +1298,8 @@ struct ProjectSite {
     #[serde(default)]
     css_files: Vec<String>,
     #[serde(default)]
+    elements: Vec<ProjectSitePageElement>,
+    #[serde(default)]
     generate_sitemap: Option<bool>,
     #[serde(default)]
     generate_robots: Option<bool>,
@@ -1260,6 +1343,19 @@ impl From<ProjectSearch> for SiteSearchOptions {
             min_token_len: value.min_token_len.unwrap_or(defaults.min_token_len),
         }
     }
+}
+
+#[derive(Debug, Deserialize)]
+struct ProjectSitePageElement {
+    placement: String,
+    #[serde(default)]
+    html: Option<String>,
+    #[serde(default)]
+    file: Option<String>,
+    #[serde(default)]
+    routes: Vec<String>,
+    #[serde(default)]
+    route_prefixes: Vec<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -1344,6 +1440,14 @@ mod tests {
         options.generate_robots = true;
         options.code_highlighting.enabled = true;
         options.search.enabled = true;
+        options.page_elements.push(
+            SitePageElement::head("<script defer src=\"https://example.com/site.js\"></script>")
+                .only_route("/content/getting-started/"),
+        );
+        options.page_elements.push(
+            SitePageElement::body_end("<script>window.exampleReady=true;</script>")
+                .route_prefix("/content/"),
+        );
         let report = build_content_site(&options).unwrap();
         let output = temp.join("target/fission/site/content/getting-started/index.html");
         assert_eq!(report.routes.len(), 1);
@@ -1356,6 +1460,8 @@ mod tests {
         assert!(html.contains("rel=\"icon\" href=\"../../favicon.svg\" type=\"image/svg+xml\""));
         assert!(html.contains("property=\"og:locale\" content=\"en_GB\""));
         assert!(html.contains("application/ld+json"));
+        assert!(html.contains("https://example.com/site.js"));
+        assert!(html.contains("window.exampleReady=true"));
         assert!(html.contains("<pre class=\"fission-site-code-block\""));
         assert!(html.contains("class=\"language-rust\""));
         assert!(html.contains("highlight.js/11.11.1/highlight.min.js"));

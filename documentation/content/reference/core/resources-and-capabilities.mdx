@@ -17,11 +17,11 @@ That difference is the most important thing to keep clear when using this page.
 
 A capability is the public contract for asking the host to perform an operation the shared app should not perform directly.
 
-Examples include opening a web address or opening a user-granted file picker. Fission currently ships built-in capability IDs for `OPEN_URL` and `PICK_OPEN_FILES`.
+Examples include opening a web address, opening a user-granted file picker, capturing a photo, scanning a barcode, requesting geolocation, or asking the host for biometric authentication. Fission ships low-level built-ins such as `OPEN_URL` and `PICK_OPEN_FILES` plus platform capability groups for notifications, deep links, NFC, biometrics, passkeys, barcode scanning, camera and flashlight, clipboard, geolocation, haptics, microphone, Bluetooth, Wi-Fi, and volume control.
 
 The public types behind this surface include `OperationCapability`, `CapabilityType<C>`, and `CapabilityCtx`.
 
-Authentication flows and native operating-system alerts are deliberately not built in right now. If you need an in-app alert, use normal Fission UI such as `Modal`, `Drawer`, `Toast`, or your own overlay. If you need a true host-owned prompt or a product-specific authentication flow, define a custom capability and register a shell provider for the hosts that support it.
+Native operating-system alerts are deliberately not built in as a generic alert capability. If you need an in-app alert, use normal Fission UI such as `Modal`, `Drawer`, `Toast`, or your own overlay. If you need a true host-owned prompt or a product-specific host flow, define a custom capability and register a shell provider for the hosts that support it.
 
 A capability invocation is the act of requesting one of these operations through `ctx.effects.capability(...)` with a typed request payload. The reducer chooses that operation explicitly, and the runtime routes the eventual success or error back through follow-up actions.
 
@@ -150,4 +150,4 @@ If you are deciding between a reducer effect and a resource, ask whether the wor
 
 ## Related reference pages
 
-For reducer-side jobs, services, and commands, continue to [Commands, services, and jobs](/reference/core/commands-services-jobs). For the build-side contract that declares resources, pair this page with [Widget trait](/reference/core/widget-trait). For the broader async teaching guide, see [Resources and async](/docs/guides/resources-and-async).
+For reducer-side jobs, services, and commands, continue to [Commands, services, and jobs](/reference/core/commands-services-jobs). For built-in device and host capability groups, see [Platform capabilities](/reference/core/platform-capabilities/). For the build-side contract that declares resources, pair this page with [Widget trait](/reference/core/widget-trait). For the broader async teaching guide, see [Resources and async](/docs/guides/resources-and-async).

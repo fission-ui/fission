@@ -1,0 +1,48 @@
+---
+title: Bluetooth
+description: Reference for the bluetooth capability API, provider, operations, and platform configuration.
+---
+
+# Bluetooth
+
+Bluetooth lets an app discover nearby devices, connect to services, exchange characteristic data, and advertise where the platform allows it.
+
+## Public API
+
+| Item | Value |
+| --- | --- |
+| Effect helper | `ctx.effects.bluetooth()` |
+| Provider trait or host contract | `BluetoothHost` |
+| Test provider or test entrypoint | `MemoryBluetoothHost` |
+| Primary request types | `BluetoothScanRequest / BluetoothConnectRequest / BluetoothReadRequest / BluetoothWriteRequest` |
+| Primary success types | `BluetoothAvailability / BluetoothScanResult / BluetoothConnection / BluetoothReadResult` |
+| Error type | `BluetoothError` |
+| CLI value | `bluetooth` |
+
+## Operations
+
+| Method or operation | What it is for |
+| --- | --- |
+| `availability` | Emits or handles the `Bluetooth` host operation for this capability. |
+| `request_permission` | Emits or handles the `Bluetooth` host operation for this capability. |
+| `scan_devices` | Emits or handles the `Bluetooth` host operation for this capability. |
+| `connect_device` | Emits or handles the `Bluetooth` host operation for this capability. |
+| `disconnect_device` | Emits or handles the `Bluetooth` host operation for this capability. |
+| `read_characteristic` | Emits or handles the `Bluetooth` host operation for this capability. |
+| `write_characteristic` | Emits or handles the `Bluetooth` host operation for this capability. |
+| `start_advertising` | Emits or handles the `Bluetooth` host operation for this capability. |
+| `stop_advertising` | Emits or handles the `Bluetooth` host operation for this capability. |
+
+## Platform configuration
+
+Run `fission add-capability bluetooth --project-dir .`. Android receives legacy and Android 12+ Bluetooth permissions plus optional hardware feature declarations. iOS receives a Bluetooth usage string. Desktop support should be added through providers using the platform Bluetooth stack.
+
+The CLI records the capability in `fission.toml` when the capability has a CLI value. Generated mobile configuration is written to the platform files that the host target already owns: Android uses `platforms/android/AndroidManifest.xml`; iOS uses `platforms/ios/Info.plist` and `platforms/ios/Entitlements.plist` when the feature needs entitlements. Desktop package metadata is target-specific and should be reviewed during packaging because Windows, macOS, and Linux expose different permission and distribution systems.
+
+## Runtime behavior
+
+A provider should return a typed unsupported error when the host cannot perform the operation. It should not silently succeed. That lets reducers show a useful message, hide unsupported controls, or offer another path without guessing from the platform name.
+
+## Guide
+
+Read the [Bluetooth guide](/docs/capabilities/bluetooth/) for reducer examples and product guidance.

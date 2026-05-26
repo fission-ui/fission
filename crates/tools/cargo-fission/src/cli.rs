@@ -1,5 +1,5 @@
 use clap::{Parser, Subcommand};
-use fission_command_core::{DistributionProvider, Target};
+use fission_command_core::{DistributionProvider, PlatformCapability, Target};
 use fission_command_package as package;
 use fission_command_release as release;
 use std::path::PathBuf;
@@ -35,6 +35,14 @@ pub(crate) enum Command {
     AddTarget {
         #[arg(value_enum)]
         targets: Vec<Target>,
+        /// Project directory; defaults to the current working directory.
+        #[arg(long, default_value = ".")]
+        project_dir: PathBuf,
+    },
+    /// Add one or more host capabilities and update platform config where possible.
+    AddCapability {
+        #[arg(value_enum)]
+        capabilities: Vec<PlatformCapability>,
         /// Project directory; defaults to the current working directory.
         #[arg(long, default_value = ".")]
         project_dir: PathBuf,

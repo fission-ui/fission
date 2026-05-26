@@ -6,7 +6,9 @@ app_id = "io.github.worka-ai.fission"
 
 [site]
 entry = "crate::site_app"
-base_url = "https://worka-ai.github.io/fission"
+base_url = "https://fission.rs"
+base_path = "/"
+canonical_url = "https://fission.rs"
 out_dir = "dist/site"
 default_locale = "en-GB"
 locales = ["en-GB"]
@@ -25,14 +27,18 @@ enabled = true
 [site.search]
 enabled = true
 
+[[site.elements]]
+placement = "head-end"
+file = "site/google-analytics.html"
+
 [distribution.github_pages.production]
 owner = "worka-ai"
 repo = "fission"
 mode = "actions"
 source = "github-actions"
 site_kind = "project"
-base_path = "/fission/"
-custom_domain = ""
+base_path = "/"
+custom_domain = "fission.rs"
 enforce_https = true
 workflow = "publish-website.yml"
 production_branch = "main"

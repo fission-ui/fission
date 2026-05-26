@@ -97,6 +97,92 @@ href = "/docs/guides/platform-shells-cli-and-testing/"
 level = 2
 
 [[items]]
+title = "Platform capabilities"
+href = "/docs/guides/platform-capabilities/"
+level = 2
+
+[[items]]
+title = "Capability guides"
+href = "/docs/capabilities/matrix/"
+level = 2
+group = true
+
+[[items]]
+title = "Capability matrix"
+href = "/docs/capabilities/matrix/"
+level = 3
+
+[[items]]
+title = "Notifications"
+href = "/docs/capabilities/notifications/"
+level = 3
+
+[[items]]
+title = "Deep links"
+href = "/docs/capabilities/deep-links/"
+level = 3
+
+[[items]]
+title = "NFC"
+href = "/docs/capabilities/nfc/"
+level = 3
+
+[[items]]
+title = "Biometrics"
+href = "/docs/capabilities/biometrics/"
+level = 3
+
+[[items]]
+title = "Passkeys"
+href = "/docs/capabilities/passkeys/"
+level = 3
+
+[[items]]
+title = "Barcode scanner"
+href = "/docs/capabilities/barcode-scanner/"
+level = 3
+
+[[items]]
+title = "Camera and flashlight"
+href = "/docs/capabilities/camera/"
+level = 3
+
+[[items]]
+title = "Clipboard"
+href = "/docs/capabilities/clipboard/"
+level = 3
+
+[[items]]
+title = "Geolocation"
+href = "/docs/capabilities/geolocation/"
+level = 3
+
+[[items]]
+title = "Haptics"
+href = "/docs/capabilities/haptics/"
+level = 3
+
+[[items]]
+title = "Microphone"
+href = "/docs/capabilities/microphone/"
+level = 3
+
+[[items]]
+title = "Bluetooth"
+href = "/docs/capabilities/bluetooth/"
+level = 3
+
+[[items]]
+title = "Wi-Fi"
+href = "/docs/capabilities/wifi/"
+level = 3
+
+[[items]]
+title = "Volume control"
+href = "/docs/capabilities/volume-control/"
+level = 3
+
+[[items]]
 title = "Examples and targets"
 href = "/docs/learn/examples-and-targets/"
 level = 2

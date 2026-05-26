@@ -1,0 +1,41 @@
+---
+title: Haptics
+description: Learn how to use the haptics capability in a Fission app.
+---
+
+# Haptics
+
+Haptics ask the host to play tactile feedback for an interaction, notification state, selection movement, or custom vibration pattern.
+
+Use haptics to reinforce a physical interaction: a successful drag, a destructive confirmation, selection changes, or a meaningful status change. Do not vibrate for every tap. Tactile feedback is most useful when it carries information the user can feel, not when it becomes noise.
+
+## Setup
+
+Start by declaring the capability with `fission add-capability haptics --project-dir .`. Run `fission add-capability haptics --project-dir .`. Android receives the vibration permission. iOS does not need an Info.plist key for the generated scaffold. Desktop support is limited and hardware-dependent, though game controllers or specialized devices can expose haptic channels through a custom host provider.
+
+## Request it from a reducer
+
+Reducers should request haptics work through `ctx.effects`. The reducer records what the app wants, returns control to the runtime, and then receives a typed success or error action when the host finishes.
+
+```rust
+ctx.effects
+    .haptics()
+    .impact(HapticImpactRequest {
+        style: HapticImpactStyle::Medium,
+    })
+    .on_err(ctx.effects.bind(HapticFailed, reduce_with!(on_haptic_failed)));
+```
+
+The important rule is that the reducer does not call the operating system directly. It emits a capability effect. That keeps the same app logic usable on desktop, web, Android, iOS, and test hosts even when the real platform implementation is different.
+
+## Platform expectations
+
+Android and iOS are the primary haptic targets. Web vibration support exists in some browsers, mostly on mobile, and is not reliable across desktop browsers. Windows, macOS, and Linux generally need device-specific support, such as controller rumble or specialized hardware.
+
+Read the [capability matrix](/docs/capabilities/matrix/) when you need a quick cross-platform view. The matrix separates platforms with direct support from platforms where a host provider can be implemented but permissions, hardware, or distribution packaging change the behavior.
+
+## Testing
+
+Use `MemoryHapticHost` to assert that reducers request the expected impact, notification kind, or pattern. Integration tests should accept unsupported errors because many devices legitimately have no haptic hardware.
+
+For exact request and response types, provider traits, and generated platform configuration, see the [Haptics reference](/reference/capabilities/haptics/).

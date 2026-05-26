@@ -1,0 +1,42 @@
+---
+title: Geolocation
+description: Reference for the geolocation capability API, provider, operations, and platform configuration.
+---
+
+# Geolocation
+
+Geolocation asks the host for the current physical position with explicit permission and accuracy requirements.
+
+## Public API
+
+| Item | Value |
+| --- | --- |
+| Effect helper | `ctx.effects.geolocation()` |
+| Provider trait or host contract | `GeolocationHost` |
+| Test provider or test entrypoint | `MemoryGeolocationHost` |
+| Primary request types | `GeolocationPermissionRequest / GeolocationPositionRequest` |
+| Primary success types | `GeolocationPermission / GeolocationPosition` |
+| Error type | `GeolocationError` |
+| CLI value | `geolocation` |
+
+## Operations
+
+| Method or operation | What it is for |
+| --- | --- |
+| `permission` | Emits or handles the `Geolocation` host operation for this capability. |
+| `request_permission` | Emits or handles the `Geolocation` host operation for this capability. |
+| `current_position` | Emits or handles the `Geolocation` host operation for this capability. |
+
+## Platform configuration
+
+Run `fission add-capability geolocation --project-dir .`. Android receives coarse and fine location permissions. iOS receives when-in-use location usage text. Desktop and web providers should map this contract onto the host location service or browser geolocation API where available.
+
+The CLI records the capability in `fission.toml` when the capability has a CLI value. Generated mobile configuration is written to the platform files that the host target already owns: Android uses `platforms/android/AndroidManifest.xml`; iOS uses `platforms/ios/Info.plist` and `platforms/ios/Entitlements.plist` when the feature needs entitlements. Desktop package metadata is target-specific and should be reviewed during packaging because Windows, macOS, and Linux expose different permission and distribution systems.
+
+## Runtime behavior
+
+A provider should return a typed unsupported error when the host cannot perform the operation. It should not silently succeed. That lets reducers show a useful message, hide unsupported controls, or offer another path without guessing from the platform name.
+
+## Guide
+
+Read the [Geolocation guide](/docs/capabilities/geolocation/) for reducer examples and product guidance.

@@ -51,6 +51,19 @@ pub mod hit_test;
 pub mod input;
 pub mod lowering;
 pub mod media;
+pub mod platform;
+pub mod platform_barcode;
+pub mod platform_biometric;
+pub mod platform_bluetooth;
+pub mod platform_camera;
+pub mod platform_clipboard;
+pub mod platform_geolocation;
+pub mod platform_haptics;
+pub mod platform_microphone;
+pub mod platform_nfc;
+pub mod platform_passkey;
+pub mod platform_volume;
+pub mod platform_wifi;
 pub mod registry;
 pub mod runtime;
 pub mod scrollbar;
@@ -72,7 +85,11 @@ pub use capability::{
     OperationCapability, PickOpenFilesCapability, PickOpenFilesError, PickOpenFilesRequest,
     PickOpenFilesResult, PickedFile, OPEN_URL, PICK_OPEN_FILES,
 };
-pub use context::{Effects, ReducerContext}; // New
+pub use context::{
+    BarcodeScannerEffects, BiometricEffects, BluetoothEffects, CameraEffects, ClipboardEffects,
+    Effects, GeolocationEffects, HapticEffects, MicrophoneEffects, NfcEffects, NotificationEffects,
+    PasskeyEffects, ReducerContext, VolumeEffects, WifiEffects,
+}; // New
 pub use effect::{ActionInput, Effect, EffectEnvelope, RuntimeEffect};
 pub use env::{
     Clipboard, Env, ImeHandler, InteractionStateMap, RuntimeState, ScrollStateMap, WindowEnv,
@@ -88,6 +105,108 @@ pub use fission_layout::{
     LayoutSnapshot, LayoutUnit, TextMeasurer,
 };
 pub use lowering::{LoweringContext, NodeBuilder};
+pub use platform::{
+    CancelAllNotificationsCapability, CancelNotificationCapability, CancelNotificationRequest,
+    DeepLink, DeepLinkConfig, DeepLinkReceived, DeepLinkSource, GetNotificationSettingsCapability,
+    NotificationActionButton, NotificationError, NotificationId, NotificationPermission,
+    NotificationPermissionRequest, NotificationReceipt, NotificationRequest, NotificationResponse,
+    NotificationResponseReceived, NotificationSchedule, NotificationSettings, NotificationSound,
+    PushPlatform, PushRegistration, PushRegistrationRequest, RegisterPushNotificationsCapability,
+    RequestNotificationPermissionCapability, ScheduleNotificationCapability,
+    SetBadgeCountCapability, SetBadgeCountRequest, ShowNotificationCapability,
+    UnregisterPushNotificationsCapability, CANCEL_ALL_NOTIFICATIONS, CANCEL_NOTIFICATION,
+    GET_NOTIFICATION_SETTINGS, REGISTER_PUSH_NOTIFICATIONS, REQUEST_NOTIFICATION_PERMISSION,
+    SCHEDULE_NOTIFICATION, SET_BADGE_COUNT, SHOW_NOTIFICATION, UNREGISTER_PUSH_NOTIFICATIONS,
+};
+pub use platform_barcode::{
+    BarcodeFormat, BarcodeImageDecodeRequest, BarcodePoint, BarcodeScanRequest, BarcodeScanResult,
+    BarcodeScanResults, BarcodeScannerError, CancelBarcodeScanCapability,
+    DecodeBarcodeImageCapability, ScanBarcodeCapability, CANCEL_BARCODE_SCAN, DECODE_BARCODE_IMAGE,
+    SCAN_BARCODE,
+};
+pub use platform_biometric::{
+    AuthenticateBiometricCapability, BiometricAuthenticateRequest, BiometricAuthenticateResult,
+    BiometricAvailability, BiometricError, BiometricKind, BiometricStrength,
+    CancelBiometricAuthenticationCapability, GetBiometricAvailabilityCapability,
+    AUTHENTICATE_BIOMETRIC, CANCEL_BIOMETRIC_AUTHENTICATION, GET_BIOMETRIC_AVAILABILITY,
+};
+pub use platform_bluetooth::{
+    BluetoothAdvertiseReceipt, BluetoothAdvertiseRequest, BluetoothAvailability,
+    BluetoothConnectRequest, BluetoothConnection, BluetoothDevice, BluetoothDisconnectRequest,
+    BluetoothError, BluetoothMode, BluetoothPermission, BluetoothPermissionRequest,
+    BluetoothReadRequest, BluetoothReadResult, BluetoothScanRequest, BluetoothScanResult,
+    BluetoothStopAdvertiseRequest, BluetoothWriteRequest, ConnectBluetoothDeviceCapability,
+    DisconnectBluetoothDeviceCapability, GetBluetoothAvailabilityCapability,
+    ReadBluetoothCharacteristicCapability, RequestBluetoothPermissionCapability,
+    ScanBluetoothDevicesCapability, StartBluetoothAdvertisingCapability,
+    StopBluetoothAdvertisingCapability, WriteBluetoothCharacteristicCapability,
+    CONNECT_BLUETOOTH_DEVICE, DISCONNECT_BLUETOOTH_DEVICE, GET_BLUETOOTH_AVAILABILITY,
+    READ_BLUETOOTH_CHARACTERISTIC, REQUEST_BLUETOOTH_PERMISSION, SCAN_BLUETOOTH_DEVICES,
+    START_BLUETOOTH_ADVERTISING, STOP_BLUETOOTH_ADVERTISING, WRITE_BLUETOOTH_CHARACTERISTIC,
+};
+pub use platform_camera::{
+    CameraAvailability, CameraCapture, CameraCaptureRequest, CameraDevice, CameraError,
+    CameraFacing, CameraFlashMode, CameraFlashlightRequest, CameraImageFormat, CameraPermission,
+    CameraPermissionRequest, CameraResolution, CancelCameraCaptureCapability,
+    CapturePhotoCapability, GetCameraAvailabilityCapability, RequestCameraPermissionCapability,
+    SetCameraFlashlightCapability, CANCEL_CAMERA_CAPTURE, CAPTURE_PHOTO, GET_CAMERA_AVAILABILITY,
+    REQUEST_CAMERA_PERMISSION, SET_CAMERA_FLASHLIGHT,
+};
+pub use platform_clipboard::{
+    ClearClipboardCapability, ClipboardContent, ClipboardError, ClipboardItem, ClipboardText,
+    ClipboardWriteTextRequest, ReadClipboardContentCapability, ReadClipboardTextCapability,
+    WriteClipboardContentCapability, WriteClipboardTextCapability, CLEAR_CLIPBOARD,
+    READ_CLIPBOARD_CONTENT, READ_CLIPBOARD_TEXT, WRITE_CLIPBOARD_CONTENT, WRITE_CLIPBOARD_TEXT,
+};
+pub use platform_geolocation::{
+    GeolocationError, GeolocationPermission, GeolocationPermissionRequest, GeolocationPosition,
+    GeolocationPositionRequest, GetCurrentPositionCapability, GetGeolocationPermissionCapability,
+    RequestGeolocationPermissionCapability, GET_CURRENT_POSITION, GET_GEOLOCATION_PERMISSION,
+    REQUEST_GEOLOCATION_PERMISSION,
+};
+pub use platform_haptics::{
+    HapticError, HapticImpactCapability, HapticImpactRequest, HapticImpactStyle,
+    HapticNotificationCapability, HapticNotificationKind, HapticNotificationRequest,
+    HapticPatternCapability, HapticPatternRequest, HapticPatternStep, HapticSelectionCapability,
+    HAPTIC_IMPACT, HAPTIC_NOTIFICATION, HAPTIC_PATTERN, HAPTIC_SELECTION,
+};
+pub use platform_microphone::{
+    AudioSampleFormat, CancelMicrophoneCaptureCapability, CaptureMicrophoneAudioCapability,
+    GetMicrophoneAvailabilityCapability, MicrophoneAvailability, MicrophoneCapture,
+    MicrophoneCaptureRequest, MicrophoneDevice, MicrophoneError, MicrophonePermission,
+    MicrophonePermissionRequest, RequestMicrophonePermissionCapability, CANCEL_MICROPHONE_CAPTURE,
+    CAPTURE_MICROPHONE_AUDIO, GET_MICROPHONE_AVAILABILITY, REQUEST_MICROPHONE_PERMISSION,
+};
+pub use platform_nfc::{
+    CancelNfcSessionCapability, EmulateNfcTagCapability, GetNfcAvailabilityCapability,
+    NfcAvailability, NfcEmulationRequest, NfcError, NfcRecord, NfcRecordTypeNameFormat,
+    NfcScanRequest, NfcSessionReceipt, NfcTag, NfcTagDiscovered, NfcTechnology, NfcWriteRequest,
+    ScanNfcTagCapability, WriteNfcTagCapability, CANCEL_NFC_SESSION, EMULATE_NFC_TAG,
+    GET_NFC_AVAILABILITY, SCAN_NFC_TAG, WRITE_NFC_TAG,
+};
+pub use platform_passkey::{
+    AuthenticatePasskeyCapability, CancelPasskeyOperationCapability,
+    GetPasskeyAvailabilityCapability, PasskeyAlgorithm, PasskeyAttestationConveyance,
+    PasskeyAuthenticationRequest, PasskeyAuthenticationResult, PasskeyAuthenticatorAttachment,
+    PasskeyAuthenticatorSelection, PasskeyAvailability, PasskeyCredentialDescriptor, PasskeyError,
+    PasskeyMediation, PasskeyRegistrationRequest, PasskeyRegistrationResult, PasskeyRelyingParty,
+    PasskeyResidentKeyRequirement, PasskeyTransport, PasskeyUser, PasskeyUserVerification,
+    RegisterPasskeyCapability, AUTHENTICATE_PASSKEY, CANCEL_PASSKEY_OPERATION,
+    GET_PASSKEY_AVAILABILITY, REGISTER_PASSKEY,
+};
+pub use platform_volume::{
+    AdjustVolumeLevelCapability, GetVolumeLevelCapability, SetVolumeLevelCapability,
+    VolumeAdjustDirection, VolumeAdjustRequest, VolumeError, VolumeLevel, VolumeSetRequest,
+    VolumeStream, ADJUST_VOLUME_LEVEL, GET_VOLUME_LEVEL, SET_VOLUME_LEVEL,
+};
+pub use platform_wifi::{
+    ConnectWifiNetworkCapability, DisconnectWifiNetworkCapability, GetWifiAvailabilityCapability,
+    RequestWifiPermissionCapability, ScanWifiNetworksCapability, WifiAvailability,
+    WifiConnectRequest, WifiConnection, WifiDisconnectRequest, WifiError, WifiNetwork,
+    WifiPermission, WifiPermissionRequest, WifiScanRequest, WifiScanResult, WifiSecurity,
+    CONNECT_WIFI_NETWORK, DISCONNECT_WIFI_NETWORK, GET_WIFI_AVAILABILITY, REQUEST_WIFI_PERMISSION,
+    SCAN_WIFI_NETWORKS,
+};
 pub use registry::{
     ActionRegistry, AnimationPropertyId, AnimationRequest, AnimationStartValue, BuildCtx,
     EasingFunction, Handler, JobResource, PortalLayer, RawActionHandler, ResourceKey,

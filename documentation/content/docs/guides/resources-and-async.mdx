@@ -83,7 +83,7 @@ A common mistake is starting the same job repeatedly from `build()`. If the work
 
 A capability looks similar to a job from the reducer's point of view, but it has a different purpose.
 
-A capability is for host or device work that belongs to the shell side of the app boundary. Opening a web address or showing a native file picker are good examples. Fission currently ships typed built-in capabilities such as `OPEN_URL` and `PICK_OPEN_FILES`. Product-specific host work, such as authentication, payments, or device integrations, should be modeled as custom capabilities registered by the shell.
+A capability is for host or device work that belongs to the shell side of the app boundary. Opening a web address or showing a native file picker are good examples. Fission ships typed built-in capabilities such as `OPEN_URL`, `PICK_OPEN_FILES`, and platform groups for camera, microphone, geolocation, barcode scanning, NFC, biometrics, passkeys, haptics, Bluetooth, Wi-Fi, clipboard, notifications, deep links, and volume control. Product-specific host work, such as payments or device integrations unique to your product, should be modeled as custom capabilities registered by the shell.
 
 Use a capability when the question is not "run my app logic in the background" but "ask the host to do something that only the host can do."
 

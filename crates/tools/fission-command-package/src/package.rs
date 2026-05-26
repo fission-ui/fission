@@ -1,6 +1,8 @@
 use super::*;
 use anyhow::{bail, Context, Result};
-use fission_command_core::{cargo_package_name, read_project_config, FissionProject, Target};
+use fission_command_core::{
+    cargo_package_name, read_project_config, FissionProject, PlatformCapability, Target,
+};
 use flate2::write::GzEncoder;
 use flate2::Compression;
 use serde::Deserialize;
@@ -1075,6 +1077,7 @@ fn render_info_plist(
   <string>{}</string>
   <key>LSMinimumSystemVersion</key>
   <string>{}</string>
+{}
 </dict>
 </plist>
 "#,
@@ -1084,8 +1087,48 @@ fn render_info_plist(
         escape_xml(executable),
         escape_xml(version),
         escape_xml(version),
-        escape_xml(minimum_os)
+        escape_xml(minimum_os),
+        render_macos_info_plist_capability_entries(project)
     )
+}
+
+fn render_macos_info_plist_capability_entries(project: &FissionProject) -> String {
+    let mut out = String::new();
+    if project
+        .capabilities
+        .contains(&PlatformCapability::Bluetooth)
+    {
+        out.push_str(
+            "  <key>NSBluetoothAlwaysUsageDescription</key>\n  <string>This app uses Bluetooth when you request nearby-device features.</string>\n",
+        );
+    }
+    if project.capabilities.contains(&PlatformCapability::Camera)
+        || project
+            .capabilities
+            .contains(&PlatformCapability::BarcodeScanner)
+    {
+        out.push_str(
+            "  <key>NSCameraUsageDescription</key>\n  <string>This app uses the camera when you request camera or barcode features.</string>\n",
+        );
+    }
+    if project
+        .capabilities
+        .contains(&PlatformCapability::Geolocation)
+        || project.capabilities.contains(&PlatformCapability::Wifi)
+    {
+        out.push_str(
+            "  <key>NSLocationWhenInUseUsageDescription</key>\n  <string>This app uses location information when you request location-aware or Wi-Fi features.</string>\n",
+        );
+    }
+    if project
+        .capabilities
+        .contains(&PlatformCapability::Microphone)
+    {
+        out.push_str(
+            "  <key>NSMicrophoneUsageDescription</key>\n  <string>This app uses the microphone when you request audio capture.</string>\n",
+        );
+    }
+    out
 }
 
 fn macos_package_config(project_dir: &Path) -> Result<MacosPackageConfig> {
@@ -1379,4 +1422,41 @@ fn escape_xml(value: &str) -> String {
         .replace('>', "&gt;")
         .replace('"', "&quot;")
         .replace('\'', "&apos;")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use fission_command_core::AppConfig;
+    use std::collections::BTreeSet;
+
+    #[test]
+    fn macos_info_plist_includes_capability_usage_descriptions() {
+        let project = FissionProject {
+            app: AppConfig {
+                name: "demo".to_string(),
+                app_id: "com.example.demo".to_string(),
+            },
+            targets: BTreeSet::from([Target::Macos]),
+            capabilities: BTreeSet::from([
+                PlatformCapability::BarcodeScanner,
+                PlatformCapability::Bluetooth,
+                PlatformCapability::Geolocation,
+                PlatformCapability::Microphone,
+            ]),
+        };
+
+        let plist = render_info_plist(
+            &project,
+            "Demo",
+            "demo",
+            &MacosPackageConfig::default(),
+            "1.2.3",
+        );
+
+        assert!(plist.contains("NSBluetoothAlwaysUsageDescription"));
+        assert!(plist.contains("NSCameraUsageDescription"));
+        assert!(plist.contains("NSLocationWhenInUseUsageDescription"));
+        assert!(plist.contains("NSMicrophoneUsageDescription"));
+    }
 }

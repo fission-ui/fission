@@ -37,6 +37,10 @@ where
             targets,
             project_dir,
         } => fission_command_core::add_targets(&project_dir, &targets),
+        Command::AddCapability {
+            capabilities,
+            project_dir,
+        } => fission_command_core::add_capabilities(&project_dir, &capabilities),
         Command::Doctor {
             targets,
             project_dir,
@@ -357,6 +361,99 @@ mod tests {
         assert!(std::fs::read_to_string(dir.join("platforms/web/README.md"))
             .unwrap()
             .contains("fission run --target web"));
+    }
+
+    #[test]
+    fn add_capability_updates_project_and_platform_config() {
+        let dir = unique_dir("capability");
+        run(["fission", "init", dir.to_str().unwrap()]).unwrap();
+        run([
+            "fission",
+            "add-target",
+            "ios",
+            "android",
+            "--project-dir",
+            dir.to_str().unwrap(),
+        ])
+        .unwrap();
+        run([
+            "fission",
+            "add-capability",
+            "nfc",
+            "biometric",
+            "bluetooth",
+            "barcode-scanner",
+            "camera",
+            "geolocation",
+            "haptics",
+            "microphone",
+            "volume-control",
+            "wifi",
+            "--project-dir",
+            dir.to_str().unwrap(),
+        ])
+        .unwrap();
+
+        let project = read_project_config(&dir).unwrap();
+        assert!(project
+            .capabilities
+            .contains(&fission_command_core::PlatformCapability::Nfc));
+        assert!(project
+            .capabilities
+            .contains(&fission_command_core::PlatformCapability::Biometric));
+        assert!(project
+            .capabilities
+            .contains(&fission_command_core::PlatformCapability::Bluetooth));
+        assert!(project
+            .capabilities
+            .contains(&fission_command_core::PlatformCapability::BarcodeScanner));
+        assert!(project
+            .capabilities
+            .contains(&fission_command_core::PlatformCapability::Camera));
+        assert!(project
+            .capabilities
+            .contains(&fission_command_core::PlatformCapability::Geolocation));
+        assert!(project
+            .capabilities
+            .contains(&fission_command_core::PlatformCapability::Haptics));
+        assert!(project
+            .capabilities
+            .contains(&fission_command_core::PlatformCapability::Microphone));
+        assert!(project
+            .capabilities
+            .contains(&fission_command_core::PlatformCapability::VolumeControl));
+        assert!(project
+            .capabilities
+            .contains(&fission_command_core::PlatformCapability::Wifi));
+
+        let android_manifest =
+            std::fs::read_to_string(dir.join("platforms/android/AndroidManifest.xml")).unwrap();
+        assert!(android_manifest.contains("android.permission.NFC"));
+        assert!(android_manifest.contains("android.hardware.nfc"));
+        assert!(android_manifest.contains("android.permission.USE_BIOMETRIC"));
+        assert!(android_manifest.contains("android.permission.BLUETOOTH_SCAN"));
+        assert!(android_manifest.contains("android.permission.BLUETOOTH_CONNECT"));
+        assert!(android_manifest.contains("android.hardware.bluetooth_le"));
+        assert!(android_manifest.contains("android.permission.CAMERA"));
+        assert!(android_manifest.contains("android.hardware.camera.flash"));
+        assert!(android_manifest.contains("android.permission.ACCESS_FINE_LOCATION"));
+        assert!(android_manifest.contains("android.permission.VIBRATE"));
+        assert!(android_manifest.contains("android.permission.RECORD_AUDIO"));
+        assert!(android_manifest.contains("android.permission.MODIFY_AUDIO_SETTINGS"));
+        assert!(android_manifest.contains("android.permission.NEARBY_WIFI_DEVICES"));
+        assert!(android_manifest.contains("android.permission.ACCESS_WIFI_STATE"));
+
+        let ios_info = std::fs::read_to_string(dir.join("platforms/ios/Info.plist")).unwrap();
+        assert!(ios_info.contains("NFCReaderUsageDescription"));
+        assert!(ios_info.contains("NSFaceIDUsageDescription"));
+        assert!(ios_info.contains("NSBluetoothAlwaysUsageDescription"));
+        assert!(ios_info.contains("NSCameraUsageDescription"));
+        assert!(ios_info.contains("NSLocationWhenInUseUsageDescription"));
+        assert!(ios_info.contains("NSMicrophoneUsageDescription"));
+        let ios_entitlements =
+            std::fs::read_to_string(dir.join("platforms/ios/Entitlements.plist")).unwrap();
+        assert!(ios_entitlements.contains("com.apple.developer.nfc.readersession.formats"));
+        assert!(ios_entitlements.contains("com.apple.developer.networking.wifi-info"));
     }
 
     #[test]

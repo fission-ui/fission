@@ -1,0 +1,61 @@
+---
+title: Passkeys
+description: Learn how to use passkeys and WebAuthn credential flows in a Fission app.
+---
+
+# Passkeys
+
+Passkeys let a user sign in or approve an account-sensitive action with a credential stored by the browser, operating system, password manager, or hardware authenticator. The authenticator may ask for a fingerprint, face check, device PIN, or security-key touch, but your app receives credential data that must be verified by your server.
+
+Use passkeys for account sign-in, account recovery, step-up authentication before a sensitive server action, or replacing a password flow with a phishing-resistant credential. Do not use passkeys as a replacement for local-only biometric checks. If you only need to unlock something already stored on the device, use [Biometrics](/docs/capabilities/biometrics/) instead.
+
+## Setup
+
+Start by declaring the capability:
+
+```sh
+fission add-capability passkeys --project-dir .
+```
+
+The command records `passkeys` in `fission.toml`. Web passkeys require a secure origin and a relying-party id that matches the site domain. iOS and macOS production apps normally require associated domains such as `webcredentials:example.com`. Android production apps normally require Digital Asset Links between the app package and the relying-party domain. Fission records the capability now, but it cannot safely invent those domain-specific values for you.
+
+## Request it from a reducer
+
+Reducers should request passkey work through `ctx.effects`. The reducer records what the app wants, returns control to the runtime, and then receives a typed success or error action when the host finishes.
+
+```rust
+ctx.effects
+    .passkeys()
+    .authenticate(PasskeyAuthenticationRequest {
+        relying_party_id: "example.com".into(),
+        challenge: state.login_challenge.clone(),
+        allow_credentials: state.known_credentials.clone(),
+        user_verification: PasskeyUserVerification::Preferred,
+        mediation: PasskeyMediation::Conditional,
+        timeout_ms: Some(60_000),
+    })
+    .on_ok(ctx.effects.bind(PasskeyAssertionReady, reduce_with!(on_passkey_assertion_ready)))
+    .on_err(ctx.effects.bind(PasskeySignInFailed, reduce_with!(on_passkey_sign_in_failed)));
+```
+
+The important rule is that the reducer does not call the browser or operating system directly. It emits a capability effect. The host gathers WebAuthn registration or assertion data, and your app sends that data to the relying-party server for verification.
+
+## Registration and authentication
+
+A passkey flow has two halves. Registration creates a credential. Authentication uses that credential later.
+
+For registration, your server should create a challenge and send the relying-party id, relying-party name, opaque user handle, allowed algorithms, and registration options to the app. The app passes those values to `PasskeyRegistrationRequest`. The host returns `PasskeyRegistrationResult`, including the credential id, client data JSON, and attestation object. Your server must verify that result before storing the credential.
+
+For authentication, your server should create a fresh challenge and send the relying-party id plus any allowed credential ids. The app passes those values to `PasskeyAuthenticationRequest`. The host returns `PasskeyAuthenticationResult`, including authenticator data, client data JSON, and signature. Your server must verify the challenge, origin, signature, counter behavior, and credential id before the app treats the user as signed in.
+
+## Platform expectations
+
+Web is the most natural passkey target because browser credential APIs already expose the WebAuthn model. Windows, macOS, Android, and iOS also have mature platform credential APIs, usually tied to the same account and domain association model. Linux support is less consistent because it depends on browser support, desktop credential providers, hardware authenticators, and distribution packaging.
+
+Read the [capability matrix](/docs/capabilities/matrix/) when you need a quick cross-platform view. The matrix separates direct platform paths from provider-driven hosts and domain-association requirements.
+
+## Testing
+
+Use `MemoryPasskeyHost` for success and failure paths. Reducer tests should verify that the app sends registration and assertion data to its server-side verification path before updating signed-in state. A test that treats the host result alone as a completed login is testing the wrong security boundary.
+
+For exact request and response types, provider traits, and platform configuration notes, see the [Passkeys reference](/reference/capabilities/passkeys/).

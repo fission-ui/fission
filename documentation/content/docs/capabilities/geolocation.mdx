@@ -1,0 +1,44 @@
+---
+title: Geolocation
+description: Learn how to use the geolocation capability in a Fission app.
+---
+
+# Geolocation
+
+Geolocation asks the host for the current physical position with explicit permission and accuracy requirements.
+
+Use geolocation for product features that clearly need location: nearby stores, delivery tracking, field work, maps, geofenced reminders, or location-tagged records. Do not request high accuracy by default. Ask only when the user reaches a feature that needs it, and explain why.
+
+## Setup
+
+Start by declaring the capability with `fission add-capability geolocation --project-dir .`. Run `fission add-capability geolocation --project-dir .`. Android receives coarse and fine location permissions. iOS receives when-in-use location usage text. Desktop and web providers should map this contract onto the host location service or browser geolocation API where available.
+
+## Request it from a reducer
+
+Reducers should request geolocation work through `ctx.effects`. The reducer records what the app wants, returns control to the runtime, and then receives a typed success or error action when the host finishes.
+
+```rust
+ctx.effects
+    .geolocation()
+    .current_position(GeolocationPositionRequest {
+        high_accuracy: true,
+        timeout_ms: Some(10_000),
+        maximum_age_ms: Some(30_000),
+    })
+    .on_ok(ctx.effects.bind(PositionLoaded, reduce_with!(on_position_loaded)))
+    .on_err(ctx.effects.bind(PositionFailed, reduce_with!(on_position_failed)));
+```
+
+The important rule is that the reducer does not call the operating system directly. It emits a capability effect. That keeps the same app logic usable on desktop, web, Android, iOS, and test hosts even when the real platform implementation is different.
+
+## Platform expectations
+
+Android, iOS, and web have established user-facing location prompts. Windows and macOS can expose location through system services when enabled. Linux support is less consistent and may depend on desktop services, portals, network positioning, or GPS hardware.
+
+Read the [capability matrix](/docs/capabilities/matrix/) when you need a quick cross-platform view. The matrix separates platforms with direct support from platforms where a host provider can be implemented but permissions, hardware, or distribution packaging change the behavior.
+
+## Testing
+
+Use `MemoryGeolocationHost` with fixed coordinates. Test approximate versus precise requests, timeout errors, stale cached values, denied permission, and unsupported hosts.
+
+For exact request and response types, provider traits, and generated platform configuration, see the [Geolocation reference](/reference/capabilities/geolocation/).

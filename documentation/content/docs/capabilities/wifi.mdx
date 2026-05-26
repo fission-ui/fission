@@ -1,0 +1,44 @@
+---
+title: Wi-Fi
+description: Learn how to use the wi-fi capability in a Fission app.
+---
+
+# Wi-Fi
+
+Wi-Fi lets an app inspect or manage nearby wireless networks where the host platform permits that level of control.
+
+Use Wi-Fi capabilities for device setup, kiosk provisioning, field diagnostics, or products that must connect to a known appliance network. Do not assume every platform allows arbitrary scans or connections; many treat Wi-Fi information as location-sensitive.
+
+## Setup
+
+Start by declaring the capability with `fission add-capability wifi --project-dir .`. Run `fission add-capability wifi --project-dir .`. Android receives Wi-Fi, network, nearby Wi-Fi, and older fine-location permissions where needed. iOS receives Wi-Fi information/hotspot entitlements and location usage text. Desktop providers should use the appropriate operating-system network APIs or distribution services.
+
+## Request it from a reducer
+
+Reducers should request wi-fi work through `ctx.effects`. The reducer records what the app wants, returns control to the runtime, and then receives a typed success or error action when the host finishes.
+
+```rust
+ctx.effects
+    .wifi()
+    .scan_networks(WifiScanRequest {
+        ssid_prefix: Some("Device-".into()),
+        include_hidden: false,
+        timeout_ms: Some(10_000),
+    })
+    .on_ok(ctx.effects.bind(WifiNetworksFound, reduce_with!(on_wifi_networks_found)))
+    .on_err(ctx.effects.bind(WifiScanFailed, reduce_with!(on_wifi_scan_failed)));
+```
+
+The important rule is that the reducer does not call the operating system directly. It emits a capability effect. That keeps the same app logic usable on desktop, web, Android, iOS, and test hosts even when the real platform implementation is different.
+
+## Platform expectations
+
+Android has the broadest app-facing Wi-Fi management APIs, though recent versions require nearby-device and location-related declarations. iOS is more constrained and often requires entitlements. Windows, macOS, and Linux can support Wi-Fi through system APIs or services, but permissions and deployment shape vary. Web has no general Wi-Fi scan/connect API.
+
+Read the [capability matrix](/docs/capabilities/matrix/) when you need a quick cross-platform view. The matrix separates platforms with direct support from platforms where a host provider can be implemented but permissions, hardware, or distribution packaging change the behavior.
+
+## Testing
+
+Use `MemoryWifiHost` with a fixed network list. Test hidden networks, missing passphrases, unsupported security modes, unavailable adapters, and permission errors.
+
+For exact request and response types, provider traits, and generated platform configuration, see the [Wi-Fi reference](/reference/capabilities/wifi/).

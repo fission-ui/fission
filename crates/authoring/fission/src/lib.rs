@@ -151,8 +151,107 @@ pub use fission_core::ui::*;
 // Core action/state types
 pub use fission_core::{
     Action, ActionEnvelope, ActionId, ActionScopeId, AnimationPropertyId, AnimationRequest,
-    AnimationStartValue, AppState, BuildCtx, EasingFunction, FlexDirection, Handler, NodeBuilder,
-    Op, PortalLayer, ReducerContext, Selector, View, Widget, WidgetNodeId,
+    AnimationStartValue, AppState, AuthenticateBiometricCapability, BiometricAuthenticateRequest,
+    BiometricAuthenticateResult, BiometricAvailability, BiometricEffects, BiometricError,
+    BiometricKind, BiometricStrength, BuildCtx, CancelAllNotificationsCapability,
+    CancelBiometricAuthenticationCapability, CancelNotificationCapability,
+    CancelNotificationRequest, DeepLink, DeepLinkConfig, DeepLinkReceived, DeepLinkSource,
+    EasingFunction, EmulateNfcTagCapability, FlexDirection, GetBiometricAvailabilityCapability,
+    GetNfcAvailabilityCapability, GetNotificationSettingsCapability, Handler, NfcAvailability,
+    NfcEffects, NfcEmulationRequest, NfcError, NfcRecord, NfcRecordTypeNameFormat, NfcScanRequest,
+    NfcSessionReceipt, NfcTag, NfcTagDiscovered, NfcTechnology, NfcWriteRequest, NodeBuilder,
+    NotificationActionButton, NotificationError, NotificationId, NotificationPermission,
+    NotificationPermissionRequest, NotificationReceipt, NotificationRequest, NotificationResponse,
+    NotificationResponseReceived, NotificationSchedule, NotificationSettings, NotificationSound,
+    Op, PortalLayer, PushPlatform, PushRegistration, PushRegistrationRequest, ReducerContext,
+    RegisterPushNotificationsCapability, RequestNotificationPermissionCapability,
+    ScanNfcTagCapability, ScheduleNotificationCapability, Selector, SetBadgeCountCapability,
+    SetBadgeCountRequest, ShowNotificationCapability, UnregisterPushNotificationsCapability, View,
+    Widget, WidgetNodeId, WriteNfcTagCapability, AUTHENTICATE_BIOMETRIC, CANCEL_ALL_NOTIFICATIONS,
+    CANCEL_BIOMETRIC_AUTHENTICATION, CANCEL_NFC_SESSION, CANCEL_NOTIFICATION, EMULATE_NFC_TAG,
+    GET_BIOMETRIC_AVAILABILITY, GET_NFC_AVAILABILITY, GET_NOTIFICATION_SETTINGS,
+    REGISTER_PUSH_NOTIFICATIONS, REQUEST_NOTIFICATION_PERMISSION, SCAN_NFC_TAG,
+    SCHEDULE_NOTIFICATION, SET_BADGE_COUNT, SHOW_NOTIFICATION, UNREGISTER_PUSH_NOTIFICATIONS,
+    WRITE_NFC_TAG,
+};
+pub use fission_core::{
+    AdjustVolumeLevelCapability, GetVolumeLevelCapability, SetVolumeLevelCapability,
+    VolumeAdjustDirection, VolumeAdjustRequest, VolumeEffects, VolumeError, VolumeLevel,
+    VolumeSetRequest, VolumeStream, ADJUST_VOLUME_LEVEL, GET_VOLUME_LEVEL, SET_VOLUME_LEVEL,
+};
+pub use fission_core::{
+    AudioSampleFormat, CancelMicrophoneCaptureCapability, CaptureMicrophoneAudioCapability,
+    GetMicrophoneAvailabilityCapability, MicrophoneAvailability, MicrophoneCapture,
+    MicrophoneCaptureRequest, MicrophoneDevice, MicrophoneEffects, MicrophoneError,
+    MicrophonePermission, MicrophonePermissionRequest, RequestMicrophonePermissionCapability,
+    CANCEL_MICROPHONE_CAPTURE, CAPTURE_MICROPHONE_AUDIO, GET_MICROPHONE_AVAILABILITY,
+    REQUEST_MICROPHONE_PERMISSION,
+};
+pub use fission_core::{
+    AuthenticatePasskeyCapability, CancelPasskeyOperationCapability,
+    GetPasskeyAvailabilityCapability, PasskeyAlgorithm, PasskeyAttestationConveyance,
+    PasskeyAuthenticationRequest, PasskeyAuthenticationResult, PasskeyAuthenticatorAttachment,
+    PasskeyAuthenticatorSelection, PasskeyAvailability, PasskeyCredentialDescriptor,
+    PasskeyEffects, PasskeyError, PasskeyMediation, PasskeyRegistrationRequest,
+    PasskeyRegistrationResult, PasskeyRelyingParty, PasskeyResidentKeyRequirement,
+    PasskeyTransport, PasskeyUser, PasskeyUserVerification, RegisterPasskeyCapability,
+    AUTHENTICATE_PASSKEY, CANCEL_PASSKEY_OPERATION, GET_PASSKEY_AVAILABILITY, REGISTER_PASSKEY,
+};
+pub use fission_core::{
+    BarcodeFormat, BarcodeImageDecodeRequest, BarcodePoint, BarcodeScanRequest, BarcodeScanResult,
+    BarcodeScanResults, BarcodeScannerEffects, BarcodeScannerError, CancelBarcodeScanCapability,
+    DecodeBarcodeImageCapability, ScanBarcodeCapability, CANCEL_BARCODE_SCAN, DECODE_BARCODE_IMAGE,
+    SCAN_BARCODE,
+};
+pub use fission_core::{
+    BluetoothAdvertiseReceipt, BluetoothAdvertiseRequest, BluetoothAvailability,
+    BluetoothConnectRequest, BluetoothConnection, BluetoothDevice, BluetoothDisconnectRequest,
+    BluetoothEffects, BluetoothError, BluetoothMode, BluetoothPermission,
+    BluetoothPermissionRequest, BluetoothReadRequest, BluetoothReadResult, BluetoothScanRequest,
+    BluetoothScanResult, BluetoothStopAdvertiseRequest, BluetoothWriteRequest,
+    ConnectBluetoothDeviceCapability, DisconnectBluetoothDeviceCapability,
+    GetBluetoothAvailabilityCapability, ReadBluetoothCharacteristicCapability,
+    RequestBluetoothPermissionCapability, ScanBluetoothDevicesCapability,
+    StartBluetoothAdvertisingCapability, StopBluetoothAdvertisingCapability,
+    WriteBluetoothCharacteristicCapability, CONNECT_BLUETOOTH_DEVICE, DISCONNECT_BLUETOOTH_DEVICE,
+    GET_BLUETOOTH_AVAILABILITY, READ_BLUETOOTH_CHARACTERISTIC, REQUEST_BLUETOOTH_PERMISSION,
+    SCAN_BLUETOOTH_DEVICES, START_BLUETOOTH_ADVERTISING, STOP_BLUETOOTH_ADVERTISING,
+    WRITE_BLUETOOTH_CHARACTERISTIC,
+};
+pub use fission_core::{
+    CameraAvailability, CameraCapture, CameraCaptureRequest, CameraDevice, CameraEffects,
+    CameraError, CameraFacing, CameraFlashMode, CameraFlashlightRequest, CameraImageFormat,
+    CameraPermission, CameraPermissionRequest, CameraResolution, CancelCameraCaptureCapability,
+    CapturePhotoCapability, GetCameraAvailabilityCapability, RequestCameraPermissionCapability,
+    SetCameraFlashlightCapability, CANCEL_CAMERA_CAPTURE, CAPTURE_PHOTO, GET_CAMERA_AVAILABILITY,
+    REQUEST_CAMERA_PERMISSION, SET_CAMERA_FLASHLIGHT,
+};
+pub use fission_core::{
+    ClearClipboardCapability, ClipboardContent, ClipboardEffects, ClipboardError, ClipboardItem,
+    ClipboardText, ClipboardWriteTextRequest, ReadClipboardContentCapability,
+    ReadClipboardTextCapability, WriteClipboardContentCapability, WriteClipboardTextCapability,
+    CLEAR_CLIPBOARD, READ_CLIPBOARD_CONTENT, READ_CLIPBOARD_TEXT, WRITE_CLIPBOARD_CONTENT,
+    WRITE_CLIPBOARD_TEXT,
+};
+pub use fission_core::{
+    ConnectWifiNetworkCapability, DisconnectWifiNetworkCapability, GetWifiAvailabilityCapability,
+    RequestWifiPermissionCapability, ScanWifiNetworksCapability, WifiAvailability,
+    WifiConnectRequest, WifiConnection, WifiDisconnectRequest, WifiEffects, WifiError, WifiNetwork,
+    WifiPermission, WifiPermissionRequest, WifiScanRequest, WifiScanResult, WifiSecurity,
+    CONNECT_WIFI_NETWORK, DISCONNECT_WIFI_NETWORK, GET_WIFI_AVAILABILITY, REQUEST_WIFI_PERMISSION,
+    SCAN_WIFI_NETWORKS,
+};
+pub use fission_core::{
+    GeolocationEffects, GeolocationError, GeolocationPermission, GeolocationPermissionRequest,
+    GeolocationPosition, GeolocationPositionRequest, GetCurrentPositionCapability,
+    GetGeolocationPermissionCapability, RequestGeolocationPermissionCapability,
+    GET_CURRENT_POSITION, GET_GEOLOCATION_PERMISSION, REQUEST_GEOLOCATION_PERMISSION,
+};
+pub use fission_core::{
+    HapticEffects, HapticError, HapticImpactCapability, HapticImpactRequest, HapticImpactStyle,
+    HapticNotificationCapability, HapticNotificationKind, HapticNotificationRequest,
+    HapticPatternCapability, HapticPatternRequest, HapticPatternStep, HapticSelectionCapability,
+    HAPTIC_IMPACT, HAPTIC_NOTIFICATION, HAPTIC_PATTERN, HAPTIC_SELECTION,
 };
 
 // Core event types
@@ -177,7 +276,17 @@ pub use fission_widgets::{HStack, Icon, Spacer, VStack};
     any(feature = "desktop", feature = "platform-shells"),
     not(any(target_os = "android", target_os = "ios", target_arch = "wasm32"))
 ))]
-pub use fission_shell_desktop::DesktopApp;
+pub use fission_shell_desktop::{
+    BarcodeScannerHost, BiometricHost, BluetoothHost, CameraHost, ClipboardHost, DesktopApp,
+    GeolocationHost, HapticHost, MemoryBarcodeScannerHost, MemoryBiometricHost,
+    MemoryBluetoothHost, MemoryCameraHost, MemoryClipboardHost, MemoryGeolocationHost,
+    MemoryHapticHost, MemoryMicrophoneHost, MemoryNfcHost, MemoryNotificationHost,
+    MemoryPasskeyHost, MemoryVolumeHost, MemoryWifiHost, MicrophoneHost, NfcHost, NotificationHost,
+    PasskeyHost, UnsupportedBarcodeScannerHost, UnsupportedBiometricHost, UnsupportedBluetoothHost,
+    UnsupportedCameraHost, UnsupportedGeolocationHost, UnsupportedHapticHost,
+    UnsupportedMicrophoneHost, UnsupportedNfcHost, UnsupportedNotificationHost,
+    UnsupportedPasskeyHost, UnsupportedVolumeHost, UnsupportedWifiHost, VolumeHost, WifiHost,
+};
 #[cfg(all(
     feature = "desktop-tray",
     not(any(target_os = "android", target_os = "ios", target_arch = "wasm32"))
@@ -195,14 +304,35 @@ pub use fission_shell_desktop::{
     ),
     any(target_os = "android", target_os = "ios")
 ))]
-pub use fission_shell_mobile::MobileApp;
+pub use fission_shell_mobile::{
+    BarcodeScannerHost, BiometricHost, BluetoothHost, CameraHost, ClipboardHost, GeolocationHost,
+    HapticHost, MemoryBarcodeScannerHost, MemoryBiometricHost, MemoryBluetoothHost,
+    MemoryCameraHost, MemoryClipboardHost, MemoryGeolocationHost, MemoryHapticHost,
+    MemoryMicrophoneHost, MemoryNfcHost, MemoryNotificationHost, MemoryPasskeyHost,
+    MemoryVolumeHost, MemoryWifiHost, MicrophoneHost, MobileApp, NfcHost, NotificationHost,
+    PasskeyHost, UnsupportedBarcodeScannerHost, UnsupportedBiometricHost, UnsupportedBluetoothHost,
+    UnsupportedCameraHost, UnsupportedGeolocationHost, UnsupportedHapticHost,
+    UnsupportedMicrophoneHost, UnsupportedNfcHost, UnsupportedNotificationHost,
+    UnsupportedPasskeyHost, UnsupportedVolumeHost, UnsupportedWifiHost, VolumeHost, WifiHost,
+};
 #[cfg(feature = "terminal-shell")]
 pub use fission_shell_terminal::TerminalApp;
 #[cfg(all(
     any(feature = "web", feature = "platform-shells"),
     target_arch = "wasm32"
 ))]
-pub use fission_shell_web::WebApp;
+pub use fission_shell_web::{
+    BarcodeScannerHost, BiometricHost, BluetoothHost, CameraHost, ClipboardHost, GeolocationHost,
+    HapticHost, MemoryBarcodeScannerHost, MemoryBiometricHost, MemoryBluetoothHost,
+    MemoryCameraHost, MemoryClipboardHost, MemoryGeolocationHost, MemoryHapticHost,
+    MemoryMicrophoneHost, MemoryNfcHost, MemoryNotificationHost, MemoryPasskeyHost,
+    MemoryVolumeHost, MemoryWifiHost, MicrophoneHost, NfcHost, NotificationHost, PasskeyHost,
+    UnsupportedBarcodeScannerHost, UnsupportedBiometricHost, UnsupportedBluetoothHost,
+    UnsupportedCameraHost, UnsupportedGeolocationHost, UnsupportedHapticHost,
+    UnsupportedMicrophoneHost, UnsupportedNfcHost, UnsupportedNotificationHost,
+    UnsupportedPasskeyHost, UnsupportedVolumeHost, UnsupportedWifiHost, VolumeHost, WebApp,
+    WifiHost,
+};
 
 // Macros
 pub use fission_macros::{fission_action, fission_reducer, Action as ActionDerive};
@@ -222,8 +352,110 @@ pub mod prelude {
     pub use fission_core::{reduce, reduce_with, with_reducer};
     pub use fission_core::{
         Action, ActionEnvelope, ActionId, ActionScopeId, AnimationPropertyId, AnimationRequest,
-        AnimationStartValue, AppState, BuildCtx, Effects, FlexDirection, Handler, NodeBuilder, Op,
-        PortalLayer, ReducerContext, Selector, View, Widget, WidgetNodeId, WindowEnv, WindowTitle,
+        AnimationStartValue, AppState, AuthenticateBiometricCapability,
+        BiometricAuthenticateRequest, BiometricAuthenticateResult, BiometricAvailability,
+        BiometricEffects, BiometricError, BiometricKind, BiometricStrength, BuildCtx,
+        CancelAllNotificationsCapability, CancelBiometricAuthenticationCapability,
+        CancelNotificationCapability, CancelNotificationRequest, DeepLink, DeepLinkConfig,
+        DeepLinkReceived, DeepLinkSource, Effects, EmulateNfcTagCapability, FlexDirection,
+        GetBiometricAvailabilityCapability, GetNfcAvailabilityCapability,
+        GetNotificationSettingsCapability, Handler, NfcAvailability, NfcEffects,
+        NfcEmulationRequest, NfcError, NfcRecord, NfcRecordTypeNameFormat, NfcScanRequest,
+        NfcSessionReceipt, NfcTag, NfcTagDiscovered, NfcTechnology, NfcWriteRequest, NodeBuilder,
+        NotificationActionButton, NotificationEffects, NotificationError, NotificationId,
+        NotificationPermission, NotificationPermissionRequest, NotificationReceipt,
+        NotificationRequest, NotificationResponse, NotificationResponseReceived,
+        NotificationSchedule, NotificationSettings, NotificationSound, Op, PortalLayer,
+        PushPlatform, PushRegistration, PushRegistrationRequest, ReducerContext,
+        RegisterPushNotificationsCapability, RequestNotificationPermissionCapability,
+        ScanNfcTagCapability, ScheduleNotificationCapability, Selector, SetBadgeCountCapability,
+        SetBadgeCountRequest, ShowNotificationCapability, UnregisterPushNotificationsCapability,
+        View, Widget, WidgetNodeId, WindowEnv, WindowTitle, WriteNfcTagCapability,
+        AUTHENTICATE_BIOMETRIC, CANCEL_ALL_NOTIFICATIONS, CANCEL_BIOMETRIC_AUTHENTICATION,
+        CANCEL_NFC_SESSION, CANCEL_NOTIFICATION, EMULATE_NFC_TAG, GET_BIOMETRIC_AVAILABILITY,
+        GET_NFC_AVAILABILITY, GET_NOTIFICATION_SETTINGS, REGISTER_PUSH_NOTIFICATIONS,
+        REQUEST_NOTIFICATION_PERMISSION, SCAN_NFC_TAG, SCHEDULE_NOTIFICATION, SET_BADGE_COUNT,
+        SHOW_NOTIFICATION, UNREGISTER_PUSH_NOTIFICATIONS, WRITE_NFC_TAG,
+    };
+    pub use fission_core::{
+        AdjustVolumeLevelCapability, GetVolumeLevelCapability, SetVolumeLevelCapability,
+        VolumeAdjustDirection, VolumeAdjustRequest, VolumeEffects, VolumeError, VolumeLevel,
+        VolumeSetRequest, VolumeStream, ADJUST_VOLUME_LEVEL, GET_VOLUME_LEVEL, SET_VOLUME_LEVEL,
+    };
+    pub use fission_core::{
+        AudioSampleFormat, CancelMicrophoneCaptureCapability, CaptureMicrophoneAudioCapability,
+        GetMicrophoneAvailabilityCapability, MicrophoneAvailability, MicrophoneCapture,
+        MicrophoneCaptureRequest, MicrophoneDevice, MicrophoneEffects, MicrophoneError,
+        MicrophonePermission, MicrophonePermissionRequest, RequestMicrophonePermissionCapability,
+        CANCEL_MICROPHONE_CAPTURE, CAPTURE_MICROPHONE_AUDIO, GET_MICROPHONE_AVAILABILITY,
+        REQUEST_MICROPHONE_PERMISSION,
+    };
+    pub use fission_core::{
+        AuthenticatePasskeyCapability, CancelPasskeyOperationCapability,
+        GetPasskeyAvailabilityCapability, PasskeyAlgorithm, PasskeyAttestationConveyance,
+        PasskeyAuthenticationRequest, PasskeyAuthenticationResult, PasskeyAuthenticatorAttachment,
+        PasskeyAuthenticatorSelection, PasskeyAvailability, PasskeyCredentialDescriptor,
+        PasskeyEffects, PasskeyError, PasskeyMediation, PasskeyRegistrationRequest,
+        PasskeyRegistrationResult, PasskeyRelyingParty, PasskeyResidentKeyRequirement,
+        PasskeyTransport, PasskeyUser, PasskeyUserVerification, RegisterPasskeyCapability,
+        AUTHENTICATE_PASSKEY, CANCEL_PASSKEY_OPERATION, GET_PASSKEY_AVAILABILITY, REGISTER_PASSKEY,
+    };
+    pub use fission_core::{
+        BarcodeFormat, BarcodeImageDecodeRequest, BarcodePoint, BarcodeScanRequest,
+        BarcodeScanResult, BarcodeScanResults, BarcodeScannerEffects, BarcodeScannerError,
+        CancelBarcodeScanCapability, DecodeBarcodeImageCapability, ScanBarcodeCapability,
+        CANCEL_BARCODE_SCAN, DECODE_BARCODE_IMAGE, SCAN_BARCODE,
+    };
+    pub use fission_core::{
+        BluetoothAdvertiseReceipt, BluetoothAdvertiseRequest, BluetoothAvailability,
+        BluetoothConnectRequest, BluetoothConnection, BluetoothDevice, BluetoothDisconnectRequest,
+        BluetoothEffects, BluetoothError, BluetoothMode, BluetoothPermission,
+        BluetoothPermissionRequest, BluetoothReadRequest, BluetoothReadResult,
+        BluetoothScanRequest, BluetoothScanResult, BluetoothStopAdvertiseRequest,
+        BluetoothWriteRequest, ConnectBluetoothDeviceCapability,
+        DisconnectBluetoothDeviceCapability, GetBluetoothAvailabilityCapability,
+        ReadBluetoothCharacteristicCapability, RequestBluetoothPermissionCapability,
+        ScanBluetoothDevicesCapability, StartBluetoothAdvertisingCapability,
+        StopBluetoothAdvertisingCapability, WriteBluetoothCharacteristicCapability,
+        CONNECT_BLUETOOTH_DEVICE, DISCONNECT_BLUETOOTH_DEVICE, GET_BLUETOOTH_AVAILABILITY,
+        READ_BLUETOOTH_CHARACTERISTIC, REQUEST_BLUETOOTH_PERMISSION, SCAN_BLUETOOTH_DEVICES,
+        START_BLUETOOTH_ADVERTISING, STOP_BLUETOOTH_ADVERTISING, WRITE_BLUETOOTH_CHARACTERISTIC,
+    };
+    pub use fission_core::{
+        CameraAvailability, CameraCapture, CameraCaptureRequest, CameraDevice, CameraEffects,
+        CameraError, CameraFacing, CameraFlashMode, CameraFlashlightRequest, CameraImageFormat,
+        CameraPermission, CameraPermissionRequest, CameraResolution, CancelCameraCaptureCapability,
+        CapturePhotoCapability, GetCameraAvailabilityCapability, RequestCameraPermissionCapability,
+        SetCameraFlashlightCapability, CANCEL_CAMERA_CAPTURE, CAPTURE_PHOTO,
+        GET_CAMERA_AVAILABILITY, REQUEST_CAMERA_PERMISSION, SET_CAMERA_FLASHLIGHT,
+    };
+    pub use fission_core::{
+        ClearClipboardCapability, ClipboardContent, ClipboardEffects, ClipboardError,
+        ClipboardItem, ClipboardText, ClipboardWriteTextRequest, ReadClipboardContentCapability,
+        ReadClipboardTextCapability, WriteClipboardContentCapability, WriteClipboardTextCapability,
+        CLEAR_CLIPBOARD, READ_CLIPBOARD_CONTENT, READ_CLIPBOARD_TEXT, WRITE_CLIPBOARD_CONTENT,
+        WRITE_CLIPBOARD_TEXT,
+    };
+    pub use fission_core::{
+        ConnectWifiNetworkCapability, DisconnectWifiNetworkCapability,
+        GetWifiAvailabilityCapability, RequestWifiPermissionCapability, ScanWifiNetworksCapability,
+        WifiAvailability, WifiConnectRequest, WifiConnection, WifiDisconnectRequest, WifiEffects,
+        WifiError, WifiNetwork, WifiPermission, WifiPermissionRequest, WifiScanRequest,
+        WifiScanResult, WifiSecurity, CONNECT_WIFI_NETWORK, DISCONNECT_WIFI_NETWORK,
+        GET_WIFI_AVAILABILITY, REQUEST_WIFI_PERMISSION, SCAN_WIFI_NETWORKS,
+    };
+    pub use fission_core::{
+        GeolocationEffects, GeolocationError, GeolocationPermission, GeolocationPermissionRequest,
+        GeolocationPosition, GeolocationPositionRequest, GetCurrentPositionCapability,
+        GetGeolocationPermissionCapability, RequestGeolocationPermissionCapability,
+        GET_CURRENT_POSITION, GET_GEOLOCATION_PERMISSION, REQUEST_GEOLOCATION_PERMISSION,
+    };
+    pub use fission_core::{
+        HapticEffects, HapticError, HapticImpactCapability, HapticImpactRequest, HapticImpactStyle,
+        HapticNotificationCapability, HapticNotificationKind, HapticNotificationRequest,
+        HapticPatternCapability, HapticPatternRequest, HapticPatternStep,
+        HapticSelectionCapability, HAPTIC_IMPACT, HAPTIC_NOTIFICATION, HAPTIC_PATTERN,
+        HAPTIC_SELECTION,
     };
     #[cfg(all(
         feature = "desktop-tray",
@@ -255,7 +487,18 @@ pub mod prelude {
         any(feature = "desktop", feature = "platform-shells"),
         not(any(target_os = "android", target_os = "ios", target_arch = "wasm32"))
     ))]
-    pub use fission_shell_desktop::DesktopApp;
+    pub use fission_shell_desktop::{
+        BarcodeScannerHost, BiometricHost, BluetoothHost, CameraHost, ClipboardHost, DesktopApp,
+        GeolocationHost, HapticHost, MemoryBarcodeScannerHost, MemoryBiometricHost,
+        MemoryBluetoothHost, MemoryCameraHost, MemoryClipboardHost, MemoryGeolocationHost,
+        MemoryHapticHost, MemoryMicrophoneHost, MemoryNfcHost, MemoryNotificationHost,
+        MemoryPasskeyHost, MemoryVolumeHost, MemoryWifiHost, MicrophoneHost, NfcHost,
+        NotificationHost, PasskeyHost, UnsupportedBarcodeScannerHost, UnsupportedBiometricHost,
+        UnsupportedBluetoothHost, UnsupportedCameraHost, UnsupportedGeolocationHost,
+        UnsupportedHapticHost, UnsupportedMicrophoneHost, UnsupportedNfcHost,
+        UnsupportedNotificationHost, UnsupportedPasskeyHost, UnsupportedVolumeHost,
+        UnsupportedWifiHost, VolumeHost, WifiHost,
+    };
     #[cfg(all(
         any(feature = "android", feature = "mobile", feature = "platform-shells"),
         target_os = "android"
@@ -270,7 +513,18 @@ pub mod prelude {
         ),
         any(target_os = "android", target_os = "ios")
     ))]
-    pub use fission_shell_mobile::MobileApp;
+    pub use fission_shell_mobile::{
+        BarcodeScannerHost, BiometricHost, BluetoothHost, CameraHost, ClipboardHost,
+        GeolocationHost, HapticHost, MemoryBarcodeScannerHost, MemoryBiometricHost,
+        MemoryBluetoothHost, MemoryCameraHost, MemoryClipboardHost, MemoryGeolocationHost,
+        MemoryHapticHost, MemoryMicrophoneHost, MemoryNfcHost, MemoryNotificationHost,
+        MemoryPasskeyHost, MemoryVolumeHost, MemoryWifiHost, MicrophoneHost, MobileApp, NfcHost,
+        NotificationHost, PasskeyHost, UnsupportedBarcodeScannerHost, UnsupportedBiometricHost,
+        UnsupportedBluetoothHost, UnsupportedCameraHost, UnsupportedGeolocationHost,
+        UnsupportedHapticHost, UnsupportedMicrophoneHost, UnsupportedNfcHost,
+        UnsupportedNotificationHost, UnsupportedPasskeyHost, UnsupportedVolumeHost,
+        UnsupportedWifiHost, VolumeHost, WifiHost,
+    };
     #[cfg(feature = "site")]
     pub use fission_shell_site::*;
     #[cfg(feature = "terminal-shell")]
@@ -279,7 +533,17 @@ pub mod prelude {
         any(feature = "web", feature = "platform-shells"),
         target_arch = "wasm32"
     ))]
-    pub use fission_shell_web::WebApp;
+    pub use fission_shell_web::{
+        BarcodeScannerHost, BiometricHost, BluetoothHost, CameraHost, ClipboardHost,
+        GeolocationHost, HapticHost, MemoryBarcodeScannerHost, MemoryBiometricHost,
+        MemoryBluetoothHost, MemoryCameraHost, MemoryClipboardHost, MemoryGeolocationHost,
+        MemoryHapticHost, MemoryMicrophoneHost, MemoryNfcHost, MemoryNotificationHost,
+        MemoryPasskeyHost, MemoryVolumeHost, MemoryWifiHost, MicrophoneHost, NfcHost,
+        NotificationHost, PasskeyHost, UnsupportedBarcodeScannerHost, UnsupportedBiometricHost,
+        UnsupportedBluetoothHost, UnsupportedCameraHost, UnsupportedGeolocationHost,
+        UnsupportedHapticHost, UnsupportedMicrophoneHost, UnsupportedNfcHost,
+        UnsupportedNotificationHost, UnsupportedPasskeyHost, UnsupportedWifiHost, WebApp, WifiHost,
+    };
 
     // Serde (commonly needed for actions)
     pub use serde::{Deserialize, Serialize};

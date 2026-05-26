@@ -1,0 +1,53 @@
+---
+title: Passkeys
+description: Reference for the passkeys capability API, provider, operations, and platform configuration.
+---
+
+# Passkeys
+
+Passkeys expose WebAuthn-style credential registration and authentication through the Fission capability system. They are credential operations, not raw biometric operations.
+
+## Public API
+
+| Item | Value |
+| --- | --- |
+| Effect helper | `ctx.effects.passkeys()` |
+| Provider trait or host contract | `PasskeyHost` |
+| Test provider or test entrypoint | `MemoryPasskeyHost` |
+| Primary request types | `PasskeyRegistrationRequest / PasskeyAuthenticationRequest` |
+| Primary success types | `PasskeyAvailability / PasskeyRegistrationResult / PasskeyAuthenticationResult` |
+| Error type | `PasskeyError` |
+| CLI value | `passkeys` |
+
+## Operations
+
+| Method or operation | What it is for |
+| --- | --- |
+| `availability` | Queries passkey support, secure-context state, platform authenticator availability, conditional UI support, and cross-platform authenticator support. |
+| `register` | Starts credential creation and returns WebAuthn registration data for server verification. |
+| `authenticate` | Starts credential assertion and returns WebAuthn authentication data for server verification. |
+| `cancel` | Cancels an active host passkey prompt where the platform permits cancellation. |
+
+## Core types
+
+| Type | Notes |
+| --- | --- |
+| `PasskeyRelyingParty` | Relying-party id and display name used during registration. The id is normally the domain that owns the credential. |
+| `PasskeyUser` | Opaque user handle, account name, and display name supplied during registration. The id should not be a plain email address. |
+| `PasskeyCredentialDescriptor` | Existing credential id plus optional transport hints used in allow/exclude lists. |
+| `PasskeyAuthenticatorSelection` | Registration preferences for platform vs cross-platform authenticators, resident keys, and user verification. |
+| `PasskeyMediation` | Authentication mediation preference, including conditional UI where the host supports it. |
+
+## Platform configuration
+
+Run `fission add-capability passkeys --project-dir .`. The CLI records the capability in `fission.toml`. It does not generate domain-specific association files because those values must match your production domain and app identifiers.
+
+Web requires a secure context and a relying-party id that matches the page origin rules. Android production apps normally need Digital Asset Links between the app package and relying-party domain before platform passkeys can be used reliably. iOS and macOS production apps normally need associated domains with `webcredentials:<domain>` in entitlements. Windows desktop providers can use platform credential APIs when the host implementation supplies them. Linux support is most reliable through browsers or hardware-authenticator paths exposed by the active desktop/browser stack.
+
+## Runtime behavior
+
+A provider should return a typed unsupported error when the host cannot perform the operation. It should not silently succeed. The success payload still must be verified by the relying-party server; the host result by itself is not proof that the user is signed in.
+
+## Guide
+
+Read the [Passkeys guide](/docs/capabilities/passkeys/) for reducer examples and product guidance.

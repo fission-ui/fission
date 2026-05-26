@@ -1,0 +1,46 @@
+---
+title: Biometrics
+description: Learn how to use the biometrics capability in a Fission app.
+---
+
+# Biometrics
+
+Biometrics ask the host to verify the current user with platform authentication such as fingerprint, face, or device credential fallback.
+
+Use biometrics to protect an app action that needs a fresh local user check: unlocking a vault, approving a payment step, revealing a secret, or resuming a sensitive session. Do not treat the biometric result as an identity proof by itself; it says the host authenticated the local user according to the device policy.
+
+## Setup
+
+Start by declaring the capability with `fission add-capability biometric --project-dir .`. Run `fission add-capability biometric --project-dir .`. Android receives biometric permissions. iOS receives the Face ID usage string. macOS and Windows can support local biometric checks through their platform authentication APIs when the desktop host provider is implemented. Web sign-in prompts that use fingerprint are usually passkeys/WebAuthn, which Fission models as the separate passkeys credential capability rather than raw biometric access.
+
+## Request it from a reducer
+
+Reducers should request biometrics work through `ctx.effects`. The reducer records what the app wants, returns control to the runtime, and then receives a typed success or error action when the host finishes.
+
+```rust
+ctx.effects
+    .biometrics()
+    .authenticate(BiometricAuthenticateRequest {
+        reason: "Confirm before exporting secrets".into(),
+        title: Some("Confirm export".into()),
+        allow_device_credential: true,
+        required_strength: BiometricStrength::Strong,
+        ..Default::default()
+    })
+    .on_ok(ctx.effects.bind(UserVerified, reduce_with!(on_user_verified)))
+    .on_err(ctx.effects.bind(UserVerificationFailed, reduce_with!(on_user_verification_failed)));
+```
+
+The important rule is that the reducer does not call the operating system directly. It emits a capability effect. That keeps the same app logic usable on desktop, web, Android, iOS, and test hosts even when the real platform implementation is different.
+
+## Platform expectations
+
+Android and iOS have direct biometric authentication flows. Windows and macOS also have mature local authentication systems. Linux support is less consistent and depends on the desktop stack and enrolled authenticators. Web apps should use [Passkeys](/docs/capabilities/passkeys/) for sign-in; the browser or password manager may use biometrics internally, but the app receives a credential assertion rather than direct fingerprint or face data.
+
+Read the [capability matrix](/docs/capabilities/matrix/) when you need a quick cross-platform view. The matrix separates platforms with direct support from platforms where a host provider can be implemented but permissions, hardware, or distribution packaging change the behavior.
+
+## Testing
+
+Use `MemoryBiometricHost` for success, denial, cancellation, and missing-enrollment cases. Reducer tests should verify the app handles `verified: false` or an error without revealing protected state.
+
+For exact request and response types, provider traits, and generated platform configuration, see the [Biometrics reference](/reference/capabilities/biometrics/).

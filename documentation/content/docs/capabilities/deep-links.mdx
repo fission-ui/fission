@@ -1,0 +1,43 @@
+---
+title: Deep links
+description: Learn how to use the deep links capability in a Fission app.
+---
+
+# Deep links
+
+Deep links let the host deliver an external URL to the app as a typed action so reducers can route the user to the correct screen.
+
+Use deep links for URLs that enter the app from outside: a marketing link, an email action, a notification tap, a desktop custom URL scheme, or an operating-system associated domain. Do not parse those links in widgets; dispatch them into reducers and let routing state decide what page should be visible.
+
+## Setup
+
+This capability is configured as part of shell setup because the required routes, categories, domains, service workers, or provider identifiers are product-specific. Deep links are product routes, so the shell needs explicit app-specific config. Android uses intent filters. iOS uses URL schemes and associated domains. Desktop targets use OS registration for schemes or file associations. Static sites and web targets use ordinary URL paths and browser routing.
+
+## Request it from a reducer
+
+Reducers should request deep links work through `ctx.effects`. The reducer records what the app wants, returns control to the runtime, and then receives a typed success or error action when the host finishes.
+
+```rust
+let deep_links = DeepLinkConfig::new()
+    .scheme("myapp")
+    .domain("example.com")
+    .path_prefix("/invite");
+
+if deep_links.matches("https://example.com/invite/abc") {
+    // The shell dispatches DeepLinkReceived; reducers decide the route.
+}
+```
+
+The important rule is that the reducer does not call the operating system directly. It emits a capability effect. That keeps the same app logic usable on desktop, web, Android, iOS, and test hosts even when the real platform implementation is different.
+
+## Platform expectations
+
+Android App Links and iOS Universal Links are the strongest mobile paths because the platform verifies the domain. Windows and macOS can register custom schemes and file associations during packaging. Linux support depends on desktop registration and distribution packaging. Web and static sites use normal URLs; the main requirement is that generated routes exist and server rewrites are configured where needed.
+
+Read the [capability matrix](/docs/capabilities/matrix/) when you need a quick cross-platform view. The matrix separates platforms with direct support from platforms where a host provider can be implemented but permissions, hardware, or distribution packaging change the behavior.
+
+## Testing
+
+Unit-test `DeepLinkConfig` against the schemes, domains, and path prefixes your product accepts. Integration tests should launch the host with a cold-start URL and also deliver a runtime URL while the app is already open.
+
+For exact request and response types, provider traits, and generated platform configuration, see the [Deep links reference](/reference/capabilities/deep-links/).
