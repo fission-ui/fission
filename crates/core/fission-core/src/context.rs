@@ -20,6 +20,10 @@ use crate::platform::{
     GET_NOTIFICATION_SETTINGS, REGISTER_PUSH_NOTIFICATIONS, REQUEST_NOTIFICATION_PERMISSION,
     SCHEDULE_NOTIFICATION, SET_BADGE_COUNT, SHOW_NOTIFICATION, UNREGISTER_PUSH_NOTIFICATIONS,
 };
+use crate::platform_barcode::{
+    BarcodeImageDecodeRequest, BarcodeScanRequest, CANCEL_BARCODE_SCAN, DECODE_BARCODE_IMAGE,
+    SCAN_BARCODE,
+};
 use crate::platform_biometric::{
     BiometricAuthenticateRequest, AUTHENTICATE_BIOMETRIC, CANCEL_BIOMETRIC_AUTHENTICATION,
     GET_BIOMETRIC_AVAILABILITY,
@@ -175,6 +179,10 @@ impl<'a, S: AppState> Effects<'a, S> {
 
     pub fn biometrics(&mut self) -> BiometricEffects<'_, 'a, S> {
         BiometricEffects { effects: self }
+    }
+
+    pub fn barcode_scanner(&mut self) -> BarcodeScannerEffects<'_, 'a, S> {
+        BarcodeScannerEffects { effects: self }
     }
 
     pub fn app<J: JobSpec>(
@@ -385,6 +393,25 @@ impl<'a, 'b, S: AppState> BiometricEffects<'a, 'b, S> {
 
     pub fn cancel_authentication(self) -> EffectBuilder<'a, 'b, S> {
         self.effects.capability(CANCEL_BIOMETRIC_AUTHENTICATION, ())
+    }
+}
+
+/// Convenience builder for standard barcode scanner host capabilities.
+pub struct BarcodeScannerEffects<'a, 'b, S: AppState> {
+    effects: &'a mut Effects<'b, S>,
+}
+
+impl<'a, 'b, S: AppState> BarcodeScannerEffects<'a, 'b, S> {
+    pub fn scan(self, request: BarcodeScanRequest) -> EffectBuilder<'a, 'b, S> {
+        self.effects.capability(SCAN_BARCODE, request)
+    }
+
+    pub fn decode_image(self, request: BarcodeImageDecodeRequest) -> EffectBuilder<'a, 'b, S> {
+        self.effects.capability(DECODE_BARCODE_IMAGE, request)
+    }
+
+    pub fn cancel_scan(self) -> EffectBuilder<'a, 'b, S> {
+        self.effects.capability(CANCEL_BARCODE_SCAN, ())
     }
 }
 

@@ -4,8 +4,10 @@ use fission_shell::async_host::AsyncRegistry;
 use fission_shell_winit::WinitApp;
 
 pub use fission_shell_winit::{
-    BiometricHost, MemoryBiometricHost, MemoryNfcHost, MemoryNotificationHost, NfcHost,
-    NotificationHost, UnsupportedBiometricHost, UnsupportedNfcHost, UnsupportedNotificationHost,
+    BarcodeScannerHost, BiometricHost, MemoryBarcodeScannerHost, MemoryBiometricHost,
+    MemoryNfcHost, MemoryNotificationHost, NfcHost, NotificationHost,
+    UnsupportedBarcodeScannerHost, UnsupportedBiometricHost, UnsupportedNfcHost,
+    UnsupportedNotificationHost,
 };
 
 #[cfg(target_os = "android")]
@@ -106,6 +108,14 @@ impl<S: AppState + Default, W: Widget<S> + 'static> MobileApp<S, W> {
         H: BiometricHost,
     {
         self.inner = self.inner.with_biometric_host(host);
+        self
+    }
+
+    pub fn with_barcode_scanner_host<H>(mut self, host: H) -> Self
+    where
+        H: BarcodeScannerHost,
+    {
+        self.inner = self.inner.with_barcode_scanner_host(host);
         self
     }
 

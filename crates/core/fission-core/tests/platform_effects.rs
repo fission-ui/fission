@@ -3,6 +3,7 @@ use fission_core::{
     DeepLinkReceived, Effect, Effects, NotificationId, NotificationRequest, NotificationResponse,
     NotificationResponseReceived, SHOW_NOTIFICATION,
 };
+use fission_core::{BarcodeFormat, BarcodeScanRequest, SCAN_BARCODE};
 use fission_core::{BiometricAuthenticateRequest, AUTHENTICATE_BIOMETRIC};
 use fission_core::{NfcRecord, NfcScanRequest, NfcTechnology, SCAN_NFC_TAG};
 
@@ -107,4 +108,26 @@ fn biometric_convenience_builder_emits_capability_effect() {
     assert_eq!(op.capability_name, AUTHENTICATE_BIOMETRIC.name);
     let decoded: BiometricAuthenticateRequest = serde_json::from_slice(&op.request).unwrap();
     assert_eq!(decoded.reason, "Unlock secure data");
+}
+
+#[test]
+fn barcode_convenience_builder_emits_capability_effect() {
+    let mut registry = ActionRegistry::<TestState>::new();
+    let mut effects = Effects::new(13, &mut registry);
+
+    effects.barcode_scanner().scan(BarcodeScanRequest {
+        formats: vec![BarcodeFormat::QrCode],
+        prompt: Some("Scan code".into()),
+        ..Default::default()
+    });
+
+    assert_eq!(effects.out.len(), 1);
+    assert_eq!(effects.out[0].req_id, 13);
+    let Effect::Capability(CapabilityInvocationPayload::Operation(op)) = &effects.out[0].effect
+    else {
+        panic!("expected barcode scanner capability effect");
+    };
+    assert_eq!(op.capability_name, SCAN_BARCODE.name);
+    let decoded: BarcodeScanRequest = serde_json::from_slice(&op.request).unwrap();
+    assert_eq!(decoded.formats, vec![BarcodeFormat::QrCode]);
 }

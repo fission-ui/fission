@@ -174,6 +174,12 @@ pub use fission_core::{
     SCHEDULE_NOTIFICATION, SET_BADGE_COUNT, SHOW_NOTIFICATION, UNREGISTER_PUSH_NOTIFICATIONS,
     WRITE_NFC_TAG,
 };
+pub use fission_core::{
+    BarcodeFormat, BarcodeImageDecodeRequest, BarcodePoint, BarcodeScanRequest, BarcodeScanResult,
+    BarcodeScanResults, BarcodeScannerEffects, BarcodeScannerError, CancelBarcodeScanCapability,
+    DecodeBarcodeImageCapability, ScanBarcodeCapability, CANCEL_BARCODE_SCAN, DECODE_BARCODE_IMAGE,
+    SCAN_BARCODE,
+};
 
 // Core event types
 pub use fission_core::event::{InputEvent, KeyCode, KeyEvent, PointerButton, PointerEvent};
@@ -198,8 +204,10 @@ pub use fission_widgets::{HStack, Icon, Spacer, VStack};
     not(any(target_os = "android", target_os = "ios", target_arch = "wasm32"))
 ))]
 pub use fission_shell_desktop::{
-    BiometricHost, DesktopApp, MemoryBiometricHost, MemoryNfcHost, MemoryNotificationHost, NfcHost,
-    NotificationHost, UnsupportedBiometricHost, UnsupportedNfcHost, UnsupportedNotificationHost,
+    BarcodeScannerHost, BiometricHost, DesktopApp, MemoryBarcodeScannerHost, MemoryBiometricHost,
+    MemoryNfcHost, MemoryNotificationHost, NfcHost, NotificationHost,
+    UnsupportedBarcodeScannerHost, UnsupportedBiometricHost, UnsupportedNfcHost,
+    UnsupportedNotificationHost,
 };
 #[cfg(all(
     any(
@@ -211,8 +219,10 @@ pub use fission_shell_desktop::{
     any(target_os = "android", target_os = "ios")
 ))]
 pub use fission_shell_mobile::{
-    BiometricHost, MemoryBiometricHost, MemoryNfcHost, MemoryNotificationHost, MobileApp, NfcHost,
-    NotificationHost, UnsupportedBiometricHost, UnsupportedNfcHost, UnsupportedNotificationHost,
+    BarcodeScannerHost, BiometricHost, MemoryBarcodeScannerHost, MemoryBiometricHost,
+    MemoryNfcHost, MemoryNotificationHost, MobileApp, NfcHost, NotificationHost,
+    UnsupportedBarcodeScannerHost, UnsupportedBiometricHost, UnsupportedNfcHost,
+    UnsupportedNotificationHost,
 };
 #[cfg(feature = "terminal-shell")]
 pub use fission_shell_terminal::TerminalApp;
@@ -221,9 +231,10 @@ pub use fission_shell_terminal::TerminalApp;
     target_arch = "wasm32"
 ))]
 pub use fission_shell_web::{
-    BiometricHost, MemoryBiometricHost, MemoryNfcHost, MemoryNotificationHost, NfcHost,
-    NotificationHost, UnsupportedBiometricHost, UnsupportedNfcHost, UnsupportedNotificationHost,
-    WebApp,
+    BarcodeScannerHost, BiometricHost, MemoryBarcodeScannerHost, MemoryBiometricHost,
+    MemoryNfcHost, MemoryNotificationHost, NfcHost, NotificationHost,
+    UnsupportedBarcodeScannerHost, UnsupportedBiometricHost, UnsupportedNfcHost,
+    UnsupportedNotificationHost, WebApp,
 };
 
 // Macros
@@ -269,6 +280,12 @@ pub mod prelude {
         REQUEST_NOTIFICATION_PERMISSION, SCAN_NFC_TAG, SCHEDULE_NOTIFICATION, SET_BADGE_COUNT,
         SHOW_NOTIFICATION, UNREGISTER_PUSH_NOTIFICATIONS, WRITE_NFC_TAG,
     };
+    pub use fission_core::{
+        BarcodeFormat, BarcodeImageDecodeRequest, BarcodePoint, BarcodeScanRequest,
+        BarcodeScanResult, BarcodeScanResults, BarcodeScannerEffects, BarcodeScannerError,
+        CancelBarcodeScanCapability, DecodeBarcodeImageCapability, ScanBarcodeCapability,
+        CANCEL_BARCODE_SCAN, DECODE_BARCODE_IMAGE, SCAN_BARCODE,
+    };
 
     // Layout
     pub use fission_layout::{LayoutPoint, LayoutRect, LayoutSize};
@@ -292,8 +309,9 @@ pub mod prelude {
         not(any(target_os = "android", target_os = "ios", target_arch = "wasm32"))
     ))]
     pub use fission_shell_desktop::{
-        BiometricHost, DesktopApp, MemoryBiometricHost, MemoryNfcHost, MemoryNotificationHost,
-        NfcHost, NotificationHost, UnsupportedBiometricHost, UnsupportedNfcHost,
+        BarcodeScannerHost, BiometricHost, DesktopApp, MemoryBarcodeScannerHost,
+        MemoryBiometricHost, MemoryNfcHost, MemoryNotificationHost, NfcHost, NotificationHost,
+        UnsupportedBarcodeScannerHost, UnsupportedBiometricHost, UnsupportedNfcHost,
         UnsupportedNotificationHost,
     };
     #[cfg(all(
@@ -311,8 +329,9 @@ pub mod prelude {
         any(target_os = "android", target_os = "ios")
     ))]
     pub use fission_shell_mobile::{
-        BiometricHost, MemoryBiometricHost, MemoryNfcHost, MemoryNotificationHost, MobileApp,
-        NfcHost, NotificationHost, UnsupportedBiometricHost, UnsupportedNfcHost,
+        BarcodeScannerHost, BiometricHost, MemoryBarcodeScannerHost, MemoryBiometricHost,
+        MemoryNfcHost, MemoryNotificationHost, MobileApp, NfcHost, NotificationHost,
+        UnsupportedBarcodeScannerHost, UnsupportedBiometricHost, UnsupportedNfcHost,
         UnsupportedNotificationHost,
     };
     #[cfg(feature = "site")]
@@ -324,8 +343,9 @@ pub mod prelude {
         target_arch = "wasm32"
     ))]
     pub use fission_shell_web::{
-        BiometricHost, MemoryBiometricHost, MemoryNfcHost, MemoryNotificationHost, NfcHost,
-        NotificationHost, UnsupportedBiometricHost, UnsupportedNfcHost,
+        BarcodeScannerHost, BiometricHost, MemoryBarcodeScannerHost, MemoryBiometricHost,
+        MemoryNfcHost, MemoryNotificationHost, NfcHost, NotificationHost,
+        UnsupportedBarcodeScannerHost, UnsupportedBiometricHost, UnsupportedNfcHost,
         UnsupportedNotificationHost, WebApp,
     };
 

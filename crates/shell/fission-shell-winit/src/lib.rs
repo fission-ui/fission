@@ -85,6 +85,8 @@ use web_backend::MockWebBackend;
 
 mod clipboard;
 use clipboard::DesktopClipboard;
+mod barcode;
+pub use barcode::{BarcodeScannerHost, MemoryBarcodeScannerHost, UnsupportedBarcodeScannerHost};
 mod biometric;
 pub use biometric::{BiometricHost, MemoryBiometricHost, UnsupportedBiometricHost};
 mod ime;
@@ -157,6 +159,10 @@ fn register_builtin_operation_capabilities(async_registry: &mut AsyncRegistry) {
     );
     nfc::register_nfc_capabilities(async_registry, Arc::new(UnsupportedNfcHost));
     biometric::register_biometric_capabilities(async_registry, Arc::new(UnsupportedBiometricHost));
+    barcode::register_barcode_scanner_capabilities(
+        async_registry,
+        Arc::new(UnsupportedBarcodeScannerHost),
+    );
 }
 
 fn collect_startup_deep_links(config: &DeepLinkConfig) -> Vec<DeepLink> {
@@ -2424,6 +2430,14 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
         H: BiometricHost,
     {
         biometric::register_biometric_capabilities(&mut self.async_registry, Arc::new(host));
+        self
+    }
+
+    pub fn with_barcode_scanner_host<H>(mut self, host: H) -> Self
+    where
+        H: BarcodeScannerHost,
+    {
+        barcode::register_barcode_scanner_capabilities(&mut self.async_registry, Arc::new(host));
         self
     }
 

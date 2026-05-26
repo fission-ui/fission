@@ -381,6 +381,7 @@ mod tests {
             "add-capability",
             "nfc",
             "biometric",
+            "barcode-scanner",
             "--project-dir",
             dir.to_str().unwrap(),
         ])
@@ -393,16 +394,21 @@ mod tests {
         assert!(project
             .capabilities
             .contains(&fission_command_core::PlatformCapability::Biometric));
+        assert!(project
+            .capabilities
+            .contains(&fission_command_core::PlatformCapability::BarcodeScanner));
 
         let android_manifest =
             std::fs::read_to_string(dir.join("platforms/android/AndroidManifest.xml")).unwrap();
         assert!(android_manifest.contains("android.permission.NFC"));
         assert!(android_manifest.contains("android.hardware.nfc"));
         assert!(android_manifest.contains("android.permission.USE_BIOMETRIC"));
+        assert!(android_manifest.contains("android.permission.CAMERA"));
 
         let ios_info = std::fs::read_to_string(dir.join("platforms/ios/Info.plist")).unwrap();
         assert!(ios_info.contains("NFCReaderUsageDescription"));
         assert!(ios_info.contains("NSFaceIDUsageDescription"));
+        assert!(ios_info.contains("NSCameraUsageDescription"));
         let ios_entitlements =
             std::fs::read_to_string(dir.join("platforms/ios/Entitlements.plist")).unwrap();
         assert!(ios_entitlements.contains("com.apple.developer.nfc.readersession.formats"));
