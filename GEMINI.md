@@ -52,7 +52,7 @@ The system is divided into four distinct layers:
 ### Layer 4: Renderer (`crates/rendering`)
 *   **Role:** The "Painter".
 *   **Input:** `DisplayList` (Platform-agnostic drawing commands).
-*   **Implementation:** `fission-render-skia` (Wraps `skia-safe`).
+*   **Implementation:** `fission-render-vello` is the maintained GPU renderer backend.
 *   **Policy:** All rendering must be anti-aliased and resolution-independent.
 
 ---
@@ -131,7 +131,7 @@ The `Lower` trait compiles high-level `Node`s into low-level `CoreIR` operations
 │   │   └── fission-semantics/(Accessibility types)
 │   ├── rendering/
 │   │   ├── fission-render/   (DisplayList, Traits)
-│   │   └── fission-render-skia/ (Skia backend)
+│   │   └── fission-render-vello/ (Vello GPU backend)
 │   ├── shell/
 │   │   ├── fission-shell/    (Traits: Platform, VideoBackend)
 │   │   └── fission-shell-desktop/ (Winit + Softbuffer implementation)
