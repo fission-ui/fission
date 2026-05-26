@@ -5,6 +5,7 @@ use fission_core::{
 };
 use fission_core::{BarcodeFormat, BarcodeScanRequest, SCAN_BARCODE};
 use fission_core::{BiometricAuthenticateRequest, AUTHENTICATE_BIOMETRIC};
+use fission_core::{ClipboardWriteTextRequest, WRITE_CLIPBOARD_TEXT};
 use fission_core::{NfcRecord, NfcScanRequest, NfcTechnology, SCAN_NFC_TAG};
 
 #[derive(Debug, Default)]
@@ -130,4 +131,24 @@ fn barcode_convenience_builder_emits_capability_effect() {
     assert_eq!(op.capability_name, SCAN_BARCODE.name);
     let decoded: BarcodeScanRequest = serde_json::from_slice(&op.request).unwrap();
     assert_eq!(decoded.formats, vec![BarcodeFormat::QrCode]);
+}
+
+#[test]
+fn clipboard_convenience_builder_emits_capability_effect() {
+    let mut registry = ActionRegistry::<TestState>::new();
+    let mut effects = Effects::new(17, &mut registry);
+
+    effects.clipboard().write_text(ClipboardWriteTextRequest {
+        text: "copied".into(),
+    });
+
+    assert_eq!(effects.out.len(), 1);
+    assert_eq!(effects.out[0].req_id, 17);
+    let Effect::Capability(CapabilityInvocationPayload::Operation(op)) = &effects.out[0].effect
+    else {
+        panic!("expected clipboard capability effect");
+    };
+    assert_eq!(op.capability_name, WRITE_CLIPBOARD_TEXT.name);
+    let decoded: ClipboardWriteTextRequest = serde_json::from_slice(&op.request).unwrap();
+    assert_eq!(decoded.text, "copied");
 }

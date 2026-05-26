@@ -54,6 +54,7 @@ pub mod media;
 pub mod platform;
 pub mod platform_barcode;
 pub mod platform_biometric;
+pub mod platform_clipboard;
 pub mod platform_nfc;
 pub mod registry;
 pub mod runtime;
@@ -77,8 +78,8 @@ pub use capability::{
     PickOpenFilesResult, PickedFile, OPEN_URL, PICK_OPEN_FILES,
 };
 pub use context::{
-    BarcodeScannerEffects, BiometricEffects, Effects, NfcEffects, NotificationEffects,
-    ReducerContext,
+    BarcodeScannerEffects, BiometricEffects, ClipboardEffects, Effects, NfcEffects,
+    NotificationEffects, ReducerContext,
 }; // New
 pub use effect::{ActionInput, Effect, EffectEnvelope, RuntimeEffect};
 pub use env::{
@@ -119,6 +120,12 @@ pub use platform_biometric::{
     BiometricAvailability, BiometricError, BiometricKind, BiometricStrength,
     CancelBiometricAuthenticationCapability, GetBiometricAvailabilityCapability,
     AUTHENTICATE_BIOMETRIC, CANCEL_BIOMETRIC_AUTHENTICATION, GET_BIOMETRIC_AVAILABILITY,
+};
+pub use platform_clipboard::{
+    ClearClipboardCapability, ClipboardContent, ClipboardError, ClipboardItem, ClipboardText,
+    ClipboardWriteTextRequest, ReadClipboardContentCapability, ReadClipboardTextCapability,
+    WriteClipboardContentCapability, WriteClipboardTextCapability, CLEAR_CLIPBOARD,
+    READ_CLIPBOARD_CONTENT, READ_CLIPBOARD_TEXT, WRITE_CLIPBOARD_CONTENT, WRITE_CLIPBOARD_TEXT,
 };
 pub use platform_nfc::{
     CancelNfcSessionCapability, EmulateNfcTagCapability, GetNfcAvailabilityCapability,

@@ -4,9 +4,9 @@ use fission_shell::async_host::AsyncRegistry;
 use fission_shell_winit::WinitApp;
 
 pub use fission_shell_winit::{
-    BarcodeScannerHost, BiometricHost, MemoryBarcodeScannerHost, MemoryBiometricHost,
-    MemoryNfcHost, MemoryNotificationHost, NfcHost, NotificationHost,
-    UnsupportedBarcodeScannerHost, UnsupportedBiometricHost, UnsupportedNfcHost,
+    BarcodeScannerHost, BiometricHost, ClipboardHost, MemoryBarcodeScannerHost,
+    MemoryBiometricHost, MemoryClipboardHost, MemoryNfcHost, MemoryNotificationHost, NfcHost,
+    NotificationHost, UnsupportedBarcodeScannerHost, UnsupportedBiometricHost, UnsupportedNfcHost,
     UnsupportedNotificationHost,
 };
 
@@ -109,6 +109,14 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WebApp<S, W> {
         H: BarcodeScannerHost,
     {
         self.inner = self.inner.with_barcode_scanner_host(host);
+        self
+    }
+
+    pub fn with_clipboard_host<H>(mut self, host: H) -> Self
+    where
+        H: ClipboardHost,
+    {
+        self.inner = self.inner.with_clipboard_host(host);
         self
     }
 

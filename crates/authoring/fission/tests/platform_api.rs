@@ -36,6 +36,7 @@ fn facade_exports_notifications_and_deep_links() {
         .with_nfc_host(MemoryNfcHost::default())
         .with_biometric_host(MemoryBiometricHost::default())
         .with_barcode_scanner_host(MemoryBarcodeScannerHost::default())
+        .with_clipboard_host(MemoryClipboardHost::default())
         .with_deep_link_config(
             DeepLinkConfig::new()
                 .scheme("fission")
@@ -65,5 +66,8 @@ fn facade_exports_notifications_and_deep_links() {
     let _barcode = BarcodeScanRequest {
         formats: vec![BarcodeFormat::QrCode],
         ..Default::default()
+    };
+    let _clipboard = ClipboardWriteTextRequest {
+        text: "copied".into(),
     };
 }

@@ -28,6 +28,10 @@ use crate::platform_biometric::{
     BiometricAuthenticateRequest, AUTHENTICATE_BIOMETRIC, CANCEL_BIOMETRIC_AUTHENTICATION,
     GET_BIOMETRIC_AVAILABILITY,
 };
+use crate::platform_clipboard::{
+    ClipboardContent, ClipboardWriteTextRequest, CLEAR_CLIPBOARD, READ_CLIPBOARD_CONTENT,
+    READ_CLIPBOARD_TEXT, WRITE_CLIPBOARD_CONTENT, WRITE_CLIPBOARD_TEXT,
+};
 use crate::platform_nfc::{
     NfcEmulationRequest, NfcScanRequest, NfcWriteRequest, CANCEL_NFC_SESSION, EMULATE_NFC_TAG,
     GET_NFC_AVAILABILITY, SCAN_NFC_TAG, WRITE_NFC_TAG,
@@ -183,6 +187,10 @@ impl<'a, S: AppState> Effects<'a, S> {
 
     pub fn barcode_scanner(&mut self) -> BarcodeScannerEffects<'_, 'a, S> {
         BarcodeScannerEffects { effects: self }
+    }
+
+    pub fn clipboard(&mut self) -> ClipboardEffects<'_, 'a, S> {
+        ClipboardEffects { effects: self }
     }
 
     pub fn app<J: JobSpec>(
@@ -412,6 +420,33 @@ impl<'a, 'b, S: AppState> BarcodeScannerEffects<'a, 'b, S> {
 
     pub fn cancel_scan(self) -> EffectBuilder<'a, 'b, S> {
         self.effects.capability(CANCEL_BARCODE_SCAN, ())
+    }
+}
+
+/// Convenience builder for standard clipboard host capabilities.
+pub struct ClipboardEffects<'a, 'b, S: AppState> {
+    effects: &'a mut Effects<'b, S>,
+}
+
+impl<'a, 'b, S: AppState> ClipboardEffects<'a, 'b, S> {
+    pub fn read_text(self) -> EffectBuilder<'a, 'b, S> {
+        self.effects.capability(READ_CLIPBOARD_TEXT, ())
+    }
+
+    pub fn write_text(self, request: ClipboardWriteTextRequest) -> EffectBuilder<'a, 'b, S> {
+        self.effects.capability(WRITE_CLIPBOARD_TEXT, request)
+    }
+
+    pub fn read_content(self) -> EffectBuilder<'a, 'b, S> {
+        self.effects.capability(READ_CLIPBOARD_CONTENT, ())
+    }
+
+    pub fn write_content(self, request: ClipboardContent) -> EffectBuilder<'a, 'b, S> {
+        self.effects.capability(WRITE_CLIPBOARD_CONTENT, request)
+    }
+
+    pub fn clear(self) -> EffectBuilder<'a, 'b, S> {
+        self.effects.capability(CLEAR_CLIPBOARD, ())
     }
 }
 
