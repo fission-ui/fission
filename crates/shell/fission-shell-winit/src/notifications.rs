@@ -11,31 +11,63 @@ use std::sync::Arc;
 
 /// Host-side notification provider used by the shell capability registry.
 pub trait NotificationHost: Send + Sync + 'static {
+    /// Requests permission for notification features such as alerts, badges, or sound.
+    ///
+    /// Implementations should map the typed request to the platform prompt and
+    /// return the resulting settings without assuming permission was granted.
     fn request_permission(
         &self,
         request: NotificationPermissionRequest,
     ) -> Result<NotificationSettings, NotificationError>;
 
+    /// Returns current notification settings without showing a platform prompt.
+    ///
+    /// Use this to report permission state, delivery support, scheduling support,
+    /// badge support, and push support to reducers.
     fn settings(&self) -> Result<NotificationSettings, NotificationError>;
 
+    /// Displays an immediate local notification.
+    ///
+    /// `request` contains the stable id, visible text, badge, sound, deep link,
+    /// and action buttons. Return a receipt only after the host accepted the
+    /// notification request.
     fn show(&self, request: NotificationRequest) -> Result<NotificationReceipt, NotificationError>;
 
+    /// Schedules a local notification for later delivery.
+    ///
+    /// Implementations should persist or hand off the schedule according to the
+    /// platform notification model and return an error when scheduled delivery is
+    /// unavailable.
     fn schedule(
         &self,
         request: NotificationRequest,
     ) -> Result<NotificationReceipt, NotificationError>;
 
+    /// Cancels one notification by id.
+    ///
+    /// `request.id` is the id originally used to show or schedule the
+    /// notification. Hosts may treat an already-missing notification as success.
     fn cancel(&self, request: CancelNotificationRequest) -> Result<(), NotificationError>;
 
+    /// Cancels all notifications owned by this app where the platform allows it.
     fn cancel_all(&self) -> Result<(), NotificationError>;
 
+    /// Sets or clears the app badge count.
+    ///
+    /// `None` clears the badge. `Some(count)` asks the host to show the supplied
+    /// count using the target platform badge mechanism.
     fn set_badge_count(&self, request: SetBadgeCountRequest) -> Result<(), NotificationError>;
 
+    /// Registers this app instance for remote or push notification delivery.
+    ///
+    /// Provider credentials remain in host configuration. The request carries
+    /// public registration inputs and the result returns token or endpoint data.
     fn register_push(
         &self,
         request: PushRegistrationRequest,
     ) -> Result<PushRegistration, NotificationError>;
 
+    /// Removes or invalidates this app instance from remote notification delivery.
     fn unregister_push(&self) -> Result<(), NotificationError>;
 }
 

@@ -9,13 +9,18 @@ use std::sync::Arc;
 
 /// Host-side Wi-Fi provider.
 pub trait WifiHost: Send + Sync + 'static {
+    /// Returns Wi-Fi adapter, permission, and current connection state.
     fn availability(&self) -> Result<WifiAvailability, WifiError>;
+    /// Requests Wi-Fi, nearby-network, or related location permission from the host.
     fn request_permission(
         &self,
         request: WifiPermissionRequest,
     ) -> Result<WifiPermission, WifiError>;
+    /// Scans for nearby Wi-Fi networks using the supplied filters.
     fn scan_networks(&self, request: WifiScanRequest) -> Result<WifiScanResult, WifiError>;
+    /// Requests connection to one Wi-Fi network.
     fn connect_network(&self, request: WifiConnectRequest) -> Result<WifiConnection, WifiError>;
+    /// Requests disconnection from a Wi-Fi network.
     fn disconnect_network(&self, request: WifiDisconnectRequest) -> Result<(), WifiError>;
 }
 

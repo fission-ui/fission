@@ -1,0 +1,42 @@
+---
+title: Clipboard
+description: Learn how to use the clipboard capability in a Fission app.
+---
+
+# Clipboard
+
+Clipboard access lets an app read and write user-transferable text and typed clipboard content through the host.
+
+Use clipboard operations for explicit user actions such as Copy, Paste, Copy link, or Clear copied value. Avoid background clipboard reads. Users expect clipboard access to be tied to a visible action, and some platforms enforce that through focus or gesture rules.
+
+## Setup
+
+This capability does not need a generated `add-capability` value, but the host still needs a provider when the default shell is not enough. No generated platform config is required for the built-in clipboard declaration. Desktop uses the shell clipboard provider where available. Web clipboard access is subject to browser security rules and often requires a user gesture and a secure origin.
+
+## Request it from a reducer
+
+Reducers should request clipboard work through `ctx.effects`. The reducer records what the app wants, returns control to the runtime, and then receives a typed success or error action when the host finishes.
+
+```rust
+ctx.effects
+    .clipboard()
+    .write_text(ClipboardWriteTextRequest {
+        text: state.share_url.clone(),
+    })
+    .on_ok(ctx.effects.bind(LinkCopied, reduce_with!(on_link_copied)))
+    .on_err(ctx.effects.bind(CopyFailed, reduce_with!(on_copy_failed)));
+```
+
+The important rule is that the reducer does not call the operating system directly. It emits a capability effect. That keeps the same app logic usable on desktop, web, Android, iOS, and test hosts even when the real platform implementation is different.
+
+## Platform expectations
+
+Clipboard is broadly available on Windows, macOS, Linux, Android, iOS, and web. The restrictions vary: browsers require secure contexts and user gestures for many operations, mobile systems may show privacy indicators, and Linux support depends on the active display server and clipboard backend.
+
+Read the [capability matrix](/docs/capabilities/matrix/) when you need a quick cross-platform view. The matrix separates platforms with direct support from platforms where a host provider can be implemented but permissions, hardware, or distribution packaging change the behavior.
+
+## Testing
+
+Use `MemoryClipboardHost` for reducer tests. Test missing text content, non-text content, clear behavior, and permission or gesture-denied errors in host integration tests.
+
+For exact request and response types, provider traits, and generated platform configuration, see the [Clipboard reference](/reference/capabilities/clipboard/).

@@ -13,6 +13,12 @@ use serde::{Deserialize, Serialize};
 pub struct NotificationId(pub String);
 
 impl NotificationId {
+    /// Creates a stable notification id.
+    ///
+    /// `id` should be stable for the logical notification so future calls can
+    /// replace or cancel the same notification. Prefer product identifiers such
+    /// as `sync-complete` or `message-42` over random values when the app needs
+    /// deterministic replacement behavior.
     pub fn new(id: impl Into<String>) -> Self {
         Self(id.into())
     }
@@ -70,6 +76,11 @@ pub struct NotificationError {
 }
 
 impl NotificationError {
+    /// Creates a portable notification error payload.
+    ///
+    /// `code` is the stable reason reducers and tests can match. `message` is a
+    /// human-readable explanation for logs, diagnostics, or a developer-facing
+    /// error surface.
     pub fn new(code: impl Into<String>, message: impl Into<String>) -> Self {
         Self {
             code: code.into(),
@@ -77,6 +88,10 @@ impl NotificationError {
         }
     }
 
+    /// Creates the standard unsupported notification error.
+    ///
+    /// `operation` should name the attempted notification operation, such as
+    /// `show`, `schedule`, `register_push`, or `set_badge_count`.
     pub fn unsupported(operation: impl Into<String>) -> Self {
         Self::new(
             "unsupported",
@@ -281,6 +296,11 @@ pub struct DeepLink {
 }
 
 impl DeepLink {
+    /// Creates an inbound deep link with an unknown source.
+    ///
+    /// `url` is stored exactly as delivered by the host. Use `source` and
+    /// `cold_start` to add shell context when the link source and startup state
+    /// are known.
     pub fn new(url: impl Into<String>) -> Self {
         Self {
             url: url.into(),
@@ -289,11 +309,21 @@ impl DeepLink {
         }
     }
 
+    /// Records whether this link launched the app from a stopped state.
+    ///
+    /// Use `true` when the link was delivered during app startup. Reducers can
+    /// use this to decide whether to replace the initial route or treat the link
+    /// as an in-session navigation request.
     pub fn cold_start(mut self, cold_start: bool) -> Self {
         self.cold_start = cold_start;
         self
     }
 
+    /// Records how the host classified the inbound link.
+    ///
+    /// The source helps reducers and analytics distinguish custom schemes,
+    /// universal links, app links, web URLs, notification taps, and external
+    /// handoff paths without reparsing platform-specific launch data.
     pub fn source(mut self, source: DeepLinkSource) -> Self {
         self.source = source;
         self
@@ -309,30 +339,57 @@ pub struct DeepLinkConfig {
 }
 
 impl DeepLinkConfig {
+    /// Creates an empty deep-link configuration.
+    ///
+    /// Add schemes, domains, and optional path prefixes before installing it in a
+    /// shell. An empty config intentionally matches no URLs.
     pub fn new() -> Self {
         Self::default()
     }
 
+    /// Allows a custom URL scheme.
+    ///
+    /// `scheme` is normalized by trimming whitespace, removing a trailing colon,
+    /// and lowercasing. Use this for routes such as `myapp://item/123`.
     pub fn scheme(mut self, scheme: impl Into<String>) -> Self {
         self.schemes.push(normalize_scheme(scheme.into()));
         self
     }
 
+    /// Allows an HTTP or HTTPS domain.
+    ///
+    /// `domain` is normalized by trimming whitespace, removing a trailing dot,
+    /// and lowercasing. Use this for app links, universal links, and web routes
+    /// that should enter the Fission app.
     pub fn domain(mut self, domain: impl Into<String>) -> Self {
         self.domains.push(normalize_domain(domain.into()));
         self
     }
 
+    /// Restricts accepted links to a path prefix.
+    ///
+    /// Prefixes are normalized to start with `/`. Add one or more prefixes when
+    /// only part of a domain should route into the app, such as `/invite` or
+    /// `/checkout`.
     pub fn path_prefix(mut self, prefix: impl Into<String>) -> Self {
         self.path_prefixes
             .push(normalize_path_prefix(prefix.into()));
         self
     }
 
+    /// Returns `true` when no scheme, domain, or path rule has been configured.
+    ///
+    /// Empty configs match no URLs. This prevents a shell from accidentally
+    /// accepting every external URL before the app has declared its routes.
     pub fn is_empty(&self) -> bool {
         self.schemes.is_empty() && self.domains.is_empty() && self.path_prefixes.is_empty()
     }
 
+    /// Returns whether a URL is accepted by this deep-link configuration.
+    ///
+    /// `url` is parsed as a simple absolute URL. The URL matches when its scheme
+    /// or domain is allowed and, if path prefixes were configured, its path starts
+    /// with one of those prefixes.
     pub fn matches(&self, url: &str) -> bool {
         if self.is_empty() {
             return false;
@@ -357,6 +414,11 @@ impl DeepLinkConfig {
         (scheme_matches || domain_matches) && path_matches
     }
 
+    /// Classifies a URL according to this configuration.
+    ///
+    /// Use this in shell code when creating `DeepLinkReceived` actions. The
+    /// result distinguishes configured custom schemes and associated domains from
+    /// ordinary web URLs or external URLs.
     pub fn source_for(&self, url: &str) -> DeepLinkSource {
         let Some(parts) = ParsedUrl::parse(url) else {
             return DeepLinkSource::Unknown;

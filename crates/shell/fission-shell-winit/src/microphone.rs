@@ -8,15 +8,19 @@ use std::sync::Arc;
 
 /// Host-side microphone provider.
 pub trait MicrophoneHost: Send + Sync + 'static {
+    /// Returns microphone permission state and available input devices.
     fn availability(&self) -> Result<MicrophoneAvailability, MicrophoneError>;
+    /// Requests microphone permission and returns the resulting state.
     fn request_permission(
         &self,
         request: MicrophonePermissionRequest,
     ) -> Result<MicrophonePermission, MicrophoneError>;
+    /// Captures bounded audio using the requested device and audio format preferences.
     fn capture_audio(
         &self,
         request: MicrophoneCaptureRequest,
     ) -> Result<MicrophoneCapture, MicrophoneError>;
+    /// Cancels an active microphone capture flow.
     fn cancel_capture(&self) -> Result<(), MicrophoneError>;
 }
 

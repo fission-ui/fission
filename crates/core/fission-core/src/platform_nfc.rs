@@ -57,6 +57,11 @@ pub struct NfcRecord {
 }
 
 impl NfcRecord {
+    /// Creates a portable NFC text record.
+    ///
+    /// `language` should be a BCP-47-style language code such as `en` or
+    /// `en-GB`. `text` is encoded as UTF-8 in the record payload so the host can
+    /// write or emulate an NDEF text value without app code building raw bytes.
     pub fn text(language: impl Into<String>, text: impl Into<String>) -> Self {
         let language = language.into();
         let text = text.into();
@@ -72,6 +77,11 @@ impl NfcRecord {
         }
     }
 
+    /// Creates a portable NFC URI record.
+    ///
+    /// `uri` should be the full URI the tag should carry. The helper stores it as
+    /// a UTF-8 payload with a URI record type so reducers do not need to know the
+    /// raw NDEF byte layout.
     pub fn uri(uri: impl Into<String>) -> Self {
         let uri = uri.into();
         let mut payload = Vec::with_capacity(1 + uri.len());
@@ -137,6 +147,11 @@ pub struct NfcError {
 }
 
 impl NfcError {
+    /// Creates a portable NFC error payload.
+    ///
+    /// `code` should be stable enough for reducers or tests to match. `message`
+    /// should explain the host failure, such as missing hardware, disabled NFC,
+    /// timeout, incompatible tag, or unsupported write/emulation mode.
     pub fn new(code: impl Into<String>, message: impl Into<String>) -> Self {
         Self {
             code: code.into(),
@@ -144,6 +159,11 @@ impl NfcError {
         }
     }
 
+    /// Creates the standard unsupported-operation NFC error.
+    ///
+    /// `operation` should name the attempted NFC operation, for example `scan`,
+    /// `write`, or `emulate`. Hosts should use this when the capability exists
+    /// but the current platform or hardware cannot perform that operation.
     pub fn unsupported(operation: impl Into<String>) -> Self {
         Self::new(
             "unsupported",

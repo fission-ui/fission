@@ -1,0 +1,44 @@
+---
+title: Wi-Fi
+description: Reference for the wi-fi capability API, provider, operations, and platform configuration.
+---
+
+# Wi-Fi
+
+Wi-Fi lets an app inspect or manage nearby wireless networks where the host platform permits that level of control.
+
+## Public API
+
+| Item | Value |
+| --- | --- |
+| Effect helper | `ctx.effects.wifi()` |
+| Provider trait or host contract | `WifiHost` |
+| Test provider or test entrypoint | `MemoryWifiHost` |
+| Primary request types | `WifiPermissionRequest / WifiScanRequest / WifiConnectRequest / WifiDisconnectRequest` |
+| Primary success types | `WifiAvailability / WifiPermission / WifiScanResult / WifiConnection` |
+| Error type | `WifiError` |
+| CLI value | `wifi` |
+
+## Operations
+
+| Method or operation | What it is for |
+| --- | --- |
+| `availability` | Emits or handles the `Wi-Fi` host operation for this capability. |
+| `request_permission` | Emits or handles the `Wi-Fi` host operation for this capability. |
+| `scan_networks` | Emits or handles the `Wi-Fi` host operation for this capability. |
+| `connect_network` | Emits or handles the `Wi-Fi` host operation for this capability. |
+| `disconnect_network` | Emits or handles the `Wi-Fi` host operation for this capability. |
+
+## Platform configuration
+
+Run `fission add-capability wifi --project-dir .`. Android receives Wi-Fi, network, nearby Wi-Fi, and older fine-location permissions where needed. iOS receives Wi-Fi information/hotspot entitlements and location usage text. Desktop providers should use the appropriate operating-system network APIs or distribution services.
+
+The CLI records the capability in `fission.toml` when the capability has a CLI value. Generated mobile configuration is written to the platform files that the host target already owns: Android uses `platforms/android/AndroidManifest.xml`; iOS uses `platforms/ios/Info.plist` and `platforms/ios/Entitlements.plist` when the feature needs entitlements. Desktop package metadata is target-specific and should be reviewed during packaging because Windows, macOS, and Linux expose different permission and distribution systems.
+
+## Runtime behavior
+
+A provider should return a typed unsupported error when the host cannot perform the operation. It should not silently succeed. That lets reducers show a useful message, hide unsupported controls, or offer another path without guessing from the platform name.
+
+## Guide
+
+Read the [Wi-Fi guide](/docs/capabilities/wifi/) for reducer examples and product guidance.

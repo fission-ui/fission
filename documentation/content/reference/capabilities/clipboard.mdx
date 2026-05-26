@@ -1,0 +1,44 @@
+---
+title: Clipboard
+description: Reference for the clipboard capability API, provider, operations, and platform configuration.
+---
+
+# Clipboard
+
+Clipboard access lets an app read and write user-transferable text and typed clipboard content through the host.
+
+## Public API
+
+| Item | Value |
+| --- | --- |
+| Effect helper | `ctx.effects.clipboard()` |
+| Provider trait or host contract | `ClipboardHost` |
+| Test provider or test entrypoint | `MemoryClipboardHost` |
+| Primary request types | `ClipboardWriteTextRequest / ClipboardContent` |
+| Primary success types | `ClipboardText / ClipboardContent / ()` |
+| Error type | `ClipboardError` |
+| CLI value | `none required` |
+
+## Operations
+
+| Method or operation | What it is for |
+| --- | --- |
+| `read_text` | Emits or handles the `Clipboard` host operation for this capability. |
+| `write_text` | Emits or handles the `Clipboard` host operation for this capability. |
+| `read_content` | Emits or handles the `Clipboard` host operation for this capability. |
+| `write_content` | Emits or handles the `Clipboard` host operation for this capability. |
+| `clear` | Emits or handles the `Clipboard` host operation for this capability. |
+
+## Platform configuration
+
+No generated platform config is required for the built-in clipboard declaration. Desktop uses the shell clipboard provider where available. Web clipboard access is subject to browser security rules and often requires a user gesture and a secure origin.
+
+The CLI records the capability in `fission.toml` when the capability has a CLI value. Generated mobile configuration is written to the platform files that the host target already owns: Android uses `platforms/android/AndroidManifest.xml`; iOS uses `platforms/ios/Info.plist` and `platforms/ios/Entitlements.plist` when the feature needs entitlements. Desktop package metadata is target-specific and should be reviewed during packaging because Windows, macOS, and Linux expose different permission and distribution systems.
+
+## Runtime behavior
+
+A provider should return a typed unsupported error when the host cannot perform the operation. It should not silently succeed. That lets reducers show a useful message, hide unsupported controls, or offer another path without guessing from the platform name.
+
+## Guide
+
+Read the [Clipboard guide](/docs/capabilities/clipboard/) for reducer examples and product guidance.

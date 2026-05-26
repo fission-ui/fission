@@ -1,0 +1,46 @@
+---
+title: Barcode scanner
+description: Learn how to use the barcode scanner capability in a Fission app.
+---
+
+# Barcode scanner
+
+Barcode scanning lets an app decode QR codes and barcodes either from a live host camera session or from image bytes supplied by the app.
+
+Use barcode scanning when the user needs to capture compact machine-readable data: tickets, inventory labels, device pairing codes, shipment labels, coupons, or authentication setup codes. Use `decode_image` when the app already has image bytes; use `scan` when the host should run a camera scanning session.
+
+## Setup
+
+Start by declaring the capability with `fission add-capability barcode-scanner --project-dir .`. Run `fission add-capability barcode-scanner --project-dir .`. The CLI adds camera permission config because live scanning requires camera access. If the app only decodes existing images, the permission may not be needed on every target, but keeping the capability declaration explicit makes future live scanning safer.
+
+## Request it from a reducer
+
+Reducers should request barcode scanner work through `ctx.effects`. The reducer records what the app wants, returns control to the runtime, and then receives a typed success or error action when the host finishes.
+
+```rust
+ctx.effects
+    .barcode_scanner()
+    .scan(BarcodeScanRequest {
+        formats: vec![BarcodeFormat::QrCode, BarcodeFormat::Code128],
+        prompt: Some("Scan the package label".into()),
+        timeout_ms: Some(20_000),
+        allow_multiple: false,
+        ..Default::default()
+    })
+    .on_ok(ctx.effects.bind(BarcodeScanned, reduce_with!(on_barcode_scanned)))
+    .on_err(ctx.effects.bind(BarcodeScanFailed, reduce_with!(on_barcode_scan_failed)));
+```
+
+The important rule is that the reducer does not call the operating system directly. It emits a capability effect. That keeps the same app logic usable on desktop, web, Android, iOS, and test hosts even when the real platform implementation is different.
+
+## Platform expectations
+
+Android and iOS support camera-based scanning through host providers. Web can support scanning through camera APIs and browser barcode detection where available, or a WebAssembly decoder fallback. Windows and macOS can support camera scanning through desktop camera APIs or image decoding libraries. Linux support depends on camera permissions and installed media stacks.
+
+Read the [capability matrix](/docs/capabilities/matrix/) when you need a quick cross-platform view. The matrix separates platforms with direct support from platforms where a host provider can be implemented but permissions, hardware, or distribution packaging change the behavior.
+
+## Testing
+
+Use `MemoryBarcodeScannerHost` to return known `BarcodeScanResult` values. Include invalid image data, multiple-barcode results, format filtering, and cancellation in tests.
+
+For exact request and response types, provider traits, and generated platform configuration, see the [Barcode scanner reference](/reference/capabilities/barcode-scanner/).

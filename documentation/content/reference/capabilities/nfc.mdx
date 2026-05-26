@@ -1,0 +1,44 @@
+---
+title: NFC
+description: Reference for the nfc capability API, provider, operations, and platform configuration.
+---
+
+# NFC
+
+NFC lets an app read or write nearby tags through the host while keeping tag technologies, NDEF records, prompts, and timeout behavior in typed Rust values.
+
+## Public API
+
+| Item | Value |
+| --- | --- |
+| Effect helper | `ctx.effects.nfc()` |
+| Provider trait or host contract | `NfcHost` |
+| Test provider or test entrypoint | `MemoryNfcHost` |
+| Primary request types | `NfcScanRequest / NfcWriteRequest / NfcEmulationRequest` |
+| Primary success types | `NfcAvailability / NfcTag / NfcSessionReceipt` |
+| Error type | `NfcError` |
+| CLI value | `nfc` |
+
+## Operations
+
+| Method or operation | What it is for |
+| --- | --- |
+| `availability` | Emits or handles the `NFC` host operation for this capability. |
+| `scan_tag` | Emits or handles the `NFC` host operation for this capability. |
+| `write_tag` | Emits or handles the `NFC` host operation for this capability. |
+| `emulate_tag` | Emits or handles the `NFC` host operation for this capability. |
+| `cancel_session` | Emits or handles the `NFC` host operation for this capability. |
+
+## Platform configuration
+
+Run `fission add-capability nfc --project-dir .`. Android receives the NFC permission and optional hardware feature. iOS receives the NFC usage description and NFC reader-session entitlement. Desktop operating systems do not provide one consistent built-in NFC surface, so desktop support should be added through a product host provider for the reader hardware you ship.
+
+The CLI records the capability in `fission.toml` when the capability has a CLI value. Generated mobile configuration is written to the platform files that the host target already owns: Android uses `platforms/android/AndroidManifest.xml`; iOS uses `platforms/ios/Info.plist` and `platforms/ios/Entitlements.plist` when the feature needs entitlements. Desktop package metadata is target-specific and should be reviewed during packaging because Windows, macOS, and Linux expose different permission and distribution systems.
+
+## Runtime behavior
+
+A provider should return a typed unsupported error when the host cannot perform the operation. It should not silently succeed. That lets reducers show a useful message, hide unsupported controls, or offer another path without guessing from the platform name.
+
+## Guide
+
+Read the [NFC guide](/docs/capabilities/nfc/) for reducer examples and product guidance.

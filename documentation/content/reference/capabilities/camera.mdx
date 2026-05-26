@@ -1,0 +1,44 @@
+---
+title: Camera and flashlight
+description: Reference for the camera and flashlight capability API, provider, operations, and platform configuration.
+---
+
+# Camera and flashlight
+
+The camera capability asks the host for camera availability, permission, still photo capture, and flashlight control where the active device exposes a torch.
+
+## Public API
+
+| Item | Value |
+| --- | --- |
+| Effect helper | `ctx.effects.camera()` |
+| Provider trait or host contract | `CameraHost` |
+| Test provider or test entrypoint | `MemoryCameraHost` |
+| Primary request types | `CameraPermissionRequest / CameraCaptureRequest / CameraFlashlightRequest` |
+| Primary success types | `CameraAvailability / CameraPermission / CameraCapture` |
+| Error type | `CameraError` |
+| CLI value | `camera` |
+
+## Operations
+
+| Method or operation | What it is for |
+| --- | --- |
+| `availability` | Emits or handles the `Camera and flashlight` host operation for this capability. |
+| `request_permission` | Emits or handles the `Camera and flashlight` host operation for this capability. |
+| `capture_photo` | Emits or handles the `Camera and flashlight` host operation for this capability. |
+| `set_flashlight` | Emits or handles the `Camera and flashlight` host operation for this capability. |
+| `cancel_capture` | Emits or handles the `Camera and flashlight` host operation for this capability. |
+
+## Platform configuration
+
+Run `fission add-capability camera --project-dir .`. Android receives camera permission plus optional camera/front/flash feature declarations. iOS receives `NSCameraUsageDescription`. Desktop targets can support cameras through host providers; macOS packaged apps need camera usage text in their app bundle, and Windows packaged apps may need webcam capability metadata.
+
+The CLI records the capability in `fission.toml` when the capability has a CLI value. Generated mobile configuration is written to the platform files that the host target already owns: Android uses `platforms/android/AndroidManifest.xml`; iOS uses `platforms/ios/Info.plist` and `platforms/ios/Entitlements.plist` when the feature needs entitlements. Desktop package metadata is target-specific and should be reviewed during packaging because Windows, macOS, and Linux expose different permission and distribution systems.
+
+## Runtime behavior
+
+A provider should return a typed unsupported error when the host cannot perform the operation. It should not silently succeed. That lets reducers show a useful message, hide unsupported controls, or offer another path without guessing from the platform name.
+
+## Guide
+
+Read the [Camera and flashlight guide](/docs/capabilities/camera/) for reducer examples and product guidance.

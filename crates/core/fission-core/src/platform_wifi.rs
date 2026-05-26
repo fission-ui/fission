@@ -83,6 +83,12 @@ pub struct WifiError {
 }
 
 impl WifiError {
+    /// Creates a portable wi-fi error payload.
+    ///
+    /// `code` should be a stable, machine-readable reason such as
+    /// `unsupported`, `permission_denied`, or `timeout`. `message` should be a
+    /// concise human-readable explanation suitable for logs or developer-facing
+    /// diagnostics.
     pub fn new(code: impl Into<String>, message: impl Into<String>) -> Self {
         Self {
             code: code.into(),
@@ -90,6 +96,11 @@ impl WifiError {
         }
     }
 
+    /// Creates the standard unsupported-operation error for this capability.
+    ///
+    /// `operation` should name the attempted wi-fi operation. Use this
+    /// from hosts that implement the capability contract but cannot provide this
+    /// operation on the current platform or hardware.
     pub fn unsupported(operation: impl Into<String>) -> Self {
         Self::new(
             "unsupported",

@@ -1,0 +1,43 @@
+---
+title: Haptics
+description: Reference for the haptics capability API, provider, operations, and platform configuration.
+---
+
+# Haptics
+
+Haptics ask the host to play tactile feedback for an interaction, notification state, selection movement, or custom vibration pattern.
+
+## Public API
+
+| Item | Value |
+| --- | --- |
+| Effect helper | `ctx.effects.haptics()` |
+| Provider trait or host contract | `HapticHost` |
+| Test provider or test entrypoint | `MemoryHapticHost` |
+| Primary request types | `HapticImpactRequest / HapticNotificationRequest / HapticPatternRequest` |
+| Primary success types | `()` |
+| Error type | `HapticError` |
+| CLI value | `haptics` |
+
+## Operations
+
+| Method or operation | What it is for |
+| --- | --- |
+| `impact` | Emits or handles the `Haptics` host operation for this capability. |
+| `notification` | Emits or handles the `Haptics` host operation for this capability. |
+| `selection` | Emits or handles the `Haptics` host operation for this capability. |
+| `pattern` | Emits or handles the `Haptics` host operation for this capability. |
+
+## Platform configuration
+
+Run `fission add-capability haptics --project-dir .`. Android receives the vibration permission. iOS does not need an Info.plist key for the generated scaffold. Desktop support is limited and hardware-dependent, though game controllers or specialized devices can expose haptic channels through a custom host provider.
+
+The CLI records the capability in `fission.toml` when the capability has a CLI value. Generated mobile configuration is written to the platform files that the host target already owns: Android uses `platforms/android/AndroidManifest.xml`; iOS uses `platforms/ios/Info.plist` and `platforms/ios/Entitlements.plist` when the feature needs entitlements. Desktop package metadata is target-specific and should be reviewed during packaging because Windows, macOS, and Linux expose different permission and distribution systems.
+
+## Runtime behavior
+
+A provider should return a typed unsupported error when the host cannot perform the operation. It should not silently succeed. That lets reducers show a useful message, hide unsupported controls, or offer another path without guessing from the platform name.
+
+## Guide
+
+Read the [Haptics guide](/docs/capabilities/haptics/) for reducer examples and product guidance.

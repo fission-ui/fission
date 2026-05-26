@@ -1,0 +1,44 @@
+---
+title: Volume control
+description: Learn how to use the volume control capability in a Fission app.
+---
+
+# Volume control
+
+Volume control asks the host to read or change an audio stream level such as media, notification, alarm, call, or system volume where the platform allows it.
+
+Use volume control for media-focused products, kiosk devices, alarms, accessibility flows, or dedicated hardware scenarios. Avoid surprising users by changing system-level volume as a side effect of navigation. Prefer controls that clearly show the target stream and resulting level.
+
+## Setup
+
+Start by declaring the capability with `fission add-capability volume-control --project-dir .`. Run `fission add-capability volume-control --project-dir .`. Android receives `MODIFY_AUDIO_SETTINGS`. iOS does not expose general app-controlled system volume in the same way, so support is limited to host-approved media controls. Desktop hosts can map this contract to platform mixer APIs where appropriate.
+
+## Request it from a reducer
+
+Reducers should request volume control work through `ctx.effects`. The reducer records what the app wants, returns control to the runtime, and then receives a typed success or error action when the host finishes.
+
+```rust
+ctx.effects
+    .volume()
+    .set_level(VolumeSetRequest {
+        stream: VolumeStream::Media,
+        level: 65,
+        muted: Some(false),
+    })
+    .on_ok(ctx.effects.bind(VolumeChanged, reduce_with!(on_volume_changed)))
+    .on_err(ctx.effects.bind(VolumeChangeFailed, reduce_with!(on_volume_change_failed)));
+```
+
+The important rule is that the reducer does not call the operating system directly. It emits a capability effect. That keeps the same app logic usable on desktop, web, Android, iOS, and test hosts even when the real platform implementation is different.
+
+## Platform expectations
+
+Android supports stream-oriented volume adjustment. Windows, macOS, and Linux can usually expose media or output-device volume through desktop host providers, though stream names do not always map one-to-one. iOS limits direct system volume control. Web generally cannot set system volume; use element-level media volume in web-only code instead.
+
+Read the [capability matrix](/docs/capabilities/matrix/) when you need a quick cross-platform view. The matrix separates platforms with direct support from platforms where a host provider can be implemented but permissions, hardware, or distribution packaging change the behavior.
+
+## Testing
+
+Use `MemoryVolumeHost` to assert clamping, mute handling, stream selection, and adjust directions. Integration tests should verify unsupported streams return clear errors.
+
+For exact request and response types, provider traits, and generated platform configuration, see the [Volume control reference](/reference/capabilities/volume-control/).

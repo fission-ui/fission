@@ -9,13 +9,18 @@ use std::sync::{Arc, Mutex};
 
 /// Host-side camera and flashlight provider.
 pub trait CameraHost: Send + Sync + 'static {
+    /// Returns camera permission state and host-visible camera devices.
     fn availability(&self) -> Result<CameraAvailability, CameraError>;
+    /// Requests camera permission and returns the resulting permission state.
     fn request_permission(
         &self,
         request: CameraPermissionRequest,
     ) -> Result<CameraPermission, CameraError>;
+    /// Captures a still image according to the selected camera, format, flash, and quality request.
     fn capture_photo(&self, request: CameraCaptureRequest) -> Result<CameraCapture, CameraError>;
+    /// Enables, disables, or adjusts the selected camera flashlight where available.
     fn set_flashlight(&self, request: CameraFlashlightRequest) -> Result<(), CameraError>;
+    /// Cancels an active camera capture flow.
     fn cancel_capture(&self) -> Result<(), CameraError>;
 }
 

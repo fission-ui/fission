@@ -2438,6 +2438,11 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
         self
     }
 
+    /// Registers the host implementation used for notification effects.
+    ///
+    /// `host` receives requests emitted by `ctx.effects.notifications()`. Use
+    /// this to install a real OS/browser notification provider in a shell, or a
+    /// deterministic memory provider in tests.
     pub fn with_notification_host<H>(mut self, host: H) -> Self
     where
         H: NotificationHost,
@@ -2446,6 +2451,11 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
         self
     }
 
+    /// Registers the host implementation used for NFC effects.
+    ///
+    /// `host` owns scanning, writing, emulation, and cancellation. Install a
+    /// provider only for targets or attached reader hardware that can satisfy the
+    /// NFC contract.
     pub fn with_nfc_host<H>(mut self, host: H) -> Self
     where
         H: NfcHost,
@@ -2454,6 +2464,11 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
         self
     }
 
+    /// Registers the host implementation used for biometric authentication effects.
+    ///
+    /// `host` should map Fission requests to the platform local-authentication
+    /// system and return typed errors for missing enrollment, cancellation, or
+    /// unsupported hardware.
     pub fn with_biometric_host<H>(mut self, host: H) -> Self
     where
         H: BiometricHost,
@@ -2462,6 +2477,11 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
         self
     }
 
+    /// Registers the host implementation used for Bluetooth effects.
+    ///
+    /// `host` owns adapter state, permission, scanning, connecting, reads, writes,
+    /// and advertising. Use this boundary to keep platform Bluetooth APIs out of
+    /// shared app reducers.
     pub fn with_bluetooth_host<H>(mut self, host: H) -> Self
     where
         H: BluetoothHost,
@@ -2470,6 +2490,11 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
         self
     }
 
+    /// Registers the host implementation used for barcode scanner effects.
+    ///
+    /// `host` may run live camera scanning, decode supplied image bytes, or both.
+    /// Reducers should rely on this provider instead of depending on a specific
+    /// camera or decoder library.
     pub fn with_barcode_scanner_host<H>(mut self, host: H) -> Self
     where
         H: BarcodeScannerHost,
@@ -2478,6 +2503,11 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
         self
     }
 
+    /// Registers the host implementation used for camera and flashlight effects.
+    ///
+    /// `host` owns camera availability, permission, photo capture, torch control,
+    /// and cancellation. Use memory hosts for tests and real OS providers for
+    /// production shells.
     pub fn with_camera_host<H>(mut self, host: H) -> Self
     where
         H: CameraHost,
@@ -2486,6 +2516,11 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
         self
     }
 
+    /// Registers the host implementation used for clipboard effects.
+    ///
+    /// `host` owns text and typed clipboard access. This is useful for tests,
+    /// custom shells, or platforms where clipboard behavior differs from the
+    /// default desktop provider.
     pub fn with_clipboard_host<H>(mut self, host: H) -> Self
     where
         H: ClipboardHost,
@@ -2494,6 +2529,11 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
         self
     }
 
+    /// Registers the host implementation used for geolocation effects.
+    ///
+    /// `host` owns permission checks and current-position requests. It should map
+    /// Fission accuracy and cache controls to the platform location service where
+    /// available.
     pub fn with_geolocation_host<H>(mut self, host: H) -> Self
     where
         H: GeolocationHost,
@@ -2502,6 +2542,10 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
         self
     }
 
+    /// Registers the host implementation used for haptic feedback effects.
+    ///
+    /// `host` owns impact, notification, selection, and pattern playback. It
+    /// should return unsupported errors on devices without tactile hardware.
     pub fn with_haptic_host<H>(mut self, host: H) -> Self
     where
         H: HapticHost,
@@ -2510,6 +2554,10 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
         self
     }
 
+    /// Registers the host implementation used for microphone effects.
+    ///
+    /// `host` owns input-device availability, permission, bounded recording, and
+    /// cancellation. Keep recording code behind this provider boundary.
     pub fn with_microphone_host<H>(mut self, host: H) -> Self
     where
         H: MicrophoneHost,
@@ -2518,6 +2566,11 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
         self
     }
 
+    /// Registers the host implementation used for Wi-Fi effects.
+    ///
+    /// `host` owns adapter availability, permission, scanning, connection, and
+    /// disconnection. Platform Wi-Fi APIs are permission-sensitive, so unsupported
+    /// and denied states should be reported explicitly.
     pub fn with_wifi_host<H>(mut self, host: H) -> Self
     where
         H: WifiHost,
@@ -2526,6 +2579,11 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
         self
     }
 
+    /// Registers the host implementation used for volume-control effects.
+    ///
+    /// `host` maps Fission volume streams to the platform mixer or media control
+    /// model. It should return unsupported errors when the target cannot expose
+    /// system volume control to apps.
     pub fn with_volume_host<H>(mut self, host: H) -> Self
     where
         H: VolumeHost,
@@ -2539,31 +2597,58 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
         self
     }
 
+    /// Installs the deep-link filter used by this shell.
+    ///
+    /// `config` declares accepted schemes, domains, and path prefixes. The shell
+    /// uses it to classify inbound links before dispatching `DeepLinkReceived`
+    /// actions into the app.
     pub fn with_deep_link_config(mut self, config: DeepLinkConfig) -> Self {
         self.deep_link_config = config;
         self
     }
 
+    /// Adds one accepted custom deep-link scheme.
+    ///
+    /// `scheme` is normalized by `DeepLinkConfig`. Use this for app-specific
+    /// routes such as `myapp://item/123`.
     pub fn with_deep_link_scheme(mut self, scheme: impl Into<String>) -> Self {
         self.deep_link_config = self.deep_link_config.scheme(scheme);
         self
     }
 
+    /// Adds one accepted HTTP or HTTPS deep-link domain.
+    ///
+    /// `domain` is normalized by `DeepLinkConfig`. Use this for verified app
+    /// links, universal links, or web URLs that should enter the app.
     pub fn with_deep_link_domain(mut self, domain: impl Into<String>) -> Self {
         self.deep_link_config = self.deep_link_config.domain(domain);
         self
     }
 
+    /// Queues a deep link to dispatch after the app starts.
+    ///
+    /// Use this from host startup code when the platform launched the app because
+    /// of an external URL. The link is delivered through the normal action path.
     pub fn with_startup_deep_link(mut self, link: DeepLink) -> Self {
         self.startup_deep_links.push(link);
         self
     }
 
+    /// Queues a notification response to dispatch after the app starts.
+    ///
+    /// Use this when a notification action or tap launched the app. The response
+    /// is delivered as `NotificationResponseReceived` through the normal reducer
+    /// path.
     pub fn with_startup_notification_response(mut self, response: NotificationResponse) -> Self {
         self.startup_notification_responses.push(response);
         self
     }
 
+    /// Registers a reducer handler for inbound deep links.
+    ///
+    /// `handler` receives `DeepLinkReceived` actions from startup links and
+    /// runtime host events. Use it to update routing state rather than parsing
+    /// deep links inside widgets.
     pub fn on_deep_link<H>(mut self, handler: H) -> Self
     where
         H: fission_core::registry::IntoHandler<S, DeepLinkReceived> + Send + Sync + 'static,
@@ -2574,6 +2659,11 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
         self
     }
 
+    /// Registers a reducer handler for notification responses.
+    ///
+    /// `handler` receives `NotificationResponseReceived` actions when the user
+    /// taps or acts on a notification. Use it to route the user or process action
+    /// ids in normal app state.
     pub fn on_notification_response<H>(mut self, handler: H) -> Self
     where
         H: fission_core::registry::IntoHandler<S, NotificationResponseReceived>

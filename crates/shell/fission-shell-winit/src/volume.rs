@@ -7,8 +7,11 @@ use std::sync::{Arc, Mutex};
 
 /// Host-side volume-control provider.
 pub trait VolumeHost: Send + Sync + 'static {
+    /// Reads the current level and mute state for one logical volume stream.
     fn get_level(&self, stream: VolumeStream) -> Result<VolumeLevel, VolumeError>;
+    /// Sets the level and optional mute state for one logical volume stream.
     fn set_level(&self, request: VolumeSetRequest) -> Result<VolumeLevel, VolumeError>;
+    /// Adjusts one logical volume stream relative to its current state.
     fn adjust_level(&self, request: VolumeAdjustRequest) -> Result<VolumeLevel, VolumeError>;
 }
 

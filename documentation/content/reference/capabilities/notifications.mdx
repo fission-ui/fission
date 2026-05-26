@@ -1,0 +1,48 @@
+---
+title: Notifications
+description: Reference for the notifications capability API, provider, operations, and platform configuration.
+---
+
+# Notifications
+
+Notifications let an app ask the host to show local notifications, schedule reminders, update an app badge, or register for push delivery without embedding platform notification APIs in shared reducers.
+
+## Public API
+
+| Item | Value |
+| --- | --- |
+| Effect helper | `ctx.effects.notifications()` |
+| Provider trait or host contract | `NotificationHost` |
+| Test provider or test entrypoint | `MemoryNotificationHost` |
+| Primary request types | `NotificationRequest` |
+| Primary success types | `NotificationReceipt` |
+| Error type | `NotificationError` |
+| CLI value | `built into shell setup` |
+
+## Operations
+
+| Method or operation | What it is for |
+| --- | --- |
+| `request_permission` | Emits or handles the `Notifications` host operation for this capability. |
+| `settings` | Emits or handles the `Notifications` host operation for this capability. |
+| `show` | Emits or handles the `Notifications` host operation for this capability. |
+| `schedule` | Emits or handles the `Notifications` host operation for this capability. |
+| `cancel` | Emits or handles the `Notifications` host operation for this capability. |
+| `cancel_all` | Emits or handles the `Notifications` host operation for this capability. |
+| `set_badge_count` | Emits or handles the `Notifications` host operation for this capability. |
+| `register_push` | Emits or handles the `Notifications` host operation for this capability. |
+| `unregister_push` | Emits or handles the `Notifications` host operation for this capability. |
+
+## Platform configuration
+
+Notifications are part of shell setup because categories, push certificates, service workers, URL routes, and app identifiers are product-specific. The CLI does not invent those values. Add the provider in the shell and configure native notification categories, push registration, or browser service-worker files as required by the target you ship.
+
+The CLI records the capability in `fission.toml` when the capability has a CLI value. Generated mobile configuration is written to the platform files that the host target already owns: Android uses `platforms/android/AndroidManifest.xml`; iOS uses `platforms/ios/Info.plist` and `platforms/ios/Entitlements.plist` when the feature needs entitlements. Desktop package metadata is target-specific and should be reviewed during packaging because Windows, macOS, and Linux expose different permission and distribution systems.
+
+## Runtime behavior
+
+A provider should return a typed unsupported error when the host cannot perform the operation. It should not silently succeed. That lets reducers show a useful message, hide unsupported controls, or offer another path without guessing from the platform name.
+
+## Guide
+
+Read the [Notifications guide](/docs/capabilities/notifications/) for reducer examples and product guidance.

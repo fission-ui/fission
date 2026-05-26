@@ -1,0 +1,42 @@
+---
+title: Barcode scanner
+description: Reference for the barcode scanner capability API, provider, operations, and platform configuration.
+---
+
+# Barcode scanner
+
+Barcode scanning lets an app decode QR codes and barcodes either from a live host camera session or from image bytes supplied by the app.
+
+## Public API
+
+| Item | Value |
+| --- | --- |
+| Effect helper | `ctx.effects.barcode_scanner()` |
+| Provider trait or host contract | `BarcodeScannerHost` |
+| Test provider or test entrypoint | `MemoryBarcodeScannerHost` |
+| Primary request types | `BarcodeScanRequest / BarcodeImageDecodeRequest` |
+| Primary success types | `BarcodeScanResults` |
+| Error type | `BarcodeScannerError` |
+| CLI value | `barcode-scanner` |
+
+## Operations
+
+| Method or operation | What it is for |
+| --- | --- |
+| `scan` | Emits or handles the `Barcode scanner` host operation for this capability. |
+| `decode_image` | Emits or handles the `Barcode scanner` host operation for this capability. |
+| `cancel_scan` | Emits or handles the `Barcode scanner` host operation for this capability. |
+
+## Platform configuration
+
+Run `fission add-capability barcode-scanner --project-dir .`. The CLI adds camera permission config because live scanning requires camera access. If the app only decodes existing images, the permission may not be needed on every target, but keeping the capability declaration explicit makes future live scanning safer.
+
+The CLI records the capability in `fission.toml` when the capability has a CLI value. Generated mobile configuration is written to the platform files that the host target already owns: Android uses `platforms/android/AndroidManifest.xml`; iOS uses `platforms/ios/Info.plist` and `platforms/ios/Entitlements.plist` when the feature needs entitlements. Desktop package metadata is target-specific and should be reviewed during packaging because Windows, macOS, and Linux expose different permission and distribution systems.
+
+## Runtime behavior
+
+A provider should return a typed unsupported error when the host cannot perform the operation. It should not silently succeed. That lets reducers show a useful message, hide unsupported controls, or offer another path without guessing from the platform name.
+
+## Guide
+
+Read the [Barcode scanner guide](/docs/capabilities/barcode-scanner/) for reducer examples and product guidance.

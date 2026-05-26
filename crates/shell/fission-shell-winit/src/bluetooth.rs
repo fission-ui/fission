@@ -13,29 +13,38 @@ use std::sync::Arc;
 
 /// Host-side Bluetooth provider.
 pub trait BluetoothHost: Send + Sync + 'static {
+    /// Returns adapter, permission, and Bluetooth mode availability.
     fn availability(&self) -> Result<BluetoothAvailability, BluetoothError>;
+    /// Requests Bluetooth or nearby-device permission from the host.
     fn request_permission(
         &self,
         request: BluetoothPermissionRequest,
     ) -> Result<BluetoothPermission, BluetoothError>;
+    /// Scans for Bluetooth devices matching the supplied filters.
     fn scan_devices(
         &self,
         request: BluetoothScanRequest,
     ) -> Result<BluetoothScanResult, BluetoothError>;
+    /// Connects to a Bluetooth device and returns a connection handle.
     fn connect_device(
         &self,
         request: BluetoothConnectRequest,
     ) -> Result<BluetoothConnection, BluetoothError>;
+    /// Disconnects a previously opened Bluetooth connection.
     fn disconnect_device(&self, request: BluetoothDisconnectRequest) -> Result<(), BluetoothError>;
+    /// Reads bytes from a characteristic on an active connection.
     fn read_characteristic(
         &self,
         request: BluetoothReadRequest,
     ) -> Result<BluetoothReadResult, BluetoothError>;
+    /// Writes bytes to a characteristic on an active connection.
     fn write_characteristic(&self, request: BluetoothWriteRequest) -> Result<(), BluetoothError>;
+    /// Starts Bluetooth advertising where the platform permits it.
     fn start_advertising(
         &self,
         request: BluetoothAdvertiseRequest,
     ) -> Result<BluetoothAdvertiseReceipt, BluetoothError>;
+    /// Stops a previously started Bluetooth advertisement.
     fn stop_advertising(
         &self,
         request: BluetoothStopAdvertiseRequest,

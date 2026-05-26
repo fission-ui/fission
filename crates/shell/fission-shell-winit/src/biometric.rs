@@ -8,11 +8,17 @@ use std::sync::Arc;
 
 /// Host-side biometric provider used by shell capability registration.
 pub trait BiometricHost: Send + Sync + 'static {
+    /// Returns local biometric support, enrollment, strength, and modality state.
     fn availability(&self) -> Result<BiometricAvailability, BiometricError>;
+    /// Prompts the host to verify the current local user.
+    ///
+    /// `request` provides the prompt reason, optional titles, fallback behavior,
+    /// and required strength. The result reports whether verification succeeded.
     fn authenticate(
         &self,
         request: BiometricAuthenticateRequest,
     ) -> Result<BiometricAuthenticateResult, BiometricError>;
+    /// Cancels an active biometric prompt when the platform permits it.
     fn cancel_authentication(&self) -> Result<(), BiometricError>;
 }
 

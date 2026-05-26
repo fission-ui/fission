@@ -1,0 +1,45 @@
+---
+title: NFC
+description: Learn how to use the nfc capability in a Fission app.
+---
+
+# NFC
+
+NFC lets an app read or write nearby tags through the host while keeping tag technologies, NDEF records, prompts, and timeout behavior in typed Rust values.
+
+Use NFC when the user intentionally brings a tag or nearby device to the app: inventory labels, access cards, pairing tags, tap-to-configure hardware, or kiosk workflows. Do not use NFC for background discovery unless the target platform explicitly supports that product flow and the user expectation is clear.
+
+## Setup
+
+Start by declaring the capability with `fission add-capability nfc --project-dir .`. Run `fission add-capability nfc --project-dir .`. Android receives the NFC permission and optional hardware feature. iOS receives the NFC usage description and NFC reader-session entitlement. Desktop operating systems do not provide one consistent built-in NFC surface, so desktop support should be added through a product host provider for the reader hardware you ship.
+
+## Request it from a reducer
+
+Reducers should request nfc work through `ctx.effects`. The reducer records what the app wants, returns control to the runtime, and then receives a typed success or error action when the host finishes.
+
+```rust
+ctx.effects
+    .nfc()
+    .scan_tag(NfcScanRequest {
+        technologies: vec![NfcTechnology::Ndef],
+        message: Some("Hold the tag near the device".into()),
+        timeout_ms: Some(15_000),
+        read_multiple_records: true,
+    })
+    .on_ok(ctx.effects.bind(TagScanned, reduce_with!(on_tag_scanned)))
+    .on_err(ctx.effects.bind(TagScanFailed, reduce_with!(on_tag_scan_failed)));
+```
+
+The important rule is that the reducer does not call the operating system directly. It emits a capability effect. That keeps the same app logic usable on desktop, web, Android, iOS, and test hosts even when the real platform implementation is different.
+
+## Platform expectations
+
+Android and iOS are the primary targets. Android exposes broad NFC reader support on devices with hardware. iOS supports reader sessions within Apple platform rules and requires entitlement configuration. Web NFC is limited to a small browser/device set and should be treated as a separate host-provider decision. Windows, macOS, and Linux usually require external reader SDKs or smart-card stacks rather than a single native API.
+
+Read the [capability matrix](/docs/capabilities/matrix/) when you need a quick cross-platform view. The matrix separates platforms with direct support from platforms where a host provider can be implemented but permissions, hardware, or distribution packaging change the behavior.
+
+## Testing
+
+Use `MemoryNfcHost` with representative `NfcTag` values. Test empty tags, multiple records, timeout errors, unsupported write operations, and cancellation.
+
+For exact request and response types, provider traits, and generated platform configuration, see the [NFC reference](/reference/capabilities/nfc/).

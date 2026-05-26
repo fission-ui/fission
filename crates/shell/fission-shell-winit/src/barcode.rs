@@ -8,11 +8,14 @@ use std::sync::Arc;
 
 /// Host-side barcode scanner provider.
 pub trait BarcodeScannerHost: Send + Sync + 'static {
+    /// Runs a live barcode scanning session and returns decoded results.
     fn scan(&self, request: BarcodeScanRequest) -> Result<BarcodeScanResults, BarcodeScannerError>;
+    /// Decodes barcode results from image bytes supplied by the app.
     fn decode_image(
         &self,
         request: BarcodeImageDecodeRequest,
     ) -> Result<BarcodeScanResults, BarcodeScannerError>;
+    /// Cancels the active live barcode scanning session.
     fn cancel_scan(&self) -> Result<(), BarcodeScannerError>;
 }
 

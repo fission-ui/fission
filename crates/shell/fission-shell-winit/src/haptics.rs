@@ -5,10 +5,15 @@ use fission_core::{
 use fission_shell::async_host::AsyncRegistry;
 use std::sync::{Arc, Mutex};
 
+/// Host-side haptic feedback provider used by shell capability registration.
 pub trait HapticHost: Send + Sync + 'static {
+    /// Plays impact feedback with the requested strength.
     fn impact(&self, request: HapticImpactRequest) -> Result<(), HapticError>;
+    /// Plays success, warning, or error notification feedback.
     fn notification(&self, request: HapticNotificationRequest) -> Result<(), HapticError>;
+    /// Plays lightweight selection-change feedback.
     fn selection(&self) -> Result<(), HapticError>;
+    /// Plays a bounded custom haptic pattern.
     fn pattern(&self, request: HapticPatternRequest) -> Result<(), HapticError>;
 }
 

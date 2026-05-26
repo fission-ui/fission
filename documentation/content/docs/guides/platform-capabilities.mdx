@@ -23,23 +23,27 @@ fission add-capability camera microphone geolocation --project-dir .
 
 The command records the capabilities in `fission.toml` and updates generated platform config where Fission can do that safely. If a platform requires manual setup, app-store configuration, or a paid developer entitlement, the generated README and this guide call that out instead of hiding it.
 
+Desktop targets are part of the same model. Windows and macOS expose many of the same device features that Android and iOS do, while Linux support often depends on the desktop environment, portals, and installed services. Fission records the capability once in `fission.toml`; mobile scaffolds update their platform files immediately, and macOS packaging uses the same capability list to write usage descriptions into the packaged app's `Contents/Info.plist` where the operating system expects them.
+
 ## Current built-in capabilities
 
-| Capability | Use it for | CLI value | Android config | iOS config |
+| Capability | Use it for | CLI value | Mobile config | Desktop and web notes |
 | --- | --- | --- | --- | --- |
-| Notifications | Permission checks, local notification display, cancellation, badge updates, push registration hooks | Built into shell setup | App-specific notification setup is host/provider-owned | App-specific notification setup is host/provider-owned |
-| Deep links | Cold-start and runtime link delivery into typed actions | Built into shell setup | Intent filters are app-route-specific and belong in target config | URL schemes and associated domains are app-route-specific and belong in target config |
-| NFC | Read/write/emulate NFC tags where the host supports it | `nfc` | `android.permission.NFC`, optional NFC hardware feature | `NFCReaderUsageDescription`, NFC reader-session entitlement |
-| Biometric auth | Ask the host to authenticate the user with available biometrics | `biometric` | `USE_BIOMETRIC`, legacy `USE_FINGERPRINT` for older Android | `NSFaceIDUsageDescription` |
-| Barcode scanner | Scan or decode QR/barcode content | `barcode-scanner` | `CAMERA`, optional camera feature | `NSCameraUsageDescription` |
-| Camera and flashlight | Camera availability, permission, photo capture, torch control | `camera` | `CAMERA`, optional camera/front/flash features | `NSCameraUsageDescription` |
-| Clipboard | Read/write text and typed clipboard content | none required | none generated | none generated |
-| Geolocation | Permission checks and current-position requests | `geolocation` | `ACCESS_COARSE_LOCATION`, `ACCESS_FINE_LOCATION` | `NSLocationWhenInUseUsageDescription` |
-| Haptics | Impact, notification, selection, and pattern feedback | `haptics` | `VIBRATE` | none generated |
-| Microphone | Permission checks and bounded audio capture | `microphone` | `RECORD_AUDIO` | `NSMicrophoneUsageDescription` |
-| Bluetooth | Scan, connect, read/write characteristics, advertise | `bluetooth` | Android 12+ Bluetooth permissions, legacy Bluetooth permissions, optional Bluetooth features | `NSBluetoothAlwaysUsageDescription` |
-| Wi-Fi | Availability, scan, connect, disconnect | `wifi` | Wi-Fi/network permissions, Android 13+ nearby Wi-Fi, pre-Android 13 fine location, optional Wi-Fi features | Wi-Fi information and hotspot entitlements, location usage description where required |
-| Volume control | Query, set, and adjust host volume streams | `volume-control` | `MODIFY_AUDIO_SETTINGS` | none generated |
+| [Notifications](/docs/capabilities/notifications/) | Permission checks, local notification display, cancellation, badge updates, push registration hooks | Built into shell setup | App-specific categories, push identifiers, and permission setup are host/provider-owned | Windows and macOS have native notification systems, Linux depends on the desktop notification stack, web usually needs browser permission and a service worker for push |
+| [Deep links](/docs/capabilities/deep-links/) | Cold-start and runtime link delivery into typed actions | Built into shell setup | Android intent filters, iOS URL schemes, and associated domains are product-route-specific | Windows and macOS can register schemes during packaging, Linux support depends on desktop registration, web/static sites use real generated routes |
+| [NFC](/docs/capabilities/nfc/) | Read/write/emulate NFC tags where the host supports it | `nfc` | Android NFC permission and feature, iOS usage description and NFC entitlement | Desktop support usually requires specific reader hardware or smart-card stacks; web NFC is limited to a small browser/device set |
+| [Biometrics](/docs/capabilities/biometrics/) | Ask the host to authenticate the current local user | `biometric` | Android biometric permissions, iOS Face ID usage description | Windows and macOS support local authentication through host providers; web fingerprint prompts are normally passkeys/WebAuthn, not direct biometric access |
+| [Barcode scanner](/docs/capabilities/barcode-scanner/) | Scan or decode QR/barcode content | `barcode-scanner` | Camera permission and usage text | Desktop and web can scan through camera providers or decode existing images; Linux camera behavior depends on the media stack |
+| [Camera and flashlight](/docs/capabilities/camera/) | Camera availability, permission, photo capture, torch control | `camera` | Android camera permission/features, iOS camera usage description | Windows, macOS, and web have camera APIs; Linux depends on camera devices, portals, and desktop permissions |
+| [Clipboard](/docs/capabilities/clipboard/) | Read/write text and typed clipboard content | none required | none generated | Broadly supported on desktop and web, but web browsers often require secure origins and user gestures |
+| [Geolocation](/docs/capabilities/geolocation/) | Permission checks and current-position requests | `geolocation` | Android coarse/fine location, iOS when-in-use location usage description | Windows, macOS, and web can expose location services; Linux support varies by desktop service and hardware |
+| [Haptics](/docs/capabilities/haptics/) | Impact, notification, selection, and pattern feedback | `haptics` | Android vibration permission, no iOS plist key | Primarily mobile; desktop support is hardware-specific, such as controller rumble or specialized devices |
+| [Microphone](/docs/capabilities/microphone/) | Permission checks and bounded audio capture | `microphone` | Android audio recording permission, iOS microphone usage description | Windows, macOS, and web have microphone APIs; Linux depends on audio server and portal configuration |
+| [Bluetooth](/docs/capabilities/bluetooth/) | Scan, connect, read/write characteristics, advertise | `bluetooth` | Android Bluetooth permissions/features, iOS Bluetooth usage description | Windows and macOS have native Bluetooth stacks, Linux commonly uses BlueZ, web support is browser-limited |
+| [Wi-Fi](/docs/capabilities/wifi/) | Availability, scan, connect, disconnect | `wifi` | Android Wi-Fi/network/nearby-device permissions, iOS Wi-Fi entitlements and location usage text | Desktop Wi-Fi support is provider-driven; web has no general Wi-Fi scan/connect API |
+| [Volume control](/docs/capabilities/volume-control/) | Query, set, and adjust host volume streams | `volume-control` | Android audio settings permission, no general iOS system-volume control | Windows, macOS, and Linux can map to host mixer APIs; web should use media element volume rather than system volume |
+
+For a compact cross-platform view, use the [Capability matrix](/docs/capabilities/matrix/).
 
 ## Request work from a reducer
 

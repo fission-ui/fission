@@ -1,0 +1,45 @@
+---
+title: Microphone
+description: Learn how to use the microphone capability in a Fission app.
+---
+
+# Microphone
+
+The microphone capability asks the host for input-device availability, permission, and bounded audio capture.
+
+Use microphone capture for voice notes, audio evidence, dictation handoff, diagnostics, or short product-specific recordings. Keep captures bounded by duration or an explicit stop action. Do not start recording from `build()` or from hidden state changes.
+
+## Setup
+
+Start by declaring the capability with `fission add-capability microphone --project-dir .`. Run `fission add-capability microphone --project-dir .`. Android receives `RECORD_AUDIO`. iOS receives `NSMicrophoneUsageDescription`. macOS packaged apps also need microphone usage text, and Windows packaged apps may need microphone capability metadata.
+
+## Request it from a reducer
+
+Reducers should request microphone work through `ctx.effects`. The reducer records what the app wants, returns control to the runtime, and then receives a typed success or error action when the host finishes.
+
+```rust
+ctx.effects
+    .microphone()
+    .capture_audio(MicrophoneCaptureRequest {
+        duration_ms: 5_000,
+        sample_rate_hz: Some(48_000),
+        channels: Some(1),
+        ..Default::default()
+    })
+    .on_ok(ctx.effects.bind(AudioCaptured, reduce_with!(on_audio_captured)))
+    .on_err(ctx.effects.bind(AudioCaptureFailed, reduce_with!(on_audio_capture_failed)));
+```
+
+The important rule is that the reducer does not call the operating system directly. It emits a capability effect. That keeps the same app logic usable on desktop, web, Android, iOS, and test hosts even when the real platform implementation is different.
+
+## Platform expectations
+
+Android, iOS, web, Windows, and macOS have microphone APIs with explicit permission prompts. Linux support depends on audio servers, portals, and device configuration. Browser microphone access requires secure origins.
+
+Read the [capability matrix](/docs/capabilities/matrix/) when you need a quick cross-platform view. The matrix separates platforms with direct support from platforms where a host provider can be implemented but permissions, hardware, or distribution packaging change the behavior.
+
+## Testing
+
+Use `MemoryMicrophoneHost` with deterministic byte payloads. Test permission denial, no input devices, unsupported sample formats, cancellation, and max-duration behavior.
+
+For exact request and response types, provider traits, and generated platform configuration, see the [Microphone reference](/reference/capabilities/microphone/).

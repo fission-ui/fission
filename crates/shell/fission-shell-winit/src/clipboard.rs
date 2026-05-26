@@ -53,10 +53,15 @@ impl Clipboard for DesktopClipboard {
 
 /// Host-side clipboard provider used by shell capability registration.
 pub trait ClipboardHost: Send + Sync + 'static {
+    /// Reads plain text from the host clipboard.
     fn read_text(&self) -> Result<ClipboardText, ClipboardError>;
+    /// Writes plain text to the host clipboard.
     fn write_text(&self, request: ClipboardWriteTextRequest) -> Result<(), ClipboardError>;
+    /// Reads typed clipboard items from the host clipboard.
     fn read_content(&self) -> Result<ClipboardContent, ClipboardError>;
+    /// Writes typed clipboard items to the host clipboard.
     fn write_content(&self, request: ClipboardContent) -> Result<(), ClipboardError>;
+    /// Clears clipboard content when the host allows apps to do that.
     fn clear(&self) -> Result<(), ClipboardError>;
 }
 

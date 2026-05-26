@@ -8,10 +8,18 @@ use std::sync::Arc;
 
 /// Host-side NFC provider used by shell capability registration.
 pub trait NfcHost: Send + Sync + 'static {
+    /// Returns NFC support, enabled state, and supported operation modes.
     fn availability(&self) -> Result<NfcAvailability, NfcError>;
+    /// Starts a read session and returns the first matching NFC tag.
+    ///
+    /// `request` carries technology filters, prompt text, timeout, and record
+    /// collection behavior.
     fn scan_tag(&self, request: NfcScanRequest) -> Result<NfcTag, NfcError>;
+    /// Starts a write session for the supplied NFC records.
     fn write_tag(&self, request: NfcWriteRequest) -> Result<NfcSessionReceipt, NfcError>;
+    /// Starts card emulation for hosts and hardware that support it.
     fn emulate_tag(&self, request: NfcEmulationRequest) -> Result<NfcSessionReceipt, NfcError>;
+    /// Cancels the active NFC scan, write, or emulation session.
     fn cancel_session(&self) -> Result<(), NfcError>;
 }
 

@@ -6,12 +6,16 @@ use fission_core::{
 use fission_shell::async_host::AsyncRegistry;
 use std::sync::Arc;
 
+/// Host-side geolocation provider used by shell capability registration.
 pub trait GeolocationHost: Send + Sync + 'static {
+    /// Returns the current location permission state without showing a prompt.
     fn permission(&self) -> Result<GeolocationPermission, GeolocationError>;
+    /// Requests location permission with precision and background preferences.
     fn request_permission(
         &self,
         request: GeolocationPermissionRequest,
     ) -> Result<GeolocationPermission, GeolocationError>;
+    /// Returns the current position according to accuracy, timeout, and cache rules.
     fn current_position(
         &self,
         request: GeolocationPositionRequest,

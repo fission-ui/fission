@@ -1,0 +1,42 @@
+---
+title: Volume control
+description: Reference for the volume control capability API, provider, operations, and platform configuration.
+---
+
+# Volume control
+
+Volume control asks the host to read or change an audio stream level such as media, notification, alarm, call, or system volume where the platform allows it.
+
+## Public API
+
+| Item | Value |
+| --- | --- |
+| Effect helper | `ctx.effects.volume()` |
+| Provider trait or host contract | `VolumeHost` |
+| Test provider or test entrypoint | `MemoryVolumeHost` |
+| Primary request types | `VolumeStream / VolumeSetRequest / VolumeAdjustRequest` |
+| Primary success types | `VolumeLevel` |
+| Error type | `VolumeError` |
+| CLI value | `volume-control` |
+
+## Operations
+
+| Method or operation | What it is for |
+| --- | --- |
+| `get_level` | Emits or handles the `Volume control` host operation for this capability. |
+| `set_level` | Emits or handles the `Volume control` host operation for this capability. |
+| `adjust_level` | Emits or handles the `Volume control` host operation for this capability. |
+
+## Platform configuration
+
+Run `fission add-capability volume-control --project-dir .`. Android receives `MODIFY_AUDIO_SETTINGS`. iOS does not expose general app-controlled system volume in the same way, so support is limited to host-approved media controls. Desktop hosts can map this contract to platform mixer APIs where appropriate.
+
+The CLI records the capability in `fission.toml` when the capability has a CLI value. Generated mobile configuration is written to the platform files that the host target already owns: Android uses `platforms/android/AndroidManifest.xml`; iOS uses `platforms/ios/Info.plist` and `platforms/ios/Entitlements.plist` when the feature needs entitlements. Desktop package metadata is target-specific and should be reviewed during packaging because Windows, macOS, and Linux expose different permission and distribution systems.
+
+## Runtime behavior
+
+A provider should return a typed unsupported error when the host cannot perform the operation. It should not silently succeed. That lets reducers show a useful message, hide unsupported controls, or offer another path without guessing from the platform name.
+
+## Guide
+
+Read the [Volume control guide](/docs/capabilities/volume-control/) for reducer examples and product guidance.

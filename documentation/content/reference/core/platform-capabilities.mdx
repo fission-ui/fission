@@ -19,20 +19,23 @@ Platform capabilities are typed host contracts. Shared app code uses `ctx.effect
 
 ## Built-in groups
 
-| Group | Effect helper | Provider trait | Test provider |
-| --- | --- | --- | --- |
-| Notifications | `effects.notifications()` | `NotificationHost` | `MemoryNotificationHost` |
-| NFC | `effects.nfc()` | `NfcHost` | `MemoryNfcHost` |
-| Biometrics | `effects.biometrics()` | `BiometricHost` | `MemoryBiometricHost` |
-| Barcode scanner | `effects.barcode_scanner()` | `BarcodeScannerHost` | `MemoryBarcodeScannerHost` |
-| Camera and flashlight | `effects.camera()` | `CameraHost` | `MemoryCameraHost` |
-| Clipboard | `effects.clipboard()` | `ClipboardHost` | `MemoryClipboardHost` |
-| Geolocation | `effects.geolocation()` | `GeolocationHost` | `MemoryGeolocationHost` |
-| Haptics | `effects.haptics()` | `HapticHost` | `MemoryHapticHost` |
-| Microphone | `effects.microphone()` | `MicrophoneHost` | `MemoryMicrophoneHost` |
-| Bluetooth | `effects.bluetooth()` | `BluetoothHost` | `MemoryBluetoothHost` |
-| Wi-Fi | `effects.wifi()` | `WifiHost` | `MemoryWifiHost` |
-| Volume control | `effects.volume()` | `VolumeHost` | `MemoryVolumeHost` |
+| Group | Effect helper | Provider trait | Test provider | Detailed reference |
+| --- | --- | --- | --- | --- |
+| Notifications | `effects.notifications()` | `NotificationHost` | `MemoryNotificationHost` | [Notifications](/reference/capabilities/notifications/) |
+| Deep links | `DeepLinkReceived` | `DeepLinkConfig` | action-envelope tests | [Deep links](/reference/capabilities/deep-links/) |
+| NFC | `effects.nfc()` | `NfcHost` | `MemoryNfcHost` | [NFC](/reference/capabilities/nfc/) |
+| Biometrics | `effects.biometrics()` | `BiometricHost` | `MemoryBiometricHost` | [Biometrics](/reference/capabilities/biometrics/) |
+| Barcode scanner | `effects.barcode_scanner()` | `BarcodeScannerHost` | `MemoryBarcodeScannerHost` | [Barcode scanner](/reference/capabilities/barcode-scanner/) |
+| Camera and flashlight | `effects.camera()` | `CameraHost` | `MemoryCameraHost` | [Camera and flashlight](/reference/capabilities/camera/) |
+| Clipboard | `effects.clipboard()` | `ClipboardHost` | `MemoryClipboardHost` | [Clipboard](/reference/capabilities/clipboard/) |
+| Geolocation | `effects.geolocation()` | `GeolocationHost` | `MemoryGeolocationHost` | [Geolocation](/reference/capabilities/geolocation/) |
+| Haptics | `effects.haptics()` | `HapticHost` | `MemoryHapticHost` | [Haptics](/reference/capabilities/haptics/) |
+| Microphone | `effects.microphone()` | `MicrophoneHost` | `MemoryMicrophoneHost` | [Microphone](/reference/capabilities/microphone/) |
+| Bluetooth | `effects.bluetooth()` | `BluetoothHost` | `MemoryBluetoothHost` | [Bluetooth](/reference/capabilities/bluetooth/) |
+| Wi-Fi | `effects.wifi()` | `WifiHost` | `MemoryWifiHost` | [Wi-Fi](/reference/capabilities/wifi/) |
+| Volume control | `effects.volume()` | `VolumeHost` | `MemoryVolumeHost` | [Volume control](/reference/capabilities/volume-control/) |
+
+Use the [Capability matrix](/reference/capabilities/matrix/) to compare platform support across web, Windows, macOS, Linux, Android, and iOS.
 
 ## CLI-supported platform config
 
@@ -59,6 +62,7 @@ Clipboard has no generated platform config. Notifications and deep links are bui
 | `platforms/android/AndroidManifest.xml` | Android | Declares permissions and optional hardware features |
 | `platforms/ios/Info.plist` | iOS | Declares user-facing usage descriptions for permission prompts |
 | `platforms/ios/Entitlements.plist` | iOS | Declares capabilities that Apple gates through entitlements |
+| packaged app `Contents/Info.plist` | macOS | Declares usage descriptions for packaged desktop apps when a capability needs camera, microphone, location, Bluetooth, or barcode camera access |
 
 ## Provider failure behavior
 
