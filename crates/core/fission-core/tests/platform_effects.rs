@@ -12,6 +12,7 @@ use fission_core::{GeolocationPositionRequest, GET_CURRENT_POSITION};
 use fission_core::{HapticImpactRequest, HapticImpactStyle, HAPTIC_IMPACT};
 use fission_core::{MicrophoneCaptureRequest, CAPTURE_MICROPHONE_AUDIO};
 use fission_core::{NfcRecord, NfcScanRequest, NfcTechnology, SCAN_NFC_TAG};
+use fission_core::{WifiScanRequest, SCAN_WIFI_NETWORKS};
 
 #[derive(Debug, Default)]
 struct TestState;
@@ -264,4 +265,25 @@ fn microphone_convenience_builder_emits_capability_effect() {
     assert_eq!(op.capability_name, CAPTURE_MICROPHONE_AUDIO.name);
     let decoded: MicrophoneCaptureRequest = serde_json::from_slice(&op.request).unwrap();
     assert_eq!(decoded.duration_ms, 2_500);
+}
+
+#[test]
+fn wifi_convenience_builder_emits_capability_effect() {
+    let mut registry = ActionRegistry::<TestState>::new();
+    let mut effects = Effects::new(31, &mut registry);
+
+    effects.wifi().scan_networks(WifiScanRequest {
+        ssid_prefix: Some("Fis".into()),
+        ..Default::default()
+    });
+
+    assert_eq!(effects.out.len(), 1);
+    assert_eq!(effects.out[0].req_id, 31);
+    let Effect::Capability(CapabilityInvocationPayload::Operation(op)) = &effects.out[0].effect
+    else {
+        panic!("expected Wi-Fi capability effect");
+    };
+    assert_eq!(op.capability_name, SCAN_WIFI_NETWORKS.name);
+    let decoded: WifiScanRequest = serde_json::from_slice(&op.request).unwrap();
+    assert_eq!(decoded.ssid_prefix.as_deref(), Some("Fis"));
 }

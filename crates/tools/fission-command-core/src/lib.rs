@@ -31,6 +31,7 @@ pub enum PlatformCapability {
     Haptics,
     Microphone,
     Nfc,
+    Wifi,
 }
 
 impl PlatformCapability {
@@ -44,6 +45,7 @@ impl PlatformCapability {
             Self::Haptics => "haptics",
             Self::Microphone => "microphone",
             Self::Nfc => "nfc",
+            Self::Wifi => "wifi",
         }
     }
 }
@@ -392,6 +394,9 @@ fn apply_android_capability_config(root: &Path, project: &FissionProject) -> Res
     {
         capabilities.push_str(&render_android_microphone_manifest_entries());
     }
+    if project.capabilities.contains(&PlatformCapability::Wifi) {
+        capabilities.push_str(&render_missing_android_wifi_manifest_entries(&existing));
+    }
     if capabilities.is_empty() {
         return Ok(());
     }
@@ -518,7 +523,48 @@ fn apply_ios_capability_config(root: &Path, project: &FissionProject) -> Result<
                 .with_context(|| format!("failed to write {}", info_path.display()))?;
         }
     }
+    if project.capabilities.contains(&PlatformCapability::Wifi) && info_path.exists() {
+        let existing = fs::read_to_string(&info_path)
+            .with_context(|| format!("failed to read {}", info_path.display()))?;
+        if !existing.contains("NSLocationWhenInUseUsageDescription") {
+            let entry = "  <key>NSLocationWhenInUseUsageDescription</key>\n  <string>This app uses location permission where the platform requires it for Wi-Fi information.</string>\n";
+            let updated = existing.replacen("</dict>", &format!("{entry}</dict>"), 1);
+            fs::write(&info_path, updated)
+                .with_context(|| format!("failed to write {}", info_path.display()))?;
+        }
+    }
+    if project.capabilities.contains(&PlatformCapability::Wifi) {
+        let entitlements_path = root.join("platforms/ios/Entitlements.plist");
+        apply_ios_wifi_entitlements(&entitlements_path)?;
+    }
     Ok(())
+}
+
+fn apply_ios_wifi_entitlements(path: &Path) -> Result<()> {
+    if path.exists() {
+        let existing = fs::read_to_string(path)
+            .with_context(|| format!("failed to read {}", path.display()))?;
+        let mut entry = String::new();
+        if !existing.contains("com.apple.developer.networking.wifi-info") {
+            entry.push_str("  <key>com.apple.developer.networking.wifi-info</key>\n  <true/>\n");
+        }
+        if !existing.contains("com.apple.developer.networking.HotspotConfiguration") {
+            entry.push_str(
+                "  <key>com.apple.developer.networking.HotspotConfiguration</key>\n  <true/>\n",
+            );
+        }
+        if entry.is_empty() {
+            return Ok(());
+        }
+        let updated = existing.replacen("</dict>", &format!("{entry}</dict>"), 1);
+        fs::write(path, updated).with_context(|| format!("failed to write {}", path.display()))?;
+        return Ok(());
+    }
+    write_file_with_policy(
+        path,
+        IOS_WIFI_ENTITLEMENTS_PLIST,
+        WritePolicy::PreserveExisting,
+    )
 }
 
 fn target_scaffold_dir_exists(project_dir: &Path, target: Target) -> bool {
@@ -671,6 +717,7 @@ fn scaffold_target_with_policy(
                     "Run `fission add-capability geolocation --project-dir .` to add location permissions.",
                     "Run `fission add-capability haptics --project-dir .` to add the vibration permission.",
                     "Run `fission add-capability microphone --project-dir .` to add audio recording permission.",
+                    "Run `fission add-capability wifi --project-dir .` to add Wi-Fi permissions and optional hardware feature declarations.",
                     "Set `FISSION_TEST_CONTROL_PORT=<host-port>` before `run-emulator.sh`; the script forwards it to the fixed in-app device port.",
                 ],
             )
@@ -697,6 +744,7 @@ fn scaffold_target_with_policy(
                     "Run `fission add-capability camera --project-dir .` to add the camera usage description.",
                     "Run `fission add-capability geolocation --project-dir .` to add the location usage description.",
                     "Run `fission add-capability microphone --project-dir .` to add the microphone usage description.",
+                    "Run `fission add-capability wifi --project-dir .` to add Wi-Fi entitlements and the location usage description required by current-network information APIs.",
                     "Haptics do not require an iOS Info.plist key in the generated scaffold.",
                     "Set `FISSION_TEST_CONTROL_PORT=<port>` before `run-sim.sh` to expose the in-app test control server on the host.",
                     "Set `IOS_SIM_DEVICE_ID=<udid>` if you want a specific simulator device.",
@@ -775,10 +823,12 @@ fn scaffold_ios_bundle(
     let test_script = render_ios_test_script();
 
     write_file_with_policy(&root.join("platforms/ios/Info.plist"), &plist, write_policy)?;
-    if project.capabilities.contains(&PlatformCapability::Nfc) {
+    if project.capabilities.contains(&PlatformCapability::Nfc)
+        || project.capabilities.contains(&PlatformCapability::Wifi)
+    {
         write_file_with_policy(
             &root.join("platforms/ios/Entitlements.plist"),
-            IOS_NFC_ENTITLEMENTS_PLIST,
+            &render_ios_entitlements_plist(project),
             write_policy,
         )?;
     }
@@ -1006,7 +1056,7 @@ fn render_project_readme(project: &FissionProject) -> String {
         targets.push_str(&format!("- `{}`\n", target.as_str()));
     }
     format!(
-        "# {}\n\nGenerated by `fission init`.\n\n## Targets\n\n{}\n## Commands\n\n- `fission doctor --project-dir .` -- check local SDKs, browsers, emulators, and Rust targets\n- `fission devices --project-dir .` -- list runnable desktop, browser, simulator, emulator, and device targets\n- `fission run --project-dir .` -- launch the desktop app and attach to output\n- `fission run --target web --project-dir .` -- launch the web app and attach to the local server\n- `fission run --target ios --project-dir .` -- build, install, launch, and attach to simulator logs\n- `fission run --target android --project-dir .` -- build, install, launch, and attach to Android logs\n- `fission run --target <target> --device <id> --detach --project-dir .` -- launch without attaching\n- `fission logs --target <target> --device <id> --project-dir . --follow` -- attach later where supported\n- `fission build --target <target> --project-dir . --release` -- build a target without launching it\n- `fission test --target <target> --project-dir .` -- run the generated platform smoke test\n- `fission add-target web ios android --project-dir .` -- scaffold more targets\n- `fission add-capability nfc biometric bluetooth barcode-scanner camera geolocation haptics microphone --project-dir .` -- declare host capabilities and update platform config where possible\n- `cat platforms/<target>/README.md` -- inspect target-specific prerequisites and environment variables\n\n## Assets\n\n- `assets/app-icon.png` is the default app icon seed copied from Fission's `docs/fission_logo.png`\n\n## Status\n\nDesktop, web, iOS simulator, and Android emulator workflows are runnable through `fission run`. The platform scripts remain checked in so CI and advanced users can call the lower-level build, run, and smoke-test steps directly when needed.\n",
+        "# {}\n\nGenerated by `fission init`.\n\n## Targets\n\n{}\n## Commands\n\n- `fission doctor --project-dir .` -- check local SDKs, browsers, emulators, and Rust targets\n- `fission devices --project-dir .` -- list runnable desktop, browser, simulator, emulator, and device targets\n- `fission run --project-dir .` -- launch the desktop app and attach to output\n- `fission run --target web --project-dir .` -- launch the web app and attach to the local server\n- `fission run --target ios --project-dir .` -- build, install, launch, and attach to simulator logs\n- `fission run --target android --project-dir .` -- build, install, launch, and attach to Android logs\n- `fission run --target <target> --device <id> --detach --project-dir .` -- launch without attaching\n- `fission logs --target <target> --device <id> --project-dir . --follow` -- attach later where supported\n- `fission build --target <target> --project-dir . --release` -- build a target without launching it\n- `fission test --target <target> --project-dir .` -- run the generated platform smoke test\n- `fission add-target web ios android --project-dir .` -- scaffold more targets\n- `fission add-capability nfc biometric bluetooth barcode-scanner camera geolocation haptics microphone wifi --project-dir .` -- declare host capabilities and update platform config where possible\n- `cat platforms/<target>/README.md` -- inspect target-specific prerequisites and environment variables\n\n## Assets\n\n- `assets/app-icon.png` is the default app icon seed copied from Fission's `docs/fission_logo.png`\n\n## Status\n\nDesktop, web, iOS simulator, and Android emulator workflows are runnable through `fission run`. The platform scripts remain checked in so CI and advanced users can call the lower-level build, run, and smoke-test steps directly when needed.\n",
         project.app.name, targets
     )
 }
@@ -1148,6 +1198,13 @@ fn render_ios_info_plist_capability_entries(project: &FissionProject) -> String 
         .contains(&PlatformCapability::Microphone)
     {
         out.push_str("  <key>NSMicrophoneUsageDescription</key>\n  <string>This app uses the microphone when you request audio capture.</string>\n");
+    }
+    if project.capabilities.contains(&PlatformCapability::Wifi)
+        && !project
+            .capabilities
+            .contains(&PlatformCapability::Geolocation)
+    {
+        out.push_str("  <key>NSLocationWhenInUseUsageDescription</key>\n  <string>This app uses location permission where the platform requires it for Wi-Fi information.</string>\n");
     }
     out
 }
@@ -1391,6 +1448,9 @@ fn render_android_capability_manifest_entries(project: &FissionProject) -> Strin
     {
         out.push_str(&render_android_microphone_manifest_entries());
     }
+    if project.capabilities.contains(&PlatformCapability::Wifi) {
+        out.push_str(&render_android_wifi_manifest_entries());
+    }
     out
 }
 
@@ -1536,6 +1596,84 @@ fn render_android_microphone_manifest_entries() -> String {
     "    <uses-permission android:name=\"android.permission.RECORD_AUDIO\" />\n".to_string()
 }
 
+fn render_android_wifi_manifest_entries() -> String {
+    let mut out = String::new();
+    out.push_str("    <uses-permission android:name=\"android.permission.ACCESS_WIFI_STATE\" />\n");
+    out.push_str("    <uses-permission android:name=\"android.permission.CHANGE_WIFI_STATE\" />\n");
+    out.push_str(
+        "    <uses-permission android:name=\"android.permission.ACCESS_NETWORK_STATE\" />\n",
+    );
+    out.push_str(
+        "    <uses-permission android:name=\"android.permission.CHANGE_NETWORK_STATE\" />\n",
+    );
+    out.push_str("    <uses-permission android:name=\"android.permission.NEARBY_WIFI_DEVICES\" android:usesPermissionFlags=\"neverForLocation\" />\n");
+    out.push_str("    <uses-permission android:name=\"android.permission.ACCESS_FINE_LOCATION\" android:maxSdkVersion=\"32\" />\n");
+    out.push_str(
+        "    <uses-feature android:name=\"android.hardware.wifi\" android:required=\"false\" />\n",
+    );
+    out.push_str(
+        "    <uses-feature android:name=\"android.hardware.wifi.direct\" android:required=\"false\" />\n",
+    );
+    out
+}
+
+fn render_missing_android_wifi_manifest_entries(existing: &str) -> String {
+    let mut out = String::new();
+    if !existing.contains("android.permission.ACCESS_WIFI_STATE") {
+        out.push_str(
+            "    <uses-permission android:name=\"android.permission.ACCESS_WIFI_STATE\" />\n",
+        );
+    }
+    if !existing.contains("android.permission.CHANGE_WIFI_STATE") {
+        out.push_str(
+            "    <uses-permission android:name=\"android.permission.CHANGE_WIFI_STATE\" />\n",
+        );
+    }
+    if !existing.contains("android.permission.ACCESS_NETWORK_STATE") {
+        out.push_str(
+            "    <uses-permission android:name=\"android.permission.ACCESS_NETWORK_STATE\" />\n",
+        );
+    }
+    if !existing.contains("android.permission.CHANGE_NETWORK_STATE") {
+        out.push_str(
+            "    <uses-permission android:name=\"android.permission.CHANGE_NETWORK_STATE\" />\n",
+        );
+    }
+    if !existing.contains("android.permission.NEARBY_WIFI_DEVICES") {
+        out.push_str("    <uses-permission android:name=\"android.permission.NEARBY_WIFI_DEVICES\" android:usesPermissionFlags=\"neverForLocation\" />\n");
+    }
+    if !existing.contains("android.permission.ACCESS_FINE_LOCATION") {
+        out.push_str("    <uses-permission android:name=\"android.permission.ACCESS_FINE_LOCATION\" android:maxSdkVersion=\"32\" />\n");
+    }
+    if !existing.contains("android.hardware.wifi\"") {
+        out.push_str(
+            "    <uses-feature android:name=\"android.hardware.wifi\" android:required=\"false\" />\n",
+        );
+    }
+    if !existing.contains("android.hardware.wifi.direct") {
+        out.push_str(
+            "    <uses-feature android:name=\"android.hardware.wifi.direct\" android:required=\"false\" />\n",
+        );
+    }
+    out
+}
+
+fn render_ios_entitlements_plist(project: &FissionProject) -> String {
+    let mut entries = String::new();
+    if project.capabilities.contains(&PlatformCapability::Nfc) {
+        entries.push_str("  <key>com.apple.developer.nfc.readersession.formats</key>\n  <array>\n    <string>NDEF</string>\n  </array>\n");
+    }
+    if project.capabilities.contains(&PlatformCapability::Wifi) {
+        entries.push_str("  <key>com.apple.developer.networking.wifi-info</key>\n  <true/>\n");
+        entries.push_str(
+            "  <key>com.apple.developer.networking.HotspotConfiguration</key>\n  <true/>\n",
+        );
+    }
+    format!(
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n<plist version=\"1.0\">\n<dict>\n{entries}</dict>\n</plist>\n"
+    )
+}
+
 const IOS_NFC_ENTITLEMENTS_PLIST: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -1544,6 +1682,18 @@ const IOS_NFC_ENTITLEMENTS_PLIST: &str = r#"<?xml version="1.0" encoding="UTF-8"
   <array>
     <string>NDEF</string>
   </array>
+</dict>
+</plist>
+"#;
+
+const IOS_WIFI_ENTITLEMENTS_PLIST: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>com.apple.developer.networking.wifi-info</key>
+  <true/>
+  <key>com.apple.developer.networking.HotspotConfiguration</key>
+  <true/>
 </dict>
 </plist>
 "#;

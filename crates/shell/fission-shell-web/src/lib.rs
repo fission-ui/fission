@@ -7,11 +7,11 @@ pub use fission_shell_winit::{
     BarcodeScannerHost, BiometricHost, BluetoothHost, CameraHost, ClipboardHost, GeolocationHost,
     HapticHost, MemoryBarcodeScannerHost, MemoryBiometricHost, MemoryBluetoothHost,
     MemoryCameraHost, MemoryClipboardHost, MemoryGeolocationHost, MemoryHapticHost,
-    MemoryMicrophoneHost, MemoryNfcHost, MemoryNotificationHost, MicrophoneHost, NfcHost,
-    NotificationHost, UnsupportedBarcodeScannerHost, UnsupportedBiometricHost,
+    MemoryMicrophoneHost, MemoryNfcHost, MemoryNotificationHost, MemoryWifiHost, MicrophoneHost,
+    NfcHost, NotificationHost, UnsupportedBarcodeScannerHost, UnsupportedBiometricHost,
     UnsupportedBluetoothHost, UnsupportedCameraHost, UnsupportedGeolocationHost,
     UnsupportedHapticHost, UnsupportedMicrophoneHost, UnsupportedNfcHost,
-    UnsupportedNotificationHost,
+    UnsupportedNotificationHost, UnsupportedWifiHost, WifiHost,
 };
 
 pub struct WebApp<S: AppState, W: Widget<S>> {
@@ -161,6 +161,14 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WebApp<S, W> {
         H: MicrophoneHost,
     {
         self.inner = self.inner.with_microphone_host(host);
+        self
+    }
+
+    pub fn with_wifi_host<H>(mut self, host: H) -> Self
+    where
+        H: WifiHost,
+    {
+        self.inner = self.inner.with_wifi_host(host);
         self
     }
 

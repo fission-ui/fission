@@ -61,6 +61,7 @@ pub mod platform_geolocation;
 pub mod platform_haptics;
 pub mod platform_microphone;
 pub mod platform_nfc;
+pub mod platform_wifi;
 pub mod registry;
 pub mod runtime;
 pub mod scrollbar;
@@ -85,7 +86,7 @@ pub use capability::{
 pub use context::{
     BarcodeScannerEffects, BiometricEffects, BluetoothEffects, CameraEffects, ClipboardEffects,
     Effects, GeolocationEffects, HapticEffects, MicrophoneEffects, NfcEffects, NotificationEffects,
-    ReducerContext,
+    ReducerContext, WifiEffects,
 }; // New
 pub use effect::{ActionInput, Effect, EffectEnvelope, RuntimeEffect};
 pub use env::{
@@ -180,6 +181,14 @@ pub use platform_nfc::{
     NfcScanRequest, NfcSessionReceipt, NfcTag, NfcTagDiscovered, NfcTechnology, NfcWriteRequest,
     ScanNfcTagCapability, WriteNfcTagCapability, CANCEL_NFC_SESSION, EMULATE_NFC_TAG,
     GET_NFC_AVAILABILITY, SCAN_NFC_TAG, WRITE_NFC_TAG,
+};
+pub use platform_wifi::{
+    ConnectWifiNetworkCapability, DisconnectWifiNetworkCapability, GetWifiAvailabilityCapability,
+    RequestWifiPermissionCapability, ScanWifiNetworksCapability, WifiAvailability,
+    WifiConnectRequest, WifiConnection, WifiDisconnectRequest, WifiError, WifiNetwork,
+    WifiPermission, WifiPermissionRequest, WifiScanRequest, WifiScanResult, WifiSecurity,
+    CONNECT_WIFI_NETWORK, DISCONNECT_WIFI_NETWORK, GET_WIFI_AVAILABILITY, REQUEST_WIFI_PERMISSION,
+    SCAN_WIFI_NETWORKS,
 };
 pub use registry::{
     ActionRegistry, AnimationPropertyId, AnimationRequest, AnimationStartValue, BuildCtx,

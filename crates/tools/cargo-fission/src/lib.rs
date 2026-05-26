@@ -387,6 +387,7 @@ mod tests {
             "geolocation",
             "haptics",
             "microphone",
+            "wifi",
             "--project-dir",
             dir.to_str().unwrap(),
         ])
@@ -417,6 +418,9 @@ mod tests {
         assert!(project
             .capabilities
             .contains(&fission_command_core::PlatformCapability::Microphone));
+        assert!(project
+            .capabilities
+            .contains(&fission_command_core::PlatformCapability::Wifi));
 
         let android_manifest =
             std::fs::read_to_string(dir.join("platforms/android/AndroidManifest.xml")).unwrap();
@@ -431,6 +435,8 @@ mod tests {
         assert!(android_manifest.contains("android.permission.ACCESS_FINE_LOCATION"));
         assert!(android_manifest.contains("android.permission.VIBRATE"));
         assert!(android_manifest.contains("android.permission.RECORD_AUDIO"));
+        assert!(android_manifest.contains("android.permission.NEARBY_WIFI_DEVICES"));
+        assert!(android_manifest.contains("android.permission.ACCESS_WIFI_STATE"));
 
         let ios_info = std::fs::read_to_string(dir.join("platforms/ios/Info.plist")).unwrap();
         assert!(ios_info.contains("NFCReaderUsageDescription"));
@@ -442,6 +448,7 @@ mod tests {
         let ios_entitlements =
             std::fs::read_to_string(dir.join("platforms/ios/Entitlements.plist")).unwrap();
         assert!(ios_entitlements.contains("com.apple.developer.nfc.readersession.formats"));
+        assert!(ios_entitlements.contains("com.apple.developer.networking.wifi-info"));
     }
 
     #[test]

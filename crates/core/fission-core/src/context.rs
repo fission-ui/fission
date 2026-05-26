@@ -60,6 +60,11 @@ use crate::platform_nfc::{
     NfcEmulationRequest, NfcScanRequest, NfcWriteRequest, CANCEL_NFC_SESSION, EMULATE_NFC_TAG,
     GET_NFC_AVAILABILITY, SCAN_NFC_TAG, WRITE_NFC_TAG,
 };
+use crate::platform_wifi::{
+    WifiConnectRequest, WifiDisconnectRequest, WifiPermissionRequest, WifiScanRequest,
+    CONNECT_WIFI_NETWORK, DISCONNECT_WIFI_NETWORK, GET_WIFI_AVAILABILITY, REQUEST_WIFI_PERMISSION,
+    SCAN_WIFI_NETWORKS,
+};
 use crate::registry::{ActionRegistry, IntoHandler};
 use std::marker::PhantomData;
 
@@ -235,6 +240,10 @@ impl<'a, S: AppState> Effects<'a, S> {
 
     pub fn microphone(&mut self) -> MicrophoneEffects<'_, 'a, S> {
         MicrophoneEffects { effects: self }
+    }
+
+    pub fn wifi(&mut self) -> WifiEffects<'_, 'a, S> {
+        WifiEffects { effects: self }
     }
 
     pub fn app<J: JobSpec>(
@@ -648,6 +657,33 @@ impl<'a, 'b, S: AppState> MicrophoneEffects<'a, 'b, S> {
 
     pub fn cancel_capture(self) -> EffectBuilder<'a, 'b, S> {
         self.effects.capability(CANCEL_MICROPHONE_CAPTURE, ())
+    }
+}
+
+/// Convenience builder for standard Wi-Fi host capabilities.
+pub struct WifiEffects<'a, 'b, S: AppState> {
+    effects: &'a mut Effects<'b, S>,
+}
+
+impl<'a, 'b, S: AppState> WifiEffects<'a, 'b, S> {
+    pub fn availability(self) -> EffectBuilder<'a, 'b, S> {
+        self.effects.capability(GET_WIFI_AVAILABILITY, ())
+    }
+
+    pub fn request_permission(self, request: WifiPermissionRequest) -> EffectBuilder<'a, 'b, S> {
+        self.effects.capability(REQUEST_WIFI_PERMISSION, request)
+    }
+
+    pub fn scan_networks(self, request: WifiScanRequest) -> EffectBuilder<'a, 'b, S> {
+        self.effects.capability(SCAN_WIFI_NETWORKS, request)
+    }
+
+    pub fn connect_network(self, request: WifiConnectRequest) -> EffectBuilder<'a, 'b, S> {
+        self.effects.capability(CONNECT_WIFI_NETWORK, request)
+    }
+
+    pub fn disconnect_network(self, request: WifiDisconnectRequest) -> EffectBuilder<'a, 'b, S> {
+        self.effects.capability(DISCONNECT_WIFI_NETWORK, request)
     }
 }
 
