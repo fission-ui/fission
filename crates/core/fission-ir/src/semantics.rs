@@ -72,6 +72,11 @@ pub enum ActionTrigger {
     TapOutside,
     /// The node's value changed (sliders, text inputs, etc.).
     Change,
+    /// A text field changed and requests numeric `f32` payload dispatch.
+    ///
+    /// This is intentionally separate from [`Change`] so a numeric keyboard
+    /// hint alone does not change the generic text-input payload contract.
+    NumberChange,
     /// Text editing was explicitly completed by the current input method.
     EditingComplete,
     /// The user submitted a text field.

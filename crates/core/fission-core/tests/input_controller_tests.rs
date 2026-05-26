@@ -475,6 +475,21 @@ fn set_input_type(ir: &mut CoreIR, id: NodeId, input_type: TextInputType) {
     }
 }
 
+fn set_change_trigger(ir: &mut CoreIR, id: NodeId, trigger: ActionTrigger) {
+    if let Some(node) = ir.nodes.get_mut(&id) {
+        if let Op::Semantics(semantics) = &mut node.op {
+            if let Some(entry) = semantics
+                .actions
+                .entries
+                .iter_mut()
+                .find(|entry| entry.trigger == ActionTrigger::Change)
+            {
+                entry.trigger = trigger;
+            }
+        }
+    }
+}
+
 fn create_rich_text_input_tree(
     input_id: NodeId,
     scroll_id: NodeId,
@@ -1796,10 +1811,46 @@ fn test_digits_only_formatter_filters_paste() {
 }
 
 #[test]
-fn test_number_input_type_filters_ime_commit() {
+fn test_number_keyboard_hint_filters_ime_commit_but_dispatches_text() {
     let node_id = NodeId::derived(29, &[0]);
     let mut ir = create_text_node(node_id, "", false);
     set_input_type(&mut ir, node_id, TextInputType::Number);
+    let layout = LayoutSnapshot::new(LayoutSize::new(100.0, 100.0));
+    let mut text_edit = TextEditStateMap::default();
+    let mut interaction = InteractionStateMap::default();
+    let mut scroll = ScrollStateMap::default();
+    let mut gesture = fission_core::env::GestureState::default();
+    let clipboard: Arc<dyn Clipboard> = Arc::new(MockClipboard::new());
+    let measurer: Arc<dyn TextMeasurer> = Arc::new(MockTextMeasurer);
+
+    interaction.set_focused(Some(node_id));
+    text_edit.set_caret(node_id, 0, Some(0));
+
+    let mut controller = TextInputController;
+    let mut ctx = setup_ctx(
+        &ir,
+        &layout,
+        &mut text_edit,
+        &mut interaction,
+        &mut scroll,
+        &mut gesture,
+        &clipboard,
+        Some(&measurer),
+    );
+    let event = InputEvent::Ime(fission_core::event::ImeEvent::Commit {
+        text: "12ab.3".into(),
+    });
+    assert!(controller.handle_event(&mut ctx, &event));
+    let new_text: String = serde_json::from_slice(&ctx.dispatched_actions[0].1.payload).unwrap();
+    assert_eq!(new_text, "12.3");
+}
+
+#[test]
+fn test_explicit_number_change_trigger_dispatches_float_payload() {
+    let node_id = NodeId::derived(29, &[2]);
+    let mut ir = create_text_node(node_id, "", false);
+    set_input_type(&mut ir, node_id, TextInputType::Number);
+    set_change_trigger(&mut ir, node_id, ActionTrigger::NumberChange);
     let layout = LayoutSnapshot::new(LayoutSize::new(100.0, 100.0));
     let mut text_edit = TextEditStateMap::default();
     let mut interaction = InteractionStateMap::default();
@@ -1831,10 +1882,11 @@ fn test_number_input_type_filters_ime_commit() {
 }
 
 #[test]
-fn test_number_input_type_skips_invalid_float_commit() {
+fn test_explicit_number_change_trigger_skips_invalid_float_commit() {
     let node_id = NodeId::derived(29, &[1]);
     let mut ir = create_text_node(node_id, "", false);
     set_input_type(&mut ir, node_id, TextInputType::Number);
+    set_change_trigger(&mut ir, node_id, ActionTrigger::NumberChange);
     let layout = LayoutSnapshot::new(LayoutSize::new(100.0, 100.0));
     let mut text_edit = TextEditStateMap::default();
     let mut interaction = InteractionStateMap::default();

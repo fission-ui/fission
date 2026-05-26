@@ -1744,22 +1744,25 @@ impl TextInputController {
         new_text: String,
     ) {
         Self::persist_runtime_state(ctx, node_id);
-        if let Some(action_entry) = semantics
-            .actions
-            .entries
-            .iter()
-            .find(|e| e.trigger == fission_ir::semantics::ActionTrigger::Change)
-        {
-            let payload =
-                if semantics.text_input_type == fission_ir::semantics::TextInputType::Number {
-                    if let Ok(parsed) = new_text.trim().parse::<f32>() {
-                        serde_json::to_vec(&parsed).unwrap()
-                    } else {
-                        return; // Skip dispatch if invalid float
-                    }
-                } else {
-                    serde_json::to_vec(&new_text).unwrap()
-                };
+        if let Some(action_entry) = semantics.actions.entries.iter().find(|e| {
+            matches!(
+                e.trigger,
+                fission_ir::semantics::ActionTrigger::Change
+                    | fission_ir::semantics::ActionTrigger::NumberChange
+            )
+        }) {
+            let payload = match action_entry.trigger {
+                fission_ir::semantics::ActionTrigger::Change => serde_json::to_vec(&new_text)
+                    .expect("serializing text input change payload should not fail"),
+                fission_ir::semantics::ActionTrigger::NumberChange => {
+                    let Ok(parsed) = new_text.trim().parse::<f32>() else {
+                        return;
+                    };
+                    serde_json::to_vec(&parsed)
+                        .expect("serializing numeric text input payload should not fail")
+                }
+                _ => unreachable!("filtered to text input change triggers"),
+            };
 
             let envelope = ActionEnvelope {
                 id: ActionId::from_u128(action_entry.action_id),

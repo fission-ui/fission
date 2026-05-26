@@ -1,5 +1,8 @@
 use crate::Icon;
-use fission_core::ui::{Button, ButtonVariant, Container, Node, Row, TextInput};
+use fission_core::ui::{
+    widgets::text_input::TextInputChangePayload, Button, ButtonVariant, Container, Node, Row,
+    TextInput,
+};
 use fission_core::{ActionEnvelope, BuildCtx, NodeId, View, Widget, WidgetNodeId};
 use fission_icons::material;
 use serde::{Deserialize, Serialize};
@@ -81,10 +84,11 @@ impl<S: fission_core::AppState> Widget<S> for NumberInput {
                         value: display_text,
                         width: Some(field_width),
                         borderless: true,
-                        // The input controller serializes numeric text changes
-                        // as f32 payloads and suppresses invalid intermediate
-                        // values such as "-".
+                        // NumberInput owns a numeric action contract; the
+                        // keyboard hint alone must not change generic text
+                        // input payloads.
                         keyboard_type: fission_ir::semantics::TextInputType::Number,
+                        change_payload: TextInputChangePayload::Number,
                         on_change: self.on_change.clone(),
                         ..Default::default()
                     }

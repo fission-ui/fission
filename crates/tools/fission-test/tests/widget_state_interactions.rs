@@ -484,6 +484,53 @@ fn circular_progress_indeterminate_registers_repeating_rotation() -> Result<()> 
 }
 
 #[test]
+fn circular_progress_indeterminate_without_id_renders_static_indicator() -> Result<()> {
+    struct Root;
+
+    impl Widget<State> for Root {
+        fn build(&self, ctx: &mut BuildCtx<State>, view: &View<State>) -> Node {
+            CircularProgress {
+                id: None,
+                value: None,
+                ..Default::default()
+            }
+            .build(ctx, view)
+        }
+    }
+
+    let harness = TestHarness::new(State::default()).with_root_widget(Root);
+    let mut driver = TestDriver::new(harness);
+    driver.pump()?;
+
+    assert!(
+        driver
+            .harness
+            .runtime
+            .runtime_state
+            .animation
+            .active
+            .is_empty(),
+        "indeterminate progress without an id should not register an animation"
+    );
+    let has_transform = driver
+        .harness
+        .get_last_display_list()
+        .map(|display_list| {
+            display_list
+                .ops
+                .iter()
+                .any(|op| matches!(op, DisplayOp::Transform(_)))
+        })
+        .unwrap_or(false);
+    assert!(
+        !has_transform,
+        "indeterminate progress without an id should render the static arc directly"
+    );
+
+    Ok(())
+}
+
+#[test]
 fn circular_progress_determinate_does_not_register_rotation() -> Result<()> {
     let progress_id = WidgetNodeId::explicit("static_progress");
 

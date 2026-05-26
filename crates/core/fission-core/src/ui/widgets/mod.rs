@@ -49,7 +49,7 @@ pub use spacer::Spacer;
 pub use stack::ZStack;
 pub use switch::Switch;
 pub use text::{RichText, RichTextRun, Text, TextContent, TextFontStyle, TextRunStyle};
-pub use text_input::TextInput;
+pub use text_input::{TextInput, TextInputChangePayload};
 pub use transform::Transform;
 pub use video::Video;
 

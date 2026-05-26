@@ -36,6 +36,18 @@ pub enum DragStartBehavior {
     Down,
 }
 
+/// Payload contract used by [`TextInput::on_change`].
+///
+/// The default keeps text input generic and dispatches `String` payloads even
+/// when the platform keyboard hint is numeric. Widgets that own a numeric
+/// contract, such as `NumberInput`, can opt into `Number` explicitly.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub enum TextInputChangePayload {
+    #[default]
+    Text,
+    Number,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TextUndoController {
     pub capacity: usize,
@@ -286,6 +298,9 @@ pub struct TextInput {
     pub counter_text: Option<TextContent>,
     /// Action dispatched when the text changes.
     pub on_change: Option<ActionEnvelope>,
+    /// Payload type dispatched for `on_change`.
+    #[serde(default)]
+    pub change_payload: TextInputChangePayload,
     /// Action dispatched when the user submits the field (for example by pressing Enter
     /// on a single-line input).
     pub on_submit: Option<ActionEnvelope>,
@@ -782,6 +797,7 @@ impl Default for TextInput {
             error_text: None,
             counter_text: None,
             on_change: None,
+            change_payload: TextInputChangePayload::Text,
             on_submit: None,
             on_editing_complete: None,
             on_tap_outside: None,
@@ -1831,7 +1847,12 @@ impl Lower for TextInput {
         };
         if let Some(env) = &self.on_change {
             semantics.actions.entries.push(fission_ir::ActionEntry {
-                trigger: fission_ir::semantics::ActionTrigger::Change,
+                trigger: match self.change_payload {
+                    TextInputChangePayload::Text => fission_ir::semantics::ActionTrigger::Change,
+                    TextInputChangePayload::Number => {
+                        fission_ir::semantics::ActionTrigger::NumberChange
+                    }
+                },
                 action_id: env.id.as_u128(),
                 payload_data: None,
             });

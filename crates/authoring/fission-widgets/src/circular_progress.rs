@@ -6,6 +6,10 @@ use std::f32::consts::PI;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct CircularProgress {
+    /// Stable identity for widget-owned animations.
+    ///
+    /// Indeterminate progress registers a repeating rotation only when this id
+    /// is provided; without it, the widget renders the static indicator arc.
     pub id: Option<fission_core::WidgetNodeId>,
     pub value: Option<f32>, // 0.0 to 1.0. If None, indeterminate (spinner).
     pub size: f32,
@@ -113,9 +117,9 @@ impl LowerDyn for CircularProgressLowerer {
         )
         .build(cx);
 
-        // Value Arc
-        let val = self.value.unwrap_or(0.25); // Default 25% for indeterminate (should animate rotation)
-                                              // TODO: Indeterminate animation rotation.
+        // Value Arc. Indeterminate progress draws a quarter arc; when the
+        // widget has a stable id, build() attaches the repeating rotation.
+        let val = self.value.unwrap_or(0.25);
 
         let angle = val * 2.0 * PI;
         // Arc from -PI/2 (top) to -PI/2 + angle.

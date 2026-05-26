@@ -121,8 +121,7 @@ impl Widget<EditorState> for GitPanel {
                         )),
                         on_press: Some(ActionEnvelope {
                             id: open_id,
-                            payload: serde_json::to_vec(&OpenFile(entry.path.clone()))
-                                .unwrap_or_default(),
+                            payload: serde_json::to_vec(&OpenFile(entry.path.clone())).unwrap(),
                         }),
                         height: Some(24.0),
                         padding: Some([4.0, 4.0, 0.0, 0.0]),
