@@ -285,6 +285,13 @@ impl LiveTestClient {
         Ok(())
     }
 
+    pub fn tap_text_without_pump(&self, text: &str) -> Result<()> {
+        self.send(TestCommand::TapText {
+            text: text.to_string(),
+        })?;
+        Ok(())
+    }
+
     pub fn drag(
         &self,
         start_x: f32,

@@ -78,6 +78,14 @@ where
         self
     }
 
+    pub fn with_route_handler(
+        mut self,
+        handler: fission_core::registry::Handler<S, fission_core::ShellRouteChanged>,
+    ) -> Self {
+        self.inner = self.inner.with_route_handler(handler);
+        self
+    }
+
     pub fn with_design_system<D: fission_theme::DesignSystem>(
         mut self,
         mode: fission_theme::DesignMode,

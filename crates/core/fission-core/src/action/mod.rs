@@ -9,6 +9,7 @@
 //!   action's type name.
 //! - [`GlobalState`] -- trait for application state managed by the runtime.
 
+use crate::env::RouteLocation;
 use blake3;
 use downcast_rs::{impl_downcast, Downcast};
 use fission_ir::WidgetId;
@@ -23,6 +24,39 @@ pub mod video;
 pub use video::{
     VideoPause, VideoPlay, VideoSeek, VideoSetMuted, VideoSetRate, VideoSetVolume, VideoStop,
 };
+
+/// Built-in action dispatched by shells when the host route changes.
+///
+/// Applications opt in by registering a reducer with
+/// `DesktopApp::with_route_handler(...)` or the equivalent shell API.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ShellRouteChanged {
+    pub location: RouteLocation,
+}
+
+impl ShellRouteChanged {
+    pub fn new(pathname: impl Into<String>) -> Self {
+        Self {
+            location: RouteLocation::new(pathname),
+        }
+    }
+}
+
+impl From<RouteLocation> for ShellRouteChanged {
+    fn from(location: RouteLocation) -> Self {
+        Self { location }
+    }
+}
+
+impl Action for ShellRouteChanged {
+    fn static_id() -> ActionId {
+        lazy_static! {
+            pub static ref SHELL_ROUTE_CHANGED_ACTION_ID: ActionId =
+                ActionId::from_name("fission_core::ShellRouteChanged");
+        }
+        *SHELL_ROUTE_CHANGED_ACTION_ID
+    }
+}
 
 /// Built-in action to trigger an undo operation.
 ///
