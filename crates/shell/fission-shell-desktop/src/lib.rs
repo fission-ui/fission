@@ -5,7 +5,10 @@ use fission_core::{Action, ActionId, AppState, Env, Widget};
 use fission_shell::async_host::AsyncRegistry;
 use fission_shell_winit::WinitApp;
 
-pub use fission_shell_winit::{test_control, InvalidationSet, Pipeline};
+pub use fission_shell_winit::{
+    test_control, InvalidationSet, MemoryNotificationHost, NotificationHost, Pipeline,
+    UnsupportedNotificationHost,
+};
 
 pub struct DesktopApp<S: AppState, W: Widget<S>> {
     inner: WinitApp<S, W>,
@@ -81,8 +84,66 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
         self
     }
 
+    pub fn with_notification_host<H>(mut self, host: H) -> Self
+    where
+        H: NotificationHost,
+    {
+        self.inner = self.inner.with_notification_host(host);
+        self
+    }
+
     pub fn with_startup_action<A: Action>(mut self, action: A) -> Self {
         self.inner = self.inner.with_startup_action(action);
+        self
+    }
+
+    pub fn with_deep_link_config(mut self, config: fission_core::DeepLinkConfig) -> Self {
+        self.inner = self.inner.with_deep_link_config(config);
+        self
+    }
+
+    pub fn with_deep_link_scheme(mut self, scheme: impl Into<String>) -> Self {
+        self.inner = self.inner.with_deep_link_scheme(scheme);
+        self
+    }
+
+    pub fn with_deep_link_domain(mut self, domain: impl Into<String>) -> Self {
+        self.inner = self.inner.with_deep_link_domain(domain);
+        self
+    }
+
+    pub fn with_startup_deep_link(mut self, link: fission_core::DeepLink) -> Self {
+        self.inner = self.inner.with_startup_deep_link(link);
+        self
+    }
+
+    pub fn with_startup_notification_response(
+        mut self,
+        response: fission_core::NotificationResponse,
+    ) -> Self {
+        self.inner = self.inner.with_startup_notification_response(response);
+        self
+    }
+
+    pub fn on_deep_link<H>(mut self, handler: H) -> Self
+    where
+        H: fission_core::registry::IntoHandler<S, fission_core::DeepLinkReceived>
+            + Send
+            + Sync
+            + 'static,
+    {
+        self.inner = self.inner.on_deep_link(handler);
+        self
+    }
+
+    pub fn on_notification_response<H>(mut self, handler: H) -> Self
+    where
+        H: fission_core::registry::IntoHandler<S, fission_core::NotificationResponseReceived>
+            + Send
+            + Sync
+            + 'static,
+    {
+        self.inner = self.inner.on_notification_response(handler);
         self
     }
 

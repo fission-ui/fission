@@ -151,8 +151,20 @@ pub use fission_core::ui::*;
 // Core action/state types
 pub use fission_core::{
     Action, ActionEnvelope, ActionId, ActionScopeId, AnimationPropertyId, AnimationRequest,
-    AnimationStartValue, AppState, BuildCtx, EasingFunction, FlexDirection, Handler, NodeBuilder,
-    Op, PortalLayer, ReducerContext, Selector, View, Widget, WidgetNodeId,
+    AnimationStartValue, AppState, BuildCtx, CancelAllNotificationsCapability,
+    CancelNotificationCapability, CancelNotificationRequest, DeepLink, DeepLinkConfig,
+    DeepLinkReceived, DeepLinkSource, EasingFunction, FlexDirection,
+    GetNotificationSettingsCapability, Handler, NodeBuilder, NotificationActionButton,
+    NotificationError, NotificationId, NotificationPermission, NotificationPermissionRequest,
+    NotificationReceipt, NotificationRequest, NotificationResponse, NotificationResponseReceived,
+    NotificationSchedule, NotificationSettings, NotificationSound, Op, PortalLayer, PushPlatform,
+    PushRegistration, PushRegistrationRequest, ReducerContext, RegisterPushNotificationsCapability,
+    RequestNotificationPermissionCapability, ScheduleNotificationCapability, Selector,
+    SetBadgeCountCapability, SetBadgeCountRequest, ShowNotificationCapability,
+    UnregisterPushNotificationsCapability, View, Widget, WidgetNodeId, CANCEL_ALL_NOTIFICATIONS,
+    CANCEL_NOTIFICATION, GET_NOTIFICATION_SETTINGS, REGISTER_PUSH_NOTIFICATIONS,
+    REQUEST_NOTIFICATION_PERMISSION, SCHEDULE_NOTIFICATION, SET_BADGE_COUNT, SHOW_NOTIFICATION,
+    UNREGISTER_PUSH_NOTIFICATIONS,
 };
 
 // Core event types
@@ -177,7 +189,9 @@ pub use fission_widgets::{HStack, Icon, Spacer, VStack};
     any(feature = "desktop", feature = "platform-shells"),
     not(any(target_os = "android", target_os = "ios", target_arch = "wasm32"))
 ))]
-pub use fission_shell_desktop::DesktopApp;
+pub use fission_shell_desktop::{
+    DesktopApp, MemoryNotificationHost, NotificationHost, UnsupportedNotificationHost,
+};
 #[cfg(all(
     any(
         feature = "android",
@@ -187,14 +201,18 @@ pub use fission_shell_desktop::DesktopApp;
     ),
     any(target_os = "android", target_os = "ios")
 ))]
-pub use fission_shell_mobile::MobileApp;
+pub use fission_shell_mobile::{
+    MemoryNotificationHost, MobileApp, NotificationHost, UnsupportedNotificationHost,
+};
 #[cfg(feature = "terminal-shell")]
 pub use fission_shell_terminal::TerminalApp;
 #[cfg(all(
     any(feature = "web", feature = "platform-shells"),
     target_arch = "wasm32"
 ))]
-pub use fission_shell_web::WebApp;
+pub use fission_shell_web::{
+    MemoryNotificationHost, NotificationHost, UnsupportedNotificationHost, WebApp,
+};
 
 // Macros
 pub use fission_macros::{fission_action, fission_reducer, Action as ActionDerive};
@@ -214,8 +232,21 @@ pub mod prelude {
     pub use fission_core::{reduce, reduce_with, with_reducer};
     pub use fission_core::{
         Action, ActionEnvelope, ActionId, ActionScopeId, AnimationPropertyId, AnimationRequest,
-        AnimationStartValue, AppState, BuildCtx, Effects, FlexDirection, Handler, NodeBuilder, Op,
-        PortalLayer, ReducerContext, Selector, View, Widget, WidgetNodeId, WindowEnv, WindowTitle,
+        AnimationStartValue, AppState, BuildCtx, CancelAllNotificationsCapability,
+        CancelNotificationCapability, CancelNotificationRequest, DeepLink, DeepLinkConfig,
+        DeepLinkReceived, DeepLinkSource, Effects, FlexDirection,
+        GetNotificationSettingsCapability, Handler, NodeBuilder, NotificationActionButton,
+        NotificationEffects, NotificationError, NotificationId, NotificationPermission,
+        NotificationPermissionRequest, NotificationReceipt, NotificationRequest,
+        NotificationResponse, NotificationResponseReceived, NotificationSchedule,
+        NotificationSettings, NotificationSound, Op, PortalLayer, PushPlatform, PushRegistration,
+        PushRegistrationRequest, ReducerContext, RegisterPushNotificationsCapability,
+        RequestNotificationPermissionCapability, ScheduleNotificationCapability, Selector,
+        SetBadgeCountCapability, SetBadgeCountRequest, ShowNotificationCapability,
+        UnregisterPushNotificationsCapability, View, Widget, WidgetNodeId, WindowEnv, WindowTitle,
+        CANCEL_ALL_NOTIFICATIONS, CANCEL_NOTIFICATION, GET_NOTIFICATION_SETTINGS,
+        REGISTER_PUSH_NOTIFICATIONS, REQUEST_NOTIFICATION_PERMISSION, SCHEDULE_NOTIFICATION,
+        SET_BADGE_COUNT, SHOW_NOTIFICATION, UNREGISTER_PUSH_NOTIFICATIONS,
     };
 
     // Layout
@@ -239,7 +270,9 @@ pub mod prelude {
         any(feature = "desktop", feature = "platform-shells"),
         not(any(target_os = "android", target_os = "ios", target_arch = "wasm32"))
     ))]
-    pub use fission_shell_desktop::DesktopApp;
+    pub use fission_shell_desktop::{
+        DesktopApp, MemoryNotificationHost, NotificationHost, UnsupportedNotificationHost,
+    };
     #[cfg(all(
         any(feature = "android", feature = "mobile", feature = "platform-shells"),
         target_os = "android"
@@ -254,7 +287,9 @@ pub mod prelude {
         ),
         any(target_os = "android", target_os = "ios")
     ))]
-    pub use fission_shell_mobile::MobileApp;
+    pub use fission_shell_mobile::{
+        MemoryNotificationHost, MobileApp, NotificationHost, UnsupportedNotificationHost,
+    };
     #[cfg(feature = "site")]
     pub use fission_shell_site::*;
     #[cfg(feature = "terminal-shell")]
@@ -263,7 +298,9 @@ pub mod prelude {
         any(feature = "web", feature = "platform-shells"),
         target_arch = "wasm32"
     ))]
-    pub use fission_shell_web::WebApp;
+    pub use fission_shell_web::{
+        MemoryNotificationHost, NotificationHost, UnsupportedNotificationHost, WebApp,
+    };
 
     // Serde (commonly needed for actions)
     pub use serde::{Deserialize, Serialize};

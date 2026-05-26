@@ -51,6 +51,7 @@ pub mod hit_test;
 pub mod input;
 pub mod lowering;
 pub mod media;
+pub mod platform;
 pub mod registry;
 pub mod runtime;
 pub mod scrollbar;
@@ -72,7 +73,7 @@ pub use capability::{
     OperationCapability, PickOpenFilesCapability, PickOpenFilesError, PickOpenFilesRequest,
     PickOpenFilesResult, PickedFile, OPEN_URL, PICK_OPEN_FILES,
 };
-pub use context::{Effects, ReducerContext}; // New
+pub use context::{Effects, NotificationEffects, ReducerContext}; // New
 pub use effect::{ActionInput, Effect, EffectEnvelope, RuntimeEffect};
 pub use env::{
     Clipboard, Env, ImeHandler, InteractionStateMap, RuntimeState, ScrollStateMap, WindowEnv,
@@ -88,6 +89,19 @@ pub use fission_layout::{
     LayoutSnapshot, LayoutUnit, TextMeasurer,
 };
 pub use lowering::{LoweringContext, NodeBuilder};
+pub use platform::{
+    CancelAllNotificationsCapability, CancelNotificationCapability, CancelNotificationRequest,
+    DeepLink, DeepLinkConfig, DeepLinkReceived, DeepLinkSource, GetNotificationSettingsCapability,
+    NotificationActionButton, NotificationError, NotificationId, NotificationPermission,
+    NotificationPermissionRequest, NotificationReceipt, NotificationRequest, NotificationResponse,
+    NotificationResponseReceived, NotificationSchedule, NotificationSettings, NotificationSound,
+    PushPlatform, PushRegistration, PushRegistrationRequest, RegisterPushNotificationsCapability,
+    RequestNotificationPermissionCapability, ScheduleNotificationCapability,
+    SetBadgeCountCapability, SetBadgeCountRequest, ShowNotificationCapability,
+    UnregisterPushNotificationsCapability, CANCEL_ALL_NOTIFICATIONS, CANCEL_NOTIFICATION,
+    GET_NOTIFICATION_SETTINGS, REGISTER_PUSH_NOTIFICATIONS, REQUEST_NOTIFICATION_PERMISSION,
+    SCHEDULE_NOTIFICATION, SET_BADGE_COUNT, SHOW_NOTIFICATION, UNREGISTER_PUSH_NOTIFICATIONS,
+};
 pub use registry::{
     ActionRegistry, AnimationPropertyId, AnimationRequest, AnimationStartValue, BuildCtx,
     EasingFunction, Handler, JobResource, PortalLayer, RawActionHandler, ResourceKey,

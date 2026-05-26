@@ -29,9 +29,10 @@ use fission_core::env::VideoStatus;
 use fission_core::lowering::LoweringContext;
 use fission_core::ui::custom_render::downcast_render_object;
 use fission_core::{
-    Action, ActionId, AppState, BuildCtx, Env, InputEvent, KeyCode, KeyEvent as FissionKeyEvent,
-    OpenUrlRequest, PointerButton, PointerEvent, Runtime, RuntimeEffect, ServiceBindings, View,
-    Widget, OPEN_URL,
+    Action, ActionId, ActionRegistry, AppState, BuildCtx, DeepLink, DeepLinkConfig,
+    DeepLinkReceived, Env, InputEvent, KeyCode, KeyEvent as FissionKeyEvent, NotificationResponse,
+    NotificationResponseReceived, OpenUrlRequest, PointerButton, PointerEvent, Runtime,
+    RuntimeEffect, ServiceBindings, View, Widget, OPEN_URL,
 };
 use fission_core::{ActionInput, CapabilityInvocationPayload, Effect};
 use fission_diagnostics::prelude as diag;
@@ -86,6 +87,8 @@ mod clipboard;
 use clipboard::DesktopClipboard;
 mod ime;
 use ime::{DesktopImeHandler, TextInputConfig};
+mod notifications;
+pub use notifications::{MemoryNotificationHost, NotificationHost, UnsupportedNotificationHost};
 pub mod test_control;
 
 use fission_core::action::ActionEnvelope;
@@ -144,6 +147,54 @@ fn register_builtin_operation_capabilities(async_registry: &mut AsyncRegistry) {
             Ok(())
         },
     );
+    notifications::register_notification_capabilities(
+        async_registry,
+        Arc::new(UnsupportedNotificationHost),
+    );
+}
+
+fn collect_startup_deep_links(config: &DeepLinkConfig) -> Vec<DeepLink> {
+    let args = std::env::args().skip(1).collect::<Vec<_>>();
+    let mut env_values = Vec::new();
+    if let Ok(value) = std::env::var("FISSION_DEEP_LINK_URL") {
+        env_values.push(value);
+    }
+    if let Ok(value) = std::env::var("FISSION_DEEP_LINKS") {
+        env_values.extend(
+            value
+                .split('\n')
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(ToOwned::to_owned),
+        );
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    if let Some(window) = web_sys::window() {
+        if let Ok(href) = window.location().href() {
+            env_values.push(href);
+        }
+    }
+
+    collect_startup_deep_links_from(config, args, env_values)
+}
+
+fn collect_startup_deep_links_from(
+    config: &DeepLinkConfig,
+    args: impl IntoIterator<Item = String>,
+    env_values: impl IntoIterator<Item = String>,
+) -> Vec<DeepLink> {
+    let mut links = Vec::new();
+    for url in env_values.into_iter().chain(args) {
+        if config.matches(&url) {
+            links.push(
+                DeepLink::new(url.clone())
+                    .cold_start(true)
+                    .source(config.source_for(&url)),
+            );
+        }
+    }
+    links
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -2207,6 +2258,9 @@ pub struct WinitApp<S: AppState, W: Widget<S>> {
     effect_result_rx: mpsc::Receiver<AsyncMessage>,
     async_registry: AsyncRegistry,
     startup_action: Option<ActionEnvelope>,
+    deep_link_config: DeepLinkConfig,
+    startup_deep_links: Vec<DeepLink>,
+    startup_notification_responses: Vec<NotificationResponse>,
     _phantom: std::marker::PhantomData<S>,
 }
 
@@ -2261,6 +2315,9 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
             effect_result_rx,
             async_registry,
             startup_action: None,
+            deep_link_config: DeepLinkConfig::default(),
+            startup_deep_links: Vec::new(),
+            startup_notification_responses: Vec::new(),
             _phantom: std::marker::PhantomData,
         }
     }
@@ -2340,8 +2397,64 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
         self
     }
 
+    pub fn with_notification_host<H>(mut self, host: H) -> Self
+    where
+        H: NotificationHost,
+    {
+        notifications::register_notification_capabilities(&mut self.async_registry, Arc::new(host));
+        self
+    }
+
     pub fn with_startup_action<A: Action>(mut self, action: A) -> Self {
         self.startup_action = Some(action.into());
+        self
+    }
+
+    pub fn with_deep_link_config(mut self, config: DeepLinkConfig) -> Self {
+        self.deep_link_config = config;
+        self
+    }
+
+    pub fn with_deep_link_scheme(mut self, scheme: impl Into<String>) -> Self {
+        self.deep_link_config = self.deep_link_config.scheme(scheme);
+        self
+    }
+
+    pub fn with_deep_link_domain(mut self, domain: impl Into<String>) -> Self {
+        self.deep_link_config = self.deep_link_config.domain(domain);
+        self
+    }
+
+    pub fn with_startup_deep_link(mut self, link: DeepLink) -> Self {
+        self.startup_deep_links.push(link);
+        self
+    }
+
+    pub fn with_startup_notification_response(mut self, response: NotificationResponse) -> Self {
+        self.startup_notification_responses.push(response);
+        self
+    }
+
+    pub fn on_deep_link<H>(mut self, handler: H) -> Self
+    where
+        H: fission_core::registry::IntoHandler<S, DeepLinkReceived> + Send + Sync + 'static,
+    {
+        let mut registry = ActionRegistry::<S>::new();
+        registry.register(handler);
+        self.runtime.absorb_persistent_registry(registry);
+        self
+    }
+
+    pub fn on_notification_response<H>(mut self, handler: H) -> Self
+    where
+        H: fission_core::registry::IntoHandler<S, NotificationResponseReceived>
+            + Send
+            + Sync
+            + 'static,
+    {
+        let mut registry = ActionRegistry::<S>::new();
+        registry.register(handler);
+        self.runtime.absorb_persistent_registry(registry);
         self
     }
 
@@ -2436,7 +2549,20 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
         #[cfg(not(target_os = "android"))]
         platform_window.request_redraw();
 
+        let mut startup_deep_links = self.startup_deep_links.clone();
+        startup_deep_links.extend(collect_startup_deep_links(&self.deep_link_config));
+        let startup_notification_responses = self.startup_notification_responses.clone();
+
         let mut runtime = self.runtime;
+        for link in startup_deep_links {
+            runtime.dispatch(DeepLinkReceived { link }.into(), NodeId::derived(0, &[0]))?;
+        }
+        for response in startup_notification_responses {
+            runtime.dispatch(
+                NotificationResponseReceived { response }.into(),
+                NodeId::derived(0, &[0]),
+            )?;
+        }
         let mut layout_engine = self.layout_engine;
         let root_widget = self.root_widget;
         let mut env = self.env;
@@ -5175,10 +5301,11 @@ fn native_window_size_for_logical_viewport(size: LayoutSize) -> winit::dpi::Logi
 #[cfg(test)]
 mod tests {
     use super::{
-        animation_redraw_interval, clamp_copy_extent_to_texture, cursor_icon_for,
-        downscale_rgba_box, layout_size_to_image_dimensions, logical_viewport_to_physical_size,
-        logical_viewport_to_render_target_size, native_window_size_for_logical_viewport,
-        normalize_scale_factor, normalize_winit_scroll_delta, physical_position_to_layout_point,
+        animation_redraw_interval, clamp_copy_extent_to_texture, collect_startup_deep_links_from,
+        cursor_icon_for, downscale_rgba_box, layout_size_to_image_dimensions,
+        logical_viewport_to_physical_size, logical_viewport_to_render_target_size,
+        native_window_size_for_logical_viewport, normalize_scale_factor,
+        normalize_winit_scroll_delta, physical_position_to_layout_point,
         physical_size_to_layout_size, repeating_animation_redraw_interval, resize_is_unsettled,
         resolve_build_viewport, sync_tracked_target_texture_size_to_surface,
         texture_plans_fit_device_limits, LiveResizeController, WindowViewportState,
@@ -5186,7 +5313,7 @@ mod tests {
     use crate::pipeline::CompositorTexturePlan;
     use crate::InvalidationSet;
     use fission_core::env::{ActiveAnimation, AnimationStateMap};
-    use fission_core::{AnimationPropertyId, WidgetNodeId};
+    use fission_core::{AnimationPropertyId, DeepLinkConfig, WidgetNodeId};
     use fission_ir::semantics::MouseCursor;
     use fission_layout::{LayoutRect, LayoutSize};
     use std::collections::HashMap;
@@ -5637,5 +5764,29 @@ mod tests {
         ];
         let downscaled = downscale_rgba_box(&rgba, 2, 2, 1, 1).expect("downscale");
         assert_eq!(downscaled, vec![40, 50, 60, 255]);
+    }
+
+    #[test]
+    fn startup_deep_link_collection_filters_to_declared_config() {
+        let config = DeepLinkConfig::new()
+            .scheme("fission")
+            .domain("example.com")
+            .path_prefix("/tasks");
+
+        let links = collect_startup_deep_links_from(
+            &config,
+            vec![
+                "--ignored".to_string(),
+                "fission://open/tasks/1".to_string(),
+                "other://open/tasks/1".to_string(),
+            ],
+            vec!["https://example.com/tasks/2?source=email".to_string()],
+        );
+
+        assert_eq!(links.len(), 2);
+        assert_eq!(links[0].url, "https://example.com/tasks/2?source=email");
+        assert!(links[0].cold_start);
+        assert_eq!(links[1].url, "fission://open/tasks/1");
+        assert!(links[1].cold_start);
     }
 }

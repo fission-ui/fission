@@ -14,6 +14,12 @@ use crate::capability::{
     CapabilityInvocationPayload, CapabilityType, OperationCapability, OperationCapabilityInvocation,
 };
 use crate::effect::{ActionInput, Effect, EffectEnvelope, RuntimeEffect};
+use crate::platform::{
+    CancelNotificationRequest, NotificationPermissionRequest, NotificationRequest,
+    PushRegistrationRequest, SetBadgeCountRequest, CANCEL_ALL_NOTIFICATIONS, CANCEL_NOTIFICATION,
+    GET_NOTIFICATION_SETTINGS, REGISTER_PUSH_NOTIFICATIONS, REQUEST_NOTIFICATION_PERMISSION,
+    SCHEDULE_NOTIFICATION, SET_BADGE_COUNT, SHOW_NOTIFICATION, UNREGISTER_PUSH_NOTIFICATIONS,
+};
 use crate::registry::{ActionRegistry, IntoHandler};
 use std::marker::PhantomData;
 
@@ -151,6 +157,10 @@ impl<'a, S: AppState> Effects<'a, S> {
         }
     }
 
+    pub fn notifications(&mut self) -> NotificationEffects<'_, 'a, S> {
+        NotificationEffects { effects: self }
+    }
+
     pub fn app<J: JobSpec>(
         &mut self,
         job: JobRef<J>,
@@ -265,6 +275,54 @@ impl<'a, S: AppState> Effects<'a, S> {
         self.add(Effect::Runtime(RuntimeEffect::ReleaseResource {
             resource_id,
         }));
+    }
+}
+
+/// Convenience builder for the standard notification host capabilities.
+pub struct NotificationEffects<'a, 'b, S: AppState> {
+    effects: &'a mut Effects<'b, S>,
+}
+
+impl<'a, 'b, S: AppState> NotificationEffects<'a, 'b, S> {
+    pub fn request_permission(
+        self,
+        request: NotificationPermissionRequest,
+    ) -> EffectBuilder<'a, 'b, S> {
+        self.effects
+            .capability(REQUEST_NOTIFICATION_PERMISSION, request)
+    }
+
+    pub fn settings(self) -> EffectBuilder<'a, 'b, S> {
+        self.effects.capability(GET_NOTIFICATION_SETTINGS, ())
+    }
+
+    pub fn show(self, request: NotificationRequest) -> EffectBuilder<'a, 'b, S> {
+        self.effects.capability(SHOW_NOTIFICATION, request)
+    }
+
+    pub fn schedule(self, request: NotificationRequest) -> EffectBuilder<'a, 'b, S> {
+        self.effects.capability(SCHEDULE_NOTIFICATION, request)
+    }
+
+    pub fn cancel(self, request: CancelNotificationRequest) -> EffectBuilder<'a, 'b, S> {
+        self.effects.capability(CANCEL_NOTIFICATION, request)
+    }
+
+    pub fn cancel_all(self) -> EffectBuilder<'a, 'b, S> {
+        self.effects.capability(CANCEL_ALL_NOTIFICATIONS, ())
+    }
+
+    pub fn set_badge_count(self, request: SetBadgeCountRequest) -> EffectBuilder<'a, 'b, S> {
+        self.effects.capability(SET_BADGE_COUNT, request)
+    }
+
+    pub fn register_push(self, request: PushRegistrationRequest) -> EffectBuilder<'a, 'b, S> {
+        self.effects
+            .capability(REGISTER_PUSH_NOTIFICATIONS, request)
+    }
+
+    pub fn unregister_push(self) -> EffectBuilder<'a, 'b, S> {
+        self.effects.capability(UNREGISTER_PUSH_NOTIFICATIONS, ())
     }
 }
 
