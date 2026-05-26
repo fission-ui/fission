@@ -193,6 +193,12 @@ pub use fission_core::{
     GetGeolocationPermissionCapability, RequestGeolocationPermissionCapability,
     GET_CURRENT_POSITION, GET_GEOLOCATION_PERMISSION, REQUEST_GEOLOCATION_PERMISSION,
 };
+pub use fission_core::{
+    HapticEffects, HapticError, HapticImpactCapability, HapticImpactRequest, HapticImpactStyle,
+    HapticNotificationCapability, HapticNotificationKind, HapticNotificationRequest,
+    HapticPatternCapability, HapticPatternRequest, HapticPatternStep, HapticSelectionCapability,
+    HAPTIC_IMPACT, HAPTIC_NOTIFICATION, HAPTIC_PATTERN, HAPTIC_SELECTION,
+};
 
 // Core event types
 pub use fission_core::event::{InputEvent, KeyCode, KeyEvent, PointerButton, PointerEvent};
@@ -217,11 +223,11 @@ pub use fission_widgets::{HStack, Icon, Spacer, VStack};
     not(any(target_os = "android", target_os = "ios", target_arch = "wasm32"))
 ))]
 pub use fission_shell_desktop::{
-    BarcodeScannerHost, BiometricHost, ClipboardHost, DesktopApp, GeolocationHost,
+    BarcodeScannerHost, BiometricHost, ClipboardHost, DesktopApp, GeolocationHost, HapticHost,
     MemoryBarcodeScannerHost, MemoryBiometricHost, MemoryClipboardHost, MemoryGeolocationHost,
-    MemoryNfcHost, MemoryNotificationHost, NfcHost, NotificationHost,
+    MemoryHapticHost, MemoryNfcHost, MemoryNotificationHost, NfcHost, NotificationHost,
     UnsupportedBarcodeScannerHost, UnsupportedBiometricHost, UnsupportedGeolocationHost,
-    UnsupportedNfcHost, UnsupportedNotificationHost,
+    UnsupportedHapticHost, UnsupportedNfcHost, UnsupportedNotificationHost,
 };
 #[cfg(all(
     any(
@@ -233,11 +239,11 @@ pub use fission_shell_desktop::{
     any(target_os = "android", target_os = "ios")
 ))]
 pub use fission_shell_mobile::{
-    BarcodeScannerHost, BiometricHost, ClipboardHost, GeolocationHost, MemoryBarcodeScannerHost,
-    MemoryBiometricHost, MemoryClipboardHost, MemoryGeolocationHost, MemoryNfcHost,
-    MemoryNotificationHost, MobileApp, NfcHost, NotificationHost, UnsupportedBarcodeScannerHost,
-    UnsupportedBiometricHost, UnsupportedGeolocationHost, UnsupportedNfcHost,
-    UnsupportedNotificationHost,
+    BarcodeScannerHost, BiometricHost, ClipboardHost, GeolocationHost, HapticHost,
+    MemoryBarcodeScannerHost, MemoryBiometricHost, MemoryClipboardHost, MemoryGeolocationHost,
+    MemoryHapticHost, MemoryNfcHost, MemoryNotificationHost, MobileApp, NfcHost, NotificationHost,
+    UnsupportedBarcodeScannerHost, UnsupportedBiometricHost, UnsupportedGeolocationHost,
+    UnsupportedHapticHost, UnsupportedNfcHost, UnsupportedNotificationHost,
 };
 #[cfg(feature = "terminal-shell")]
 pub use fission_shell_terminal::TerminalApp;
@@ -246,11 +252,11 @@ pub use fission_shell_terminal::TerminalApp;
     target_arch = "wasm32"
 ))]
 pub use fission_shell_web::{
-    BarcodeScannerHost, BiometricHost, ClipboardHost, GeolocationHost, MemoryBarcodeScannerHost,
-    MemoryBiometricHost, MemoryClipboardHost, MemoryGeolocationHost, MemoryNfcHost,
-    MemoryNotificationHost, NfcHost, NotificationHost, UnsupportedBarcodeScannerHost,
-    UnsupportedBiometricHost, UnsupportedGeolocationHost, UnsupportedNfcHost,
-    UnsupportedNotificationHost, WebApp,
+    BarcodeScannerHost, BiometricHost, ClipboardHost, GeolocationHost, HapticHost,
+    MemoryBarcodeScannerHost, MemoryBiometricHost, MemoryClipboardHost, MemoryGeolocationHost,
+    MemoryHapticHost, MemoryNfcHost, MemoryNotificationHost, NfcHost, NotificationHost,
+    UnsupportedBarcodeScannerHost, UnsupportedBiometricHost, UnsupportedGeolocationHost,
+    UnsupportedHapticHost, UnsupportedNfcHost, UnsupportedNotificationHost, WebApp,
 };
 
 // Macros
@@ -315,6 +321,13 @@ pub mod prelude {
         GetGeolocationPermissionCapability, RequestGeolocationPermissionCapability,
         GET_CURRENT_POSITION, GET_GEOLOCATION_PERMISSION, REQUEST_GEOLOCATION_PERMISSION,
     };
+    pub use fission_core::{
+        HapticEffects, HapticError, HapticImpactCapability, HapticImpactRequest, HapticImpactStyle,
+        HapticNotificationCapability, HapticNotificationKind, HapticNotificationRequest,
+        HapticPatternCapability, HapticPatternRequest, HapticPatternStep,
+        HapticSelectionCapability, HAPTIC_IMPACT, HAPTIC_NOTIFICATION, HAPTIC_PATTERN,
+        HAPTIC_SELECTION,
+    };
 
     // Layout
     pub use fission_layout::{LayoutPoint, LayoutRect, LayoutSize};
@@ -338,11 +351,11 @@ pub mod prelude {
         not(any(target_os = "android", target_os = "ios", target_arch = "wasm32"))
     ))]
     pub use fission_shell_desktop::{
-        BarcodeScannerHost, BiometricHost, ClipboardHost, DesktopApp, GeolocationHost,
+        BarcodeScannerHost, BiometricHost, ClipboardHost, DesktopApp, GeolocationHost, HapticHost,
         MemoryBarcodeScannerHost, MemoryBiometricHost, MemoryClipboardHost, MemoryGeolocationHost,
-        MemoryNfcHost, MemoryNotificationHost, NfcHost, NotificationHost,
+        MemoryHapticHost, MemoryNfcHost, MemoryNotificationHost, NfcHost, NotificationHost,
         UnsupportedBarcodeScannerHost, UnsupportedBiometricHost, UnsupportedGeolocationHost,
-        UnsupportedNfcHost, UnsupportedNotificationHost,
+        UnsupportedHapticHost, UnsupportedNfcHost, UnsupportedNotificationHost,
     };
     #[cfg(all(
         any(feature = "android", feature = "mobile", feature = "platform-shells"),
@@ -359,11 +372,12 @@ pub mod prelude {
         any(target_os = "android", target_os = "ios")
     ))]
     pub use fission_shell_mobile::{
-        BarcodeScannerHost, BiometricHost, ClipboardHost, GeolocationHost,
+        BarcodeScannerHost, BiometricHost, ClipboardHost, GeolocationHost, HapticHost,
         MemoryBarcodeScannerHost, MemoryBiometricHost, MemoryClipboardHost, MemoryGeolocationHost,
-        MemoryNfcHost, MemoryNotificationHost, MobileApp, NfcHost, NotificationHost,
-        UnsupportedBarcodeScannerHost, UnsupportedBiometricHost, UnsupportedGeolocationHost,
-        UnsupportedNfcHost, UnsupportedNotificationHost,
+        MemoryHapticHost, MemoryNfcHost, MemoryNotificationHost, MobileApp, NfcHost,
+        NotificationHost, UnsupportedBarcodeScannerHost, UnsupportedBiometricHost,
+        UnsupportedGeolocationHost, UnsupportedHapticHost, UnsupportedNfcHost,
+        UnsupportedNotificationHost,
     };
     #[cfg(feature = "site")]
     pub use fission_shell_site::*;
@@ -374,11 +388,11 @@ pub mod prelude {
         target_arch = "wasm32"
     ))]
     pub use fission_shell_web::{
-        BarcodeScannerHost, BiometricHost, ClipboardHost, GeolocationHost,
+        BarcodeScannerHost, BiometricHost, ClipboardHost, GeolocationHost, HapticHost,
         MemoryBarcodeScannerHost, MemoryBiometricHost, MemoryClipboardHost, MemoryGeolocationHost,
-        MemoryNfcHost, MemoryNotificationHost, NfcHost, NotificationHost,
+        MemoryHapticHost, MemoryNfcHost, MemoryNotificationHost, NfcHost, NotificationHost,
         UnsupportedBarcodeScannerHost, UnsupportedBiometricHost, UnsupportedGeolocationHost,
-        UnsupportedNfcHost, UnsupportedNotificationHost, WebApp,
+        UnsupportedHapticHost, UnsupportedNfcHost, UnsupportedNotificationHost, WebApp,
     };
 
     // Serde (commonly needed for actions)

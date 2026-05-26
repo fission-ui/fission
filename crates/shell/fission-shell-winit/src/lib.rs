@@ -88,6 +88,8 @@ use clipboard::DesktopClipboard;
 pub use clipboard::{ClipboardHost, MemoryClipboardHost};
 mod geolocation;
 pub use geolocation::{GeolocationHost, MemoryGeolocationHost, UnsupportedGeolocationHost};
+mod haptics;
+pub use haptics::{HapticHost, MemoryHapticHost, UnsupportedHapticHost};
 mod barcode;
 pub use barcode::{BarcodeScannerHost, MemoryBarcodeScannerHost, UnsupportedBarcodeScannerHost};
 mod biometric;
@@ -171,6 +173,7 @@ fn register_builtin_operation_capabilities(async_registry: &mut AsyncRegistry) {
         async_registry,
         Arc::new(UnsupportedGeolocationHost),
     );
+    haptics::register_haptic_capabilities(async_registry, Arc::new(UnsupportedHapticHost));
 }
 
 fn collect_startup_deep_links(config: &DeepLinkConfig) -> Vec<DeepLink> {
@@ -2462,6 +2465,14 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
         H: GeolocationHost,
     {
         geolocation::register_geolocation_capabilities(&mut self.async_registry, Arc::new(host));
+        self
+    }
+
+    pub fn with_haptic_host<H>(mut self, host: H) -> Self
+    where
+        H: HapticHost,
+    {
+        haptics::register_haptic_capabilities(&mut self.async_registry, Arc::new(host));
         self
     }
 

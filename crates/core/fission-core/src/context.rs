@@ -36,6 +36,10 @@ use crate::platform_geolocation::{
     GeolocationPermissionRequest, GeolocationPositionRequest, GET_CURRENT_POSITION,
     GET_GEOLOCATION_PERMISSION, REQUEST_GEOLOCATION_PERMISSION,
 };
+use crate::platform_haptics::{
+    HapticImpactRequest, HapticNotificationRequest, HapticPatternRequest, HAPTIC_IMPACT,
+    HAPTIC_NOTIFICATION, HAPTIC_PATTERN, HAPTIC_SELECTION,
+};
 use crate::platform_nfc::{
     NfcEmulationRequest, NfcScanRequest, NfcWriteRequest, CANCEL_NFC_SESSION, EMULATE_NFC_TAG,
     GET_NFC_AVAILABILITY, SCAN_NFC_TAG, WRITE_NFC_TAG,
@@ -199,6 +203,10 @@ impl<'a, S: AppState> Effects<'a, S> {
 
     pub fn geolocation(&mut self) -> GeolocationEffects<'_, 'a, S> {
         GeolocationEffects { effects: self }
+    }
+
+    pub fn haptics(&mut self) -> HapticEffects<'_, 'a, S> {
+        HapticEffects { effects: self }
     }
 
     pub fn app<J: JobSpec>(
@@ -478,6 +486,29 @@ impl<'a, 'b, S: AppState> GeolocationEffects<'a, 'b, S> {
 
     pub fn current_position(self, request: GeolocationPositionRequest) -> EffectBuilder<'a, 'b, S> {
         self.effects.capability(GET_CURRENT_POSITION, request)
+    }
+}
+
+/// Convenience builder for standard haptic host capabilities.
+pub struct HapticEffects<'a, 'b, S: AppState> {
+    effects: &'a mut Effects<'b, S>,
+}
+
+impl<'a, 'b, S: AppState> HapticEffects<'a, 'b, S> {
+    pub fn impact(self, request: HapticImpactRequest) -> EffectBuilder<'a, 'b, S> {
+        self.effects.capability(HAPTIC_IMPACT, request)
+    }
+
+    pub fn notification(self, request: HapticNotificationRequest) -> EffectBuilder<'a, 'b, S> {
+        self.effects.capability(HAPTIC_NOTIFICATION, request)
+    }
+
+    pub fn selection(self) -> EffectBuilder<'a, 'b, S> {
+        self.effects.capability(HAPTIC_SELECTION, ())
+    }
+
+    pub fn pattern(self, request: HapticPatternRequest) -> EffectBuilder<'a, 'b, S> {
+        self.effects.capability(HAPTIC_PATTERN, request)
     }
 }
 

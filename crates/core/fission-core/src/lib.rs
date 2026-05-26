@@ -56,6 +56,7 @@ pub mod platform_barcode;
 pub mod platform_biometric;
 pub mod platform_clipboard;
 pub mod platform_geolocation;
+pub mod platform_haptics;
 pub mod platform_nfc;
 pub mod registry;
 pub mod runtime;
@@ -80,7 +81,7 @@ pub use capability::{
 };
 pub use context::{
     BarcodeScannerEffects, BiometricEffects, ClipboardEffects, Effects, GeolocationEffects,
-    NfcEffects, NotificationEffects, ReducerContext,
+    HapticEffects, NfcEffects, NotificationEffects, ReducerContext,
 }; // New
 pub use effect::{ActionInput, Effect, EffectEnvelope, RuntimeEffect};
 pub use env::{
@@ -133,6 +134,12 @@ pub use platform_geolocation::{
     GeolocationPositionRequest, GetCurrentPositionCapability, GetGeolocationPermissionCapability,
     RequestGeolocationPermissionCapability, GET_CURRENT_POSITION, GET_GEOLOCATION_PERMISSION,
     REQUEST_GEOLOCATION_PERMISSION,
+};
+pub use platform_haptics::{
+    HapticError, HapticImpactCapability, HapticImpactRequest, HapticImpactStyle,
+    HapticNotificationCapability, HapticNotificationKind, HapticNotificationRequest,
+    HapticPatternCapability, HapticPatternRequest, HapticPatternStep, HapticSelectionCapability,
+    HAPTIC_IMPACT, HAPTIC_NOTIFICATION, HAPTIC_PATTERN, HAPTIC_SELECTION,
 };
 pub use platform_nfc::{
     CancelNfcSessionCapability, EmulateNfcTagCapability, GetNfcAvailabilityCapability,

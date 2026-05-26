@@ -383,6 +383,7 @@ mod tests {
             "biometric",
             "barcode-scanner",
             "geolocation",
+            "haptics",
             "--project-dir",
             dir.to_str().unwrap(),
         ])
@@ -401,6 +402,9 @@ mod tests {
         assert!(project
             .capabilities
             .contains(&fission_command_core::PlatformCapability::Geolocation));
+        assert!(project
+            .capabilities
+            .contains(&fission_command_core::PlatformCapability::Haptics));
 
         let android_manifest =
             std::fs::read_to_string(dir.join("platforms/android/AndroidManifest.xml")).unwrap();
@@ -409,6 +413,7 @@ mod tests {
         assert!(android_manifest.contains("android.permission.USE_BIOMETRIC"));
         assert!(android_manifest.contains("android.permission.CAMERA"));
         assert!(android_manifest.contains("android.permission.ACCESS_FINE_LOCATION"));
+        assert!(android_manifest.contains("android.permission.VIBRATE"));
 
         let ios_info = std::fs::read_to_string(dir.join("platforms/ios/Info.plist")).unwrap();
         assert!(ios_info.contains("NFCReaderUsageDescription"));

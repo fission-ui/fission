@@ -6,11 +6,12 @@ use fission_shell::async_host::AsyncRegistry;
 use fission_shell_winit::WinitApp;
 
 pub use fission_shell_winit::{
-    test_control, BarcodeScannerHost, BiometricHost, ClipboardHost, GeolocationHost,
+    test_control, BarcodeScannerHost, BiometricHost, ClipboardHost, GeolocationHost, HapticHost,
     InvalidationSet, MemoryBarcodeScannerHost, MemoryBiometricHost, MemoryClipboardHost,
-    MemoryGeolocationHost, MemoryNfcHost, MemoryNotificationHost, NfcHost, NotificationHost,
-    Pipeline, UnsupportedBarcodeScannerHost, UnsupportedBiometricHost, UnsupportedGeolocationHost,
-    UnsupportedNfcHost, UnsupportedNotificationHost,
+    MemoryGeolocationHost, MemoryHapticHost, MemoryNfcHost, MemoryNotificationHost, NfcHost,
+    NotificationHost, Pipeline, UnsupportedBarcodeScannerHost, UnsupportedBiometricHost,
+    UnsupportedGeolocationHost, UnsupportedHapticHost, UnsupportedNfcHost,
+    UnsupportedNotificationHost,
 };
 
 pub struct DesktopApp<S: AppState, W: Widget<S>> {
@@ -132,6 +133,14 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
         H: GeolocationHost,
     {
         self.inner = self.inner.with_geolocation_host(host);
+        self
+    }
+
+    pub fn with_haptic_host<H>(mut self, host: H) -> Self
+    where
+        H: HapticHost,
+    {
+        self.inner = self.inner.with_haptic_host(host);
         self
     }
 

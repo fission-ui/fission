@@ -4,11 +4,11 @@ use fission_shell::async_host::AsyncRegistry;
 use fission_shell_winit::WinitApp;
 
 pub use fission_shell_winit::{
-    BarcodeScannerHost, BiometricHost, ClipboardHost, GeolocationHost, MemoryBarcodeScannerHost,
-    MemoryBiometricHost, MemoryClipboardHost, MemoryGeolocationHost, MemoryNfcHost,
-    MemoryNotificationHost, NfcHost, NotificationHost, UnsupportedBarcodeScannerHost,
-    UnsupportedBiometricHost, UnsupportedGeolocationHost, UnsupportedNfcHost,
-    UnsupportedNotificationHost,
+    BarcodeScannerHost, BiometricHost, ClipboardHost, GeolocationHost, HapticHost,
+    MemoryBarcodeScannerHost, MemoryBiometricHost, MemoryClipboardHost, MemoryGeolocationHost,
+    MemoryHapticHost, MemoryNfcHost, MemoryNotificationHost, NfcHost, NotificationHost,
+    UnsupportedBarcodeScannerHost, UnsupportedBiometricHost, UnsupportedGeolocationHost,
+    UnsupportedHapticHost, UnsupportedNfcHost, UnsupportedNotificationHost,
 };
 
 #[cfg(target_os = "android")]
@@ -133,6 +133,14 @@ impl<S: AppState + Default, W: Widget<S> + 'static> MobileApp<S, W> {
         H: GeolocationHost,
     {
         self.inner = self.inner.with_geolocation_host(host);
+        self
+    }
+
+    pub fn with_haptic_host<H>(mut self, host: H) -> Self
+    where
+        H: HapticHost,
+    {
+        self.inner = self.inner.with_haptic_host(host);
         self
     }
 
