@@ -1,17 +1,19 @@
 ---
 title: Camera and flashlight
-description: Reference for the camera and flashlight capability API, provider, operations, and platform configuration.
+description: Reference for the camera and flashlight capability API, provider contract, operations, and platform configuration.
 ---
 
 # Camera and flashlight
 
-The camera capability asks the host for camera availability, permission, still photo capture, and flashlight control where the active device exposes a torch.
+The camera capability keeps sensitive camera work inside the shell. Shared app code asks for availability or capture, while the host owns permissions, preview UI, image capture, camera identifiers, torch control, and platform-specific failure modes.
+
+This reference is for the exact API shape. If you are wiring the feature into an app for the first time, start with the [Camera and flashlight guide](/docs/capabilities/camera/), then return here when you need operation names, request types, provider contracts, or platform configuration details.
 
 ## Public API
 
 | Item | Value |
 | --- | --- |
-| Effect helper | `ctx.effects.camera()` |
+| Effect helper or entrypoint | `ctx.effects.camera()` |
 | Provider trait or host contract | `CameraHost` |
 | Test provider or test entrypoint | `MemoryCameraHost` |
 | Primary request types | `CameraPermissionRequest / CameraCaptureRequest / CameraFlashlightRequest` |
@@ -21,24 +23,32 @@ The camera capability asks the host for camera availability, permission, still p
 
 ## Operations
 
-| Method or operation | What it is for |
-| --- | --- |
-| `availability` | Emits or handles the `Camera and flashlight` host operation for this capability. |
-| `request_permission` | Emits or handles the `Camera and flashlight` host operation for this capability. |
-| `capture_photo` | Emits or handles the `Camera and flashlight` host operation for this capability. |
-| `set_flashlight` | Emits or handles the `Camera and flashlight` host operation for this capability. |
-| `cancel_capture` | Emits or handles the `Camera and flashlight` host operation for this capability. |
+| Method or operation | Purpose | Request | Success |
+| --- | --- | --- | --- |
+| `availability` | Read camera permission and visible camera devices. | `()` | `CameraAvailability` |
+| `request_permission` | Ask the host to request camera permission. | `CameraPermissionRequest` | `CameraPermission` |
+| `capture_photo` | Capture a still image with selected facing, resolution, format, flash, and quality. | `CameraCaptureRequest` | `CameraCapture` |
+| `set_flashlight` | Enable, disable, or adjust torch intensity where available. | `CameraFlashlightRequest` | `()` |
+| `cancel_capture` | Cancel an active capture flow. | `()` | `()` |
+
+## Provider contract
+
+Register a `CameraHost` with `.with_camera_host(...)`. Use `MemoryCameraHost` in tests. A provider should expose availability, permission, capture, flashlight, and cancellation separately so apps can degrade gracefully.
+
+Providers should return typed errors for unsupported operations, denied permissions, unavailable hardware, cancellation, timeouts, and platform policy restrictions. Silent success is not acceptable because reducers need a truthful result to update state and explain what happened.
 
 ## Platform configuration
 
-Run `fission add-capability camera --project-dir .`. Android receives camera permission plus optional camera/front/flash feature declarations. iOS receives `NSCameraUsageDescription`. Desktop targets can support cameras through host providers; macOS packaged apps need camera usage text in their app bundle, and Windows packaged apps may need webcam capability metadata.
+The CLI adds Android camera permission and optional camera/front/flash features. iOS receives `NSCameraUsageDescription`. Desktop targets need a provider and packaged apps may need macOS camera usage text or Windows webcam capability metadata.
 
-The CLI records the capability in `fission.toml` when the capability has a CLI value. Generated mobile configuration is written to the platform files that the host target already owns: Android uses `platforms/android/AndroidManifest.xml`; iOS uses `platforms/ios/Info.plist` and `platforms/ios/Entitlements.plist` when the feature needs entitlements. Desktop package metadata is target-specific and should be reviewed during packaging because Windows, macOS, and Linux expose different permission and distribution systems.
+When a CLI value exists, `fission add-capability <value> --project-dir .` records the capability in `fission.toml` and updates generated target files where Fission can do that deterministically. Android generated configuration lives in `platforms/android/AndroidManifest.xml`. iOS generated configuration lives in `platforms/ios/Info.plist` and `platforms/ios/Entitlements.plist` when entitlements are required. Desktop package metadata is reviewed during packaging because Windows, macOS, and Linux use different permission and distribution systems.
 
 ## Runtime behavior
 
-A provider should return a typed unsupported error when the host cannot perform the operation. It should not silently succeed. That lets reducers show a useful message, hide unsupported controls, or offer another path without guessing from the platform name.
+Capability calls are queued from reducers through `ctx.effects`. The active shell resolves the request with the registered provider and then dispatches the configured success or error action. Missing providers should produce typed unsupported errors. Packaging mistakes usually show up as denied permissions, missing entitlements, missing route registration, or provider-specific failures.
 
-## Guide
+## Related pages
 
-Read the [Camera and flashlight guide](/docs/capabilities/camera/) for reducer examples and product guidance.
+- [Camera and flashlight guide](/docs/capabilities/camera/)
+- [Capability matrix](/docs/capabilities/matrix/)
+- [Platform capabilities reference](/reference/core/platform-capabilities/)

@@ -5,34 +5,119 @@ description: Use the Fission command, targets, shells, devices, logs, and projec
 
 # Develop workflow
 
-The Fission development workflow starts with one project and grows by adding targets. You do not create a separate product for every platform. You keep product behavior in shared Rust and let Fission generate or run the shell needed for the current target.
+The daily Fission workflow is built around one command, one project manifest, and one shared app model.
 
-## Daily loop
+You write product behavior in Rust: state, actions, reducers, selectors, widgets, resources, and capabilities. Then you use the `fission` command to add hosts, run targets, attach logs, check local setup, build packages, and publish releases. The command-line tool should make the platform work repeatable without hiding the app architecture from you.
 
-1. Create or open a project with `fission.toml` at the root.
-2. Add the targets your product needs.
-3. Run the fastest target while building shared behavior.
-4. Switch to the real host whenever the question depends on browser, mobile, terminal, or static-site behavior.
-5. Keep logs attached while the app runs.
-6. Use readiness checks before packaging or publishing.
+## The normal day-to-day loop
+
+Most days follow this loop:
+
+1. Open a project that has `fission.toml` at its root.
+2. Run the fastest useful target while developing the shared feature.
+3. Switch to the platform target whenever the question depends on a real host.
+4. Keep logs attached while the app runs.
+5. Add focused tests before the feature grows.
+6. Run readiness checks before packaging or publishing.
+
+A new project usually starts like this:
 
 ```bash
 fission init my-app
-fission add-target web android ios --project-dir my-app
-fission devices --project-dir my-app
-fission run --project-dir my-app
+cd my-app
+fission run
 ```
 
-## Targets and shells
+An existing project can add more hosts without replacing its source files:
 
-A target is the output family you want to run or build. A shell is the host layer that boots the shared app model for that target. Desktop, web, mobile, terminal, and static site targets use different shell code, but the state, reducers, widgets, and design system stay shared.
+```bash
+fission init .
+fission add-target web android ios
+fission devices
+fission run --target web
+```
 
-That distinction keeps your codebase maintainable. Product modules should not know whether they are inside a native window, browser, phone, terminal, or static page unless the feature itself depends on that host.
+`fission init .` is intentionally idempotent. On an existing project it should create or update missing Fission metadata without overwriting your app source. That matters when older examples or hand-written projects need a `fission.toml` before they can use newer CLI features.
 
-## Configuration belongs in `fission.toml`
+## Choose the fastest target for the question
 
-`fission.toml` is the authoritative project root for targets, app metadata, site config, distribution config, release roots, and provider references. Keep long-form release notes, localized listing text, screenshots, and large provider metadata in referenced release-content files so the root manifest stays readable.
+A target is the output family you want to run or build. A shell is the host layer that boots the shared app model for that target.
+
+| Question you are answering | Good first target | Why |
+| --- | --- | --- |
+| Does my reducer update state correctly? | Rust unit test | No host is needed. Test the function directly. |
+| Does the screen composition make sense? | Desktop or web | Fast visual iteration with the normal widget tree. |
+| Does the layout adapt to browser sizes? | Web | The browser host answers viewport, focus, clipboard, and page-integration questions. |
+| Does touch, safe area, or mobile density feel right? | Android or iOS | Mobile hosts answer mobile input and presentation questions. |
+| Does a command-line workflow need persistent interaction? | Terminal UI | The terminal shell proves keyboard, mouse, logs, and scrollback behavior. |
+| Does documentation or marketing content render as crawlable pages? | Static site | The site target answers routing, generated HTML, metadata, search, and link-validation questions. |
+
+Do not treat desktop as the only real loop. It is often the fastest place to start, but browser, mobile, terminal, and static site targets are first-class delivery paths. Choose the host that can actually answer the current question.
+
+## Keep host details at the edge
+
+Product modules should not need to know whether they are running in a native window, browser, phone, terminal, or static site build unless the feature itself depends on that host.
+
+For example, an inbox screen should not contain Android packaging logic or browser script setup. It should contain state, reducers, selectors, and widgets. If the inbox needs notifications, deep links, clipboard, camera, or local authentication, it should request those through Fission capabilities. The shell-side provider handles the platform-specific API.
+
+That boundary keeps app code reviewable. A teammate can read the inbox module and understand the product behavior without also learning every target's launch script.
+
+## Use `fission.toml` as the project root
+
+`fission.toml` is the authoritative manifest for the project. It should contain stable project facts and references to larger files:
+
+| Belongs in `fission.toml` | Usually belongs in a referenced file |
+| --- | --- |
+| App name, app id, package ids, enabled targets | Full release notes |
+| Target declarations and generated host locations | Long store descriptions |
+| Site route roots, output directory, static assets | Localized marketing text |
+| Capability declarations and platform config references | Screenshot inventories and preview videos |
+| Release ids, provider names, track names, metadata paths | Provider-specific review attachments |
+
+Keeping the root manifest readable makes it easier to review changes. The CLI can populate or edit parts of the manifest, but the files remain ordinary project files that can be committed and reviewed.
+
+## Run with attached output by default
+
+`fission run` should feel like a production developer tool: it builds, launches, and attaches to useful output unless you ask it not to.
+
+```bash
+fission run --target android --device emulator-5554
+fission run --target ios --device "iPhone 15"
+fission run --target web
+```
+
+Use `--detach` when you want the app to keep running without the command staying attached. Use `fission logs` to reconnect where the target supports it.
+
+```bash
+fission run --target web --detach
+fission logs --target web
+```
+
+## Use the terminal UI when discovery matters
+
+The command-line flags are still the stable automation surface, but not every task is easiest to learn as a command. `fission ui` opens a Fission-built terminal interface for project setup, run/build workflows, logs, settings, and discovery.
+
+```bash
+fission ui --project-dir .
+```
+
+Use the terminal UI when you want a guided workflow. Use direct commands in scripts and continuous integration.
+
+## Check setup before blaming the app
+
+A lot of platform failures are environment failures: missing Android NDK, missing simulator runtime, unavailable browser driver, stale package metadata, missing signing config, or an unauthenticated provider CLI.
+
+Run `doctor` and readiness checks when the error smells like setup:
+
+```bash
+fission doctor
+fission doctor android ios web
+fission readiness package --target android --format aab
+fission readiness distribute --provider github-releases --artifact target/fission/release/windows/msix/artifact-manifest.json
+```
+
+A good check tells you what is missing and what to do next. It should not leave you guessing which SDK, target, credential, or generated file caused the problem.
 
 ## Where to go next
 
-Read [Platform shells, CLI, and testing](/docs/guides/platform-shells-cli-and-testing/) for the shell model, [Examples and targets](/docs/learn/examples-and-targets/) for target examples, and [Reference: CLI](/reference/cli/overview/) for command details.
+Read [Platform shells, CLI, and testing](/docs/guides/platform-shells-cli-and-testing/) for the shell model, [Examples and targets](/docs/learn/examples-and-targets/) for target strategy, and [Command-line interface reference](/reference/cli/overview/) when you need exact command flags.

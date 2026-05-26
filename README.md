@@ -34,18 +34,24 @@ The result is one Rust-first workflow that scales from a counter app to a multi-
 
 ## See It
 
-These are real Fission chart screenshots from the checked-in chart catalog. The same widget model is used for app screens, dashboards, static pages, and examples.
+These screenshots come from checked-in Fission examples and the Fission documentation site assets. They show the same widget model handling product screens, text editing, developer tools, widget reference work, and data visualization.
 
 <table>
   <tr>
-    <td><img src="documentation/static/img/charts/line-gradient-area.png" alt="Gradient area line chart" /></td>
-    <td><img src="documentation/static/img/charts/bar-stacked-revenue.png" alt="Stacked revenue bar chart" /></td>
-    <td><img src="documentation/static/img/charts/heatmap-correlation-grid.png" alt="Correlation heatmap" /></td>
+    <td width="50%"><img src="documentation/static/img/examples/inbox-initial.png" alt="Fission inbox example with message list and detail pane" /><br><strong>Inbox</strong></td>
+    <td width="50%"><img src="documentation/static/img/examples/editor-initial.png" alt="Fission editor example with file explorer and editor panes" /><br><strong>Editor</strong></td>
   </tr>
   <tr>
-    <td><img src="documentation/static/img/charts/sankey-basic.png" alt="Sankey chart" /></td>
-    <td><img src="documentation/static/img/charts/globe-coverage.png" alt="Globe coverage chart" /></td>
-    <td><img src="documentation/static/img/charts/gauge-deploy-health.png" alt="Deployment health gauge" /></td>
+    <td><img src="documentation/static/img/examples/inbox-compose.png" alt="Fission inbox compose flow" /><br><strong>Compose flow</strong></td>
+    <td><img src="documentation/static/img/examples/editor-terminal.png" alt="Fission editor with integrated terminal output" /><br><strong>Integrated terminal</strong></td>
+  </tr>
+  <tr>
+    <td><img src="documentation/static/img/examples/widget-gallery.png" alt="Fission widget gallery example" /><br><strong>Widget gallery</strong></td>
+    <td><img src="documentation/static/img/examples/terminal-ui.png" alt="Fission terminal user interface example" /><br><strong>Terminal UI</strong></td>
+  </tr>
+  <tr>
+    <td><img src="documentation/static/img/charts/line-gradient-area.png" alt="Fission gradient area line chart" /><br><strong>Charts</strong></td>
+    <td><img src="documentation/static/img/charts/globe-coverage.png" alt="Fission globe coverage chart" /><br><strong>3D and globe charts</strong></td>
   </tr>
 </table>
 
@@ -156,11 +162,11 @@ Use `#[fission_reducer]` for compact local actions, or `#[fission_action]` when 
 <details open>
 <summary><strong>Application framework</strong></summary>
 
-- Flutter-style widget composition in Rust, with normal structs implementing `Widget`.
+- Struct-based widget composition in Rust, with normal types implementing `Widget`.
 - Typed application state, typed actions, reducers, selectors, effects, and explicit environment data.
 - GPU-accelerated rendering through the Fission rendering stack.
 - Layout, text input, input events, accessibility semantics, portals, overlays, animation support, media/embed widgets, and 3D support.
-- Design-system support from Design System Package JSON at build time, including generated themes used by applications.
+- Design-system support from Design System Package JSON at build time, including generated themes and bundled presets for Fission, Material Design 3, Fluent 2, Liquid Glass, and Cupertino-style apps.
 
 </details>
 

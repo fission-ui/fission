@@ -1,60 +1,177 @@
 ---
 title: App structure
-description: Organize a Fission app around typed state, explicit reducers, and a shared entry model.
+description: Organize a Fission app around typed state, explicit reducers, reusable widgets, and target entrypoints.
 ---
 
 # App structure
 
-The generated command-line interface app and the checked-in examples follow the same broad structure.
+A Fission app is easiest to maintain when each file has one job. State describes what the product knows. Reducers describe how that state changes. Widgets describe what the user sees. Shell entrypoints start the same shared app on desktop, web, mobile, terminal, or static-site targets.
 
-## Common files
+By the end of this guide, you should know where to put the first screen, where to put actions and reducers, when to split widgets into modules, and what should stay out of `main.rs`.
 
-A scaffolded app gives you:
+## 1. Start from the generated files
 
-- `src/app.rs` for the shared root widget and core product logic,
-- `src/main.rs` for the desktop entrypoint,
-- `src/lib.rs` for shared helpers used by mobile or web hosts,
-- `fission.toml` for target metadata,
-- `platforms/<target>/` for host packaging and launch scripts.
+A new app usually starts like this:
 
-The examples keep a similar split even when they stay in a single crate.
+```text
+my-app/
+  Cargo.toml
+  fission.toml
+  src/
+    app.rs
+    lib.rs
+    main.rs
+  platforms/
+    web/
+    android/
+    ios/
+```
 
-## Keep state and reducers close
+The exact target folders depend on which targets you add. The important split is stable:
 
-A good first pass is:
+| Path | Responsibility |
+| --- | --- |
+| `src/app.rs` | The shared product app: state, root widget, reducers, selectors, and modules used by every target. |
+| `src/lib.rs` | Shared exports and target entry helpers used by generated web/mobile hosts. |
+| `src/main.rs` | The default desktop binary entrypoint. Keep it small. |
+| `fission.toml` | Fission project metadata, targets, capabilities, site/release references, and package configuration. |
+| `platforms/<target>/` | Generated host files for web, Android, iOS, or other targets. Review them, but do not move product logic there. |
 
-1. define `AppState`,
-2. define typed actions next to the state they change,
-3. bind reducers in `build()` or through an `ActionRegistry`,
-4. use selectors for view-specific derived data.
+If you remember one rule, make it this: product behavior belongs in shared Rust modules, not in generated platform folders.
 
-This keeps code review focused on state transitions instead of callback wiring.
+## 2. Give the app state a clear shape
 
-## Inline binding vs central registration
+Begin with one state struct. Add fields because the UI needs to render them or a reducer needs to update them.
 
-Use `ctx.bind(...)` when the action is local to the widget tree.
+```rust
+#[derive(Default)]
+pub struct TodoState {
+    pub draft: String,
+    pub items: Vec<TodoItem>,
+    pub filter: TodoFilter,
+    pub saving: bool,
+    pub error: Option<String>,
+}
+```
 
-Use `ActionRegistry` plus `absorb_registry(...)` when you want startup-time registration for global actions, like the inbox example does for capability-backed links.
+Avoid storing the same fact in two forms unless there is a strong reason. If a value can be derived cheaply from state, use a selector or helper instead of storing another copy.
 
-## Stable IDs are for runtime-owned behavior
+## 3. Put actions and reducers next to the state they change
 
-Reach for explicit `WidgetNodeId`s when the runtime needs a durable identity across frames:
+Reducers should be easy to find during code review. For a small app, keeping actions and reducers in `src/app.rs` is fine. As the app grows, move them into modules by feature:
 
-- animations,
-- portal anchors,
-- hero transitions,
-- media/embed bookkeeping.
+```text
+src/
+  app.rs
+  todo/
+    mod.rs
+    state.rs
+    actions.rs
+    reducers.rs
+    selectors.rs
+    widgets.rs
+```
 
-Do not assign IDs everywhere by default.
+A compact reducer uses `#[fission_reducer]`:
 
-## Prefer pure view models over build-time work
+```rust
+#[fission_reducer(SetDraft)]
+fn on_set_draft(state: &mut TodoState, draft: String) {
+    state.draft = draft;
+}
 
-If a widget needs formatted text, booleans, or small derived slices of state, use a selector or helper struct instead of mutating state during build.
+#[fission_reducer(AddTodo)]
+fn on_add_todo(state: &mut TodoState) {
+    let text = state.draft.trim();
+    if text.is_empty() {
+        return;
+    }
 
-The `counter` example's selector-based `CounterVM` is the right level of indirection for many screens.
+    state.items.push(TodoItem::new(text));
+    state.draft.clear();
+}
+```
 
-## Related guides
+Use `#[fission_action]` for manual action structs when the action is part of a public API, reused across several modules, or needs a documented data shape. Use `#[fission_reducer]` for the common case where one reducer owns one action.
 
-- [Resources and async](/docs/guides/resources-and-async)
-- [Layout and widgets](/docs/guides/layout-and-widgets)
-- [Reference: state system](/reference/core/state-system)
+## 4. Build screens from real widget structs
+
+Prefer reusable widget structs over large helper functions that return `Node` directly. This keeps examples and production apps aligned with the framework model.
+
+```rust
+pub struct TodoScreen;
+
+impl Widget<TodoState> for TodoScreen {
+    fn build(&self, view: &View<TodoState>, ctx: &mut BuildCtx<TodoState>) -> Node {
+        let add = with_reducer!(ctx, AddTodo, on_add_todo);
+
+        Column::new()
+            .child(TodoComposer { on_submit: add })
+            .child(TodoList::new(view.state.visible_items()))
+            .build(view, ctx)
+    }
+}
+```
+
+Small helper functions are still useful for pure formatting or repeated literal values. They should not become a second component system beside `Widget` implementations.
+
+## 5. Use selectors for derived view data
+
+A selector is a small piece of code that turns product state into view-ready data. It keeps `build()` readable and avoids mutating state while building the UI.
+
+```rust
+pub struct TodoListItemVm {
+    pub title: String,
+    pub completed: bool,
+}
+
+fn visible_todos(state: &TodoState) -> Vec<TodoListItemVm> {
+    state.items
+        .iter()
+        .filter(|item| state.filter.allows(item))
+        .map(|item| TodoListItemVm {
+            title: item.title.clone(),
+            completed: item.completed,
+        })
+        .collect()
+}
+```
+
+Use selectors for formatted strings, filtered lists, button-disabled decisions, empty states, and responsive view models. Do not use selectors to perform host work, mutate state, or dispatch actions.
+
+## 6. Keep entrypoints small
+
+`src/main.rs` should start the shell and then get out of the way:
+
+```rust
+use fission::prelude::*;
+use my_app::App;
+
+fn main() -> anyhow::Result<()> {
+    DesktopApp::new(App).run()
+}
+```
+
+As targets are added, generated host entrypoints should also call into the shared app instead of duplicating screens or reducers. That keeps desktop, web, Android, iOS, terminal, and test entrypoints running the same product behavior.
+
+## 7. Add target-specific code only at the host boundary
+
+Some code really is target-specific: notification providers, camera providers, URL scheme registration, native packaging files, browser service workers, or platform release metadata. Put that code in the shell/provider layer or generated platform files, not in random widgets.
+
+If a widget needs to know whether a feature is available, store the result in state after a capability check and render from that state. Do not scatter `cfg(target_os = ...)` through product widgets unless the widget itself truly cannot exist on the target.
+
+## 8. Split modules when review becomes hard
+
+A file is too large when a reviewer cannot quickly answer these questions:
+
+- Which state does this feature own?
+- Which actions can change it?
+- Which reducers handle those actions?
+- Which widgets render that state?
+- Which effects leave the app and enter the host?
+
+Split by feature before the file becomes a dumping ground. A good feature module has its state, reducers, selectors, and widgets close together. Shared design-system components can live in a separate `components/` module.
+
+## Where to go next
+
+Read [Runtime model](/docs/learn/runtime-model/) for the state-action-reducer loop. Read [Layout and widgets](/docs/guides/layout-and-widgets/) for screen composition. Read [Platform capabilities](/docs/guides/platform-capabilities/) before adding host-owned features.

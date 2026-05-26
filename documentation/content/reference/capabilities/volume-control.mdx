@@ -1,17 +1,19 @@
 ---
 title: Volume control
-description: Reference for the volume control capability API, provider, operations, and platform configuration.
+description: Reference for the volume control capability API, provider contract, operations, and platform configuration.
 ---
 
 # Volume control
 
-Volume control asks the host to read or change an audio stream level such as media, notification, alarm, call, or system volume where the platform allows it.
+Volume control crosses into host policy. Some platforms let apps adjust system streams; others only let an app control its own media element or expose hardware buttons outside app control.
+
+This reference is for the exact API shape. If you are wiring the feature into an app for the first time, start with the [Volume control guide](/docs/capabilities/volume-control/), then return here when you need operation names, request types, provider contracts, or platform configuration details.
 
 ## Public API
 
 | Item | Value |
 | --- | --- |
-| Effect helper | `ctx.effects.volume()` |
+| Effect helper or entrypoint | `ctx.effects.volume()` |
 | Provider trait or host contract | `VolumeHost` |
 | Test provider or test entrypoint | `MemoryVolumeHost` |
 | Primary request types | `VolumeStream / VolumeSetRequest / VolumeAdjustRequest` |
@@ -21,22 +23,30 @@ Volume control asks the host to read or change an audio stream level such as med
 
 ## Operations
 
-| Method or operation | What it is for |
-| --- | --- |
-| `get_level` | Emits or handles the `Volume control` host operation for this capability. |
-| `set_level` | Emits or handles the `Volume control` host operation for this capability. |
-| `adjust_level` | Emits or handles the `Volume control` host operation for this capability. |
+| Method or operation | Purpose | Request | Success |
+| --- | --- | --- | --- |
+| `get_level` | Read one host volume stream. | `VolumeStream` | `VolumeLevel` |
+| `set_level` | Set a stream level and optional mute state. | `VolumeSetRequest` | `VolumeLevel` |
+| `adjust_level` | Increase or decrease a stream relative to its current level. | `VolumeAdjustRequest` | `VolumeLevel` |
+
+## Provider contract
+
+Register a `VolumeHost` with `.with_volume_host(...)`. Use `MemoryVolumeHost` in tests. Providers should clamp or reject invalid levels and return unsupported where the target cannot expose system volume.
+
+Providers should return typed errors for unsupported operations, denied permissions, unavailable hardware, cancellation, timeouts, and platform policy restrictions. Silent success is not acceptable because reducers need a truthful result to update state and explain what happened.
 
 ## Platform configuration
 
-Run `fission add-capability volume-control --project-dir .`. Android receives `MODIFY_AUDIO_SETTINGS`. iOS does not expose general app-controlled system volume in the same way, so support is limited to host-approved media controls. Desktop hosts can map this contract to platform mixer APIs where appropriate.
+The CLI adds Android `MODIFY_AUDIO_SETTINGS`. iOS does not expose broad app-controlled system volume. Desktop providers can map to mixer APIs when appropriate, but packaged apps may have store policy constraints.
 
-The CLI records the capability in `fission.toml` when the capability has a CLI value. Generated mobile configuration is written to the platform files that the host target already owns: Android uses `platforms/android/AndroidManifest.xml`; iOS uses `platforms/ios/Info.plist` and `platforms/ios/Entitlements.plist` when the feature needs entitlements. Desktop package metadata is target-specific and should be reviewed during packaging because Windows, macOS, and Linux expose different permission and distribution systems.
+When a CLI value exists, `fission add-capability <value> --project-dir .` records the capability in `fission.toml` and updates generated target files where Fission can do that deterministically. Android generated configuration lives in `platforms/android/AndroidManifest.xml`. iOS generated configuration lives in `platforms/ios/Info.plist` and `platforms/ios/Entitlements.plist` when entitlements are required. Desktop package metadata is reviewed during packaging because Windows, macOS, and Linux use different permission and distribution systems.
 
 ## Runtime behavior
 
-A provider should return a typed unsupported error when the host cannot perform the operation. It should not silently succeed. That lets reducers show a useful message, hide unsupported controls, or offer another path without guessing from the platform name.
+Capability calls are queued from reducers through `ctx.effects`. The active shell resolves the request with the registered provider and then dispatches the configured success or error action. Missing providers should produce typed unsupported errors. Packaging mistakes usually show up as denied permissions, missing entitlements, missing route registration, or provider-specific failures.
 
-## Guide
+## Related pages
 
-Read the [Volume control guide](/docs/capabilities/volume-control/) for reducer examples and product guidance.
+- [Volume control guide](/docs/capabilities/volume-control/)
+- [Capability matrix](/docs/capabilities/matrix/)
+- [Platform capabilities reference](/reference/core/platform-capabilities/)

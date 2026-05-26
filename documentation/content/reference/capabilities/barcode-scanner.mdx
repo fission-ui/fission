@@ -1,17 +1,19 @@
 ---
 title: Barcode scanner
-description: Reference for the barcode scanner capability API, provider, operations, and platform configuration.
+description: Reference for the barcode scanner capability API, provider contract, operations, and platform configuration.
 ---
 
 # Barcode scanner
 
-Barcode scanning lets an app decode QR codes and barcodes either from a live host camera session or from image bytes supplied by the app.
+Barcode scanning is a host operation because live scanning usually owns camera permission, camera preview, autofocus, torch, and decoder selection. The app describes acceptable formats and receives portable decoded results.
+
+This reference is for the exact API shape. If you are wiring the feature into an app for the first time, start with the [Barcode scanner guide](/docs/capabilities/barcode-scanner/), then return here when you need operation names, request types, provider contracts, or platform configuration details.
 
 ## Public API
 
 | Item | Value |
 | --- | --- |
-| Effect helper | `ctx.effects.barcode_scanner()` |
+| Effect helper or entrypoint | `ctx.effects.barcode_scanner()` |
 | Provider trait or host contract | `BarcodeScannerHost` |
 | Test provider or test entrypoint | `MemoryBarcodeScannerHost` |
 | Primary request types | `BarcodeScanRequest / BarcodeImageDecodeRequest` |
@@ -21,22 +23,30 @@ Barcode scanning lets an app decode QR codes and barcodes either from a live hos
 
 ## Operations
 
-| Method or operation | What it is for |
-| --- | --- |
-| `scan` | Emits or handles the `Barcode scanner` host operation for this capability. |
-| `decode_image` | Emits or handles the `Barcode scanner` host operation for this capability. |
-| `cancel_scan` | Emits or handles the `Barcode scanner` host operation for this capability. |
+| Method or operation | Purpose | Request | Success |
+| --- | --- | --- | --- |
+| `scan` | Open a live scanner session for selected barcode formats. | `BarcodeScanRequest` | `BarcodeScanResults` |
+| `decode_image` | Decode supplied image bytes without starting a live camera session. | `BarcodeImageDecodeRequest` | `BarcodeScanResults` |
+| `cancel_scan` | Cancel the active live scan. | `()` | `()` |
+
+## Provider contract
+
+Register a `BarcodeScannerHost` with `.with_barcode_scanner_host(...)`. Use `MemoryBarcodeScannerHost` for deterministic tests. A provider can support live scanning, image decoding, or both; unsupported operations should return `BarcodeScannerError`.
+
+Providers should return typed errors for unsupported operations, denied permissions, unavailable hardware, cancellation, timeouts, and platform policy restrictions. Silent success is not acceptable because reducers need a truthful result to update state and explain what happened.
 
 ## Platform configuration
 
-Run `fission add-capability barcode-scanner --project-dir .`. The CLI adds camera permission config because live scanning requires camera access. If the app only decodes existing images, the permission may not be needed on every target, but keeping the capability declaration explicit makes future live scanning safer.
+The CLI adds camera-related mobile configuration because live scanning normally uses the camera. Apps that only decode existing image bytes may not need camera access on every target, but the capability declaration keeps future live scanning explicit.
 
-The CLI records the capability in `fission.toml` when the capability has a CLI value. Generated mobile configuration is written to the platform files that the host target already owns: Android uses `platforms/android/AndroidManifest.xml`; iOS uses `platforms/ios/Info.plist` and `platforms/ios/Entitlements.plist` when the feature needs entitlements. Desktop package metadata is target-specific and should be reviewed during packaging because Windows, macOS, and Linux expose different permission and distribution systems.
+When a CLI value exists, `fission add-capability <value> --project-dir .` records the capability in `fission.toml` and updates generated target files where Fission can do that deterministically. Android generated configuration lives in `platforms/android/AndroidManifest.xml`. iOS generated configuration lives in `platforms/ios/Info.plist` and `platforms/ios/Entitlements.plist` when entitlements are required. Desktop package metadata is reviewed during packaging because Windows, macOS, and Linux use different permission and distribution systems.
 
 ## Runtime behavior
 
-A provider should return a typed unsupported error when the host cannot perform the operation. It should not silently succeed. That lets reducers show a useful message, hide unsupported controls, or offer another path without guessing from the platform name.
+Capability calls are queued from reducers through `ctx.effects`. The active shell resolves the request with the registered provider and then dispatches the configured success or error action. Missing providers should produce typed unsupported errors. Packaging mistakes usually show up as denied permissions, missing entitlements, missing route registration, or provider-specific failures.
 
-## Guide
+## Related pages
 
-Read the [Barcode scanner guide](/docs/capabilities/barcode-scanner/) for reducer examples and product guidance.
+- [Barcode scanner guide](/docs/capabilities/barcode-scanner/)
+- [Capability matrix](/docs/capabilities/matrix/)
+- [Platform capabilities reference](/reference/core/platform-capabilities/)

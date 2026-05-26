@@ -1,28 +1,33 @@
 ---
 title: Platform capabilities
-description: Reference for Fission's built-in host capability contracts and generated platform configuration.
+description: Reference for Fission's built-in host capability contracts, provider registration, generated configuration, and runtime behavior.
 ---
 
 # Platform capabilities
 
-Platform capabilities are typed host contracts. Shared app code uses `ctx.effects` to request them. Shell hosts register providers. The command-line interface records requested capabilities in `fission.toml` and updates generated platform files where possible.
+Platform capabilities are typed contracts between shared Fission app code and the active host shell. The app emits a request through `ctx.effects`, the shell provider performs the host work, and the runtime dispatches either the configured success action or the configured error action.
 
-## Public shape
+Use this page when you need the exact names. If you are adding a feature to an app for the first time, read [Platform capabilities](/docs/guides/platform-capabilities/) first because it explains the workflow step by step.
 
-| Concept | Public API | Purpose |
+## Concept model
+
+| Concept | Public API | What it does |
 | --- | --- | --- |
-| Capability identity | `CapabilityType<C>` | Stable name and typed request/result contract |
-| Operation contract | `OperationCapability` | Associates `Request`, `Ok`, and `Err` payload types |
-| Reducer helper | `Effects::<group>()` | Convenience builders such as `effects.camera()` or `effects.bluetooth()` |
-| Provider registration | `with_<name>_host(...)` or `AsyncRegistry::register_operation_capability(...)` | Connects host implementation to the runtime |
-| CLI declaration | `fission add-capability <name>` | Updates `fission.toml` and generated platform config |
+| Capability identity | `CapabilityType<C>` | Gives an operation a stable name and typed request/result contract. |
+| Operation contract | `OperationCapability` | Associates `Request`, `Ok`, and `Err` payload types with one host operation. |
+| Reducer entrypoint | `ctx.effects.<group>()` | Starts a typed request builder from a reducer. |
+| Result binding | `.on_ok(...)` and `.on_err(...)` | Chooses which actions the runtime dispatches after the host finishes. |
+| Provider registration | `with_<name>_host(...)` or `AsyncRegistry::register_operation_capability(...)` | Connects a shell implementation to the runtime. |
+| CLI declaration | `fission add-capability <name>` | Records the capability and updates generated platform files where Fission can do that safely. |
+
+The API, provider, and packaging configuration are separate. The API lets app code express intent. The provider performs the host call. Packaging configuration is the native metadata that lets the platform permit the call in a packaged app. A complete production feature usually needs all three.
 
 ## Built-in groups
 
-| Group | Effect helper | Provider trait | Test provider | Detailed reference |
+| Group | Effect helper or entrypoint | Provider trait or host contract | Test provider or test entrypoint | Detailed reference |
 | --- | --- | --- | --- | --- |
 | Notifications | `effects.notifications()` | `NotificationHost` | `MemoryNotificationHost` | [Notifications](/reference/capabilities/notifications/) |
-| Deep links | `DeepLinkReceived` | `DeepLinkConfig` | action-envelope tests | [Deep links](/reference/capabilities/deep-links/) |
+| Deep links | inbound `DeepLinkReceived` | `DeepLinkConfig` and shell startup | startup deep-link tests | [Deep links](/reference/capabilities/deep-links/) |
 | NFC | `effects.nfc()` | `NfcHost` | `MemoryNfcHost` | [NFC](/reference/capabilities/nfc/) |
 | Biometrics | `effects.biometrics()` | `BiometricHost` | `MemoryBiometricHost` | [Biometrics](/reference/capabilities/biometrics/) |
 | Passkeys | `effects.passkeys()` | `PasskeyHost` | `MemoryPasskeyHost` | [Passkeys](/reference/capabilities/passkeys/) |
@@ -40,46 +45,73 @@ Use the [Capability matrix](/reference/capabilities/matrix/) to compare platform
 
 ## CLI-supported platform config
 
-| CLI value | Android generated config | iOS generated config |
-| --- | --- | --- |
-| `nfc` | `android.permission.NFC`, optional NFC feature | `NFCReaderUsageDescription`, `com.apple.developer.nfc.readersession.formats` |
-| `biometric` | `USE_BIOMETRIC`, legacy `USE_FINGERPRINT` | `NSFaceIDUsageDescription` |
-| `passkeys` | none generated; Digital Asset Links are product-domain-specific | none generated; associated domains such as `webcredentials:<domain>` are product-domain-specific |
-| `barcode-scanner` | `CAMERA`, optional camera feature | `NSCameraUsageDescription` |
-| `camera` | `CAMERA`, optional camera/front/flash features | `NSCameraUsageDescription` |
-| `geolocation` | `ACCESS_COARSE_LOCATION`, `ACCESS_FINE_LOCATION` | `NSLocationWhenInUseUsageDescription` |
-| `haptics` | `VIBRATE` | none |
-| `microphone` | `RECORD_AUDIO` | `NSMicrophoneUsageDescription` |
-| `bluetooth` | `BLUETOOTH`, `BLUETOOTH_ADMIN`, `BLUETOOTH_SCAN`, `BLUETOOTH_CONNECT`, `BLUETOOTH_ADVERTISE`, optional Bluetooth features | `NSBluetoothAlwaysUsageDescription` |
-| `wifi` | Wi-Fi/network permissions, `NEARBY_WIFI_DEVICES`, pre-Android 13 `ACCESS_FINE_LOCATION`, optional Wi-Fi features | Wi-Fi info and hotspot entitlements, `NSLocationWhenInUseUsageDescription` where needed |
-| `volume-control` | `MODIFY_AUDIO_SETTINGS` | none |
+| CLI value | Android generated config | iOS generated config | Notes |
+| --- | --- | --- | --- |
+| `nfc` | `android.permission.NFC`, optional NFC feature | `NFCReaderUsageDescription`, NFC reader-session entitlement | Desktop generally needs a hardware-provider decision. |
+| `biometric` | `USE_BIOMETRIC`, legacy `USE_FINGERPRINT` | `NSFaceIDUsageDescription` | Web sign-in should use passkeys, not raw biometric access. |
+| `passkeys` | Recorded only; Digital Asset Links are product-domain-specific | Recorded only; associated domains are product-domain-specific | The relying-party domain must match production identity. |
+| `barcode-scanner` | `CAMERA`, optional camera feature | `NSCameraUsageDescription` | Image-only decoding may not need camera access on every target. |
+| `camera` | `CAMERA`, optional camera/front/flash features | `NSCameraUsageDescription` | Desktop packages may need camera metadata. |
+| `geolocation` | `ACCESS_COARSE_LOCATION`, `ACCESS_FINE_LOCATION` | `NSLocationWhenInUseUsageDescription` | Background location requires product-specific policy review. |
+| `haptics` | `VIBRATE` | none | Desktop haptics are hardware/provider-specific. |
+| `microphone` | `RECORD_AUDIO` | `NSMicrophoneUsageDescription` | Desktop packages may need microphone metadata. |
+| `bluetooth` | Legacy and Android 12+ Bluetooth permissions, optional Bluetooth features | `NSBluetoothAlwaysUsageDescription` | Some operations need additional product policy review. |
+| `wifi` | Wi-Fi/network permissions, nearby Wi-Fi, older fine-location permission, optional Wi-Fi features | Wi-Fi info/hotspot entitlements, location usage where needed | iOS and desktop Wi-Fi management is constrained. |
+| `volume-control` | `MODIFY_AUDIO_SETTINGS` | none | iOS and web do not expose broad system-volume control. |
 
-Clipboard has no generated platform config. Passkeys are recorded in `fission.toml`, but domain association is product-specific, so Fission should not invent Digital Asset Links or associated domains. Notifications and deep links are built into shell setup but usually need app-specific notification categories, URL schemes, associated domains, or Android intent filters before a production release. Those values are product routes and identifiers, so the CLI should not invent them.
+Clipboard has no generated platform config in the built-in declaration. Notifications and deep links are shell setup because route names, notification categories, service workers, associated domains, push identifiers, and URL schemes are product-owned. Fission should not invent those values.
 
 ## Generated files
 
 | File | Platform | Role |
 | --- | --- | --- |
-| `fission.toml` | all | Stores the canonical `capabilities = [...]` list |
-| `platforms/android/AndroidManifest.xml` | Android | Declares permissions and optional hardware features |
-| `platforms/ios/Info.plist` | iOS | Declares user-facing usage descriptions for permission prompts |
-| `platforms/ios/Entitlements.plist` | iOS | Declares capabilities that Apple gates through entitlements |
-| packaged app `Contents/Info.plist` | macOS | Declares usage descriptions for packaged desktop apps when a capability needs camera, microphone, location, Bluetooth, or barcode camera access |
+| `fission.toml` | all | Stores the canonical `capabilities = [...]` list and product-level references. |
+| `platforms/android/AndroidManifest.xml` | Android | Declares permissions, features, activities, services, and intent filters where generated. |
+| `platforms/ios/Info.plist` | iOS | Declares user-facing usage descriptions for permission prompts. |
+| `platforms/ios/Entitlements.plist` | iOS | Declares platform capabilities Apple gates through entitlements. |
+| packaged app `Contents/Info.plist` | macOS | Declares usage descriptions for packaged desktop apps when a capability needs camera, microphone, location, Bluetooth, barcode camera access, associated domains, or other app services. |
+| Windows package manifest | Windows | Declares package identity, protocol activation, capabilities, and store-facing metadata for packaged apps. |
+| static/web host files | Web/site | Declares service workers, route handling, manifest metadata, icons, and secure-origin assumptions where needed. |
 
-## Provider failure behavior
+## Runtime behavior
 
-Unsupported default providers return typed errors. They do not silently succeed. App code should handle capability errors in the same reducer flow it uses for jobs and services.
+A capability effect is queued from a reducer:
 
 ```rust
 ctx.effects
     .microphone()
     .capture_audio(MicrophoneCaptureRequest::default())
-    .on_ok(ctx.effects.bind(AudioCaptured, reduce_with!(on_audio_captured)))
-    .on_err(ctx.effects.bind(AudioCaptureFailed, reduce_with!(on_audio_failed)));
+    .on_ok(ctx.effects.bind(
+        AudioCaptured(MicrophoneCapture::default()),
+        reduce_with!(on_audio_captured),
+    ))
+    .on_err(ctx.effects.bind(
+        AudioCaptureFailed(MicrophoneError::default()),
+        reduce_with!(on_audio_failed),
+    ));
 ```
+
+The reducer returns. The shell provider handles the request. The runtime dispatches either `AudioCaptured` with the provider's success payload or `AudioCaptureFailed` with the provider's error payload.
+
+Unsupported default providers return typed errors. They do not silently succeed. App code should treat errors as expected state transitions and render useful recovery UI.
 
 ## Custom capabilities
 
 Applications and libraries can define their own `OperationCapability` types without changing Fission core. Use reverse-DNS capability names for product-specific host work, register the provider in the shell, and keep platform config explicit in your own project files.
 
-For a teaching guide, read [Platform capabilities](/docs/guides/platform-capabilities/). For the lower-level capability model, read [Resources and capabilities](/reference/core/resources-and-capabilities/).
+A good custom capability has:
+
+| Part | Requirement |
+| --- | --- |
+| Stable name | Use a product-owned name such as `com.example.payments.authorize`. |
+| Typed request | Include only data the app is allowed to know and send to the host. |
+| Typed success | Return the smallest portable result the reducer needs. |
+| Typed error | Use stable `code` values plus human-readable `message` text. |
+| Provider | Register the host implementation during shell startup. |
+| Tests | Include success, unsupported, denied, cancelled, and malformed-request cases. |
+
+## Related pages
+
+- [Platform capabilities guide](/docs/guides/platform-capabilities/)
+- [Capability matrix](/docs/capabilities/matrix/)
+- [Resources and capabilities](/reference/core/resources-and-capabilities/)

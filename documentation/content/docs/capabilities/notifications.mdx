@@ -1,21 +1,67 @@
 ---
 title: Notifications
-description: Learn how to use the notifications capability in a Fission app.
+description: Show local notifications, schedule reminders, update badges, and register for push through the active host.
 ---
 
 # Notifications
 
-Notifications let an app ask the host to show local notifications, schedule reminders, update an app badge, or register for push delivery without embedding platform notification APIs in shared reducers.
+Notifications are for information that should reach the user outside the currently visible Fission view. A completed export, a missed message, or a scheduled reminder belongs here. A validation message inside the current screen usually does not; use `Toast`, `Modal`, or another Fission overlay for in-app feedback.
 
-Use notifications when the user should receive information outside the currently visible Fission view: a completed export, a missed message, a background sync result, or a scheduled reminder. Keep in-app feedback as Fission UI with `Toast`, `Modal`, or your own overlay; use the notification capability when the operating system or browser owns delivery.
+By the end of this guide, you will know how to build a sync-complete notification that can later grow into scheduled reminders and push delivery. The same pattern applies to larger apps: declare the capability when native configuration is needed, store the result in typed app state, request the host operation from a reducer, and test both success and failure with a memory host.
 
-## Setup
+Do not use the notification capability as a replacement for normal UI. If the user is already looking at the relevant screen, show a Fission widget. Use a notification when the host owns delivery through the operating system, browser, launcher, notification center, or push service.
 
-This capability is configured as part of shell setup because the required routes, categories, domains, service workers, or provider identifiers are product-specific. Notifications are part of shell setup because categories, push certificates, service workers, URL routes, and app identifiers are product-specific. The CLI does not invent those values. Add the provider in the shell and configure native notification categories, push registration, or browser service-worker files as required by the target you ship.
+## 1. Start with the state the screen needs
 
-## Request it from a reducer
+Add the smallest state fields the screen needs to render honestly. For this flow, useful state is:
 
-Reducers should request notifications work through `ctx.effects`. The reducer records what the app wants, returns control to the runtime, and then receives a typed success or error action when the host finishes.
+```rust
+#[derive(Default)]
+struct AppState {
+    // Add these fields to your existing app state.
+last_notification_id: Option<NotificationId>,
+    notification_error: Option<String>,
+}
+```
+
+State is the source of truth for the UI. Do not store whether the host "probably" succeeded; wait for the typed success action and store the returned value.
+
+## 2. Configure the target and host
+
+There is no single safe `add-capability` value for this feature because the product owns the route/provider details, or because the default host can expose the feature without generated permission files. You still configure the shell explicitly and review target packaging before release.
+
+Notifications are declared through shell setup because the product owns notification categories, push identifiers, service-worker files, action ids, and deep-link routes. Fission cannot invent those values safely. Mobile targets need permission prompts. Web push usually needs a service worker and secure origin. Desktop targets need the host provider and, for packaged apps, platform-specific notification metadata where the operating system or store requires it.
+
+This is the difference between the Fission API, a provider, and packaging configuration:
+
+- The Fission API is the typed Rust contract your reducer calls, such as `ctx.effects.camera().capture_photo(...)`.
+- The provider is the shell-side Rust implementation that turns that typed request into the correct OS, browser, or hardware call.
+- Packaging configuration is the manifest, plist, entitlement, service-worker, protocol, domain, or store metadata that lets the platform permit that call in a real installed app.
+
+If the API exists but the provider is missing, the request returns a typed unsupported error. If the provider exists but packaging is missing, the operating system or browser may deny the request before the provider can complete it.
+
+## 3. Define reducers for success and failure
+
+Capability work finishes later, after the reducer that started it has returned. You therefore need one reducer for the successful result and one reducer for the error path.
+
+```rust
+#[fission_reducer(NotificationShown)]
+fn on_notification_shown(state: &mut AppState, receipt: NotificationReceipt) {
+    state.last_notification_id = Some(receipt.id);
+    state.notification_error = None;
+}
+
+#[fission_reducer(NotificationFailed)]
+fn on_notification_failed(state: &mut AppState, error: NotificationError) {
+    state.notification_error = Some(error.message);
+}
+```
+
+Keep both paths explicit. A denied permission, unavailable device, unsupported host, or cancelled prompt is not an exceptional mystery; it is normal product behavior the UI should explain.
+
+## 4. Request the capability from a reducer
+
+Call the capability from the reducer that handles the user's intent. The reducer queues a host effect and returns. The runtime later dispatches either the success reducer or the failure reducer.
 
 ```rust
 ctx.effects
@@ -24,22 +70,52 @@ ctx.effects
         id: NotificationId::new("sync-complete"),
         title: "Sync complete".into(),
         body: "Your workspace is up to date.".into(),
+        deep_link: Some("fission://sync/history".into()),
         ..Default::default()
     })
-    .on_ok(ctx.effects.bind(NotificationShown, reduce_with!(on_notification_shown)))
-    .on_err(ctx.effects.bind(NotificationFailed, reduce_with!(on_notification_failed)));
+    .on_ok(ctx.effects.bind(
+        NotificationShown(NotificationReceipt::default()),
+        reduce_with!(on_notification_shown),
+    ))
+    .on_err(ctx.effects.bind(
+        NotificationFailed(NotificationError::default()),
+        reduce_with!(on_notification_failed),
+    ));
 ```
 
-The important rule is that the reducer does not call the operating system directly. It emits a capability effect. That keeps the same app logic usable on desktop, web, Android, iOS, and test hosts even when the real platform implementation is different.
+The call does not run the OS API directly. It records a typed host request. That keeps shared app logic portable across desktop, web, Android, iOS, static-site previews where applicable, and tests.
+
+## 5. Trigger the reducer from the UI
+
+Wire the user-facing control with the normal Fission action pattern. This example uses a small widget so the binding has one clear home.
+
+```rust
+struct ShowSyncNotificationButton;
+
+impl Widget<AppState> for ShowSyncNotificationButton {
+    fn build(&self, view: &View<AppState>, ctx: &mut BuildCtx<AppState>) -> Node {
+        let run = with_reducer!(ctx, ShowSyncNotification, on_show_sync_notification);
+
+        Button::new("Show sync notification")
+            .disabled(false)
+            .on_press(run)
+            .build(view, ctx)
+    }
+}
+```
+
+Rename the widget and action for your product, but keep the shape: the widget dispatches one typed action, the reducer starts the capability request, and the success or failure reducer updates state.
+
+## 6. Provide and test the host behavior
+
+Register a `NotificationHost` with `.with_notification_host(...)` in shells that provide real notifications, or use `MemoryNotificationHost` in tests. If the host cannot show, schedule, badge, or register push, it must return `NotificationError` instead of pretending delivery happened.
+
+Test the reducer with `MemoryNotificationHost`, a success receipt, and a denied/unsupported error. Add an integration test for notification responses if the notification opens a deep link or action button.
+
+A useful first test creates the app with the memory host, dispatches the start action, feeds the queued effect through the host, and asserts that the reducer updates state from the returned payload. Add a second test for the error path before you ship the screen.
 
 ## Platform expectations
 
-Android and iOS have mature notification systems but require target-specific permission prompts and, for push, store/provider registration. Windows and macOS also support native notifications and badges through their desktop notification systems. Linux support depends on the desktop environment and notification daemon. Web notifications work in supporting browsers and usually require a service worker for push.
+Android and iOS have direct notification systems but require permission prompts and, for push, provider registration. Windows and macOS have native notification systems. Linux depends on the desktop notification service. Web notifications require browser permission; push generally requires a service worker and provider setup.
 
-Read the [capability matrix](/docs/capabilities/matrix/) when you need a quick cross-platform view. The matrix separates platforms with direct support from platforms where a host provider can be implemented but permissions, hardware, or distribution packaging change the behavior.
-
-## Testing
-
-Use `MemoryNotificationHost` to verify reducers emit the right request and handle receipt or error actions. Integration tests should cover permission denial, scheduled notification ids, response actions, and deep links opened from notifications.
-
-For exact request and response types, provider traits, and generated platform configuration, see the [Notifications reference](/reference/capabilities/notifications/).
+For a cross-platform summary, read the [capability matrix](/docs/capabilities/matrix/). For exact request fields, provider traits, and generated configuration, see the [Notifications reference](/reference/capabilities/notifications/).

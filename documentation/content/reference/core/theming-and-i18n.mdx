@@ -1,60 +1,99 @@
 ---
 title: Theming and internationalization
-description: The reference contract for theme values, locale, and translation bundles flowing through Env.
+description: The reference contract for theme values, design systems, locale, and translation bundles flowing through Env.
 ---
 
 # Theming and internationalization
 
-This page covers two related global presentation systems.
+This page is the reference contract for the app-wide presentation values that widgets read during `build()`.
 
-Theming controls how the interface looks.
+Theming controls how the interface looks: color, typography, spacing, radius, elevation, motion, chart palettes, and component-level styling.
 
 Internationalization, often shortened to i18n, controls how the interface supports multiple languages and locale-sensitive text selection.
 
-Both systems are explicit in Fission. Widgets read them through `Env` instead of guessing from hidden globals.
+Both systems flow through `Env`. Widgets read the current environment through `View`, which means theme and locale are explicit inputs to rendering rather than hidden global state.
 
-## Theme surface
+## Theme types
 
-The top-level theme type is `Theme` from `fission::theme`, and it is also available through `fission::prelude::*`.
+| Type | Purpose | Notes |
+| --- | --- | --- |
+| `Theme` | Complete runtime theme | Contains primitive tokens, component themes, and the resolved design-system metadata. |
+| `Tokens` | Primitive token groups | Contains colors, spacing, typography, radius, elevation, motion, and data-visualization tokens. |
+| `ComponentTheme` | Widget-ready component styles | Contains typed styles for buttons, inputs, badges, tabs, modals, cards, tooltips, progress bars, and related components. |
+| `DesignSystem` | Trait implemented by generated design systems | Produces metadata, token records, component specs, pattern specs, asset manifests, and light/dark themes. |
+| `DesignMode` | Theme mode enum | Currently `Light` or `Dark`. |
+| `ResolvedDesignSystem` | Runtime copy of generated design-system metadata | Useful for diagnostics, tooling, docs, and theme inspection. |
 
-A theme includes both primitive design tokens and component-level derived themes. In practice, that means the theme can answer questions about colors, spacing, typography, radius, elevation, and the styling rules for concrete components such as buttons, inputs, tabs, tooltips, and other widgets.
+The normal entry points are `Theme::default()` and `Theme::dark()`. Those use Fission's bundled default design system.
 
-Common entry points include `Theme::default()` and `Theme::dark()`.
+For a generated package, use the generated type:
 
-Use theme values when the whole app or a broad section of it should share a consistent presentation system. Avoid hard-coding unrelated color and spacing rules inside individual widgets when those rules should really come from the active theme.
+```rust
+use fission::theme::{DesignMode, DesignSystem, FissionDefaultDesignSystem};
 
-## Internationalization surface
+let light = FissionDefaultDesignSystem::theme(DesignMode::Light);
+let dark = FissionDefaultDesignSystem::theme(DesignMode::Dark);
+```
 
-The top-level internationalization types are:
+## Bundled design-system presets
 
-| Type | Purpose |
-| --- | --- |
-| `Locale` | The active language and region identifier |
-| `TranslationBundle` | A group of translated key-value messages for one locale |
-| `I18nRegistry` | The registry of loaded translation bundles |
+Fission includes these build-time generated presets:
 
-Fission keeps this model intentionally small. The app decides what bundles to load and what locale should be active. The runtime then exposes those values through `Env` so widgets can resolve keyed text.
+| Preset | Type | Package path |
+| --- | --- | --- |
+| Fission default | `FissionDefaultDesignSystem` | `crates/core/fission-theme/design/default` |
+| Material Design 3 | `FissionMaterialDesign3DesignSystem` | `crates/core/fission-theme/design/material3` |
+| Fluent 2 | `FissionFluent2DesignSystem` | `crates/core/fission-theme/design/fluent2` |
+| Liquid Glass | `FissionLiquidGlassDesignSystem` | `crates/core/fission-theme/design/liquid-glass` |
+| Cupertino | `FissionCupertinoDesignSystem` | `crates/core/fission-theme/design/cupertino` |
+
+Each preset is a normal Design System Package JSON input. The runtime does not parse those JSON files. The `fission-theme` build script runs the same design-system generator available to application projects and compiles the resulting Rust into the crate.
+
+Use a preset when it matches the platform or brand direction you want. Copy it into your app and generate your own `AppDesignSystem` when the product needs different tokens.
 
 ## Environment flow
 
-`Env` carries the active theme, internationalization registry, and locale.
+`Env` carries the active theme, internationalization registry, locale, and other app-wide presentation context. During `build()`, widgets can read those values through `view.env` or convenience helpers such as `view.theme()`.
 
-That means widgets can read the current presentation context through `View` during `build()`. It also means layout and semantics can reflect translated text and theme-driven styling deterministically.
+Desktop exposes both `with_env(...)` and `with_sync_env(...)`. Mobile and web expose `with_sync_env(...)`.
 
-Desktop currently exposes public `with_env(...)` and `with_sync_env(...)`. Mobile and web expose public `with_sync_env(...)`.
+Use `with_env(...)` to seed a base environment before the first frame, such as one that already contains translation bundles.
 
-Use `with_env(...)` to seed a base environment, such as one that already contains translation bundles.
+Use `with_sync_env(...)` when app state should update environment values every frame, such as mirroring a user-selected theme mode, locale, or window title into `Env`.
 
-Use `with_sync_env(...)` when app state should update environment values, such as mirroring a user-selected locale or dark-mode setting into `Env`.
+```rust
+DesktopApp::new(MyApp)
+    .with_sync_env(|state: &MyState, env: &mut Env| {
+        env.theme = AppDesignSystem::theme(state.theme_mode);
+        env.locale = state.locale.clone();
+    })
+    .run()?;
+```
 
-## Practical guidance
+## Internationalization types
 
-Keep durable user choices such as locale preference or theme mode in `AppState` when the product owns those choices over time.
+| Type | Purpose | Notes |
+| --- | --- | --- |
+| `Locale` | Active language and region identifier | Examples include `en-US` and `fr-FR`. |
+| `TranslationBundle` | Translated key-value messages for one locale | Usually loaded from app-owned files at startup. |
+| `I18nRegistry` | Registry of translation bundles | Stored on `Env` so widgets can resolve keyed text. |
+| `TextContent::Key` | Text content resolved through the active locale | Use for product copy that should be translated. |
+| `TextContent::Literal` | Text content rendered exactly as given | Use for already-translated strings, user data, file names, ids, or counts. |
 
-Keep translation bundle data and theme objects in the environment layer that widgets read.
+Fission does not force a particular translation file format. YAML, JSON, TOML, Fluent, gettext-style catalogs, or generated Rust can all work if the app ultimately provides `TranslationBundle` values.
 
-A common and practical pattern is to load translation files at startup, add them to `env.i18n`, and then mirror the currently selected locale into `env.locale` through `with_sync_env(...)`.
+The recommended simple path is to keep translation files in the repository, load them with `include_str!`, parse them at startup, add them to `env.i18n`, and store the current locale choice in `AppState`.
 
-## Related reference pages
+## Practical rules
 
-For the detailed `Env` contract, see [Environment, input, and input method editor](/reference/core/environment-input-and-ime). For the fuller guide with concrete examples and recommended `include_str!` translation loading, read [Theming and internationalization](/docs/guides/theming-and-i18n).
+Keep durable user choices such as locale preference, theme mode, and selected brand variant in `AppState`.
+
+Keep loaded theme objects and translation bundles in `Env` because widgets need them as app-wide presentation context.
+
+Avoid hard-coding unrelated color, spacing, and typography values inside widgets. If a value should be consistent across the product, it belongs in the design system or active theme.
+
+Use `TextContent::Key` for product copy and `TextContent::Literal` for data. A label such as `settings.title` should be keyed. A user name, file path, generated count, or pasted message should usually be literal.
+
+## Related pages
+
+For the step-by-step guide, read [Theming and internationalization](/docs/guides/theming-and-i18n/). For DSP generation and presets, read [Design system](/docs/guides/design-system/). For the exact `Env` contract, see [Environment, input, and input method editor](/reference/core/environment-input-and-ime/).

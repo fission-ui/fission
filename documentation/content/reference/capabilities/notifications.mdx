@@ -1,48 +1,58 @@
 ---
 title: Notifications
-description: Reference for the notifications capability API, provider, operations, and platform configuration.
+description: Reference for the notifications capability API, provider contract, operations, and platform configuration.
 ---
 
 # Notifications
 
-Notifications let an app ask the host to show local notifications, schedule reminders, update an app badge, or register for push delivery without embedding platform notification APIs in shared reducers.
+Notifications are for information that should reach the user outside the currently visible Fission view. A completed export, a missed message, or a scheduled reminder belongs here. A validation message inside the current screen usually does not; use `Toast`, `Modal`, or another Fission overlay for in-app feedback.
+
+This reference is for the exact API shape. If you are wiring the feature into an app for the first time, start with the [Notifications guide](/docs/capabilities/notifications/), then return here when you need operation names, request types, provider contracts, or platform configuration details.
 
 ## Public API
 
 | Item | Value |
 | --- | --- |
-| Effect helper | `ctx.effects.notifications()` |
+| Effect helper or entrypoint | `ctx.effects.notifications()` |
 | Provider trait or host contract | `NotificationHost` |
 | Test provider or test entrypoint | `MemoryNotificationHost` |
-| Primary request types | `NotificationRequest` |
-| Primary success types | `NotificationReceipt` |
+| Primary request types | `NotificationRequest / NotificationPermissionRequest / PushRegistrationRequest` |
+| Primary success types | `NotificationReceipt / NotificationSettings / PushRegistration` |
 | Error type | `NotificationError` |
-| CLI value | `built into shell setup` |
+| CLI value | `shell setup` |
 
 ## Operations
 
-| Method or operation | What it is for |
-| --- | --- |
-| `request_permission` | Emits or handles the `Notifications` host operation for this capability. |
-| `settings` | Emits or handles the `Notifications` host operation for this capability. |
-| `show` | Emits or handles the `Notifications` host operation for this capability. |
-| `schedule` | Emits or handles the `Notifications` host operation for this capability. |
-| `cancel` | Emits or handles the `Notifications` host operation for this capability. |
-| `cancel_all` | Emits or handles the `Notifications` host operation for this capability. |
-| `set_badge_count` | Emits or handles the `Notifications` host operation for this capability. |
-| `register_push` | Emits or handles the `Notifications` host operation for this capability. |
-| `unregister_push` | Emits or handles the `Notifications` host operation for this capability. |
+| Method or operation | Purpose | Request | Success |
+| --- | --- | --- | --- |
+| `request_permission` | Ask the host to show the platform permission prompt. | `NotificationPermissionRequest` | `NotificationSettings` |
+| `settings` | Read current alert, badge, sound, schedule, and push settings without prompting. | `()` | `NotificationSettings` |
+| `show` | Show an immediate local notification. | `NotificationRequest` | `NotificationReceipt` |
+| `schedule` | Schedule a future local notification. | `NotificationRequest` | `NotificationReceipt` |
+| `cancel` | Cancel one notification by stable id. | `CancelNotificationRequest` | `()` |
+| `cancel_all` | Clear all app-owned notifications where the host supports it. | `()` | `()` |
+| `set_badge_count` | Set or clear the app badge count. | `SetBadgeCountRequest` | `()` |
+| `register_push` | Register for remote push delivery. | `PushRegistrationRequest` | `PushRegistration` |
+| `unregister_push` | Remove the host push registration. | `()` | `()` |
+
+## Provider contract
+
+Register a `NotificationHost` with `.with_notification_host(...)` in shells that provide real notifications, or use `MemoryNotificationHost` in tests. If the host cannot show, schedule, badge, or register push, it must return `NotificationError` instead of pretending delivery happened.
+
+Providers should return typed errors for unsupported operations, denied permissions, unavailable hardware, cancellation, timeouts, and platform policy restrictions. Silent success is not acceptable because reducers need a truthful result to update state and explain what happened.
 
 ## Platform configuration
 
-Notifications are part of shell setup because categories, push certificates, service workers, URL routes, and app identifiers are product-specific. The CLI does not invent those values. Add the provider in the shell and configure native notification categories, push registration, or browser service-worker files as required by the target you ship.
+Notifications are declared through shell setup because the product owns notification categories, push identifiers, service-worker files, action ids, and deep-link routes. Fission cannot invent those values safely. Mobile targets need permission prompts. Web push usually needs a service worker and secure origin. Desktop targets need the host provider and, for packaged apps, platform-specific notification metadata where the operating system or store requires it.
 
-The CLI records the capability in `fission.toml` when the capability has a CLI value. Generated mobile configuration is written to the platform files that the host target already owns: Android uses `platforms/android/AndroidManifest.xml`; iOS uses `platforms/ios/Info.plist` and `platforms/ios/Entitlements.plist` when the feature needs entitlements. Desktop package metadata is target-specific and should be reviewed during packaging because Windows, macOS, and Linux expose different permission and distribution systems.
+When a CLI value exists, `fission add-capability <value> --project-dir .` records the capability in `fission.toml` and updates generated target files where Fission can do that deterministically. Android generated configuration lives in `platforms/android/AndroidManifest.xml`. iOS generated configuration lives in `platforms/ios/Info.plist` and `platforms/ios/Entitlements.plist` when entitlements are required. Desktop package metadata is reviewed during packaging because Windows, macOS, and Linux use different permission and distribution systems.
 
 ## Runtime behavior
 
-A provider should return a typed unsupported error when the host cannot perform the operation. It should not silently succeed. That lets reducers show a useful message, hide unsupported controls, or offer another path without guessing from the platform name.
+Capability calls are queued from reducers through `ctx.effects`. The active shell resolves the request with the registered provider and then dispatches the configured success or error action. Missing providers should produce typed unsupported errors. Packaging mistakes usually show up as denied permissions, missing entitlements, missing route registration, or provider-specific failures.
 
-## Guide
+## Related pages
 
-Read the [Notifications guide](/docs/capabilities/notifications/) for reducer examples and product guidance.
+- [Notifications guide](/docs/capabilities/notifications/)
+- [Capability matrix](/docs/capabilities/matrix/)
+- [Platform capabilities reference](/reference/core/platform-capabilities/)

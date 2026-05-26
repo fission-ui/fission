@@ -1,15 +1,39 @@
 ---
 title: Chart catalog
 sidebar_label: Catalog
-description: The implemented Fission Charts catalog with real chart screenshots.
+description: Browse implemented Fission Charts families and variants with real chart screenshots.
 ---
 
 import {ChartCatalogGrid} from '@site/src/components/charts/ChartCatalogGrid';
 
 # Chart catalog
 
-This catalog only lists chart variants that are implemented in the current native chart renderer and backed by real Fission screenshot assets. Future chart families stay out of the public catalog until the renderer, gallery, tests, and screenshots exist.
+The chart catalog is the visual index for Fission Charts. Use it when you know you need a chart but you are not yet sure which shape answers the user's question best.
 
-Each card includes a chart-only screenshot captured from the Fission chart gallery, the data shape the chart expects, and the product situation where the chart belongs. That is deliberate. A chart reference should help you choose the right visualization before you start writing code.
+Every card in this catalog is backed by a real Fission chart screenshot from the checked-in gallery assets. Entries stay out of the public catalog until the renderer, gallery, tests, and screenshot path exist. That rule keeps the documentation honest: when a chart appears here, it represents implemented Fission output, not a borrowed mockup or a promise.
+
+## How to use the catalog
+
+Start from the question the user needs to answer.
+
+If the question is about change over time, start with line, area, step line, or large-line variants. If the question is about comparing categories, start with bar or horizontal bar. If the question is about proportions, consider stacked bars, stacked areas, pie, donut, treemap, sunburst, sankey, or theme river depending on whether the structure is linear, radial, hierarchical, or flow-based. If the question is about spatial position, use geographic maps, route lines, globe views, or scatter/heatmap variants. If the question is about operational state, gauges, funnels, radar charts, status cards, or dense dashboard charts may fit better.
+
+Open a variant page when a screenshot looks close. Each variant page explains the data shape, when to use it, the Rust model, interaction behavior, animation notes, and testing guidance.
+
+## What each card tells you
+
+| Card detail | Why it matters |
+| --- | --- |
+| Screenshot | Shows actual Fission renderer output without the surrounding gallery shell. |
+| Family | Helps you move from one variant to related variants quickly. |
+| Data shape | Tells you what Rust data structure the chart expects. |
+| Use case | Explains the product situation where the visual form is useful. |
+| Tags | Helps search and filtering find related charts by purpose or interaction style. |
+
+Do not choose a chart only because it looks impressive. A production chart should reduce the user's work. If a simpler bar, line, or table answers the question faster, choose the simpler form.
 
 <ChartCatalogGrid />
+
+## After choosing a chart
+
+Once you have a candidate chart, read [Series and datasets](/docs/charts/series-and-datasets/) to decide whether your data should be passed directly into series or shared through a dataset. Then read [Data and interaction](/docs/charts/data-and-interaction/) if the screen needs tooltips, brushing, zoom, event dispatch, or reducer-driven selection.

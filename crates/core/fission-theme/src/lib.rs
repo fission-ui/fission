@@ -2245,6 +2245,41 @@ include!(concat!(
     "/generated_default_design_system.rs"
 ));
 
+pub mod presets {
+    pub mod material3 {
+        include!(concat!(
+            env!("OUT_DIR"),
+            "/generated_material3_design_system.rs"
+        ));
+    }
+
+    pub mod fluent2 {
+        include!(concat!(
+            env!("OUT_DIR"),
+            "/generated_fluent2_design_system.rs"
+        ));
+    }
+
+    pub mod liquid_glass {
+        include!(concat!(
+            env!("OUT_DIR"),
+            "/generated_liquid_glass_design_system.rs"
+        ));
+    }
+
+    pub mod cupertino {
+        include!(concat!(
+            env!("OUT_DIR"),
+            "/generated_cupertino_design_system.rs"
+        ));
+    }
+}
+
+pub use presets::cupertino::FissionCupertinoDesignSystem;
+pub use presets::fluent2::FissionFluent2DesignSystem;
+pub use presets::liquid_glass::FissionLiquidGlassDesignSystem;
+pub use presets::material3::FissionMaterialDesign3DesignSystem;
+
 /// Bundled font files embedded at compile time.
 ///
 /// Provides Noto Sans Regular (the default) and Inter 24pt Regular.

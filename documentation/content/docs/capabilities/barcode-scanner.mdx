@@ -1,46 +1,131 @@
 ---
 title: Barcode scanner
-description: Learn how to use the barcode scanner capability in a Fission app.
+description: Scan live camera barcodes or decode existing image bytes through a host provider.
 ---
 
 # Barcode scanner
 
-Barcode scanning lets an app decode QR codes and barcodes either from a live host camera session or from image bytes supplied by the app.
+Barcode scanning is a host operation because live scanning usually owns camera permission, camera preview, autofocus, torch, and decoder selection. The app describes acceptable formats and receives portable decoded results.
 
-Use barcode scanning when the user needs to capture compact machine-readable data: tickets, inventory labels, device pairing codes, shipment labels, coupons, or authentication setup codes. Use `decode_image` when the app already has image bytes; use `scan` when the host should run a camera scanning session.
+By the end of this guide, you will know how to build a scan button that accepts QR codes and Code 128 labels and stores the decoded value. The same pattern applies to larger apps: declare the capability when native configuration is needed, store the result in typed app state, request the host operation from a reducer, and test both success and failure with a memory host.
 
-## Setup
+Do not build a camera-specific barcode workflow in shared reducers. Keep camera and decoder details behind `BarcodeScannerHost`, and use ordinary Fission UI for the screen around it.
 
-Start by declaring the capability with `fission add-capability barcode-scanner --project-dir .`. Run `fission add-capability barcode-scanner --project-dir .`. The CLI adds camera permission config because live scanning requires camera access. If the app only decodes existing images, the permission may not be needed on every target, but keeping the capability declaration explicit makes future live scanning safer.
+## 1. Start with the state the screen needs
 
-## Request it from a reducer
-
-Reducers should request barcode scanner work through `ctx.effects`. The reducer records what the app wants, returns control to the runtime, and then receives a typed success or error action when the host finishes.
+Add the smallest state fields the screen needs to render honestly. For this flow, useful state is:
 
 ```rust
+#[derive(Default)]
+struct AppState {
+    // Add these fields to your existing app state.
+last_barcode: Option<String>,
+    barcode_error: Option<String>,
+    scanning: bool,
+}
+```
+
+State is the source of truth for the UI. Do not store whether the host "probably" succeeded; wait for the typed success action and store the returned value.
+
+## 2. Configure the target and host
+
+Run this once from the project root:
+
+```bash
+fission add-capability barcode-scanner --project-dir .
+```
+
+That command records the capability in `fission.toml` and updates generated platform files where Fission can do so safely. It does not replace product-specific review of native manifests, usage text, entitlements, service identifiers, domains, or store policy.
+
+The CLI adds camera-related mobile configuration because live scanning normally uses the camera. Apps that only decode existing image bytes may not need camera access on every target, but the capability declaration keeps future live scanning explicit.
+
+This is the difference between the Fission API, a provider, and packaging configuration:
+
+- The Fission API is the typed Rust contract your reducer calls, such as `ctx.effects.camera().capture_photo(...)`.
+- The provider is the shell-side Rust implementation that turns that typed request into the correct OS, browser, or hardware call.
+- Packaging configuration is the manifest, plist, entitlement, service-worker, protocol, domain, or store metadata that lets the platform permit that call in a real installed app.
+
+If the API exists but the provider is missing, the request returns a typed unsupported error. If the provider exists but packaging is missing, the operating system or browser may deny the request before the provider can complete it.
+
+## 3. Define reducers for success and failure
+
+Capability work finishes later, after the reducer that started it has returned. You therefore need one reducer for the successful result and one reducer for the error path.
+
+```rust
+#[fission_reducer(BarcodeScanned)]
+fn on_barcode_scanned(state: &mut AppState, results: BarcodeScanResults) {
+    state.scanning = false;
+    state.last_barcode = results.items.first().map(|item| item.value.clone());
+    state.barcode_error = None;
+}
+
+#[fission_reducer(BarcodeScanFailed)]
+fn on_barcode_scan_failed(state: &mut AppState, error: BarcodeScannerError) {
+    state.scanning = false;
+    state.barcode_error = Some(error.message);
+}
+```
+
+Keep both paths explicit. A denied permission, unavailable device, unsupported host, or cancelled prompt is not an exceptional mystery; it is normal product behavior the UI should explain.
+
+## 4. Request the capability from a reducer
+
+Call the capability from the reducer that handles the user's intent. The reducer queues a host effect and returns. The runtime later dispatches either the success reducer or the failure reducer.
+
+```rust
+state.scanning = true;
 ctx.effects
     .barcode_scanner()
     .scan(BarcodeScanRequest {
         formats: vec![BarcodeFormat::QrCode, BarcodeFormat::Code128],
-        prompt: Some("Scan the package label".into()),
+        prompt: Some("Scan the label".into()),
         timeout_ms: Some(20_000),
         allow_multiple: false,
         ..Default::default()
     })
-    .on_ok(ctx.effects.bind(BarcodeScanned, reduce_with!(on_barcode_scanned)))
-    .on_err(ctx.effects.bind(BarcodeScanFailed, reduce_with!(on_barcode_scan_failed)));
+    .on_ok(ctx.effects.bind(
+        BarcodeScanned(BarcodeScanResults::default()),
+        reduce_with!(on_barcode_scanned),
+    ))
+    .on_err(ctx.effects.bind(
+        BarcodeScanFailed(BarcodeScannerError::default()),
+        reduce_with!(on_barcode_scan_failed),
+    ));
 ```
 
-The important rule is that the reducer does not call the operating system directly. It emits a capability effect. That keeps the same app logic usable on desktop, web, Android, iOS, and test hosts even when the real platform implementation is different.
+The call does not run the OS API directly. It records a typed host request. That keeps shared app logic portable across desktop, web, Android, iOS, static-site previews where applicable, and tests.
+
+## 5. Trigger the reducer from the UI
+
+Wire the user-facing control with the normal Fission action pattern. This example uses a small widget so the binding has one clear home.
+
+```rust
+struct ScanBarcodeButton;
+
+impl Widget<AppState> for ScanBarcodeButton {
+    fn build(&self, view: &View<AppState>, ctx: &mut BuildCtx<AppState>) -> Node {
+        let run = with_reducer!(ctx, ScanBarcode, on_scan_barcode);
+
+        Button::new("Scan barcode")
+            .disabled(view.state.scanning)
+            .on_press(run)
+            .build(view, ctx)
+    }
+}
+```
+
+Rename the widget and action for your product, but keep the shape: the widget dispatches one typed action, the reducer starts the capability request, and the success or failure reducer updates state.
+
+## 6. Provide and test the host behavior
+
+Register a `BarcodeScannerHost` with `.with_barcode_scanner_host(...)`. Use `MemoryBarcodeScannerHost` for deterministic tests. A provider can support live scanning, image decoding, or both; unsupported operations should return `BarcodeScannerError`.
+
+Test accepted formats, no-result scans, cancellation, timeout, and decoding existing image bytes. A UI test should prove the scan button becomes busy while the host owns the live scan.
+
+A useful first test creates the app with the memory host, dispatches the start action, feeds the queued effect through the host, and asserts that the reducer updates state from the returned payload. Add a second test for the error path before you ship the screen.
 
 ## Platform expectations
 
-Android and iOS support camera-based scanning through host providers. Web can support scanning through camera APIs and browser barcode detection where available, or a WebAssembly decoder fallback. Windows and macOS can support camera scanning through desktop camera APIs or image decoding libraries. Linux support depends on camera permissions and installed media stacks.
+Android and iOS normally scan through the camera. Web can use camera APIs and browser barcode detection where available, with a decoder fallback when appropriate. Desktop support depends on camera providers or image-decoding libraries.
 
-Read the [capability matrix](/docs/capabilities/matrix/) when you need a quick cross-platform view. The matrix separates platforms with direct support from platforms where a host provider can be implemented but permissions, hardware, or distribution packaging change the behavior.
-
-## Testing
-
-Use `MemoryBarcodeScannerHost` to return known `BarcodeScanResult` values. Include invalid image data, multiple-barcode results, format filtering, and cancellation in tests.
-
-For exact request and response types, provider traits, and generated platform configuration, see the [Barcode scanner reference](/reference/capabilities/barcode-scanner/).
+For a cross-platform summary, read the [capability matrix](/docs/capabilities/matrix/). For exact request fields, provider traits, and generated configuration, see the [Barcode scanner reference](/reference/capabilities/barcode-scanner/).

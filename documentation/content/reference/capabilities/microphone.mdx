@@ -1,17 +1,19 @@
 ---
 title: Microphone
-description: Reference for the microphone capability API, provider, operations, and platform configuration.
+description: Reference for the microphone capability API, provider contract, operations, and platform configuration.
 ---
 
 # Microphone
 
-The microphone capability asks the host for input-device availability, permission, and bounded audio capture.
+Microphone capture is sensitive and should be explicit. The shared app asks for a bounded recording; the host owns device selection, permission, capture, encoding, and cancellation.
+
+This reference is for the exact API shape. If you are wiring the feature into an app for the first time, start with the [Microphone guide](/docs/capabilities/microphone/), then return here when you need operation names, request types, provider contracts, or platform configuration details.
 
 ## Public API
 
 | Item | Value |
 | --- | --- |
-| Effect helper | `ctx.effects.microphone()` |
+| Effect helper or entrypoint | `ctx.effects.microphone()` |
 | Provider trait or host contract | `MicrophoneHost` |
 | Test provider or test entrypoint | `MemoryMicrophoneHost` |
 | Primary request types | `MicrophonePermissionRequest / MicrophoneCaptureRequest` |
@@ -21,23 +23,31 @@ The microphone capability asks the host for input-device availability, permissio
 
 ## Operations
 
-| Method or operation | What it is for |
-| --- | --- |
-| `availability` | Emits or handles the `Microphone` host operation for this capability. |
-| `request_permission` | Emits or handles the `Microphone` host operation for this capability. |
-| `capture_audio` | Emits or handles the `Microphone` host operation for this capability. |
-| `cancel_capture` | Emits or handles the `Microphone` host operation for this capability. |
+| Method or operation | Purpose | Request | Success |
+| --- | --- | --- | --- |
+| `availability` | Read microphone permission and visible input devices. | `()` | `MicrophoneAvailability` |
+| `request_permission` | Ask the host to request microphone permission. | `MicrophonePermissionRequest` | `MicrophonePermission` |
+| `capture_audio` | Capture a bounded audio sample. | `MicrophoneCaptureRequest` | `MicrophoneCapture` |
+| `cancel_capture` | Cancel an active recording. | `()` | `()` |
+
+## Provider contract
+
+Register a `MicrophoneHost` with `.with_microphone_host(...)`. Use `MemoryMicrophoneHost` in tests. Providers should keep capture bounded and return typed errors for denied permission, no input devices, and unsupported formats.
+
+Providers should return typed errors for unsupported operations, denied permissions, unavailable hardware, cancellation, timeouts, and platform policy restrictions. Silent success is not acceptable because reducers need a truthful result to update state and explain what happened.
 
 ## Platform configuration
 
-Run `fission add-capability microphone --project-dir .`. Android receives `RECORD_AUDIO`. iOS receives `NSMicrophoneUsageDescription`. macOS packaged apps also need microphone usage text, and Windows packaged apps may need microphone capability metadata.
+The CLI adds Android `RECORD_AUDIO` and iOS `NSMicrophoneUsageDescription`. Packaged macOS apps need microphone usage text, and Windows packages may need microphone capability metadata.
 
-The CLI records the capability in `fission.toml` when the capability has a CLI value. Generated mobile configuration is written to the platform files that the host target already owns: Android uses `platforms/android/AndroidManifest.xml`; iOS uses `platforms/ios/Info.plist` and `platforms/ios/Entitlements.plist` when the feature needs entitlements. Desktop package metadata is target-specific and should be reviewed during packaging because Windows, macOS, and Linux expose different permission and distribution systems.
+When a CLI value exists, `fission add-capability <value> --project-dir .` records the capability in `fission.toml` and updates generated target files where Fission can do that deterministically. Android generated configuration lives in `platforms/android/AndroidManifest.xml`. iOS generated configuration lives in `platforms/ios/Info.plist` and `platforms/ios/Entitlements.plist` when entitlements are required. Desktop package metadata is reviewed during packaging because Windows, macOS, and Linux use different permission and distribution systems.
 
 ## Runtime behavior
 
-A provider should return a typed unsupported error when the host cannot perform the operation. It should not silently succeed. That lets reducers show a useful message, hide unsupported controls, or offer another path without guessing from the platform name.
+Capability calls are queued from reducers through `ctx.effects`. The active shell resolves the request with the registered provider and then dispatches the configured success or error action. Missing providers should produce typed unsupported errors. Packaging mistakes usually show up as denied permissions, missing entitlements, missing route registration, or provider-specific failures.
 
-## Guide
+## Related pages
 
-Read the [Microphone guide](/docs/capabilities/microphone/) for reducer examples and product guidance.
+- [Microphone guide](/docs/capabilities/microphone/)
+- [Capability matrix](/docs/capabilities/matrix/)
+- [Platform capabilities reference](/reference/core/platform-capabilities/)

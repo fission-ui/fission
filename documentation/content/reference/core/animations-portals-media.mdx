@@ -5,57 +5,78 @@ description: The reference contract for runtime-owned animation, overlay composi
 
 # Animations, portals, and media
 
-These subsystems are grouped together because they all rely on runtime-owned behavior that is declared during `build()` rather than stored as ordinary product state.
+Animations, portals, and media are grouped together because they all involve runtime-owned behavior that is declared during `build()`.
 
-That does not make them hidden. It makes them explicit in a different place.
+That does not make them hidden. It means the widget tree describes what should exist, then the runtime tracks the transient state needed to make it behave across frames.
 
-## Animation
+## Animation contract
 
-Animation in Fission is runtime-owned motion requested against a stable widget identity.
+Animation in Fission is runtime-owned motion requested against stable widget identity.
 
-The main public types are:
+| Type | Purpose | Notes |
+| --- | --- | --- |
+| `AnimationPropertyId` | Identifies which visual property is animated | Examples include opacity, position, scale, or other supported properties. |
+| `AnimationStartValue` | Describes where the animation begins | Lets an animation start from a known value instead of guessing from current rendering. |
+| `AnimationRequest` | Full request for one animation | Contains property, target, timing, easing, and related metadata. |
+| `EasingFunction` | Timing curve | Controls how progress moves from start to end. |
+| `WidgetNodeId` | Stable target identity | Required when the runtime needs to track an animation across rebuilds. |
 
-| Type | Purpose |
-| --- | --- |
-| `AnimationPropertyId` | Identifies which visual property is being animated |
-| `AnimationStartValue` | Describes where the animation should begin |
-| `AnimationRequest` | The full request payload for one animation |
-| `EasingFunction` | The timing curve for the interpolation |
+Widgets request animation through `ctx.request_animation_for(...)` or `ctx.anim_for(id).request(...)`. The runtime stores the active animation state and exposes current values through `View`.
 
-Widgets request animation through `ctx.request_animation_for(...)` or `ctx.anim_for(id).request(...)`.
+Do not store per-frame animation progress in `AppState`. App state should hold durable facts such as "the panel is open" or "the item was selected." The runtime can animate from the old visual state to the new visual state.
 
-The stable `WidgetNodeId` matters because the runtime needs durable identity to track the animation across frames. Without a stable identity, the animation would have nothing reliable to attach to.
+## Portal contract
 
-The runtime then exposes current interpolated values through `View`, which keeps animation state separate from durable product state.
+A portal is the runtime mechanism for content that should render outside the normal parent layout while still belonging to the same app model.
 
-## Portals and overlay composition
+| Type | Purpose | Notes |
+| --- | --- | --- |
+| `PortalLayer` | Ordered overlay layer | Keeps modal, flyout, toast, and other overlays predictable. |
+| `PortalEntry` | One registered portal item | Holds the content and layer identity for runtime composition. |
+| `NodeId` / `WidgetNodeId` | Anchor or stable identity | Used by flyouts, popovers, and layout-aware overlays. |
 
-A portal is the runtime mechanism for content that should render outside the normal page flow while still belonging to the same app model.
+Use portals when content genuinely belongs above the main tree: modals, drawers, flyouts, popovers, menus, tooltips, and toasts. Do not use portals to avoid learning normal layout. Ordinary rows, columns, stacks, and scroll regions should remain inline.
 
-Public types in this area include `PortalLayer` and `PortalEntry`.
-
-The important concept is ordered overlay composition. Portals are not random escape hatches. They are registered into explicit layers so that modal, flyout, and toast content compose in a predictable order.
-
-Higher-level widgets such as modals, drawers, tooltips, and menu-like controls are built on this mechanism.
-
-Use portal registration when content genuinely belongs above the main tree. Do not use it for ordinary layout that should remain inline.
+Higher-level widgets such as `Modal`, `Drawer`, `Popover`, `Tooltip`, `Menu`, and `Toast` exist so most apps do not need to register low-level portal entries directly.
 
 ## Media and embed registration
 
-Some widgets correspond to host-backed or special surfaces rather than ordinary paint-only content. The runtime still needs to know that they exist.
+Some widgets represent host-backed or specialized surfaces rather than ordinary paint-only content.
 
-Public registration types include `VideoRegistration` and `WebRegistration`.
+| Registration | Used by | What it tells the runtime |
+| --- | --- | --- |
+| `VideoRegistration` | `Video` | A video surface exists at this widget identity, with source and sizing metadata. |
+| `WebRegistration` | `WebView` | An embedded browser surface exists at this widget identity, with requested URL and metadata. |
+| Terminal session state | `TerminalView` | A terminal surface needs host process, cell buffer, focus, input, and scrollback coordination. |
+| 3D scene data | `Scene3D` and chart 3D paths | A scene needs 3D primitives, camera, lighting, and renderer support. |
 
-These registrations let the runtime and shell coordinate layout identity, geometry, and host-surface behavior without losing the shared app model. A video view or web view still participates in the same build, layout, and presentation pipeline even though the host may provide part of the actual surface behavior.
+The runtime keeps these registrations tied to layout identity and host presentation. The shell still owns the platform-specific implementation: video decoding, embedded browser engine, terminal process integration, or graphics backend details.
 
-## Runtime-owned state related to this page
+## Runtime-owned state
 
-The runtime tracks several related kinds of state that usually should not be stored in `AppState` directly.
+The runtime tracks several kinds of state that usually should not live in `AppState` directly:
 
-That includes active animation values, video and web state, portal layering information, scroll offsets, gesture payloads, and hero-position bookkeeping.
+| Runtime-owned state | Why it stays out of product state |
+| --- | --- |
+| Active animation progress | It is transient frame state derived from durable product state. |
+| Hover, press, focus, and gesture tracking | It describes current input interaction, not product truth. |
+| Scroll offsets | It belongs to the visible runtime surface unless the product explicitly saves a scroll position. |
+| Portal layering and placement | It is layout/runtime composition around the widget tree. |
+| Video/web/terminal surface state | It is host integration state around a registered surface. |
+| Hero-position bookkeeping | It connects prior and current layout geometry for a visual transition. |
 
-The reason is architectural: these values describe transient runtime behavior, not durable product truth.
+Store the durable decision in app state; let the runtime manage the transient mechanics.
 
-## Related reference pages
+## Common mistakes
 
-For the widget-side build contract that registers animation or portals, see [Widget trait](/reference/core/widget-trait). For the larger teaching explanation of these ideas, see [Media, animation, portals, and 3D](/docs/guides/media-animation-portals-and-3d).
+Do not start side effects in `build()` to drive animation or media. Declare the desired widget tree and registrations, then let the runtime and shell handle frame progression.
+
+Do not put a modal or popover's open state inside a local widget field. Store `show_settings`, `active_menu`, or similar product-visible state in `AppState` and let the widget tree include or exclude the overlay from that state.
+
+Do not use `WebView` as a substitute for building normal Fission screens. It is for embedded web content that genuinely needs a browser surface.
+
+Do not expect every media surface to have identical behavior on every host without validation. Video, embedded browsers, terminal sessions, and 3D graphics live close to platform capabilities and deserve target-specific tests.
+
+## Related pages
+
+For the widget build contract, see [Widget trait](/reference/core/widget-trait/). For the guide-level explanation, read [Media, animation, portals, and 3D](/docs/guides/media-animation-portals-and-3d/). For concrete media widgets, see [Media and custom surfaces](/reference/widgets/media/).

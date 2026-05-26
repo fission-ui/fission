@@ -1,45 +1,130 @@
 ---
 title: Bluetooth
-description: Learn how to use the bluetooth capability in a Fission app.
+description: Scan, connect, read, write, advertise, and disconnect through the host Bluetooth stack.
 ---
 
 # Bluetooth
 
-Bluetooth lets an app discover nearby devices, connect to services, exchange characteristic data, and advertise where the platform allows it.
+Bluetooth is permission-sensitive hardware integration. The app should describe the service it needs and let the host map that request to Classic Bluetooth, Bluetooth Low Energy, nearby-device permissions, pairing, and platform scan rules.
 
-Use Bluetooth for product workflows involving nearby devices: sensors, medical peripherals, controllers, beacons, device provisioning, or field diagnostics. Keep scans explicit and time-bounded. Nearby-device APIs are sensitive because they can reveal physical presence.
+By the end of this guide, you will know how to build a nearby-device setup screen that scans for devices exposing a known service UUID. The same pattern applies to larger apps: declare the capability when native configuration is needed, store the result in typed app state, request the host operation from a reducer, and test both success and failure with a memory host.
 
-## Setup
+Do not scan indefinitely or expose every nearby device by default. Filter by service UUID when you can and bound scans with a timeout.
 
-Start by declaring the capability with `fission add-capability bluetooth --project-dir .`. Run `fission add-capability bluetooth --project-dir .`. Android receives legacy and Android 12+ Bluetooth permissions plus optional hardware feature declarations. iOS receives a Bluetooth usage string. Desktop support should be added through providers using the platform Bluetooth stack.
+## 1. Start with the state the screen needs
 
-## Request it from a reducer
-
-Reducers should request bluetooth work through `ctx.effects`. The reducer records what the app wants, returns control to the runtime, and then receives a typed success or error action when the host finishes.
+Add the smallest state fields the screen needs to render honestly. For this flow, useful state is:
 
 ```rust
+#[derive(Default)]
+struct AppState {
+    // Add these fields to your existing app state.
+devices: Vec<BluetoothDevice>,
+    bluetooth_error: Option<String>,
+    scanning_bluetooth: bool,
+}
+```
+
+State is the source of truth for the UI. Do not store whether the host "probably" succeeded; wait for the typed success action and store the returned value.
+
+## 2. Configure the target and host
+
+Run this once from the project root:
+
+```bash
+fission add-capability bluetooth --project-dir .
+```
+
+That command records the capability in `fission.toml` and updates generated platform files where Fission can do so safely. It does not replace product-specific review of native manifests, usage text, entitlements, service identifiers, domains, or store policy.
+
+The CLI adds Android legacy and Android 12+ Bluetooth permissions plus optional feature declarations. iOS receives Bluetooth usage text. Desktop providers map the contract to the platform Bluetooth stack.
+
+This is the difference between the Fission API, a provider, and packaging configuration:
+
+- The Fission API is the typed Rust contract your reducer calls, such as `ctx.effects.camera().capture_photo(...)`.
+- The provider is the shell-side Rust implementation that turns that typed request into the correct OS, browser, or hardware call.
+- Packaging configuration is the manifest, plist, entitlement, service-worker, protocol, domain, or store metadata that lets the platform permit that call in a real installed app.
+
+If the API exists but the provider is missing, the request returns a typed unsupported error. If the provider exists but packaging is missing, the operating system or browser may deny the request before the provider can complete it.
+
+## 3. Define reducers for success and failure
+
+Capability work finishes later, after the reducer that started it has returned. You therefore need one reducer for the successful result and one reducer for the error path.
+
+```rust
+#[fission_reducer(BluetoothDevicesFound)]
+fn on_bluetooth_devices_found(state: &mut AppState, result: BluetoothScanResult) {
+    state.scanning_bluetooth = false;
+    state.devices = result.devices;
+    state.bluetooth_error = None;
+}
+
+#[fission_reducer(BluetoothScanFailed)]
+fn on_bluetooth_scan_failed(state: &mut AppState, error: BluetoothError) {
+    state.scanning_bluetooth = false;
+    state.bluetooth_error = Some(error.message);
+}
+```
+
+Keep both paths explicit. A denied permission, unavailable device, unsupported host, or cancelled prompt is not an exceptional mystery; it is normal product behavior the UI should explain.
+
+## 4. Request the capability from a reducer
+
+Call the capability from the reducer that handles the user's intent. The reducer queues a host effect and returns. The runtime later dispatches either the success reducer or the failure reducer.
+
+```rust
+state.scanning_bluetooth = true;
 ctx.effects
     .bluetooth()
     .scan_devices(BluetoothScanRequest {
         service_uuids: vec!["0000180d-0000-1000-8000-00805f9b34fb".into()],
-        timeout_ms: Some(8_000),
+        timeout_ms: Some(10_000),
         include_paired: true,
         allow_duplicates: false,
     })
-    .on_ok(ctx.effects.bind(BluetoothDevicesFound, reduce_with!(on_bluetooth_devices_found)))
-    .on_err(ctx.effects.bind(BluetoothScanFailed, reduce_with!(on_bluetooth_scan_failed)));
+    .on_ok(ctx.effects.bind(
+        BluetoothDevicesFound(BluetoothScanResult::default()),
+        reduce_with!(on_bluetooth_devices_found),
+    ))
+    .on_err(ctx.effects.bind(
+        BluetoothScanFailed(BluetoothError::default()),
+        reduce_with!(on_bluetooth_scan_failed),
+    ));
 ```
 
-The important rule is that the reducer does not call the operating system directly. It emits a capability effect. That keeps the same app logic usable on desktop, web, Android, iOS, and test hosts even when the real platform implementation is different.
+The call does not run the OS API directly. It records a typed host request. That keeps shared app logic portable across desktop, web, Android, iOS, static-site previews where applicable, and tests.
+
+## 5. Trigger the reducer from the UI
+
+Wire the user-facing control with the normal Fission action pattern. This example uses a small widget so the binding has one clear home.
+
+```rust
+struct ScanBluetoothDevicesButton;
+
+impl Widget<AppState> for ScanBluetoothDevicesButton {
+    fn build(&self, view: &View<AppState>, ctx: &mut BuildCtx<AppState>) -> Node {
+        let run = with_reducer!(ctx, ScanBluetoothDevices, on_scan_bluetooth_devices);
+
+        Button::new("Scan devices")
+            .disabled(view.state.scanning_bluetooth)
+            .on_press(run)
+            .build(view, ctx)
+    }
+}
+```
+
+Rename the widget and action for your product, but keep the shape: the widget dispatches one typed action, the reducer starts the capability request, and the success or failure reducer updates state.
+
+## 6. Provide and test the host behavior
+
+Register a `BluetoothHost` with `.with_bluetooth_host(...)`. Use `MemoryBluetoothHost` in tests. Providers should model scan, connect, read, write, advertise, and disconnect separately because each operation can be supported differently.
+
+Test availability, permission denial, empty scans, successful scans, connection loss, characteristic read/write errors, and advertising unsupported paths.
+
+A useful first test creates the app with the memory host, dispatches the start action, feeds the queued effect through the host, and asserts that the reducer updates state from the returned payload. Add a second test for the error path before you ship the screen.
 
 ## Platform expectations
 
-Android, iOS, Windows, and macOS all expose Bluetooth APIs with platform-specific permission and background rules. Linux support usually goes through BlueZ and can vary by distribution and desktop session. Web Bluetooth is available only in some browsers and generally focuses on Bluetooth Low Energy with user-mediated device selection.
+Android and iOS have strong Bluetooth paths but different permission and background rules. Web Bluetooth is limited by browser and device policy. Windows and macOS have native APIs. Linux depends heavily on BlueZ, permissions, and distribution setup.
 
-Read the [capability matrix](/docs/capabilities/matrix/) when you need a quick cross-platform view. The matrix separates platforms with direct support from platforms where a host provider can be implemented but permissions, hardware, or distribution packaging change the behavior.
-
-## Testing
-
-Use `MemoryBluetoothHost` for scan/connect/read/write flows. Include unavailable adapter, permission denial, connection lost, unknown characteristic, and write-without-response cases.
-
-For exact request and response types, provider traits, and generated platform configuration, see the [Bluetooth reference](/reference/capabilities/bluetooth/).
+For a cross-platform summary, read the [capability matrix](/docs/capabilities/matrix/). For exact request fields, provider traits, and generated configuration, see the [Bluetooth reference](/reference/capabilities/bluetooth/).

@@ -1,17 +1,19 @@
 ---
 title: NFC
-description: Reference for the nfc capability API, provider, operations, and platform configuration.
+description: Reference for the nfc capability API, provider contract, operations, and platform configuration.
 ---
 
 # NFC
 
-NFC lets an app read or write nearby tags through the host while keeping tag technologies, NDEF records, prompts, and timeout behavior in typed Rust values.
+Near field communication is short-range hardware interaction. The app should describe what it wants to do, then let the host open the platform NFC session, display the platform prompt, read or write the tag, and return typed records.
+
+This reference is for the exact API shape. If you are wiring the feature into an app for the first time, start with the [NFC guide](/docs/capabilities/nfc/), then return here when you need operation names, request types, provider contracts, or platform configuration details.
 
 ## Public API
 
 | Item | Value |
 | --- | --- |
-| Effect helper | `ctx.effects.nfc()` |
+| Effect helper or entrypoint | `ctx.effects.nfc()` |
 | Provider trait or host contract | `NfcHost` |
 | Test provider or test entrypoint | `MemoryNfcHost` |
 | Primary request types | `NfcScanRequest / NfcWriteRequest / NfcEmulationRequest` |
@@ -21,24 +23,32 @@ NFC lets an app read or write nearby tags through the host while keeping tag tec
 
 ## Operations
 
-| Method or operation | What it is for |
-| --- | --- |
-| `availability` | Emits or handles the `NFC` host operation for this capability. |
-| `scan_tag` | Emits or handles the `NFC` host operation for this capability. |
-| `write_tag` | Emits or handles the `NFC` host operation for this capability. |
-| `emulate_tag` | Emits or handles the `NFC` host operation for this capability. |
-| `cancel_session` | Emits or handles the `NFC` host operation for this capability. |
+| Method or operation | Purpose | Request | Success |
+| --- | --- | --- | --- |
+| `availability` | Read whether NFC is supported, enabled, and which modes are available. | `()` | `NfcAvailability` |
+| `scan_tag` | Start a one-shot NFC reader session. | `NfcScanRequest` | `NfcTag` |
+| `write_tag` | Write portable records to a writable tag. | `NfcWriteRequest` | `NfcSessionReceipt` |
+| `emulate_tag` | Ask the host to emulate a tag where supported. | `NfcEmulationRequest` | `NfcSessionReceipt` |
+| `cancel_session` | Cancel an active reader/write/emulation session. | `()` | `()` |
+
+## Provider contract
+
+Register an `NfcHost` with `.with_nfc_host(...)`. Use `MemoryNfcHost` in tests. Real providers should report availability before scanning and return `NfcError::unsupported(...)` for operations the device cannot perform.
+
+Providers should return typed errors for unsupported operations, denied permissions, unavailable hardware, cancellation, timeouts, and platform policy restrictions. Silent success is not acceptable because reducers need a truthful result to update state and explain what happened.
 
 ## Platform configuration
 
-Run `fission add-capability nfc --project-dir .`. Android receives the NFC permission and optional hardware feature. iOS receives the NFC usage description and NFC reader-session entitlement. Desktop operating systems do not provide one consistent built-in NFC surface, so desktop support should be added through a product host provider for the reader hardware you ship.
+The CLI adds Android NFC permission and optional hardware feature metadata. iOS needs an NFC usage description and reader-session entitlement. Desktop targets usually need a product-specific hardware provider for the reader you ship or support.
 
-The CLI records the capability in `fission.toml` when the capability has a CLI value. Generated mobile configuration is written to the platform files that the host target already owns: Android uses `platforms/android/AndroidManifest.xml`; iOS uses `platforms/ios/Info.plist` and `platforms/ios/Entitlements.plist` when the feature needs entitlements. Desktop package metadata is target-specific and should be reviewed during packaging because Windows, macOS, and Linux expose different permission and distribution systems.
+When a CLI value exists, `fission add-capability <value> --project-dir .` records the capability in `fission.toml` and updates generated target files where Fission can do that deterministically. Android generated configuration lives in `platforms/android/AndroidManifest.xml`. iOS generated configuration lives in `platforms/ios/Info.plist` and `platforms/ios/Entitlements.plist` when entitlements are required. Desktop package metadata is reviewed during packaging because Windows, macOS, and Linux use different permission and distribution systems.
 
 ## Runtime behavior
 
-A provider should return a typed unsupported error when the host cannot perform the operation. It should not silently succeed. That lets reducers show a useful message, hide unsupported controls, or offer another path without guessing from the platform name.
+Capability calls are queued from reducers through `ctx.effects`. The active shell resolves the request with the registered provider and then dispatches the configured success or error action. Missing providers should produce typed unsupported errors. Packaging mistakes usually show up as denied permissions, missing entitlements, missing route registration, or provider-specific failures.
 
-## Guide
+## Related pages
 
-Read the [NFC guide](/docs/capabilities/nfc/) for reducer examples and product guidance.
+- [NFC guide](/docs/capabilities/nfc/)
+- [Capability matrix](/docs/capabilities/matrix/)
+- [Platform capabilities reference](/reference/core/platform-capabilities/)

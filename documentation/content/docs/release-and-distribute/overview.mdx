@@ -1,37 +1,130 @@
 ---
 title: Release and distribute
-description: Publish Fission artifacts to app stores, static hosts, object stores, GitHub Releases, testers, tracks, rollouts, and release receipts.
+description: Publish packaged Fission apps, static sites, release notes, screenshots, tracks, testers, and receipts through provider workflows.
 ---
 
 # Release and distribute
 
-Release is where package artifacts, store metadata, screenshots, credentials, tracks, testers, and provider-specific workflows meet. Fission makes that a project workflow instead of leaving every app to invent its own release scripts.
+Release is everything that happens after you have a package: metadata, screenshots, preview videos, release notes, credentials, tracks, testers, rollouts, provider upload, and audit receipts.
 
-## Provider families
+Fission treats release as part of the application lifecycle because building the binary is not the same as shipping the product. A production workflow should help you prepare the release, validate it, upload it, and record what happened.
 
-| Provider family | What Fission manages |
-| --- | --- |
-| App stores | Google Play APK/AAB upload, App Store Connect IPA upload, Microsoft Store MSI/EXE API path, Microsoft Store MSIX/MSIXUPLOAD Partner Center path through `msstore`. |
-| Static hosting | GitHub Pages, Cloudflare Pages, Netlify, custom domain readiness, and generated static site assets. |
-| Artifact distribution | GitHub Releases, S3-compatible object stores, Google Drive, OneDrive, Dropbox, and direct artifact upload receipts. |
-| Release content | Screenshots, preview videos, feature graphics, logos, trailers, notes, privacy metadata, review attachments, and provider-specific validation. |
-| Release management | Testers, beta groups, tracks, package flights, staged rollout, status queries, receipts, and CI JSON output. |
+## 1. Keep the root manifest readable
 
-## Typical release flow
+`fission.toml` is the authoritative project root. Store stable facts there: app id, display name, version, target declarations, provider references, release tracks, and paths to release-content files.
 
-```bash
-fission readiness release --project-dir . --target windows --format msix --provider microsoft-store
-fission package --project-dir . --target windows --format msix --release
-fission release-content validate --project-dir . --provider microsoft-store
-fission distribute --project-dir . --provider microsoft-store --artifact target/fission/release/windows/msix/artifact-manifest.json --track public --yes
+Do not put full release notes, long localized store descriptions, screenshot inventories, or review attachments directly into `fission.toml`. Put those in referenced files so humans can still review the manifest.
+
+A healthy project usually looks like this:
+
+```text
+my-app/
+  fission.toml
+  release-content/
+    metadata/
+      1.2.3+42/
+        release.toml
+        review.toml
+        privacy.toml
+        notes/
+          en-US.md
+          es-ES.md
+        screenshots/
+          android/
+          ios/
+          windows/
 ```
 
-The exact commands vary by provider, but the shape stays consistent: check readiness, build the artifact, validate release content, publish, then keep the receipt.
+The manifest points to these files. The files hold the long content.
 
-## Credentials
+## 2. Validate release content before upload
 
-Provider credentials should not be committed to the repository. Fission supports environment variables, CI secrets, authenticated provider tools, and its encrypted release credential vault. The project manifest stores references and provider metadata, while secrets stay outside plain-text project config.
+Provider uploads fail late if screenshots, notes, icons, privacy metadata, or review attachments are missing. Validate them first:
+
+```bash
+fission release-content validate --project-dir . --provider microsoft-store
+```
+
+Use release-content files for long-form data such as:
+
+| Content | Examples |
+| --- | --- |
+| Store listing | Title, subtitle, short description, full description, keywords. |
+| Release notes | Version-specific notes, localized notes, tester notes. |
+| Visual assets | Screenshots, feature graphics, preview videos, icons, trailers. |
+| Review attachments | Demo accounts, reviewer instructions, privacy answers. |
+| Tracks and testers | Internal testers, beta groups, phased rollout settings. |
+
+Validation should run before upload and in continuous integration. It is cheaper to find a missing screenshot in CI than after a provider has already rejected a submission.
+
+## 3. Use the artifact manifest from packaging
+
+Use the manifest produced by `fission package` or `fission site build`. Do not point distribution at a random binary path when a manifest exists.
+
+```bash
+fission distribute \
+  --project-dir . \
+  --provider github-releases \
+  --artifact target/fission/release/windows/msix/artifact-manifest.json \
+  --deploy v1.2.3
+```
+
+The provider determines the remaining required flags.
+
+| Provider family | Common extra details |
+| --- | --- |
+| Static hosting | Site name, branch, bucket, project id, custom domain, cache policy. |
+| GitHub Releases | Tag or release id, release title, release notes, asset labels. |
+| Mobile stores | Track, tester group, rollout percentage, review information, release notes. |
+| Desktop stores | Package flight, private/public audience, certification metadata, package identity. |
+| Object storage | Bucket/container, prefix, content type, cache headers, public link policy. |
+
+The command should write a receipt under `target/fission/distribution/`.
+
+## 4. Run provider readiness before upload
+
+Before uploading, ask Fission what the provider still needs:
+
+```bash
+fission readiness distribute \
+  --project-dir . \
+  --provider play-store \
+  --artifact target/fission/release/android/aab/artifact-manifest.json \
+  --track internal
+```
+
+Provider readiness should check credentials, provider CLI availability where used, project ids, package ids, release content, track names, first-release manual steps, and whether the artifact shape matches the selected provider.
+
+If a provider requires manual first-time setup, the readiness output should tell you exactly what to do and which values from `fission.toml` to copy into the provider portal.
+
+## 5. Distribute and keep receipts
+
+Distribution uploads an artifact or static site to a provider.
+
+```bash
+fission distribute --project-dir . --provider github-pages --artifact target/fission/release/site/static/artifact-manifest.json --site production
+fission distribute --project-dir . --provider github-releases --artifact target/fission/release/macos/pkg/artifact-manifest.json --deploy v1.2.3
+fission distribute --project-dir . --provider microsoft-store --artifact target/fission/release/windows/msix/artifact-manifest.json --track public
+```
+
+Receipts are not source files, but they are useful release evidence. A receipt records provider ids, URLs, deployment ids, uploaded bytes, artifact hashes, release status, and follow-up steps.
+
+Keep receipts in CI artifacts or release records. They answer practical questions later: what was uploaded, where did it go, which hash did we publish, and what did the provider return?
+
+## 6. Treat testers and rollout as release operations
+
+Publishing is not always a single public upload. Many products need internal testers, external beta groups, private flights, staged rollouts, or provider review before a release becomes public.
+
+Fission models those as explicit commands and provider operations rather than hidden side effects of upload. That lets a team review the intended track, tester group, rollout percentage, and release status in the command and receipt.
+
+A store release might therefore have this shape:
+
+```bash
+fission beta testers import --project-dir . --provider app-store --group external-beta --csv testers.csv
+fission beta distribute --project-dir . --provider play-store --artifact target/fission/release/android/aab/artifact-manifest.json --track internal
+fission distribute status --project-dir . --provider microsoft-store --site production
+```
 
 ## Where to go next
 
-Read [Production lifecycle](/product/production-lifecycle/) for the high-level model, [Build and package](/docs/build-and-package/overview/) for artifacts, and [Post-build lifecycle](/docs/release-and-distribute/post-build-lifecycle/) for the RFC-level detail.
+Read [Release lifecycle details](/docs/release-and-distribute/post-build-lifecycle/) for the detailed command model. Read [Build and package](/docs/build-and-package/overview/) if you do not have an artifact manifest yet. Read [Static sites](/docs/guides/static-sites/) if the output you are publishing is documentation, marketing, or content pages.

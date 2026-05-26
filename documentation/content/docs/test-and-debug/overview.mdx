@@ -5,27 +5,105 @@ description: Structure Fission testing and diagnostics around reducers, widgets,
 
 # Test and debug
 
-Fission's testing story follows the architecture. Test pure behavior where it is pure, test widget output where the widget tree is the question, and test the live host when the host is part of the behavior.
+Fission testing follows the same layers as the framework. Start with pure state changes, then test widget output, then runtime effects, then the real host.
 
-## Testing layers
+That order matters. If every bug is tested only through a running app, failures become slow and vague. If you test the smaller layers first, most failures point directly at the reducer, widget, resource, provider, shell, or packaging step that caused them.
 
-| Layer | Use it for |
+## 1. Test reducers before shells
+
+Reducers are ordinary Rust functions over app state and typed actions. They are the cheapest place to prove behavior.
+
+```rust
+#[test]
+fn save_failure_explains_the_error() {
+    let mut state = EditorState::default();
+
+    on_save_failed(&mut state, SaveError { message: "disk full".into() });
+
+    assert_eq!(state.error.as_deref(), Some("disk full"));
+    assert!(!state.saving);
+}
+```
+
+A reducer test should be small. Set up state, call the reducer, assert the new state. If this is hard to write, the reducer is probably doing too much or hiding work behind a host call that should be an effect, resource, job, service, or capability.
+
+## 2. Test selectors as named decisions
+
+A selector is a named way to derive a value from state. Use one when several widgets need the same derived answer or when the calculation is important enough to test by name.
+
+For example, a mail app might keep messages, filters, and search text in state, then expose `visible_messages(state)` as a selector. Test the selector with plain Rust data before testing the screen that renders it.
+
+That keeps product decisions out of layout code. The widget can ask for visible messages; the selector owns how they are filtered.
+
+## 3. Test widgets for structure and semantics
+
+Widget tests answer questions about the UI tree: is the button present, is it disabled, does the text come from state, does the semantic label exist, and does the widget wire the expected action?
+
+Use widget tests before screenshot tests. They fail with clearer messages and do not depend on fonts, GPU behavior, operating-system scaling, or platform rendering differences.
+
+Good widget tests usually assert product meaning rather than pixel position:
+
+| Test question | Better assertion |
 | --- | --- |
-| Unit tests | Reducers, selectors, state transitions, parsers, helpers, and deterministic business logic. |
-| Widget tests | Rendered widget structure, semantics, layout intent, bindings, and state-derived UI. |
-| Runtime smoke tests | Shell startup, route rendering, command/job wiring, capability boundaries, and target compatibility. |
-| Screenshot tests | Release screenshots, visual regression checks, docs/gallery captures, and store content validation. |
-| Device/browser tests | Mobile safe areas, soft keyboards, browser behavior, accessibility bridges, pointer/touch handling, and packaging validation. |
+| Does the submit button exist? | Find a button with semantic label `Submit`. |
+| Is the form blocked while saving? | Assert the submit action is disabled when `state.saving` is true. |
+| Is the right screen active? | Assert the route or screen node selected from app state. |
+| Is an error explained? | Assert visible text and accessibility semantics include the error message. |
 
-## Developer tools direction
+## 4. Test effects with memory providers
 
-Fission's developer tools are designed around inspection rather than guesswork. The tooling surface should expose widget trees, Core IR, layout boxes, semantics, reducer/action history, logs, resource calls, frame timing, screenshots, and device output. IDE plugins should make those tools discoverable from normal development environments.
+Capabilities, jobs, services, and resources should be tested with deterministic providers before they are tested on a device.
+
+For a camera flow, first test the reducer with a memory camera provider. For notifications, use a memory notification provider. For passkeys, use a memory passkey provider with fixed challenge data. These tests prove your app handles both success and error results without requiring hardware, browser permission prompts, or store packaging.
+
+A memory provider should behave like the real provider at the contract level. It should return the same result shapes, error categories, and edge cases your reducer needs to handle.
+
+## 5. Add runtime smoke tests when boundaries meet
+
+Runtime smoke tests prove the pieces work together: shell startup, route rendering, command/job wiring, capability boundaries, target compatibility, and lifecycle behavior.
+
+Use them when a feature crosses a boundary:
+
+- app-to-host capability calls,
+- startup deep links,
+- notification response handling,
+- service events,
+- chart interaction events,
+- generated target files,
+- static site route and link generation,
+- packaging output that later commands consume.
+
+Smoke tests should not replace unit tests. They prove integration after the smaller contracts are already covered.
+
+## 6. Use screenshots for visual regressions and release content
+
+Screenshot tests are best for visual contract checks: chart gallery captures, docs/gallery assets, platform screenshots, and store release content.
+
+They should not be the only test for behavior. A screenshot can show that a button exists without proving the reducer behind it works. Pair screenshot tests with reducer, selector, widget, and runtime tests so visual failures do not become the only signal.
+
+When visual output changes intentionally, update the screenshot through the documented capture path and review the image diff. Do not replace screenshots casually; they are product evidence.
+
+## 7. Debug through inspectable boundaries
+
+Fission's developer tools should expose widget trees, Core IR, layout boxes, semantics, reducer/action history, logs, resource calls, frame timing, screenshots, device output, and release receipts.
 
 The principle is simple: if the runtime can see a boundary, developers should be able to inspect it.
 
-## Debug without breaking the model
+Do not add hidden callbacks just to make debugging easier. Keep reducers explicit, host work named, resources typed, and shell behavior observable. That gives tools a stable surface to inspect and keeps the production app understandable.
 
-Do not add hidden host callbacks just to make debugging easier. Keep reducers explicit, host work named, resources typed, and shell behavior observable. That gives tools a stable surface to inspect and keeps the production app understandable.
+## A practical test stack for one feature
+
+For a feature such as "send a notification when export completes," the test stack should look like this:
+
+1. Unit-test the reducer that marks the export complete.
+2. Unit-test the selector that decides whether a notification should be requested.
+3. Test the capability call with a memory notification provider.
+4. Widget-test the export screen so the completion state renders clearly.
+5. Add a runtime smoke test for the app-to-provider boundary.
+6. Validate platform configuration with `fission add-capability notifications` and readiness checks.
+7. Capture platform screenshots or release assets if the feature appears in store material.
+
+That sequence gives you confidence from the inside out.
 
 ## Where to go next
 

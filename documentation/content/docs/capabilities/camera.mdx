@@ -1,46 +1,132 @@
 ---
 title: Camera and flashlight
-description: Learn how to use the camera and flashlight capability in a Fission app.
+description: Query cameras, request permission, capture photos, and control flashlight through the host.
 ---
 
 # Camera and flashlight
 
-The camera capability asks the host for camera availability, permission, still photo capture, and flashlight control where the active device exposes a torch.
+The camera capability keeps sensitive camera work inside the shell. Shared app code asks for availability or capture, while the host owns permissions, preview UI, image capture, camera identifiers, torch control, and platform-specific failure modes.
 
-Use camera capture for profile photos, receipts, inspection evidence, document capture, or device setup flows. Use flashlight control as a companion to camera workflows where the host camera has a controllable torch. Do not keep camera capture hidden behind a generic button; make the screen explain why the app needs the camera before the platform prompt appears.
+By the end of this guide, you will know how to build a profile-photo capture flow with a back-camera preference and optional flash. The same pattern applies to larger apps: declare the capability when native configuration is needed, store the result in typed app state, request the host operation from a reducer, and test both success and failure with a memory host.
 
-## Setup
+Do not ask for camera access before the user understands why. Build the explanation in normal Fission UI first, then trigger the capability from a clear action such as Take photo.
 
-Start by declaring the capability with `fission add-capability camera --project-dir .`. Run `fission add-capability camera --project-dir .`. Android receives camera permission plus optional camera/front/flash feature declarations. iOS receives `NSCameraUsageDescription`. Desktop targets can support cameras through host providers; macOS packaged apps need camera usage text in their app bundle, and Windows packaged apps may need webcam capability metadata.
+## 1. Start with the state the screen needs
 
-## Request it from a reducer
-
-Reducers should request camera and flashlight work through `ctx.effects`. The reducer records what the app wants, returns control to the runtime, and then receives a typed success or error action when the host finishes.
+Add the smallest state fields the screen needs to render honestly. For this flow, useful state is:
 
 ```rust
+#[derive(Default)]
+struct AppState {
+    // Add these fields to your existing app state.
+profile_photo: Option<Vec<u8>>,
+    camera_error: Option<String>,
+    capturing: bool,
+}
+```
+
+State is the source of truth for the UI. Do not store whether the host "probably" succeeded; wait for the typed success action and store the returned value.
+
+## 2. Configure the target and host
+
+Run this once from the project root:
+
+```bash
+fission add-capability camera --project-dir .
+```
+
+That command records the capability in `fission.toml` and updates generated platform files where Fission can do so safely. It does not replace product-specific review of native manifests, usage text, entitlements, service identifiers, domains, or store policy.
+
+The CLI adds Android camera permission and optional camera/front/flash features. iOS receives `NSCameraUsageDescription`. Desktop targets need a provider and packaged apps may need macOS camera usage text or Windows webcam capability metadata.
+
+This is the difference between the Fission API, a provider, and packaging configuration:
+
+- The Fission API is the typed Rust contract your reducer calls, such as `ctx.effects.camera().capture_photo(...)`.
+- The provider is the shell-side Rust implementation that turns that typed request into the correct OS, browser, or hardware call.
+- Packaging configuration is the manifest, plist, entitlement, service-worker, protocol, domain, or store metadata that lets the platform permit that call in a real installed app.
+
+If the API exists but the provider is missing, the request returns a typed unsupported error. If the provider exists but packaging is missing, the operating system or browser may deny the request before the provider can complete it.
+
+## 3. Define reducers for success and failure
+
+Capability work finishes later, after the reducer that started it has returned. You therefore need one reducer for the successful result and one reducer for the error path.
+
+```rust
+#[fission_reducer(PhotoCaptured)]
+fn on_photo_captured(state: &mut AppState, capture: CameraCapture) {
+    state.capturing = false;
+    state.profile_photo = Some(capture.bytes);
+    state.camera_error = None;
+}
+
+#[fission_reducer(PhotoCaptureFailed)]
+fn on_photo_capture_failed(state: &mut AppState, error: CameraError) {
+    state.capturing = false;
+    state.camera_error = Some(error.message);
+}
+```
+
+Keep both paths explicit. A denied permission, unavailable device, unsupported host, or cancelled prompt is not an exceptional mystery; it is normal product behavior the UI should explain.
+
+## 4. Request the capability from a reducer
+
+Call the capability from the reducer that handles the user's intent. The reducer queues a host effect and returns. The runtime later dispatches either the success reducer or the failure reducer.
+
+```rust
+state.capturing = true;
 ctx.effects
     .camera()
     .capture_photo(CameraCaptureRequest {
         facing: CameraFacing::Back,
         resolution: Some(CameraResolution { width: 1280, height: 720 }),
+        format: CameraImageFormat::Jpeg,
         flash: CameraFlashMode::Auto,
         quality: Some(90),
         ..Default::default()
     })
-    .on_ok(ctx.effects.bind(PhotoCaptured, reduce_with!(on_photo_captured)))
-    .on_err(ctx.effects.bind(PhotoCaptureFailed, reduce_with!(on_photo_capture_failed)));
+    .on_ok(ctx.effects.bind(
+        PhotoCaptured(CameraCapture::default()),
+        reduce_with!(on_photo_captured),
+    ))
+    .on_err(ctx.effects.bind(
+        PhotoCaptureFailed(CameraError::default()),
+        reduce_with!(on_photo_capture_failed),
+    ));
 ```
 
-The important rule is that the reducer does not call the operating system directly. It emits a capability effect. That keeps the same app logic usable on desktop, web, Android, iOS, and test hosts even when the real platform implementation is different.
+The call does not run the OS API directly. It records a typed host request. That keeps shared app logic portable across desktop, web, Android, iOS, static-site previews where applicable, and tests.
+
+## 5. Trigger the reducer from the UI
+
+Wire the user-facing control with the normal Fission action pattern. This example uses a small widget so the binding has one clear home.
+
+```rust
+struct CaptureProfilePhotoButton;
+
+impl Widget<AppState> for CaptureProfilePhotoButton {
+    fn build(&self, view: &View<AppState>, ctx: &mut BuildCtx<AppState>) -> Node {
+        let run = with_reducer!(ctx, CaptureProfilePhoto, on_capture_profile_photo);
+
+        Button::new("Take photo")
+            .disabled(view.state.capturing)
+            .on_press(run)
+            .build(view, ctx)
+    }
+}
+```
+
+Rename the widget and action for your product, but keep the shape: the widget dispatches one typed action, the reducer starts the capability request, and the success or failure reducer updates state.
+
+## 6. Provide and test the host behavior
+
+Register a `CameraHost` with `.with_camera_host(...)`. Use `MemoryCameraHost` in tests. A provider should expose availability, permission, capture, flashlight, and cancellation separately so apps can degrade gracefully.
+
+Test no-camera devices, permission denial, successful capture, cancellation, and missing flashlight support. Memory tests should assert both returned image bytes and recorded flashlight requests.
+
+A useful first test creates the app with the memory host, dispatches the start action, feeds the queued effect through the host, and asserts that the reducer updates state from the returned payload. Add a second test for the error path before you ship the screen.
 
 ## Platform expectations
 
-Android, iOS, web, Windows, and macOS all have camera APIs, but permission UX and device labels differ. Linux support depends on camera devices, portals, and desktop configuration. Flashlight is common on phones and less common on laptops or desktops.
+Android, iOS, web, Windows, and macOS all have camera APIs, but permission prompts and device labels differ. Linux depends on cameras, portals, and media stack setup. Flashlight is common on phones and rare on desktops.
 
-Read the [capability matrix](/docs/capabilities/matrix/) when you need a quick cross-platform view. The matrix separates platforms with direct support from platforms where a host provider can be implemented but permissions, hardware, or distribution packaging change the behavior.
-
-## Testing
-
-Use `MemoryCameraHost` to return deterministic image bytes and to record flashlight requests. Integration tests should cover no-camera devices, permission denial, cancellation, and missing flashlight support.
-
-For exact request and response types, provider traits, and generated platform configuration, see the [Camera and flashlight reference](/reference/capabilities/camera/).
+For a cross-platform summary, read the [capability matrix](/docs/capabilities/matrix/). For exact request fields, provider traits, and generated configuration, see the [Camera and flashlight reference](/reference/capabilities/camera/).

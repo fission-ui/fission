@@ -2,23 +2,65 @@
 title: 3D and GL charts
 sidebar_label: 3D and GL
 sidebar_position: 4
-description: The Fission Charts direction for 3D, globe, surface, and GPU-accelerated chart families.
+description: Use Fission's native 3D scene path for globe, surface, point cloud, terrain, and GPU-scale chart families.
 ---
 
 # 3D and GL charts
 
-Fission has a native 3D scene path through `Scene3D`. Fission Charts builds on that path instead of treating advanced charts as a web-only exception. The catalog includes real gallery screenshots for 3D bar, 3D scatter, 3D line, point cloud, globe, 3D graph, terrain, mesh, volume-style point field, and 3D surface examples, each lowered into native `Scene3D` primitives and rendered by the Fission shell.
+Some data is genuinely spatial. A route crosses geography. A point cloud has depth. A terrain model needs height. A globe needs a curved world. A dense operations view may need the graphics processor to carry more points than a simple two-dimensional chart should draw by hand.
 
-The broader target remains the same: line trajectories, globes, 3D maps, graph layouts, point clouds, volume rendering, vector fields, and GPU-accelerated large scatter should live inside the same Fission application model as ordinary widgets.
+Fission Charts handles those cases through Fission's native `Scene3D` path. A 3D chart is still part of the Fission app model: state lives in your app, reducers handle intent, widgets describe the screen, and the shell presents the rendered result. The difference is the final visual model. Instead of lowering only to two-dimensional chart marks, these charts lower to typed 3D scene primitives that the renderer can draw efficiently.
 
-That does not mean every chart should become 3D. Most product charts are clearer in two dimensions. Use 3D when depth is part of the data, when geographic context requires a globe or terrain surface, or when the chart needs GPU-scale point and mesh rendering. Avoid 3D when it only makes comparison harder.
+## When 3D is the right choice
 
-## Runtime shape
+Use a 3D or GL-backed chart when depth, geography, camera position, or large point volume is part of the data the user needs to understand.
 
-The runtime shape is a typed chart model lowered into Fission render and 3D primitives. The app still owns state through reducers. The host still owns platform-specific graphics integration. Chart code does not introduce a second event model, hidden browser runtime, or untyped callback registry.
+| Use 3D when... | Prefer 2D when... |
+| --- | --- |
+| The third dimension is real data, such as height, depth, or z-position. | The third dimension is decorative and makes comparison harder. |
+| A globe or terrain model gives useful geographic context. | A flat map or table answers the question more directly. |
+| The chart needs camera movement, point clouds, mesh fields, or dense GPU-backed marks. | The user mainly needs exact category comparison or short trend reading. |
+| Spatial relationships matter more than precise labels on every item. | Accessibility, print output, or exact numeric reading is the main requirement. |
 
-For large datasets, the renderer will need retained GPU buffers, stable identifiers, decimation where appropriate, and hit-testing structures that are built once and reused across frames. Those are chart-engine features, not app-level workarounds.
+The rule is simple: 3D should explain the data, not decorate it.
 
-## Website demos
+## What the current catalog covers
 
-The current catalog shows only 3D entries that are backed by real Fission gallery output. The WebAssembly demo work should compile and run the same Fission chart examples in the browser, then preserve the same source examples for desktop and mobile hosts.
+The catalog includes real gallery screenshots for 3D bar, 3D scatter, 3D line, point cloud, globe, 3D graph, terrain, mesh, volume-style point field, and 3D surface examples. These are not separate web-only demos. They are Fission chart examples lowered into native `Scene3D` primitives and rendered through the Fission shell.
+
+Common families include:
+
+| Family | Good fit |
+| --- | --- |
+| 3D bars | Metrics across two categorical axes where height carries the value. |
+| 3D scatter and point clouds | Clusters, outliers, spatial measurements, and dense telemetry. |
+| 3D lines | Trajectories, paths, and time-varying movement through space. |
+| Globes and routes | Geographic coverage, flows, and world-scale movement. |
+| Terrain and surfaces | Height fields, response surfaces, risk maps, and mesh-like data. |
+| 3D graphs | Network structure where spatial layout helps reveal clusters or topology. |
+
+## How the runtime treats these charts
+
+A 3D chart still starts as typed Rust data. The chart model resolves series, axes, color scales, camera settings, animation requests, and interaction settings. Then the renderer lowers that model to Fission render and 3D primitives.
+
+That means the rest of the app does not need a second event system. If the chart emits a hit-test event, that event becomes a typed action path your reducer can handle. If the chart is controlled by state, a reducer changes the state and the next build renders the new chart model. If the chart is themed, it reads from the same active theme as the rest of the app.
+
+## Interaction and animation guidance
+
+3D interaction should be purposeful. Camera orbit, pan, zoom, selection, hover labels, and route effects are useful when they reveal information that is hard to see in a static view. They become distracting when every chart starts moving without helping the user answer a question.
+
+For production screens, choose one primary interaction at a time. A globe may need rotation and hover labels. A point cloud may need box selection. A route view may need animated movement along paths. A surface chart may need camera presets. Keep those choices tied to the product task instead of enabling every interaction because the renderer can support it.
+
+Animation should usually run from an initial state to the final state and then stop. Reserve repeated animation for cases where motion is itself part of the meaning, such as active route flow or live signal movement.
+
+## Testing strategy
+
+Test 3D charts in layers:
+
+1. Unit-test data mapping and domain calculation.
+2. Test that the chart lowers into the expected typed 3D primitives.
+3. Test interaction hit paths where selection or hover is product-important.
+4. Capture chart-only screenshots when renderer behavior changes.
+5. Validate the target shell because graphics capabilities can differ across desktop, browser, Android, and iOS hosts.
+
+That split keeps data bugs, lowering bugs, renderer bugs, and host bugs separate enough to diagnose.

@@ -1,64 +1,70 @@
 ---
 title: Accessibility and internationalization
-description: The platform-facing reference for accessibility semantics, locale-aware text, and how both concerns connect to host adapters and testing.
+sidebar_label: Accessibility and i18n
+description: Reference contract for semantic output, translated text, locale, and platform accessibility expectations.
 ---
 
 # Accessibility and internationalization
 
-This page covers two concerns that often meet at the platform boundary.
+Accessibility and internationalization are not finishing touches. They affect how the runtime describes the interface, how text is selected, how layout adapts, and how platform shells expose the app to operating-system services.
 
-Accessibility is how the user interface exposes meaning to assistive technologies such as screen readers and other accessibility tools.
+In Fission, both concerns start in the shared app model. Widgets produce semantic information as part of the normal tree. Text can come from translation keys. Locale and translation bundles live in `Env`. Shells then bridge the resolved result to the host platform.
 
-Internationalization, often shortened to i18n, is how the user interface supports multiple languages and locale-sensitive text selection.
+## Accessibility contract
 
-These systems are not identical, but they interact in important ways once the shared runtime meets a real platform host.
+Fission widgets can carry semantic metadata. That metadata is used by tests, diagnostics, and platform shells.
 
-## Accessibility at the platform boundary
+| Concept | Purpose | Practical guidance |
+| --- | --- | --- |
+| Semantic role | Describes what a node is | Buttons, inputs, links, headings, dialogs, and status messages should expose the right role. |
+| Semantic label | Describes what the user should hear or discover | Icon-only controls need explicit labels because visual icons are not enough. |
+| Semantic value | Describes current value or state | Use for controls such as sliders, progress indicators, selected rows, or toggles. |
+| Focus behavior | Determines keyboard and assistive navigation | Keep focus order close to visual order unless there is a strong reason not to. |
+| Disabled state | Communicates that an action is unavailable | Pair disabled state with visible explanation when the reason is not obvious. |
 
-In Fission, semantic meaning originates in the shared runtime, not in per-platform shell guesswork.
+Accessibility should be visible in tests. A test that finds a button by semantic label is usually stronger than a test that depends on an internal node path.
 
-The runtime produces a semantics tree that describes roles, labels, values, actions, focus-relevant structure, and other accessibility meaning. Platform adapters then translate that shared meaning into native accessibility APIs.
+## Internationalization contract
 
-That boundary matters for three reasons.
+Internationalization, often shortened to i18n, means making the app capable of supporting multiple languages and locale-sensitive behavior. Localization means providing the actual translated content for a locale.
 
-First, it keeps accessibility behavior more consistent across desktop, web, Android, and iOS.
+Fission uses these core types:
 
-Second, it makes semantics testable before platform adapters even enter the picture.
+| Type | Purpose |
+| --- | --- |
+| `Locale` | Active language and region identifier. |
+| `TranslationBundle` | Key-value messages for one locale. |
+| `I18nRegistry` | Registry of available bundles. |
+| `TextContent::Key` | Text that should be resolved from the active registry. |
+| `TextContent::Literal` | Text that should render exactly as provided. |
 
-Third, it prevents shells from inventing roles or labels that were never present in the core model.
+Locale-sensitive text can affect more than visible strings. It can change semantic labels, text width, wrapping, line height pressure, truncation, and layout decisions. That is why the locale belongs in `Env` and should be part of testing.
 
-## Internationalization at the platform boundary
+## Platform responsibilities
 
-Translated text is resolved through the shared environment model before shells expose the results to host accessibility systems.
+The shared runtime should produce meaningful semantics and translated text. The shell should expose those results to the host platform where the host provides an accessibility or language integration path.
 
-The active locale and internationalization registry live in `Env`. Widgets read those values through `View`, and translated labels become part of the built user interface structure the runtime reasons about.
+| Target | What to validate |
+| --- | --- |
+| Desktop | Keyboard focus, labels, roles, text scaling, screen-reader exposure, menus, dialogs, and high-contrast expectations. |
+| Web | Semantic HTML output where applicable, focus order, keyboard access, browser accessibility tree, language metadata, and translated page content. |
+| Android | TalkBack labels, touch target sizes, system font scale, locale changes, permission prompts, and text input behavior. |
+| iOS | VoiceOver labels, Dynamic Type expectations, safe-area layout, locale changes, and input method behavior. |
+| Terminal UI | Keyboard navigation, visible focus, readable contrast, screen-reader terminal behavior, and non-color-only status. |
+| Static sites | Semantic HTML headings, links, tables, language metadata, alternate language routing, and crawlable translated content. |
 
-This matters because locale-sensitive text can affect more than just visible strings. It can also affect semantic labels, widths, wrapping, and the overall accessibility surface seen by the host.
+No shell should invent product meaning that the widget tree did not provide. The shell bridges semantics; it does not decide that a random rectangle is a button.
 
-## How the two concerns connect
+## Common mistakes
 
-Accessibility and internationalization often ship together because accessible names and values should reflect the language the user actually selected.
+Do not rely on placeholder text as a label for text inputs. Placeholders disappear once the user types and can be hard for assistive technology to treat as a durable name.
 
-If the locale changes, visible text changes, and semantic labels should change with it. That can also change layout and focus-relevant structure indirectly if translated content grows or shrinks.
+Do not use color as the only indicator of status. Pair color with text, iconography, semantic state, or structure.
 
-In other words, the platform accessibility adapter should be receiving already-resolved meaning from the shared runtime, not trying to localize strings on its own.
+Do not build translated strings by concatenating fragments in the widget. Different languages have different word order. Prefer whole translation keys with parameters handled by the app's translation layer.
 
-## Testing implications
+Do not treat English text length as the layout truth. Test longer translated strings, right-to-left languages if your product supports them, and mobile widths.
 
-Headless tests can inspect semantic output before any platform adapter is involved. This is often the fastest way to catch missing roles, labels, or other meaning-level regressions.
+## Related pages
 
-Live shell tests and target-level validation then confirm that the host boundary is presenting the expected semantics in a real environment.
-
-Locale changes are also worth testing at both levels: first in the shared runtime to confirm visible and semantic output, then at the host level where platform accessibility tools are in play.
-
-## Practical guidance
-
-Keep semantic meaning in the shared app model.
-
-Keep locale selection explicit in `Env` rather than relying on implicit platform locale reads deep in widget code.
-
-Validate translated labels not only visually but semantically, because assistive technologies depend on the same resolved meaning.
-
-## Related reference pages
-
-For the core-side theme and locale model, see [Theming and internationalization](/reference/core/theming-and-i18n). For the input and environment boundary, see [Environment, input, and input method editor](/reference/core/environment-input-and-ime). For host-level verification strategy, continue to [Platform testing](/reference/platform/testing).
+Read [Theming and internationalization](/docs/guides/theming-and-i18n/) for a step-by-step translation setup, [Environment, input, and input method editor](/reference/core/environment-input-and-ime/) for the `Env` contract, and [Testing and diagnostics](/docs/guides/testing-and-diagnostics/) for accessibility-oriented testing practice.

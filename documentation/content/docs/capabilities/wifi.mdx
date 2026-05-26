@@ -1,44 +1,129 @@
 ---
 title: Wi-Fi
-description: Learn how to use the wi-fi capability in a Fission app.
+description: Query, scan, connect, and disconnect Wi-Fi networks where the host platform permits it.
 ---
 
 # Wi-Fi
 
-Wi-Fi lets an app inspect or manage nearby wireless networks where the host platform permits that level of control.
+Wi-Fi APIs are more restricted than many developers expect. Scanning can reveal location, connecting can change global device state, and some platforms deliberately avoid app-level Wi-Fi management.
 
-Use Wi-Fi capabilities for device setup, kiosk provisioning, field diagnostics, or products that must connect to a known appliance network. Do not assume every platform allows arbitrary scans or connections; many treat Wi-Fi information as location-sensitive.
+By the end of this guide, you will know how to build a device-setup screen that finds networks beginning with a known SSID prefix. The same pattern applies to larger apps: declare the capability when native configuration is needed, store the result in typed app state, request the host operation from a reducer, and test both success and failure with a memory host.
 
-## Setup
+Do not assume every platform can scan or connect to networks. Always check availability first and provide a manual setup path for restricted platforms.
 
-Start by declaring the capability with `fission add-capability wifi --project-dir .`. Run `fission add-capability wifi --project-dir .`. Android receives Wi-Fi, network, nearby Wi-Fi, and older fine-location permissions where needed. iOS receives Wi-Fi information/hotspot entitlements and location usage text. Desktop providers should use the appropriate operating-system network APIs or distribution services.
+## 1. Start with the state the screen needs
 
-## Request it from a reducer
-
-Reducers should request wi-fi work through `ctx.effects`. The reducer records what the app wants, returns control to the runtime, and then receives a typed success or error action when the host finishes.
+Add the smallest state fields the screen needs to render honestly. For this flow, useful state is:
 
 ```rust
+#[derive(Default)]
+struct AppState {
+    // Add these fields to your existing app state.
+networks: Vec<WifiNetwork>,
+    wifi_error: Option<String>,
+    scanning_wifi: bool,
+}
+```
+
+State is the source of truth for the UI. Do not store whether the host "probably" succeeded; wait for the typed success action and store the returned value.
+
+## 2. Configure the target and host
+
+Run this once from the project root:
+
+```bash
+fission add-capability wifi --project-dir .
+```
+
+That command records the capability in `fission.toml` and updates generated platform files where Fission can do so safely. It does not replace product-specific review of native manifests, usage text, entitlements, service identifiers, domains, or store policy.
+
+The CLI adds Android Wi-Fi, network, nearby Wi-Fi, and older fine-location permissions where needed. iOS requires Wi-Fi information or hotspot entitlements and location usage text for some flows. Desktop providers must use the platform network APIs or return unsupported errors.
+
+This is the difference between the Fission API, a provider, and packaging configuration:
+
+- The Fission API is the typed Rust contract your reducer calls, such as `ctx.effects.camera().capture_photo(...)`.
+- The provider is the shell-side Rust implementation that turns that typed request into the correct OS, browser, or hardware call.
+- Packaging configuration is the manifest, plist, entitlement, service-worker, protocol, domain, or store metadata that lets the platform permit that call in a real installed app.
+
+If the API exists but the provider is missing, the request returns a typed unsupported error. If the provider exists but packaging is missing, the operating system or browser may deny the request before the provider can complete it.
+
+## 3. Define reducers for success and failure
+
+Capability work finishes later, after the reducer that started it has returned. You therefore need one reducer for the successful result and one reducer for the error path.
+
+```rust
+#[fission_reducer(WifiNetworksFound)]
+fn on_wifi_networks_found(state: &mut AppState, result: WifiScanResult) {
+    state.scanning_wifi = false;
+    state.networks = result.networks;
+    state.wifi_error = None;
+}
+
+#[fission_reducer(WifiScanFailed)]
+fn on_wifi_scan_failed(state: &mut AppState, error: WifiError) {
+    state.scanning_wifi = false;
+    state.wifi_error = Some(error.message);
+}
+```
+
+Keep both paths explicit. A denied permission, unavailable device, unsupported host, or cancelled prompt is not an exceptional mystery; it is normal product behavior the UI should explain.
+
+## 4. Request the capability from a reducer
+
+Call the capability from the reducer that handles the user's intent. The reducer queues a host effect and returns. The runtime later dispatches either the success reducer or the failure reducer.
+
+```rust
+state.scanning_wifi = true;
 ctx.effects
     .wifi()
     .scan_networks(WifiScanRequest {
         ssid_prefix: Some("Device-".into()),
         include_hidden: false,
-        timeout_ms: Some(10_000),
+        timeout_ms: Some(8_000),
     })
-    .on_ok(ctx.effects.bind(WifiNetworksFound, reduce_with!(on_wifi_networks_found)))
-    .on_err(ctx.effects.bind(WifiScanFailed, reduce_with!(on_wifi_scan_failed)));
+    .on_ok(ctx.effects.bind(
+        WifiNetworksFound(WifiScanResult::default()),
+        reduce_with!(on_wifi_networks_found),
+    ))
+    .on_err(ctx.effects.bind(
+        WifiScanFailed(WifiError::default()),
+        reduce_with!(on_wifi_scan_failed),
+    ));
 ```
 
-The important rule is that the reducer does not call the operating system directly. It emits a capability effect. That keeps the same app logic usable on desktop, web, Android, iOS, and test hosts even when the real platform implementation is different.
+The call does not run the OS API directly. It records a typed host request. That keeps shared app logic portable across desktop, web, Android, iOS, static-site previews where applicable, and tests.
+
+## 5. Trigger the reducer from the UI
+
+Wire the user-facing control with the normal Fission action pattern. This example uses a small widget so the binding has one clear home.
+
+```rust
+struct ScanWifiNetworksButton;
+
+impl Widget<AppState> for ScanWifiNetworksButton {
+    fn build(&self, view: &View<AppState>, ctx: &mut BuildCtx<AppState>) -> Node {
+        let run = with_reducer!(ctx, ScanWifiNetworks, on_scan_wifi_networks);
+
+        Button::new("Scan networks")
+            .disabled(view.state.scanning_wifi)
+            .on_press(run)
+            .build(view, ctx)
+    }
+}
+```
+
+Rename the widget and action for your product, but keep the shape: the widget dispatches one typed action, the reducer starts the capability request, and the success or failure reducer updates state.
+
+## 6. Provide and test the host behavior
+
+Register a `WifiHost` with `.with_wifi_host(...)`. Use `MemoryWifiHost` in tests. Providers should report unavailable, permission-denied, and policy-restricted states instead of assuming failure means no networks exist.
+
+Test unavailable adapter, denied permission, empty scan, filtered scan, connect failure, and disconnect unsupported behavior. The UI should not promise automatic setup when the host reports policy restrictions.
+
+A useful first test creates the app with the memory host, dispatches the start action, feeds the queued effect through the host, and asserts that the reducer updates state from the returned payload. Add a second test for the error path before you ship the screen.
 
 ## Platform expectations
 
-Android has the broadest app-facing Wi-Fi management APIs, though recent versions require nearby-device and location-related declarations. iOS is more constrained and often requires entitlements. Windows, macOS, and Linux can support Wi-Fi through system APIs or services, but permissions and deployment shape vary. Web has no general Wi-Fi scan/connect API.
+Android has the broadest app-level Wi-Fi path. iOS is constrained and entitlement-driven. Web has no general scan/connect API. Desktop support depends on OS network services and privileges.
 
-Read the [capability matrix](/docs/capabilities/matrix/) when you need a quick cross-platform view. The matrix separates platforms with direct support from platforms where a host provider can be implemented but permissions, hardware, or distribution packaging change the behavior.
-
-## Testing
-
-Use `MemoryWifiHost` with a fixed network list. Test hidden networks, missing passphrases, unsupported security modes, unavailable adapters, and permission errors.
-
-For exact request and response types, provider traits, and generated platform configuration, see the [Wi-Fi reference](/reference/capabilities/wifi/).
+For a cross-platform summary, read the [capability matrix](/docs/capabilities/matrix/). For exact request fields, provider traits, and generated configuration, see the [Wi-Fi reference](/reference/capabilities/wifi/).

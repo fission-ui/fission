@@ -1,5 +1,5 @@
 ---
-title: Welcome to the Fission documentation site
+title: The Fission site is built with Fission
 slug: /welcome
 authors:
   - fission
@@ -8,17 +8,29 @@ tags:
   - docs
 ---
 
-The Fission documentation site is now built with Fission's own static site target. The landing page and footer are ordinary Fission widgets, while the docs, reference, charts, cookbook, and blog pages are Markdown content routes rendered through the static site shell.
+The Fission documentation site is a real Fission static site application.
+
+The landing page, product pages, shared header, and footer are ordinary Fission widgets. The docs, reference, charts, cookbook, and blog pages are Markdown and MDX content routes rendered through the Fission static site shell. The final output is static HTML, CSS, JavaScript, images, metadata, search index files, sitemap data, and copied assets that can be deployed like any other static site.
 
 {/* truncate */}
 
-This matters because the site is a practical example of the framework it documents. It uses custom widget routes, Markdown and MDX content, sidebars, generated table-of-contents links, light and dark themes, copied assets, favicons, client-side search, optional code highlighting, sitemap and robots output, structured metadata, and internal-link validation.
+That matters because this site is not a separate documentation stack sitting beside the framework. It exercises the same model the docs describe: widget routes for designed pages, content routes for Markdown, explicit sidebars, generated table-of-contents links, light and dark themes, copied assets, favicons, client-side search, optional code highlighting, structured metadata, JSON-LD, sitemap and robots output, and internal-link validation.
 
-Use:
+If you are learning Fission, use the site in this order:
 
-- `/docs` for guided learning and tutorials,
-- `/reference` for framework, widget, chart, and command-line reference,
-- `/docs/charts` for chart guides and the implemented chart catalog,
-- `/docs/cookbook` for practical application walkthroughs.
+| Section | Use it for |
+| --- | --- |
+| [Docs](/docs/intro/) | Guided learning from setup through development, testing, packaging, and release. |
+| [Cookbook](/docs/cookbook/build-a-counter/) | Copyable walkthroughs for common app tasks. |
+| [Reference](/reference/overview/overview/) | Exact contracts for runtime APIs, widgets, charts, capabilities, platform targets, and CLI commands. |
+| [Charts](/docs/charts/overview/) | Native chart families, catalog screenshots, data models, and interaction guidance. |
 
-The project lives in `documentation/`, and you can build it locally with `fission site build --project-dir documentation` or serve it with `fission site serve --project-dir documentation`.
+You can build the same site locally:
+
+```bash
+fission site check --project-dir documentation --release
+fission site serve --project-dir documentation
+fission site build --project-dir documentation --release
+```
+
+The project lives in `documentation/`. It is intentionally kept as a real-world example of how a production Fission static site is organized.

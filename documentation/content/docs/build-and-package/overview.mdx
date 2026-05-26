@@ -1,40 +1,133 @@
 ---
 title: Build and package
-description: Package Fission apps for desktop, mobile, web, terminal, and static site targets with preflight checks and artifact manifests.
+description: Package Fission apps for desktop, mobile, web, terminal, and static site targets with readiness checks and artifact manifests.
 ---
 
 # Build and package
 
-Packaging turns a built app into an artifact another system can install, upload, host, or verify. Fission treats packaging as a first-class workflow because production releases fail when packaging is handled as a pile of shell scripts nobody understands.
+Packaging turns a working app into an artifact someone else can install, upload, host, test, or review.
 
-## Package outputs
+During everyday development you usually run `fission run`. During release preparation you use the package workflow. Packaging gives the output a predictable location, records exactly what was built, runs target-specific validation, and writes an artifact manifest that later release commands can consume.
 
-| Target | Package formats |
-| --- | --- |
-| Linux | `.run` |
-| macOS | `.app`, `.pkg` |
-| Windows | `.exe`, `.msi`, `.msix` |
-| Android | `.apk`, `.aab` |
-| iOS | `.ipa` |
-| Web/site | static HTML/CSS/JS asset directory or archive |
+The important split is this: packaging creates the artifact; distribution uploads or submits it. Keeping those steps separate makes failures easier to understand.
 
-Every package flow writes an `artifact-manifest.json` describing the output: project identity, target, format, profile, artifact paths, relative paths, file sizes, hashes, MIME types, and validation checks.
+## 1. Start with a readiness check
 
-## Preflight checks
-
-Run readiness checks before you package or release:
+Run readiness before packaging. It checks the target-specific tools and project files before you wait for a release build.
 
 ```bash
 fission readiness package --project-dir . --target windows --format msix
+```
+
+For mobile or store-bound builds, include the provider you expect to publish to later:
+
+```bash
 fission readiness release --project-dir . --target android --format aab --provider play-store
 ```
 
-Readiness checks are deliberately concrete. They look for SDKs, NDKs, Xcode tools, Windows packaging tools, package scripts, signing tools, credentials, provider config, and artifact shape. The goal is to tell you what is missing before the release is blocked at the end of the process.
+A readiness check should tell you three things:
 
-## Signing
+| Question | Example answers |
+| --- | --- |
+| Can this machine build the package? | Android SDK/NDK present, Xcode tools present, Windows packaging tools present, required Rust targets installed. |
+| Is the project configured for the package? | App id, package id, icons, target folder, capability metadata, signing references, output directory. |
+| What should I do next if it fails? | Install a missing SDK, run `fission add-target`, add a signing reference, authenticate a provider CLI, or update `fission.toml`. |
 
-Signing is platform-owned. Fission should orchestrate checks, configuration, and receipts, but it should use the tools provided by the platform owner for the part of the process they own. Signing secrets should come from environment variables, CI secret stores, authenticated platform tooling, or the Fission credential vault, not from plain text committed into `fission.toml`.
+Do not ignore readiness failures. They are meant to catch missing environment or project setup before the expensive build step.
+
+## 2. Choose the target and format
+
+A target is where the app runs. A format is the package shape for that target.
+
+| Target | Package formats | Use when |
+| --- | --- | --- |
+| Linux | `.run` | You want a self-contained Linux installer artifact. |
+| macOS | `.app`, `.pkg` | You want a local app bundle or installer package. |
+| Windows | `.exe`, `.msi`, `.msix` | You want direct install, enterprise install, or Microsoft Store/MSIX workflows. |
+| Android | `.apk`, `.aab` | You want emulator/device install or Android store distribution. |
+| iOS | `.ipa` | You want release distribution through Apple tooling. |
+| Web | Static asset directory or archive | You want to host a browser app. |
+| Static site | Static HTML output or archive | You want documentation, marketing, reference, or content pages. |
+
+Choose the smallest format that matches the next step. APK is good for direct Android testing. AAB is for Android store upload. `.app` is useful for local macOS validation. `.pkg` is useful when you need an installer. MSIX is the right Windows format for Microsoft Store-style packaging.
+
+## 3. Package the app
+
+Use `fission package` after readiness is clean.
+
+```bash
+fission package --project-dir . --target windows --format msix --release
+```
+
+The exact output path depends on target and format, but the important output is always an `artifact-manifest.json`. Later commands should use that manifest instead of guessing which files belong to the build.
+
+The manifest records:
+
+| Manifest value | Why it matters |
+| --- | --- |
+| Project identity | Proves which app and package id produced the artifact. |
+| Target and format | Distinguishes Windows MSIX from Android AAB, static site output, or another format. |
+| Profile | Shows whether the artifact was a release build or development build. |
+| Artifact paths | Gives later commands exact files to upload or archive. |
+| Hashes and sizes | Lets release commands and humans verify what was distributed. |
+| MIME types and secondary files | Helps providers receive the right file metadata and related outputs. |
+| Validation checks | Records what packaging proved before distribution. |
+
+Keep the manifest with the artifact in CI artifacts or release records.
+
+## 4. Understand signing boundaries
+
+Signing is platform-owned. Fission orchestrates checks, configuration, receipts, and command flow, but it should use the tools provided by the platform owner for the signing operation itself.
+
+Do not commit signing passwords, private keys, tokens, or certificates into `fission.toml`.
+
+Use one of these sources instead:
+
+- CI secret stores,
+- environment variables,
+- authenticated platform tooling,
+- operating-system key stores,
+- the Fission credential vault.
+
+If a readiness check asks for signing information, provide a reference to the secret source, not the secret value in plain text.
+
+## 5. Package static sites deliberately
+
+The static site target can be built directly with site commands during local review:
+
+```bash
+fission site check --project-dir documentation --release
+fission site build --project-dir documentation --release
+```
+
+For release workflows, package the site output so it has the same manifest-based lifecycle as app artifacts:
+
+```bash
+fission package --project-dir documentation --target site --format static --release
+```
+
+That gives static publishing commands the same durable input as binary publishing commands.
+
+## 6. Package before publishing
+
+A typical Android release flow looks like this:
+
+```bash
+fission readiness package --project-dir . --target android --format aab
+fission package --project-dir . --target android --format aab --release
+fission release-content validate --project-dir . --provider play-store
+fission distribute --project-dir . --provider play-store --artifact target/fission/release/android/aab/artifact-manifest.json --track internal
+```
+
+Read the command sequence by responsibility:
+
+1. `readiness package` proves the machine and project can package.
+2. `package` creates the artifact and manifest.
+3. `release-content validate` proves store metadata and screenshots are ready.
+4. `distribute` uploads or submits the artifact to the chosen provider.
+
+If packaging fails, fix build, SDK, signing, or target setup. If release-content validation fails, fix screenshots, notes, metadata, or review files. If distribution fails, fix credentials, provider configuration, tracks, or store-side setup.
 
 ## Where to go next
 
-Read [Production lifecycle](/product/production-lifecycle/) for the platform view and [Release and distribute](/docs/release-and-distribute/overview/) when you are ready to publish artifacts.
+Read [Release and distribute](/docs/release-and-distribute/overview/) when you are ready to upload artifacts. Read [Release lifecycle details](/docs/release-and-distribute/post-build-lifecycle/) for the full production workflow and provider model.

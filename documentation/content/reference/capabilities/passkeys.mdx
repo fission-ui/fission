@@ -1,17 +1,19 @@
 ---
 title: Passkeys
-description: Reference for the passkeys capability API, provider, operations, and platform configuration.
+description: Reference for the passkeys capability API, provider contract, operations, and platform configuration.
 ---
 
 # Passkeys
 
-Passkeys expose WebAuthn-style credential registration and authentication through the Fission capability system. They are credential operations, not raw biometric operations.
+Passkeys are account credentials. The host may unlock the credential with fingerprint, face, device PIN, password manager, phone, or hardware key, but the app receives WebAuthn registration or authentication data that the server must verify.
+
+This reference is for the exact API shape. If you are wiring the feature into an app for the first time, start with the [Passkeys guide](/docs/capabilities/passkeys/), then return here when you need operation names, request types, provider contracts, or platform configuration details.
 
 ## Public API
 
 | Item | Value |
 | --- | --- |
-| Effect helper | `ctx.effects.passkeys()` |
+| Effect helper or entrypoint | `ctx.effects.passkeys()` |
 | Provider trait or host contract | `PasskeyHost` |
 | Test provider or test entrypoint | `MemoryPasskeyHost` |
 | Primary request types | `PasskeyRegistrationRequest / PasskeyAuthenticationRequest` |
@@ -21,33 +23,31 @@ Passkeys expose WebAuthn-style credential registration and authentication throug
 
 ## Operations
 
-| Method or operation | What it is for |
-| --- | --- |
-| `availability` | Queries passkey support, secure-context state, platform authenticator availability, conditional UI support, and cross-platform authenticator support. |
-| `register` | Starts credential creation and returns WebAuthn registration data for server verification. |
-| `authenticate` | Starts credential assertion and returns WebAuthn authentication data for server verification. |
-| `cancel` | Cancels an active host passkey prompt where the platform permits cancellation. |
+| Method or operation | Purpose | Request | Success |
+| --- | --- | --- | --- |
+| `availability` | Check secure context, platform authenticator, cross-platform authenticator, and conditional UI support. | `()` | `PasskeyAvailability` |
+| `register` | Create a new credential from a server registration challenge. | `PasskeyRegistrationRequest` | `PasskeyRegistrationResult` |
+| `authenticate` | Create an assertion from a server authentication challenge. | `PasskeyAuthenticationRequest` | `PasskeyAuthenticationResult` |
+| `cancel` | Cancel an active credential prompt where possible. | `()` | `()` |
 
-## Core types
+## Provider contract
 
-| Type | Notes |
-| --- | --- |
-| `PasskeyRelyingParty` | Relying-party id and display name used during registration. The id is normally the domain that owns the credential. |
-| `PasskeyUser` | Opaque user handle, account name, and display name supplied during registration. The id should not be a plain email address. |
-| `PasskeyCredentialDescriptor` | Existing credential id plus optional transport hints used in allow/exclude lists. |
-| `PasskeyAuthenticatorSelection` | Registration preferences for platform vs cross-platform authenticators, resident keys, and user verification. |
-| `PasskeyMediation` | Authentication mediation preference, including conditional UI where the host supports it. |
+Register a `PasskeyHost` with `.with_passkey_host(...)`. Use `MemoryPasskeyHost` for reducer tests. A real provider only gathers credential data; the relying-party server must verify registration and authentication results before the app treats the user as signed in.
+
+Providers should return typed errors for unsupported operations, denied permissions, unavailable hardware, cancellation, timeouts, and platform policy restrictions. Silent success is not acceptable because reducers need a truthful result to update state and explain what happened.
 
 ## Platform configuration
 
-Run `fission add-capability passkeys --project-dir .`. The CLI records the capability in `fission.toml`. It does not generate domain-specific association files because those values must match your production domain and app identifiers.
+The CLI records the capability, but domain association is product-specific. Web needs a secure origin and relying-party id. iOS and macOS usually need associated domains such as `webcredentials:example.com`. Android usually needs Digital Asset Links. Fission cannot invent those because they must match the production domain and app identifiers.
 
-Web requires a secure context and a relying-party id that matches the page origin rules. Android production apps normally need Digital Asset Links between the app package and relying-party domain before platform passkeys can be used reliably. iOS and macOS production apps normally need associated domains with `webcredentials:<domain>` in entitlements. Windows desktop providers can use platform credential APIs when the host implementation supplies them. Linux support is most reliable through browsers or hardware-authenticator paths exposed by the active desktop/browser stack.
+When a CLI value exists, `fission add-capability <value> --project-dir .` records the capability in `fission.toml` and updates generated target files where Fission can do that deterministically. Android generated configuration lives in `platforms/android/AndroidManifest.xml`. iOS generated configuration lives in `platforms/ios/Info.plist` and `platforms/ios/Entitlements.plist` when entitlements are required. Desktop package metadata is reviewed during packaging because Windows, macOS, and Linux use different permission and distribution systems.
 
 ## Runtime behavior
 
-A provider should return a typed unsupported error when the host cannot perform the operation. It should not silently succeed. The success payload still must be verified by the relying-party server; the host result by itself is not proof that the user is signed in.
+Capability calls are queued from reducers through `ctx.effects`. The active shell resolves the request with the registered provider and then dispatches the configured success or error action. Missing providers should produce typed unsupported errors. Packaging mistakes usually show up as denied permissions, missing entitlements, missing route registration, or provider-specific failures.
 
-## Guide
+## Related pages
 
-Read the [Passkeys guide](/docs/capabilities/passkeys/) for reducer examples and product guidance.
+- [Passkeys guide](/docs/capabilities/passkeys/)
+- [Capability matrix](/docs/capabilities/matrix/)
+- [Platform capabilities reference](/reference/core/platform-capabilities/)

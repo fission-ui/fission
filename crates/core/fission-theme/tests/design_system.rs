@@ -1,6 +1,8 @@
 use fission_theme::{
     BadgeTone, ButtonHierarchy, CardPattern, ComponentSize, ComponentState, DesignMode,
-    DesignSystem, FissionDefaultDesignSystem, Theme,
+    DesignSystem, FissionCupertinoDesignSystem, FissionDefaultDesignSystem,
+    FissionFluent2DesignSystem, FissionLiquidGlassDesignSystem, FissionMaterialDesign3DesignSystem,
+    Theme,
 };
 
 #[test]
@@ -147,4 +149,41 @@ fn generated_dark_buttons_use_dark_readable_text_tokens() {
             theme.tokens.colors.surface_sunken
         ))
     );
+}
+
+#[test]
+fn bundled_standard_design_system_presets_generate_themes() {
+    let presets: &[(&str, fn(DesignMode) -> Theme)] = &[
+        (
+            "material-design-3",
+            FissionMaterialDesign3DesignSystem::theme,
+        ),
+        ("fluent-2", FissionFluent2DesignSystem::theme),
+        ("liquid-glass", FissionLiquidGlassDesignSystem::theme),
+        ("cupertino", FissionCupertinoDesignSystem::theme),
+    ];
+
+    for (name, theme_for_mode) in presets {
+        let light = theme_for_mode(DesignMode::Light);
+        let dark = theme_for_mode(DesignMode::Dark);
+
+        assert_eq!(&light.design_system.info.name, name);
+        assert_eq!(light.design_system.mode, DesignMode::Light);
+        assert_eq!(dark.design_system.mode, DesignMode::Dark);
+        assert_ne!(
+            light.tokens.colors.background,
+            dark.tokens.colors.background
+        );
+        assert!(!light.tokens.data_visualization.palette.is_empty());
+        assert!(light
+            .components
+            .button
+            .resolve(
+                ButtonHierarchy::Primary,
+                ComponentSize::Md,
+                ComponentState::Default,
+            )
+            .background
+            .is_some());
+    }
 }

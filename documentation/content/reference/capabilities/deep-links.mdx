@@ -1,44 +1,54 @@
 ---
 title: Deep links
-description: Reference for the deep links capability API, provider, operations, and platform configuration.
+description: Reference for the deep links capability API, provider contract, operations, and platform configuration.
 ---
 
 # Deep links
 
-Deep links let the host deliver an external URL to the app as a typed action so reducers can route the user to the correct screen.
+Deep links are inbound lifecycle events. The host receives a URL from the operating system, browser, launcher, notification, or store association, checks that it matches your declared routes, and dispatches a `DeepLinkReceived` action into the app.
+
+This reference is for the exact API shape. If you are wiring the feature into an app for the first time, start with the [Deep links guide](/docs/capabilities/deep-links/), then return here when you need operation names, request types, provider contracts, or platform configuration details.
 
 ## Public API
 
 | Item | Value |
 | --- | --- |
-| Effect helper | `DeepLinkReceived action` |
-| Provider trait or host contract | `DeepLinkConfig` |
-| Test provider or test entrypoint | `DeepLinkReceived action` |
-| Primary request types | `DeepLink` |
+| Effect helper or entrypoint | `inbound `DeepLinkReceived` action` |
+| Provider trait or host contract | `DeepLinkConfig / shell startup` |
+| Test provider or test entrypoint | `startup deep-link tests` |
+| Primary request types | `DeepLinkConfig / DeepLink` |
 | Primary success types | `DeepLinkReceived` |
-| Error type | `n/a` |
-| CLI value | `built into shell setup` |
+| Error type | `route reducer errors` |
+| CLI value | `shell setup` |
 
 ## Operations
 
-| Method or operation | What it is for |
-| --- | --- |
-| `DeepLinkConfig::scheme` | Emits or handles the `Deep links` host operation for this capability. |
-| `DeepLinkConfig::domain` | Emits or handles the `Deep links` host operation for this capability. |
-| `DeepLinkConfig::path_prefix` | Emits or handles the `Deep links` host operation for this capability. |
-| `DeepLinkConfig::matches` | Emits or handles the `Deep links` host operation for this capability. |
-| `DeepLinkConfig::source_for` | Emits or handles the `Deep links` host operation for this capability. |
+| Method or operation | Purpose | Request | Success |
+| --- | --- | --- | --- |
+| `DeepLinkConfig::scheme` | Accept URLs with a custom scheme. | `scheme string` | `DeepLinkConfig` |
+| `DeepLinkConfig::domain` | Accept HTTPS/app-link domains owned by the product. | `domain string` | `DeepLinkConfig` |
+| `DeepLinkConfig::path_prefix` | Limit accepted URLs to the route prefix the app understands. | `path prefix` | `DeepLinkConfig` |
+| `on_deep_link` | Register the reducer that handles accepted incoming links. | `DeepLinkReceived` | `state update` |
+| `with_startup_deep_link` | Inject a launch link from host startup or tests. | `DeepLink` | `startup action` |
+
+## Provider contract
+
+Deep links use `DeepLinkConfig`, `DeepLinkReceived`, and the shell startup path rather than a provider trait. Use `.with_startup_deep_link(...)` in tests or custom launchers to simulate a cold-start route.
+
+Providers should return typed errors for unsupported operations, denied permissions, unavailable hardware, cancellation, timeouts, and platform policy restrictions. Silent success is not acceptable because reducers need a truthful result to update state and explain what happened.
 
 ## Platform configuration
 
-Deep links are product routes, so the shell needs explicit app-specific config. Android uses intent filters. iOS uses URL schemes and associated domains. Desktop targets use OS registration for schemes or file associations. Static sites and web targets use ordinary URL paths and browser routing.
+Deep links are product routes, so the app must name them explicitly. Android uses intent filters. iOS and macOS use URL schemes or associated domains. Windows uses protocol activation or package metadata. Web and static sites use ordinary URL paths. Fission can store the route intent in `fission.toml`, but you still review the generated native files because route names and domains are product-owned.
 
-The CLI records the capability in `fission.toml` when the capability has a CLI value. Generated mobile configuration is written to the platform files that the host target already owns: Android uses `platforms/android/AndroidManifest.xml`; iOS uses `platforms/ios/Info.plist` and `platforms/ios/Entitlements.plist` when the feature needs entitlements. Desktop package metadata is target-specific and should be reviewed during packaging because Windows, macOS, and Linux expose different permission and distribution systems.
+When a CLI value exists, `fission add-capability <value> --project-dir .` records the capability in `fission.toml` and updates generated target files where Fission can do that deterministically. Android generated configuration lives in `platforms/android/AndroidManifest.xml`. iOS generated configuration lives in `platforms/ios/Info.plist` and `platforms/ios/Entitlements.plist` when entitlements are required. Desktop package metadata is reviewed during packaging because Windows, macOS, and Linux use different permission and distribution systems.
 
 ## Runtime behavior
 
-A provider should return a typed unsupported error when the host cannot perform the operation. It should not silently succeed. That lets reducers show a useful message, hide unsupported controls, or offer another path without guessing from the platform name.
+Capability calls are queued from reducers through `ctx.effects`. The active shell resolves the request with the registered provider and then dispatches the configured success or error action. Missing providers should produce typed unsupported errors. Packaging mistakes usually show up as denied permissions, missing entitlements, missing route registration, or provider-specific failures.
 
-## Guide
+## Related pages
 
-Read the [Deep links guide](/docs/capabilities/deep-links/) for reducer examples and product guidance.
+- [Deep links guide](/docs/capabilities/deep-links/)
+- [Capability matrix](/docs/capabilities/matrix/)
+- [Platform capabilities reference](/reference/core/platform-capabilities/)

@@ -1,28 +1,27 @@
 ---
-title: Capability matrix
-description: Reference matrix for built-in Fission capabilities and platform support.
+title: Capability matrix reference
+description: Reference table for Fission capability support by platform.
 ---
 
-# Capability matrix
+# Capability matrix reference
 
-This reference matrix links each built-in platform capability to its guide and API reference.
+This reference uses the same terms as the guide matrix. **Yes** means the platform has a normal production path. **Provider** means the shared Fission API exists but the app or shell must supply a concrete provider and packaging metadata for that target. **Limited** means support depends heavily on browser, hardware, policy, distribution, or optional platform services. **No general API** means the platform does not expose a normal app-level API for the feature.
 
-| Capability | Guide | Reference | Web | Windows | macOS | Linux | Android | iOS | CLI config |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| Notifications | [Guide](/docs/capabilities/notifications/) | [Reference](/reference/capabilities/notifications/) | Provider | Provider | Provider | Limited | Yes | Yes | Yes |
-| Deep links | [Guide](/docs/capabilities/deep-links/) | [Reference](/reference/capabilities/deep-links/) | Yes | Provider | Provider | Limited | Yes | Yes | Yes |
-| NFC | [Guide](/docs/capabilities/nfc/) | [Reference](/reference/capabilities/nfc/) | Limited mobile | Hardware provider | Hardware provider | Hardware provider | Yes | Yes | Yes |
-| Biometrics | [Guide](/docs/capabilities/biometrics/) | [Reference](/reference/capabilities/biometrics/) | Use passkeys | Provider | Provider | Limited | Yes | Yes | Yes |
-| Passkeys | [Guide](/docs/capabilities/passkeys/) | [Reference](/reference/capabilities/passkeys/) | Yes | Provider | Provider | Limited | Yes | Yes | Yes |
-| Barcode scanner | [Guide](/docs/capabilities/barcode-scanner/) | [Reference](/reference/capabilities/barcode-scanner/) | Provider | Provider | Provider | Limited | Yes | Yes | Yes |
-| Camera and flashlight | [Guide](/docs/capabilities/camera/) | [Reference](/reference/capabilities/camera/) | Yes | Provider | Provider | Limited | Yes | Yes | Yes |
-| Clipboard | [Guide](/docs/capabilities/clipboard/) | [Reference](/reference/capabilities/clipboard/) | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
-| Geolocation | [Guide](/docs/capabilities/geolocation/) | [Reference](/reference/capabilities/geolocation/) | Yes | Provider | Provider | Limited | Yes | Yes | Yes |
-| Haptics | [Guide](/docs/capabilities/haptics/) | [Reference](/reference/capabilities/haptics/) | Limited | Hardware provider | Hardware provider | Hardware provider | Yes | Yes | Yes |
-| Microphone | [Guide](/docs/capabilities/microphone/) | [Reference](/reference/capabilities/microphone/) | Yes | Provider | Provider | Limited | Yes | Yes | Yes |
-| Bluetooth | [Guide](/docs/capabilities/bluetooth/) | [Reference](/reference/capabilities/bluetooth/) | Limited | Provider | Provider | Limited | Yes | Yes | Yes |
-| Wi-Fi | [Guide](/docs/capabilities/wifi/) | [Reference](/reference/capabilities/wifi/) | No general API | Provider | Provider | Provider | Yes | Constrained | Yes |
-| Volume control | [Guide](/docs/capabilities/volume-control/) | [Reference](/reference/capabilities/volume-control/) | No system API | Provider | Provider | Provider | Yes | Limited | Yes |
+| Capability | Guide | Reference | Web | Windows | macOS | Linux | Android | iOS |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Notifications | [Guide](/docs/capabilities/notifications/) | [Reference](/reference/capabilities/notifications/) | Provider | Provider | Provider | Limited | Yes | Yes |
+| Deep links | [Guide](/docs/capabilities/deep-links/) | [Reference](/reference/capabilities/deep-links/) | Yes | Provider | Provider | Limited | Yes | Yes |
+| NFC | [Guide](/docs/capabilities/nfc/) | [Reference](/reference/capabilities/nfc/) | Limited mobile | Hardware provider | Hardware provider | Hardware provider | Yes | Yes |
+| Biometrics | [Guide](/docs/capabilities/biometrics/) | [Reference](/reference/capabilities/biometrics/) | Use passkeys | Provider | Provider | Limited | Yes | Yes |
+| Passkeys | [Guide](/docs/capabilities/passkeys/) | [Reference](/reference/capabilities/passkeys/) | Yes | Provider | Provider | Limited | Yes | Yes |
+| Barcode scanner | [Guide](/docs/capabilities/barcode-scanner/) | [Reference](/reference/capabilities/barcode-scanner/) | Provider | Provider | Provider | Limited | Yes | Yes |
+| Camera and flashlight | [Guide](/docs/capabilities/camera/) | [Reference](/reference/capabilities/camera/) | Yes | Provider | Provider | Limited | Yes | Yes |
+| Clipboard | [Guide](/docs/capabilities/clipboard/) | [Reference](/reference/capabilities/clipboard/) | Yes | Yes | Yes | Yes | Yes | Yes |
+| Geolocation | [Guide](/docs/capabilities/geolocation/) | [Reference](/reference/capabilities/geolocation/) | Yes | Provider | Provider | Limited | Yes | Yes |
+| Haptics | [Guide](/docs/capabilities/haptics/) | [Reference](/reference/capabilities/haptics/) | Limited | Hardware provider | Hardware provider | Hardware provider | Yes | Yes |
+| Microphone | [Guide](/docs/capabilities/microphone/) | [Reference](/reference/capabilities/microphone/) | Yes | Provider | Provider | Limited | Yes | Yes |
+| Bluetooth | [Guide](/docs/capabilities/bluetooth/) | [Reference](/reference/capabilities/bluetooth/) | Limited | Provider | Provider | Limited | Yes | Yes |
+| Wi-Fi | [Guide](/docs/capabilities/wifi/) | [Reference](/reference/capabilities/wifi/) | No general API | Provider | Provider | Provider | Yes | Constrained |
+| Volume control | [Guide](/docs/capabilities/volume-control/) | [Reference](/reference/capabilities/volume-control/) | No system API | Provider | Provider | Provider | Yes | Limited |
 
-
-The terms in this table match the guide matrix: **Yes** means there is a normal platform path, **Provider** means a shell provider is expected, **Limited** means platform support varies, and **No general API** means the platform does not expose a normal app-level API for that feature.
+Use the detailed capability reference pages for request fields and provider contracts, and the guide pages for copyable app wiring.

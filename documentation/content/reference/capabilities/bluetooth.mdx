@@ -1,48 +1,58 @@
 ---
 title: Bluetooth
-description: Reference for the bluetooth capability API, provider, operations, and platform configuration.
+description: Reference for the bluetooth capability API, provider contract, operations, and platform configuration.
 ---
 
 # Bluetooth
 
-Bluetooth lets an app discover nearby devices, connect to services, exchange characteristic data, and advertise where the platform allows it.
+Bluetooth is permission-sensitive hardware integration. The app should describe the service it needs and let the host map that request to Classic Bluetooth, Bluetooth Low Energy, nearby-device permissions, pairing, and platform scan rules.
+
+This reference is for the exact API shape. If you are wiring the feature into an app for the first time, start with the [Bluetooth guide](/docs/capabilities/bluetooth/), then return here when you need operation names, request types, provider contracts, or platform configuration details.
 
 ## Public API
 
 | Item | Value |
 | --- | --- |
-| Effect helper | `ctx.effects.bluetooth()` |
+| Effect helper or entrypoint | `ctx.effects.bluetooth()` |
 | Provider trait or host contract | `BluetoothHost` |
 | Test provider or test entrypoint | `MemoryBluetoothHost` |
 | Primary request types | `BluetoothScanRequest / BluetoothConnectRequest / BluetoothReadRequest / BluetoothWriteRequest` |
-| Primary success types | `BluetoothAvailability / BluetoothScanResult / BluetoothConnection / BluetoothReadResult` |
+| Primary success types | `BluetoothAvailability / BluetoothScanResult / BluetoothConnection` |
 | Error type | `BluetoothError` |
 | CLI value | `bluetooth` |
 
 ## Operations
 
-| Method or operation | What it is for |
-| --- | --- |
-| `availability` | Emits or handles the `Bluetooth` host operation for this capability. |
-| `request_permission` | Emits or handles the `Bluetooth` host operation for this capability. |
-| `scan_devices` | Emits or handles the `Bluetooth` host operation for this capability. |
-| `connect_device` | Emits or handles the `Bluetooth` host operation for this capability. |
-| `disconnect_device` | Emits or handles the `Bluetooth` host operation for this capability. |
-| `read_characteristic` | Emits or handles the `Bluetooth` host operation for this capability. |
-| `write_characteristic` | Emits or handles the `Bluetooth` host operation for this capability. |
-| `start_advertising` | Emits or handles the `Bluetooth` host operation for this capability. |
-| `stop_advertising` | Emits or handles the `Bluetooth` host operation for this capability. |
+| Method or operation | Purpose | Request | Success |
+| --- | --- | --- | --- |
+| `availability` | Read adapter, permission, and Classic/Low Energy support. | `()` | `BluetoothAvailability` |
+| `request_permission` | Request nearby-device/Bluetooth permission. | `BluetoothPermissionRequest` | `BluetoothPermission` |
+| `scan_devices` | Scan for devices matching service filters. | `BluetoothScanRequest` | `BluetoothScanResult` |
+| `connect_device` | Connect to a discovered or remembered device. | `BluetoothConnectRequest` | `BluetoothConnection` |
+| `disconnect_device` | Disconnect an active connection. | `BluetoothDisconnectRequest` | `()` |
+| `read_characteristic` | Read bytes from one characteristic. | `BluetoothReadRequest` | `BluetoothReadResult` |
+| `write_characteristic` | Write bytes to one characteristic. | `BluetoothWriteRequest` | `()` |
+| `start_advertising` | Start host advertising where permitted. | `BluetoothAdvertiseRequest` | `BluetoothAdvertiseReceipt` |
+| `stop_advertising` | Stop a prior advertisement. | `BluetoothStopAdvertiseRequest` | `()` |
+
+## Provider contract
+
+Register a `BluetoothHost` with `.with_bluetooth_host(...)`. Use `MemoryBluetoothHost` in tests. Providers should model scan, connect, read, write, advertise, and disconnect separately because each operation can be supported differently.
+
+Providers should return typed errors for unsupported operations, denied permissions, unavailable hardware, cancellation, timeouts, and platform policy restrictions. Silent success is not acceptable because reducers need a truthful result to update state and explain what happened.
 
 ## Platform configuration
 
-Run `fission add-capability bluetooth --project-dir .`. Android receives legacy and Android 12+ Bluetooth permissions plus optional hardware feature declarations. iOS receives a Bluetooth usage string. Desktop support should be added through providers using the platform Bluetooth stack.
+The CLI adds Android legacy and Android 12+ Bluetooth permissions plus optional feature declarations. iOS receives Bluetooth usage text. Desktop providers map the contract to the platform Bluetooth stack.
 
-The CLI records the capability in `fission.toml` when the capability has a CLI value. Generated mobile configuration is written to the platform files that the host target already owns: Android uses `platforms/android/AndroidManifest.xml`; iOS uses `platforms/ios/Info.plist` and `platforms/ios/Entitlements.plist` when the feature needs entitlements. Desktop package metadata is target-specific and should be reviewed during packaging because Windows, macOS, and Linux expose different permission and distribution systems.
+When a CLI value exists, `fission add-capability <value> --project-dir .` records the capability in `fission.toml` and updates generated target files where Fission can do that deterministically. Android generated configuration lives in `platforms/android/AndroidManifest.xml`. iOS generated configuration lives in `platforms/ios/Info.plist` and `platforms/ios/Entitlements.plist` when entitlements are required. Desktop package metadata is reviewed during packaging because Windows, macOS, and Linux use different permission and distribution systems.
 
 ## Runtime behavior
 
-A provider should return a typed unsupported error when the host cannot perform the operation. It should not silently succeed. That lets reducers show a useful message, hide unsupported controls, or offer another path without guessing from the platform name.
+Capability calls are queued from reducers through `ctx.effects`. The active shell resolves the request with the registered provider and then dispatches the configured success or error action. Missing providers should produce typed unsupported errors. Packaging mistakes usually show up as denied permissions, missing entitlements, missing route registration, or provider-specific failures.
 
-## Guide
+## Related pages
 
-Read the [Bluetooth guide](/docs/capabilities/bluetooth/) for reducer examples and product guidance.
+- [Bluetooth guide](/docs/capabilities/bluetooth/)
+- [Capability matrix](/docs/capabilities/matrix/)
+- [Platform capabilities reference](/reference/core/platform-capabilities/)

@@ -5,20 +5,28 @@ description: Compare Fission built-in capabilities across web, desktop, Android,
 
 # Capability matrix
 
-Use this page when you need to answer a practical question: can this feature work on the platform I am targeting, and where do I read the detailed setup notes?
+Use this page when you need to answer a practical question: can this feature work on the platform I am targeting, and what extra work is required before it behaves like a production feature?
 
-The matrix describes Fission's built-in capability contracts and the platform reality behind them. A cell marked **Yes** means the platform has a normal product path for the feature. **Provider** means the Fission API is ready and the platform has native APIs, but the app or shell still needs a concrete provider and packaging configuration. **Limited** means support depends heavily on browser, hardware, distribution, or policy. **No general API** means the platform does not expose a normal app-level API for that feature.
+A Fission capability has three separate pieces:
+
+1. **The typed API** is what shared app code calls. For example, `ctx.effects.camera().capture_photo(...)` records a camera request without importing Android, iOS, web, or desktop camera APIs into your reducer.
+2. **The provider** is the shell-side Rust implementation. It receives the typed request and maps it to the current host: an operating-system API, browser API, hardware SDK, service worker, device manager, or a typed unsupported error.
+3. **Packaging configuration** is the native metadata that lets the platform allow the feature in an installed app. Examples include Android permissions, iOS usage strings, entitlements, URL schemes, associated domains, service-worker files, Windows package capabilities, macOS bundle keys, Linux portal dependencies, or store-side setup.
+
+When a cell says **Provider**, the Fission API is present and the platform has a realistic implementation route, but the app or shell still needs the concrete provider and the package metadata for that product. For example, a desktop camera app needs a `CameraHost` implementation and, on packaged macOS builds, camera usage text in the app bundle. Without the provider the call returns unsupported; without the package metadata the operating system may deny access.
+
+A cell marked **Yes** means there is a normal product path for the feature on that target. **Limited** means support depends heavily on browser, hardware, distribution, policy, or optional platform services. **No general API** means the platform does not expose a normal app-level API for that feature.
 
 | Capability | Reference | Web | Windows | macOS | Linux | Android | iOS | CLI config |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| [Notifications](/docs/capabilities/notifications/) | [API](/reference/capabilities/notifications/) | Provider | Provider | Provider | Limited | Yes | Yes | Yes |
-| [Deep links](/docs/capabilities/deep-links/) | [API](/reference/capabilities/deep-links/) | Yes | Provider | Provider | Limited | Yes | Yes | Yes |
+| [Notifications](/docs/capabilities/notifications/) | [API](/reference/capabilities/notifications/) | Provider | Provider | Provider | Limited | Yes | Yes | Shell setup |
+| [Deep links](/docs/capabilities/deep-links/) | [API](/reference/capabilities/deep-links/) | Yes | Provider | Provider | Limited | Yes | Yes | Shell setup |
 | [NFC](/docs/capabilities/nfc/) | [API](/reference/capabilities/nfc/) | Limited mobile | Hardware provider | Hardware provider | Hardware provider | Yes | Yes | Yes |
 | [Biometrics](/docs/capabilities/biometrics/) | [API](/reference/capabilities/biometrics/) | Use passkeys | Provider | Provider | Limited | Yes | Yes | Yes |
 | [Passkeys](/docs/capabilities/passkeys/) | [API](/reference/capabilities/passkeys/) | Yes | Provider | Provider | Limited | Yes | Yes | Yes |
 | [Barcode scanner](/docs/capabilities/barcode-scanner/) | [API](/reference/capabilities/barcode-scanner/) | Provider | Provider | Provider | Limited | Yes | Yes | Yes |
 | [Camera and flashlight](/docs/capabilities/camera/) | [API](/reference/capabilities/camera/) | Yes | Provider | Provider | Limited | Yes | Yes | Yes |
-| [Clipboard](/docs/capabilities/clipboard/) | [API](/reference/capabilities/clipboard/) | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
+| [Clipboard](/docs/capabilities/clipboard/) | [API](/reference/capabilities/clipboard/) | Yes | Yes | Yes | Yes | Yes | Yes | No extra CLI value |
 | [Geolocation](/docs/capabilities/geolocation/) | [API](/reference/capabilities/geolocation/) | Yes | Provider | Provider | Limited | Yes | Yes | Yes |
 | [Haptics](/docs/capabilities/haptics/) | [API](/reference/capabilities/haptics/) | Limited | Hardware provider | Hardware provider | Hardware provider | Yes | Yes | Yes |
 | [Microphone](/docs/capabilities/microphone/) | [API](/reference/capabilities/microphone/) | Yes | Provider | Provider | Limited | Yes | Yes | Yes |
