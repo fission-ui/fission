@@ -27,14 +27,15 @@ impl<S: fission_core::AppState> Widget<S> for Avatar {
         let radius = size / 2.0;
 
         let content = if let Some(src) = &self.src {
-            Image {
-                source: src.clone(),
-                width: Some(size),
-                height: Some(size),
-                fit: Some(fission_core::op::ImageFit::Cover),
-                ..Default::default()
-            }
-            .into()
+            let image = if src.starts_with("https://") || src.starts_with("http://") {
+                Image::network(src.clone())
+            } else {
+                Image::asset(src.clone())
+            };
+            image
+                .size(size, size)
+                .fit(fission_core::op::ImageFit::Cover)
+                .into()
         } else {
             let initials = self
                 .name

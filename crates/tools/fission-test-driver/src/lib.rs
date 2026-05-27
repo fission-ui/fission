@@ -129,21 +129,32 @@ pub enum TestEvent {
     // --- Queries / control (need response channel) ---
     Screenshot {
         path: String,
+        response_tx: TestResponseSender,
     },
-    CaptureScreenshot,
-    GetText,
-    GetTree,
-    Pump,
+    CaptureScreenshot {
+        response_tx: TestResponseSender,
+    },
+    GetText {
+        response_tx: TestResponseSender,
+    },
+    GetTree {
+        response_tx: TestResponseSender,
+    },
+    Pump {
+        response_tx: TestResponseSender,
+    },
     Wake,
     Quit,
     /// Internal: TapText resolves a text label to coordinates; the server
     /// injects this so the main loop can do the lookup with access to the IR.
     TapText {
         text: String,
+        response_tx: TestResponseSender,
     },
     /// Internal: Wait is handled server-side (sleep) then responds.
     Wait {
         ms: u64,
+        response_tx: TestResponseSender,
     },
 }
 
@@ -194,6 +205,9 @@ pub enum TestResponse {
         message: String,
     },
 }
+
+/// Per-command response channel used by the shell event loop.
+pub type TestResponseSender = std::sync::mpsc::Sender<TestResponse>;
 
 // --- Client ---
 

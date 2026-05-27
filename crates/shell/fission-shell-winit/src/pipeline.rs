@@ -2087,6 +2087,25 @@ fn build_local_paint_list(
                 annotations,
             });
         }
+        Op::Paint(fission_ir::PaintOp::DrawImage {
+            request,
+            fit,
+            alignment,
+        }) => {
+            list.push(DisplayOp::DrawImage {
+                rect,
+                request: request.clone(),
+                fit: match fit {
+                    fission_ir::op::ImageFit::Contain => fission_render::ImageFit::Contain,
+                    fission_ir::op::ImageFit::Cover => fission_render::ImageFit::Cover,
+                    fission_ir::op::ImageFit::Fill => fission_render::ImageFit::Fill,
+                    fission_ir::op::ImageFit::None => fission_render::ImageFit::None,
+                },
+                alignment: *alignment,
+                bounds: rect,
+                node_id: Some(node_id),
+            });
+        }
         Op::Paint(fission_ir::PaintOp::DrawPath { path, fill, stroke }) => {
             list.push(DisplayOp::DrawPath {
                 path: path.clone(),
@@ -2368,7 +2387,10 @@ mod tests {
     use fission_core::env::Env;
     use fission_core::registry::AnimationPropertyId;
     use fission_core::ScrollStateMap;
-    use fission_ir::op::{Color, Fill, RichTextAnnotation, TextRun, TextStyle};
+    use fission_ir::op::{
+        Color, Fill, ImageAlignment, ImageFit, ImageRequest, ImageSource, RichTextAnnotation,
+        TextRun, TextStyle,
+    };
     use fission_ir::semantics::ActionTrigger;
     use fission_ir::{
         ActionEntry, CompositeScalar, CompositeStyle, CoreIR, EmbedKind, LayoutOp, NodeId, Op,
@@ -2556,6 +2578,147 @@ mod tests {
             }
             other => panic!("expected rich text op, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn draw_image_paint_ops_flow_into_display_ops() {
+        let node_id = NodeId::derived(12, &[0]);
+        let request = ImageRequest {
+            source: ImageSource::Network {
+                url: "https://example.com/product.webp".into(),
+                headers: Vec::new(),
+                cache_policy: Default::default(),
+            },
+            cache_width: Some(220),
+            cache_height: Some(160),
+            semantic_label: Some("Product thumbnail".into()),
+            ..Default::default()
+        };
+        let mut ir = CoreIR::new();
+        ir.add_node(
+            node_id,
+            Op::Paint(PaintOp::DrawImage {
+                request: request.clone(),
+                fit: ImageFit::Cover,
+                alignment: ImageAlignment::Center,
+            }),
+            vec![],
+        );
+
+        let node = ir.nodes.get(&node_id).expect("image node");
+        let rect = LayoutRect::new(24.0, 32.0, 220.0, 160.0);
+        let list = build_local_paint_list(&ir, node_id, node, rect).expect("display list");
+
+        match list.ops.first() {
+            Some(DisplayOp::DrawImage {
+                rect: image_rect,
+                request: image_request,
+                fit,
+                alignment,
+                bounds,
+                node_id: Some(image_node_id),
+            }) => {
+                assert_eq!(*image_rect, rect);
+                assert_eq!(image_request, &request);
+                assert_eq!(*fit, fission_render::ImageFit::Cover);
+                assert_eq!(*alignment, ImageAlignment::Center);
+                assert_eq!(*bounds, rect);
+                assert_eq!(*image_node_id, node_id);
+            }
+            other => panic!("expected image display op, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn retained_pipeline_scene_keeps_draw_image_ops() {
+        let image_id = NodeId::derived(13, &[0]);
+        let root_id = NodeId::derived(13, &[1]);
+        let request = ImageRequest {
+            source: ImageSource::Network {
+                url: "https://example.com/catalog/thumbnail.webp".into(),
+                headers: Vec::new(),
+                cache_policy: Default::default(),
+            },
+            semantic_label: Some("Catalog thumbnail".into()),
+            ..Default::default()
+        };
+        let mut ir = CoreIR::new();
+        ir.add_node(
+            image_id,
+            Op::Paint(PaintOp::DrawImage {
+                request: request.clone(),
+                fit: ImageFit::Cover,
+                alignment: ImageAlignment::Center,
+            }),
+            vec![],
+        );
+        ir.add_node(
+            root_id,
+            Op::Layout(LayoutOp::Box {
+                width: Some(220.0),
+                height: Some(160.0),
+                min_width: None,
+                max_width: None,
+                min_height: None,
+                max_height: None,
+                padding: [0.0, 0.0, 0.0, 0.0],
+                flex_grow: 0.0,
+                flex_shrink: 0.0,
+                aspect_ratio: None,
+            }),
+            vec![image_id],
+        );
+        ir.set_root(root_id);
+
+        let mut pipeline = Pipeline::new();
+        let mut layout_engine = LayoutEngine::new();
+        let scroll = ScrollStateMap::default();
+        pipeline.replace_ir(ir, &Env::default());
+        pipeline
+            .ensure_layout(
+                LayoutRect::new(0.0, 0.0, 320.0, 240.0),
+                &mut layout_engine,
+                &scroll,
+            )
+            .unwrap();
+        pipeline
+            .prepare_current(
+                LayoutSize {
+                    width: 320.0,
+                    height: 240.0,
+                },
+                LayoutSize {
+                    width: 320.0,
+                    height: 240.0,
+                },
+                false,
+                &scroll,
+                &Default::default(),
+                &Default::default(),
+                &Default::default(),
+            )
+            .unwrap();
+
+        let display_list = pipeline.retained_scene().expect("retained scene").flatten();
+        let image_op = display_list.ops.iter().find_map(|op| match op {
+            DisplayOp::DrawImage {
+                rect,
+                request: image_request,
+                fit,
+                alignment,
+                ..
+            } => Some((rect, image_request, fit, alignment)),
+            _ => None,
+        });
+
+        let Some((rect, image_request, fit, alignment)) = image_op else {
+            panic!("retained scene dropped DrawImage op");
+        };
+        assert_eq!(image_request, &request);
+        assert_eq!(*fit, fission_render::ImageFit::Cover);
+        assert_eq!(*alignment, ImageAlignment::Center);
+        assert_eq!(rect.size.width, 220.0);
+        assert_eq!(rect.size.height, 160.0);
     }
 
     #[test]

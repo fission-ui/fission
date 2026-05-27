@@ -4,8 +4,8 @@ pub use text::VelloTextMeasurer;
 
 use anyhow::Result;
 use fission_ir::op::{
-    decode_text_paragraph_style, TextAlign, TextDirection, TextHeightBehavior, TextOverflow,
-    TextParagraphStyle, TextWidthBasis,
+    decode_text_paragraph_style, HttpHeader, ImageAlignment, ImageRequest, ImageSource, TextAlign,
+    TextDirection, TextHeightBehavior, TextOverflow, TextParagraphStyle, TextWidthBasis,
 };
 use fission_render::{
     surface_placeholder_color, Color as RenderColor, DisplayList, DisplayOp, LayerClip,
@@ -96,7 +96,12 @@ use parley::layout::{Alignment as ParleyAlignment, AlignmentOptions, PositionedL
 use std::collections::hash_map::DefaultHasher;
 use std::collections::{HashMap, VecDeque};
 use std::hash::{Hash, Hasher};
-use std::sync::{Arc, Mutex};
+#[cfg(not(target_arch = "wasm32"))]
+use std::io::Read;
+use std::sync::{
+    atomic::{AtomicU64, Ordering},
+    Arc, Mutex,
+};
 use vello::{Glyph, Scene};
 
 const PARAGRAPH_FADE_SLICE_COUNT: usize = 8;
@@ -326,8 +331,278 @@ fn paragraph_fade(
 }
 
 lazy_static! {
-    static ref IMAGE_CACHE: Mutex<HashMap<String, Arc<ImageData>>> = Mutex::new(HashMap::new());
+    static ref IMAGE_CACHE: Mutex<HashMap<String, ImageCacheEntry>> = Mutex::new(HashMap::new());
     static ref SVG_CACHE: Mutex<HashMap<u64, Arc<SvgCacheEntry>>> = Mutex::new(HashMap::new());
+}
+
+static IMAGE_CACHE_GENERATION: AtomicU64 = AtomicU64::new(0);
+
+#[derive(Clone)]
+enum ImageCacheEntry {
+    Ready(Arc<ImageData>),
+    Loading,
+    Failed,
+}
+
+pub fn image_cache_generation() -> u64 {
+    IMAGE_CACHE_GENERATION.load(Ordering::Acquire)
+}
+
+pub fn image_cache_has_pending() -> bool {
+    IMAGE_CACHE
+        .lock()
+        .unwrap()
+        .values()
+        .any(|entry| matches!(entry, ImageCacheEntry::Loading))
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn decode_image_from_path(
+    path: &str,
+    cache_width: Option<u32>,
+    cache_height: Option<u32>,
+) -> Option<Arc<ImageData>> {
+    let img = image::open(path).ok()?;
+    decode_dynamic_image(img, cache_width, cache_height)
+}
+
+fn decode_image_from_bytes(
+    bytes: &[u8],
+    cache_width: Option<u32>,
+    cache_height: Option<u32>,
+) -> Option<Arc<ImageData>> {
+    let img = image::load_from_memory(bytes).ok()?;
+    decode_dynamic_image(img, cache_width, cache_height)
+}
+
+fn decode_dynamic_image(
+    mut img: image::DynamicImage,
+    cache_width: Option<u32>,
+    cache_height: Option<u32>,
+) -> Option<Arc<ImageData>> {
+    if let (Some(width), Some(height)) = (cache_width, cache_height) {
+        if width > 0 && height > 0 {
+            img = img.resize(width, height, image::imageops::FilterType::Triangle);
+        }
+    }
+    let img = img.to_rgba8();
+    let (width, height) = img.dimensions();
+    let data = img.into_raw();
+    Some(Arc::new(ImageData {
+        data: Blob::new(Arc::new(data)),
+        format: ImageFormat::Rgba8,
+        alpha_type: ImageAlphaType::Alpha,
+        width,
+        height,
+    }))
+}
+
+fn complete_image_load(key: String, image: Option<Arc<ImageData>>) {
+    let mut cache = IMAGE_CACHE.lock().unwrap();
+    cache.insert(
+        key,
+        image
+            .map(ImageCacheEntry::Ready)
+            .unwrap_or(ImageCacheEntry::Failed),
+    );
+    IMAGE_CACHE_GENERATION.fetch_add(1, Ordering::AcqRel);
+}
+
+fn aligned_offset(extra_width: f64, extra_height: f64, alignment: ImageAlignment) -> (f64, f64) {
+    let x = match alignment {
+        ImageAlignment::TopStart | ImageAlignment::CenterStart | ImageAlignment::BottomStart => 0.0,
+        ImageAlignment::TopCenter | ImageAlignment::Center | ImageAlignment::BottomCenter => {
+            extra_width / 2.0
+        }
+        ImageAlignment::TopEnd | ImageAlignment::CenterEnd | ImageAlignment::BottomEnd => {
+            extra_width
+        }
+    };
+    let y = match alignment {
+        ImageAlignment::TopStart | ImageAlignment::TopCenter | ImageAlignment::TopEnd => 0.0,
+        ImageAlignment::CenterStart | ImageAlignment::Center | ImageAlignment::CenterEnd => {
+            extra_height / 2.0
+        }
+        ImageAlignment::BottomStart | ImageAlignment::BottomCenter | ImageAlignment::BottomEnd => {
+            extra_height
+        }
+    };
+    (x, y)
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn spawn_image_load(key: String, request: ImageRequest) {
+    std::thread::spawn(move || {
+        let image = match request.source {
+            ImageSource::Asset { path } | ImageSource::File { path } => {
+                decode_image_from_path(&path, request.cache_width, request.cache_height)
+            }
+            ImageSource::Memory { bytes, .. } => {
+                decode_image_from_bytes(&bytes, request.cache_width, request.cache_height)
+            }
+            ImageSource::Network { url, headers, .. } => {
+                fetch_network_image(&url, headers, request.cache_width, request.cache_height)
+            }
+            ImageSource::SvgText { .. } => None,
+        };
+        complete_image_load(key, image);
+    });
+}
+
+#[cfg(target_arch = "wasm32")]
+fn spawn_image_load(key: String, request: ImageRequest) {
+    match request.source {
+        ImageSource::Memory { bytes, .. } => {
+            let image = decode_image_from_bytes(&bytes, request.cache_width, request.cache_height);
+            complete_image_load(key, image);
+        }
+        ImageSource::Asset { path } => {
+            wasm_bindgen_futures::spawn_local(async move {
+                let image = fetch_wasm_image_bytes(&path, Vec::new())
+                    .await
+                    .and_then(|bytes| {
+                        decode_image_from_bytes(&bytes, request.cache_width, request.cache_height)
+                    });
+                complete_image_load(key, image);
+            });
+        }
+        ImageSource::Network { url, headers, .. } => {
+            wasm_bindgen_futures::spawn_local(async move {
+                let image = fetch_wasm_image_bytes(&url, headers)
+                    .await
+                    .and_then(|bytes| {
+                        decode_image_from_bytes(&bytes, request.cache_width, request.cache_height)
+                    });
+                complete_image_load(key, image);
+            });
+        }
+        ImageSource::File { .. } | ImageSource::SvgText { .. } => {
+            complete_image_load(key, None);
+        }
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+async fn fetch_wasm_image_bytes(url: &str, headers: Vec<HttpHeader>) -> Option<Vec<u8>> {
+    use wasm_bindgen::JsCast;
+
+    let window = web_sys::window()?;
+    let init = web_sys::RequestInit::new();
+    init.set_method("GET");
+    init.set_mode(web_sys::RequestMode::Cors);
+    let request = web_sys::Request::new_with_str_and_init(url, &init).ok()?;
+    for header in headers {
+        request.headers().set(&header.name, &header.value).ok()?;
+    }
+    let response = wasm_bindgen_futures::JsFuture::from(window.fetch_with_request(&request))
+        .await
+        .ok()?;
+    let response = response.dyn_into::<web_sys::Response>().ok()?;
+    if !response.ok() {
+        return None;
+    }
+    let buffer = wasm_bindgen_futures::JsFuture::from(response.array_buffer().ok()?)
+        .await
+        .ok()?;
+    let bytes = js_sys::Uint8Array::new(&buffer);
+    let mut out = vec![0; bytes.length() as usize];
+    bytes.copy_to(&mut out);
+    Some(out)
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn fetch_network_image(
+    url: &str,
+    headers: Vec<HttpHeader>,
+    cache_width: Option<u32>,
+    cache_height: Option<u32>,
+) -> Option<Arc<ImageData>> {
+    let mut request = ureq::get(url).set("User-Agent", "FissionImageLoader/0.2");
+    for header in headers {
+        request = request.set(&header.name, &header.value);
+    }
+    let response = request.call().ok()?;
+    let mut bytes = Vec::new();
+    response.into_reader().read_to_end(&mut bytes).ok()?;
+    let image = image::load_from_memory(&bytes).ok()?;
+    decode_dynamic_image(image, cache_width, cache_height)
+}
+
+#[cfg(test)]
+mod image_tests {
+    use super::*;
+    use std::io::Cursor;
+    use std::net::TcpListener;
+    use std::time::{Duration, Instant};
+
+    fn tiny_png() -> Vec<u8> {
+        let image = image::RgbaImage::from_pixel(1, 1, image::Rgba([255, 0, 0, 255]));
+        let mut bytes = Cursor::new(Vec::new());
+        image::DynamicImage::ImageRgba8(image)
+            .write_to(&mut bytes, image::ImageOutputFormat::Png)
+            .expect("encode png");
+        bytes.into_inner()
+    }
+
+    fn serve_once(body: Vec<u8>) -> String {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind test image server");
+        let url = format!("http://{}", listener.local_addr().expect("local addr"));
+        std::thread::spawn(move || {
+            let Ok((mut stream, _)) = listener.accept() else {
+                return;
+            };
+            let mut request = [0_u8; 1024];
+            let _ = std::io::Read::read(&mut stream, &mut request);
+            let response = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: image/png\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                body.len()
+            );
+            let _ = std::io::Write::write_all(&mut stream, response.as_bytes());
+            let _ = std::io::Write::write_all(&mut stream, &body);
+            let _ = std::io::Write::flush(&mut stream);
+        });
+        url
+    }
+
+    #[test]
+    fn memory_image_load_populates_cache_off_thread() {
+        let request = ImageRequest {
+            source: ImageSource::Memory {
+                bytes: tiny_png(),
+                mime_type: Some("image/png".into()),
+            },
+            cache_width: Some(1),
+            cache_height: Some(1),
+            ..Default::default()
+        };
+        let key = request.stable_cache_key();
+        IMAGE_CACHE.lock().unwrap().remove(&key);
+        let before = image_cache_generation();
+
+        spawn_image_load(key.clone(), request);
+
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while image_cache_generation() == before && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+
+        let cache = IMAGE_CACHE.lock().unwrap();
+        let Some(ImageCacheEntry::Ready(image)) = cache.get(&key) else {
+            panic!("expected decoded image in cache");
+        };
+        assert_eq!(image.width, 1);
+        assert_eq!(image.height, 1);
+    }
+
+    #[test]
+    fn network_image_fetch_decodes_png_response() {
+        let url = serve_once(tiny_png());
+        let image = fetch_network_image(&url, Vec::new(), Some(1), Some(1))
+            .expect("fetch and decode test image");
+
+        assert_eq!(image.width, 1);
+        assert_eq!(image.height, 1);
+    }
 }
 
 #[derive(Debug)]
@@ -979,28 +1254,21 @@ impl<'a> VelloRenderer<'a> {
         }
     }
 
-    fn get_image(&self, path: &str) -> Option<Arc<ImageData>> {
-        let mut cache = IMAGE_CACHE.lock().unwrap();
-        if let Some(img) = cache.get(path) {
-            return Some(Arc::clone(img));
+    fn get_image(&self, request: &ImageRequest) -> Option<Arc<ImageData>> {
+        let key = request.stable_cache_key();
+        {
+            let mut cache = IMAGE_CACHE.lock().unwrap();
+            if let Some(entry) = cache.get(&key) {
+                return match entry {
+                    ImageCacheEntry::Ready(img) => Some(Arc::clone(img)),
+                    ImageCacheEntry::Loading | ImageCacheEntry::Failed => None,
+                };
+            }
+            cache.insert(key.clone(), ImageCacheEntry::Loading);
         }
 
-        if let Ok(img) = image::open(path) {
-            let img = img.to_rgba8();
-            let (width, height) = img.dimensions();
-            let data = img.into_raw();
-            let image_data = Arc::new(ImageData {
-                data: Blob::new(Arc::new(data)),
-                format: ImageFormat::Rgba8,
-                alpha_type: ImageAlphaType::Alpha,
-                width,
-                height,
-            });
-            cache.insert(path.to_string(), Arc::clone(&image_data));
-            Some(image_data)
-        } else {
-            None
-        }
+        spawn_image_load(key, request.clone());
+        None
     }
 
     fn affine_from_mat4(matrix: &[f32; 16]) -> Affine {
@@ -1008,9 +1276,9 @@ impl<'a> VelloRenderer<'a> {
         let m10 = matrix[1] as f64;
         let m01 = matrix[4] as f64;
         let m11 = matrix[5] as f64;
-        let m03 = matrix[12] as f64;
-        let m13 = matrix[13] as f64;
-        Affine::new([m00, m10, m01, m11, m03, m13])
+        let dx = matrix[12] as f64;
+        let dy = matrix[13] as f64;
+        Affine::new([m00, m10, m01, m11, dx, dy])
     }
 
     fn with_clip_rect<F>(&mut self, rect: Rect, draw: F)
@@ -2245,9 +2513,13 @@ impl<'a> VelloRenderer<'a> {
                     );
                 }
                 DisplayOp::DrawImage {
-                    source, rect, fit, ..
+                    request,
+                    rect,
+                    fit,
+                    alignment,
+                    ..
                 } => {
-                    if let Some(image_data) = self.get_image(source) {
+                    if let Some(image_data) = self.get_image(request) {
                         let rect_w = rect.size.width as f64;
                         let rect_h = rect.size.height as f64;
                         let img_w = image_data.width as f64;
@@ -2268,22 +2540,26 @@ impl<'a> VelloRenderer<'a> {
                                 let scale = (rect_w / img_w).min(rect_h / img_h);
                                 let w = img_w * scale;
                                 let h = img_h * scale;
+                                let (offset_x, offset_y) =
+                                    aligned_offset(rect_w - w, rect_h - h, *alignment);
                                 (
                                     scale,
                                     scale,
-                                    rect.origin.x as f64 + (rect_w - w) / 2.0,
-                                    rect.origin.y as f64 + (rect_h - h) / 2.0,
+                                    rect.origin.x as f64 + offset_x,
+                                    rect.origin.y as f64 + offset_y,
                                 )
                             }
                             fission_render::ImageFit::Cover => {
                                 let scale = (rect_w / img_w).max(rect_h / img_h);
                                 let w = img_w * scale;
                                 let h = img_h * scale;
+                                let (offset_x, offset_y) =
+                                    aligned_offset(rect_w - w, rect_h - h, *alignment);
                                 (
                                     scale,
                                     scale,
-                                    rect.origin.x as f64 + (rect_w - w) / 2.0,
-                                    rect.origin.y as f64 + (rect_h - h) / 2.0,
+                                    rect.origin.x as f64 + offset_x,
+                                    rect.origin.y as f64 + offset_y,
                                 )
                             }
                             fission_render::ImageFit::None => {
@@ -2298,7 +2574,15 @@ impl<'a> VelloRenderer<'a> {
                             image: &*image_data,
                             sampler: ImageSampler::default(),
                         };
-                        self.scene.draw_image(brush, transform);
+                        let clip_rect = Rect::new(
+                            rect.origin.x as f64,
+                            rect.origin.y as f64,
+                            (rect.origin.x + rect.size.width) as f64,
+                            (rect.origin.y + rect.size.height) as f64,
+                        );
+                        self.with_clip_rect(clip_rect, |this| {
+                            this.scene.draw_image(brush, transform);
+                        });
                     }
                 }
                 DisplayOp::DrawPath {

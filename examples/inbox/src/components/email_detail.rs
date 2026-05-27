@@ -339,24 +339,18 @@ impl Widget<InboxState> for EmailDetail {
                             AspectRatio {
                                 ratio: 4.0 / 3.0,
                                 child: Box::new(
-                                    Image {
-                                        source: "https://picsum.photos/200/150".into(),
-                                        fit: Some(ImageFit::Cover),
-                                        ..Default::default()
-                                    }
-                                    .into_node(),
+                                    Image::network("https://picsum.photos/200/150")
+                                        .fit(ImageFit::Cover)
+                                        .into_node(),
                                 ),
                             }
                             .build(ctx, view),
                             AspectRatio {
                                 ratio: 4.0 / 3.0,
                                 child: Box::new(
-                                    Image {
-                                        source: "https://picsum.photos/201/150".into(),
-                                        fit: Some(ImageFit::Cover),
-                                        ..Default::default()
-                                    }
-                                    .into_node(),
+                                    Image::network("https://picsum.photos/201/150")
+                                        .fit(ImageFit::Cover)
+                                        .into_node(),
                                 ),
                             }
                             .build(ctx, view),

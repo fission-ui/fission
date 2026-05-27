@@ -1,8 +1,8 @@
 use anyhow::{anyhow, bail, Result};
 use fission_ir::op::{
     decode_inline_widget_marker, AlignItems, BoxShadow, Color, Fill, FlexDirection, FlexWrap,
-    FontStyle, GridPlacement, GridTrack, ImageFit, JustifyContent, LayoutOp, LineCap, LineJoin, Op,
-    PaintOp, Stroke, TextAlign, TextOverflow, TextRun,
+    FontStyle, GridPlacement, GridTrack, ImageFit, ImageSource, JustifyContent, LayoutOp, LineCap,
+    LineJoin, Op, PaintOp, Stroke, TextAlign, TextOverflow, TextRun,
 };
 use fission_ir::{CoreIR, CoreNode, NodeId, Role};
 use fission_theme::{DesignMode, Theme};
@@ -821,7 +821,7 @@ impl HtmlRenderer<'_> {
                     node.id
                 ))
             }
-            PaintOp::DrawImage { source, fit } => {
+            PaintOp::DrawImage { request, fit, .. } => {
                 let class_name = self.class_name(
                     "fission-site-img",
                     vec![
@@ -831,9 +831,10 @@ impl HtmlRenderer<'_> {
                     ],
                 );
                 Ok(format!(
-                    "<img class=\"{}\" src=\"{}\" alt=\"\" data-fission-node=\"{}\">",
+                    "<img class=\"{}\" src=\"{}\" alt=\"{}\" data-fission-node=\"{}\">",
                     escape_attr(&class_name),
-                    escape_attr(&self.resolve_asset_src(source)),
+                    escape_attr(&self.resolve_image_src(&request.source)),
+                    escape_attr(request.semantic_label.as_deref().unwrap_or("")),
                     node.id
                 ))
             }
@@ -1112,6 +1113,16 @@ impl HtmlRenderer<'_> {
             relative_href_for_route(&self.options.current_route_path, source)
         } else {
             source.to_string()
+        }
+    }
+
+    fn resolve_image_src(&self, source: &ImageSource) -> String {
+        match source {
+            ImageSource::Asset { path } | ImageSource::File { path } => {
+                self.resolve_asset_src(path)
+            }
+            ImageSource::Network { url, .. } => url.clone(),
+            ImageSource::Memory { .. } | ImageSource::SvgText { .. } => String::new(),
         }
     }
 
@@ -1699,6 +1710,44 @@ mod tests {
         assert!(rendered.html.contains("Hello &lt;site&gt;"));
         assert!(!rendered.html.contains("style=\""));
         assert!(rendered.css.contains(".fs_"));
+    }
+
+    #[test]
+    fn renders_typed_image_sources_to_img_elements() {
+        let root = NodeId::explicit("root");
+        let image = NodeId::explicit("image");
+        let mut ir = CoreIR::new();
+        ir.add_node(
+            image,
+            Op::Paint(PaintOp::DrawImage {
+                request: fission_ir::op::ImageRequest {
+                    source: ImageSource::Network {
+                        url: "https://cdn.example.com/product.webp".into(),
+                        headers: Vec::new(),
+                        cache_policy: fission_ir::op::ImageCachePolicy::Default,
+                    },
+                    semantic_label: Some("Product photo".into()),
+                    ..Default::default()
+                },
+                fit: ImageFit::Cover,
+                alignment: fission_ir::op::ImageAlignment::Center,
+            }),
+            Vec::new(),
+        );
+        ir.add_node(
+            root,
+            Op::Structural(fission_ir::StructuralOp::Group { stable_hash: 1 }),
+            vec![image],
+        );
+        ir.set_root(root);
+
+        let rendered = render_ir_to_html(&ir, &HtmlRenderOptions::default()).unwrap();
+
+        assert!(rendered
+            .html
+            .contains("src=\"https://cdn.example.com/product.webp\""));
+        assert!(rendered.html.contains("alt=\"Product photo\""));
+        assert!(rendered.css.contains("object-fit:cover"));
     }
 
     #[test]

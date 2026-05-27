@@ -937,13 +937,9 @@ fn visual_row(view: &View<DocsState>, label: &'static str, body: &'static str) -
 fn chart_thumb(view: &View<DocsState>, src: &'static str) -> Node {
     let tokens = &view.env.theme.tokens;
     Container::new(
-        Image {
-            source: src.to_string(),
-            width: Some(tokens.spacing.xxxxl * 1.85),
-            height: Some(tokens.spacing.xxxxl * 1.05),
-            ..Default::default()
-        }
-        .into_node(),
+        Image::asset(src)
+            .size(tokens.spacing.xxxxl * 1.85, tokens.spacing.xxxxl * 1.05)
+            .into_node(),
     )
     .padding_all(tokens.spacing.xs)
     .bg_fill(Fill::Solid(tokens.colors.on_surface.with_alpha(245)))

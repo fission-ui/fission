@@ -14,13 +14,7 @@ impl AppState for TestState {}
 fn test_hero_compilation() {
     let _hero = Hero {
         tag: "avatar".into(),
-        child: Box::new(
-            Image {
-                source: "test.png".into(),
-                ..Default::default()
-            }
-            .into_node(),
-        ),
+        child: Box::new(Image::asset("test.png").into_node()),
     };
     assert!(true);
 }

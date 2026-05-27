@@ -17,7 +17,7 @@ use serde::{Deserialize, Serialize};
 /// ```rust,ignore
 /// ZStack {
 ///     children: vec![
-///         Image { source: "bg.png".into(), ..Default::default() }.into_node().into(),
+///         Image::asset("bg.png").into_node().into(),
 ///         Positioned {
 ///             bottom: Some(16.0),
 ///             right: Some(16.0),

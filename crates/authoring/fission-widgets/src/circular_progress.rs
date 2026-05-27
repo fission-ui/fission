@@ -1,37 +1,47 @@
-use fission_core::ui::Node;
-use fission_core::{BuildCtx, LowerDyn, LoweringContext, NodeBuilder, View, Widget};
+use fission_core::ui::{Composite, Node};
+use fission_core::{
+    AnimationPropertyId, AnimationRequest, AnimationStartValue, BuildCtx, EasingFunction, LowerDyn,
+    LoweringContext, NodeBuilder, View, Widget, WidgetNodeId,
+};
 use fission_ir::{op::Color, LayoutOp, NodeId, Op, PaintOp};
 use serde::{Deserialize, Serialize};
 use std::f32::consts::PI;
 
+const SPIN_DURATION_MS: u64 = 900;
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct CircularProgress {
+    pub id: WidgetNodeId,
     pub value: Option<f32>, // 0.0 to 1.0. If None, indeterminate (spinner).
     pub size: f32,
     pub color: Option<Color>,
     pub track_color: Option<Color>,
     pub thickness: f32,
+    #[serde(default = "circular_progress_default_animated")]
+    pub animated: bool,
 }
 
 impl Default for CircularProgress {
     fn default() -> Self {
         Self {
+            id: WidgetNodeId::explicit("fission.widgets.circular_progress"),
             value: None,
             size: 40.0,
             color: None,
             track_color: None,
             thickness: 4.0,
+            animated: true,
         }
     }
 }
 
 impl<S: fission_core::AppState> Widget<S> for CircularProgress {
-    fn build(&self, _ctx: &mut BuildCtx<S>, view: &View<S>) -> Node {
+    fn build(&self, ctx: &mut BuildCtx<S>, view: &View<S>) -> Node {
         let tokens = &view.env.theme.tokens;
         let color = self.color.unwrap_or(tokens.colors.primary);
         let track_color = self.track_color.unwrap_or(tokens.colors.border);
 
-        Node::Custom(fission_core::ui::CustomNode {
+        let node = Node::Custom(fission_core::ui::CustomNode {
             debug_tag: "CircularProgress".into(),
             lowerer: Some(std::sync::Arc::new(CircularProgressLowerer {
                 value: self.value,
@@ -41,8 +51,31 @@ impl<S: fission_core::AppState> Widget<S> for CircularProgress {
                 thickness: self.thickness,
             })),
             render_object: None,
-        })
+        });
+
+        if self.value.is_none() && self.animated {
+            ctx.anim_for(self.id).request(AnimationRequest {
+                property: AnimationPropertyId::Rotation,
+                from: AnimationStartValue::Explicit(0.0),
+                to: PI * 2.0,
+                duration_ms: SPIN_DURATION_MS,
+                repeat: true,
+                delay_ms: 0,
+                frame_interval_ms: None,
+                easing: EasingFunction::Linear,
+            });
+            Composite::new(node)
+                .repaint_boundary(true)
+                .animated_rotation(self.id, 0.0)
+                .into_node()
+        } else {
+            node
+        }
     }
+}
+
+const fn circular_progress_default_animated() -> bool {
+    true
 }
 
 #[derive(Debug)]
@@ -91,8 +124,7 @@ impl LowerDyn for CircularProgressLowerer {
         .build(cx);
 
         // Value Arc
-        let val = self.value.unwrap_or(0.25); // Default 25% for indeterminate (should animate rotation)
-                                              // TODO: Indeterminate animation rotation.
+        let val = self.value.unwrap_or(0.25);
 
         let angle = val * 2.0 * PI;
         // Arc from -PI/2 (top) to -PI/2 + angle.

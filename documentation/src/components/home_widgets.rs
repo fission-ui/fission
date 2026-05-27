@@ -645,13 +645,12 @@ impl ChartImageCard {
 impl Widget<DocsState> for ChartImageCard {
     fn build(&self, _ctx: &mut BuildCtx<DocsState>, view: &View<DocsState>) -> Node {
         let tokens = &view.env.theme.tokens;
-        let mut image_children = vec![Image {
-            source: self.image.to_string(),
-            width: Some(chart_tile_width(tokens) - tokens.spacing.l),
-            height: Some(tokens.spacing.xxxxl * 1.15),
-            ..Default::default()
-        }
-        .into_node()];
+        let mut image_children = vec![Image::asset(self.image)
+            .size(
+                chart_tile_width(tokens) - tokens.spacing.l,
+                tokens.spacing.xxxxl * 1.15,
+            )
+            .into_node()];
         if let Some(badge) = self.badge {
             image_children.push(
                 Text::new(badge)

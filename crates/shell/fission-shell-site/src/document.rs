@@ -121,13 +121,9 @@ impl DocumentationPage<'_> {
         let mut children = Vec::new();
         if let Some(logo) = self.site_logo {
             children.push(
-                Image {
-                    source: logo.to_string(),
-                    width: Some(tokens.spacing.xl),
-                    height: Some(tokens.spacing.xl),
-                    ..Default::default()
-                }
-                .into_node(),
+                Image::asset(logo.to_string())
+                    .size(tokens.spacing.xl, tokens.spacing.xl)
+                    .into_node(),
             );
         }
         children.push(

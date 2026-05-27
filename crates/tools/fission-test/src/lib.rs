@@ -802,16 +802,21 @@ fn generate_display_list_with_visited(
                         node_id: Some(node_id),
                     });
                 }
-                fission_ir::Op::Paint(fission_ir::PaintOp::DrawImage { source, fit }) => {
+                fission_ir::Op::Paint(fission_ir::PaintOp::DrawImage {
+                    request,
+                    fit,
+                    alignment,
+                }) => {
                     list.push(DisplayOp::DrawImage {
                         rect: geom.rect,
-                        source: source.clone(),
+                        request: request.clone(),
                         fit: match fit {
                             fission_ir::op::ImageFit::Contain => fission_render::ImageFit::Contain,
                             fission_ir::op::ImageFit::Cover => fission_render::ImageFit::Cover,
                             fission_ir::op::ImageFit::Fill => fission_render::ImageFit::Fill,
                             fission_ir::op::ImageFit::None => fission_render::ImageFit::None,
                         },
+                        alignment: *alignment,
                         bounds: geom.rect,
                         node_id: Some(node_id),
                     });

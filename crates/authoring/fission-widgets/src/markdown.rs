@@ -223,14 +223,15 @@ impl<'a> MarkdownRenderer<'a> {
 
     fn image_block(&self, _node_ref: NodeRef, image: &MarkdownImage) -> Node {
         let source = image.destination_str(self.source).to_string();
-        Image {
-            source,
-            width: Some(self.image_width),
-            height: Some(self.image_height),
-            fit: Some(ImageFit::Contain),
-            ..Default::default()
-        }
-        .into_node()
+        let image = if source.starts_with("https://") || source.starts_with("http://") {
+            Image::network(source)
+        } else {
+            Image::asset(source)
+        };
+        image
+            .size(self.image_width, self.image_height)
+            .fit(ImageFit::Contain)
+            .into_node()
     }
 
     fn code_block(&self, code: &CodeBlock) -> Node {

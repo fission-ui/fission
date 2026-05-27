@@ -87,8 +87,14 @@ fn terminal_verifier_rejects_graphical_only_paint() {
     ir.add_node(
         id,
         fission_ir::Op::Paint(fission_ir::PaintOp::DrawImage {
-            source: "image.png".to_string(),
+            request: fission_ir::op::ImageRequest {
+                source: fission_ir::op::ImageSource::Asset {
+                    path: "image.png".to_string(),
+                },
+                ..Default::default()
+            },
             fit: fission_ir::op::ImageFit::Contain,
+            alignment: fission_ir::op::ImageAlignment::Center,
         }),
         Vec::new(),
     );

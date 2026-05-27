@@ -1,0 +1,59 @@
+---
+title: FutureBuilder
+description: Declare a one-shot async job resource and build UI from an app-owned snapshot.
+slug: /widgets/future-builder
+---
+# FutureBuilder
+
+`FutureBuilder` connects a screen to one async job and lets the widget tree render from the latest snapshot held in application state.
+
+Use it when a screen needs request-and-response data: load products, fetch a profile, parse an imported file, save a document, or perform another one-shot operation where the app expects one success or one error. The widget declares the resource during `build()`. Reducers still own the state changes when the job completes.
+
+## Basic shape
+
+```rust
+use fission::prelude::*;
+
+let products = FutureBuilder::new(
+    ResourceKey::new("catalog.products"),
+    PRODUCTS_JOB,
+    view.state.product_request(),
+    view.state.products.clone(),
+    |ctx, view, snapshot| {
+        ProductList {
+            snapshot: snapshot.clone(),
+        }
+        .build(ctx, view)
+    },
+)
+.deps(view.state.product_request())
+.on_ok(with_reducer!(ctx, ProductsLoaded, on_products_loaded))
+.on_err(with_reducer!(ctx, ProductsFailed, on_products_failed))
+.build(ctx, view);
+```
+
+The important rule is that the snapshot is not hidden inside the widget. Store it in your app state. The success and error reducers update that state, and the next build renders the new snapshot.
+
+## Field table
+
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `key` | `ResourceKey` | Stable identity for this job resource. | Keep it stable for the logical resource, not for a single frame. |
+| `job` | `JobRef<J>` | The registered job to run. | The shell must register a handler for the job. |
+| `request` | `J::Request` | Request payload passed to the job. | Cloneable request value. |
+| `snapshot` | `AsyncSnapshot<J::Ok, J::Err>` | Current app-owned loading/data/error state. | Reducers update it after job callbacks. |
+| `on_ok` | `Option<ActionEnvelope>` | Action dispatched when the job succeeds. | Use this to bind the success reducer. |
+| `on_err` | `Option<ActionEnvelope>` | Action dispatched when the job fails. | Use this to bind the error reducer. |
+| `deps` | `Option<Vec<u8>>` | Serialized dependency identity. | Changing deps restarts or preserves according to `policy`. |
+| `policy` | `ResourcePolicy` | How resource changes are handled. | Defaults to `RestartOnChange`. |
+| `builder` | `AsyncWidgetBuilder` | Closure that renders the current snapshot. | Keep it pure; do not perform side effects inside it. |
+
+## Snapshot states
+
+`AsyncSnapshot` has three pieces: a connection state, optional data, and optional error.
+
+Use `AsyncSnapshot::waiting()` when a request starts. Use `AsyncSnapshot::with_data(AsyncConnectionState::Done, value)` when it succeeds. Use `AsyncSnapshot::with_error(AsyncConnectionState::Done, error)` when it fails. The helper methods `data()`, `error()`, `has_data()`, and `has_error()` make display widgets straightforward.
+
+## Related
+
+[`Spinner`](/reference/widgets/spinner), [`CircularProgress`](/reference/widgets/circular-progress), [`Skeleton`](/reference/widgets/skeleton), and [Resources and async](/docs/guides/resources-and-async).

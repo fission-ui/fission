@@ -1,4 +1,5 @@
 use anyhow::{anyhow, Result};
+use fission_ir::op::{HttpHeader, ImageAlignment, ImageRequest, ImageSource};
 use fission_render::{
     surface_placeholder_color, Color as RenderColor, DisplayList, DisplayOp, Fill, ImageFit,
     LineCap, LineJoin, RenderScene, Stroke, TextRun,
@@ -9,9 +10,13 @@ use fontdue::{
 };
 use std::collections::hash_map::DefaultHasher;
 use std::collections::HashMap;
-use std::fs;
 use std::hash::{Hash, Hasher};
-use std::sync::{Arc, Mutex, OnceLock};
+#[cfg(not(target_arch = "wasm32"))]
+use std::io::Read;
+use std::sync::{
+    atomic::{AtomicU64, Ordering},
+    Arc, Mutex, OnceLock,
+};
 use tiny_skia::{
     Color, FillRule as TinyFillRule, FilterQuality, GradientStop, LineCap as TinyLineCap,
     LineJoin as TinyLineJoin, Mask, Paint, Path, PathBuilder, Pixmap, PixmapPaint, Point,
@@ -45,8 +50,16 @@ enum SvgShape {
 }
 
 static DEFAULT_FONT: OnceLock<Font> = OnceLock::new();
-static IMAGE_CACHE: OnceLock<Mutex<HashMap<String, Arc<Pixmap>>>> = OnceLock::new();
+static IMAGE_CACHE: OnceLock<Mutex<HashMap<String, ImageCacheEntry>>> = OnceLock::new();
 static SVG_CACHE: OnceLock<Mutex<HashMap<u64, Arc<SvgCacheEntry>>>> = OnceLock::new();
+static IMAGE_CACHE_GENERATION: AtomicU64 = AtomicU64::new(0);
+
+#[derive(Clone)]
+enum ImageCacheEntry {
+    Ready(Arc<Pixmap>),
+    Loading,
+    Failed,
+}
 
 fn default_font() -> &'static Font {
     DEFAULT_FONT.get_or_init(|| {
@@ -58,8 +71,20 @@ fn default_font() -> &'static Font {
     })
 }
 
-fn image_cache() -> &'static Mutex<HashMap<String, Arc<Pixmap>>> {
+fn image_cache() -> &'static Mutex<HashMap<String, ImageCacheEntry>> {
     IMAGE_CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+pub(crate) fn image_cache_generation() -> u64 {
+    IMAGE_CACHE_GENERATION.load(Ordering::Acquire)
+}
+
+pub(crate) fn image_cache_has_pending() -> bool {
+    image_cache()
+        .lock()
+        .unwrap()
+        .values()
+        .any(|entry| matches!(entry, ImageCacheEntry::Loading))
 }
 
 fn svg_cache() -> &'static Mutex<HashMap<u64, Arc<SvgCacheEntry>>> {
@@ -309,22 +334,381 @@ fn wrap_max_width(bounds_width: f32, font_size: f32, wrap: bool) -> Option<f32> 
     Some(bounds_width.ceil() + font_size * 0.5)
 }
 
-fn cached_image(path: &str) -> Option<Arc<Pixmap>> {
-    if let Some(image) = image_cache().lock().unwrap().get(path) {
-        return Some(Arc::clone(image));
+fn cached_image(request: &ImageRequest) -> Option<Arc<Pixmap>> {
+    let key = request.stable_cache_key();
+    {
+        let mut cache = image_cache().lock().unwrap();
+        if let Some(entry) = cache.get(&key) {
+            return match entry {
+                ImageCacheEntry::Ready(image) => Some(Arc::clone(image)),
+                ImageCacheEntry::Loading | ImageCacheEntry::Failed => None,
+            };
+        }
+        cache.insert(key.clone(), ImageCacheEntry::Loading);
     }
 
-    let data = fs::read(path).ok()?;
-    let dyn_img = image::load_from_memory(&data).ok()?;
-    let rgba = dyn_img.to_rgba8();
+    spawn_image_load(key, request.clone());
+    None
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn decode_image_from_path(
+    path: &str,
+    cache_width: Option<u32>,
+    cache_height: Option<u32>,
+) -> Option<Arc<Pixmap>> {
+    image::open(path)
+        .ok()
+        .and_then(|image| decode_dynamic_image(image, cache_width, cache_height))
+}
+
+fn decode_image_from_bytes(
+    bytes: &[u8],
+    cache_width: Option<u32>,
+    cache_height: Option<u32>,
+) -> Option<Arc<Pixmap>> {
+    image::load_from_memory(bytes)
+        .ok()
+        .and_then(|image| decode_dynamic_image(image, cache_width, cache_height))
+}
+
+fn decode_dynamic_image(
+    mut image: image::DynamicImage,
+    cache_width: Option<u32>,
+    cache_height: Option<u32>,
+) -> Option<Arc<Pixmap>> {
+    if let (Some(width), Some(height)) = (cache_width, cache_height) {
+        if width > 0 && height > 0 {
+            image = image.resize(width, height, image::imageops::FilterType::Triangle);
+        }
+    }
+    let rgba = image.to_rgba8();
     let (width, height) = rgba.dimensions();
     let size = tiny_skia::IntSize::from_wh(width, height)?;
-    let pixmap = Pixmap::from_vec(rgba.into_raw(), size)?;
-    let pixmap = Arc::new(pixmap);
+    Pixmap::from_vec(rgba.into_raw(), size).map(Arc::new)
+}
 
+fn complete_image_load(key: String, image: Option<Arc<Pixmap>>) {
     let mut cache = image_cache().lock().unwrap();
-    cache.insert(path.to_string(), Arc::clone(&pixmap));
-    Some(pixmap)
+    cache.insert(
+        key,
+        image
+            .map(ImageCacheEntry::Ready)
+            .unwrap_or(ImageCacheEntry::Failed),
+    );
+    IMAGE_CACHE_GENERATION.fetch_add(1, Ordering::AcqRel);
+}
+
+fn aligned_offset(extra_width: f32, extra_height: f32, alignment: ImageAlignment) -> (f32, f32) {
+    let x = match alignment {
+        ImageAlignment::TopStart | ImageAlignment::CenterStart | ImageAlignment::BottomStart => 0.0,
+        ImageAlignment::TopCenter | ImageAlignment::Center | ImageAlignment::BottomCenter => {
+            extra_width / 2.0
+        }
+        ImageAlignment::TopEnd | ImageAlignment::CenterEnd | ImageAlignment::BottomEnd => {
+            extra_width
+        }
+    };
+    let y = match alignment {
+        ImageAlignment::TopStart | ImageAlignment::TopCenter | ImageAlignment::TopEnd => 0.0,
+        ImageAlignment::CenterStart | ImageAlignment::Center | ImageAlignment::CenterEnd => {
+            extra_height / 2.0
+        }
+        ImageAlignment::BottomStart | ImageAlignment::BottomCenter | ImageAlignment::BottomEnd => {
+            extra_height
+        }
+    };
+    (x, y)
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn spawn_image_load(key: String, request: ImageRequest) {
+    std::thread::spawn(move || {
+        let image = match request.source {
+            ImageSource::Asset { path } | ImageSource::File { path } => {
+                decode_image_from_path(&path, request.cache_width, request.cache_height)
+            }
+            ImageSource::Memory { bytes, .. } => {
+                decode_image_from_bytes(&bytes, request.cache_width, request.cache_height)
+            }
+            ImageSource::Network { url, headers, .. } => {
+                fetch_network_image(&url, headers, request.cache_width, request.cache_height)
+            }
+            ImageSource::SvgText { .. } => None,
+        };
+        complete_image_load(key, image);
+    });
+}
+
+#[cfg(target_arch = "wasm32")]
+fn spawn_image_load(key: String, request: ImageRequest) {
+    match request.source {
+        ImageSource::Memory { bytes, .. } => {
+            let image = decode_image_from_bytes(&bytes, request.cache_width, request.cache_height);
+            complete_image_load(key, image);
+        }
+        ImageSource::Asset { path } => {
+            wasm_bindgen_futures::spawn_local(async move {
+                let image = fetch_wasm_image_bytes(&path, Vec::new())
+                    .await
+                    .and_then(|bytes| {
+                        decode_image_from_bytes(&bytes, request.cache_width, request.cache_height)
+                    });
+                complete_image_load(key, image);
+            });
+        }
+        ImageSource::Network { url, headers, .. } => {
+            wasm_bindgen_futures::spawn_local(async move {
+                let image = fetch_wasm_image_bytes(&url, headers)
+                    .await
+                    .and_then(|bytes| {
+                        decode_image_from_bytes(&bytes, request.cache_width, request.cache_height)
+                    });
+                complete_image_load(key, image);
+            });
+        }
+        ImageSource::File { .. } | ImageSource::SvgText { .. } => {
+            complete_image_load(key, None);
+        }
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+async fn fetch_wasm_image_bytes(url: &str, headers: Vec<HttpHeader>) -> Option<Vec<u8>> {
+    use wasm_bindgen::JsCast;
+
+    let window = web_sys::window()?;
+    let init = web_sys::RequestInit::new();
+    init.set_method("GET");
+    init.set_mode(web_sys::RequestMode::Cors);
+    let request = web_sys::Request::new_with_str_and_init(url, &init).ok()?;
+    for header in headers {
+        request.headers().set(&header.name, &header.value).ok()?;
+    }
+    let response = wasm_bindgen_futures::JsFuture::from(window.fetch_with_request(&request))
+        .await
+        .ok()?;
+    let response = response.dyn_into::<web_sys::Response>().ok()?;
+    if !response.ok() {
+        return None;
+    }
+    let buffer = wasm_bindgen_futures::JsFuture::from(response.array_buffer().ok()?)
+        .await
+        .ok()?;
+    let bytes = js_sys::Uint8Array::new(&buffer);
+    let mut out = vec![0; bytes.length() as usize];
+    bytes.copy_to(&mut out);
+    Some(out)
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn fetch_network_image(
+    url: &str,
+    headers: Vec<HttpHeader>,
+    cache_width: Option<u32>,
+    cache_height: Option<u32>,
+) -> Option<Arc<Pixmap>> {
+    let mut request = ureq::get(url).set("User-Agent", "FissionImageLoader/0.2");
+    for header in headers {
+        request = request.set(&header.name, &header.value);
+    }
+    request
+        .call()
+        .ok()
+        .and_then(|response| {
+            let mut bytes = Vec::new();
+            response.into_reader().read_to_end(&mut bytes).ok()?;
+            image::load_from_memory(&bytes).ok()
+        })
+        .and_then(|image| decode_dynamic_image(image, cache_width, cache_height))
+}
+
+#[cfg(test)]
+mod image_tests {
+    use super::*;
+    use std::io::Cursor;
+    use std::net::TcpListener;
+    use std::time::{Duration, Instant};
+
+    fn tiny_png() -> Vec<u8> {
+        let image = image::RgbaImage::from_pixel(1, 1, image::Rgba([0, 128, 255, 255]));
+        let mut bytes = Cursor::new(Vec::new());
+        image::DynamicImage::ImageRgba8(image)
+            .write_to(&mut bytes, image::ImageFormat::Png)
+            .expect("encode png");
+        bytes.into_inner()
+    }
+
+    fn solid_png(width: u32, height: u32, rgba: [u8; 4]) -> Vec<u8> {
+        let image = image::RgbaImage::from_pixel(width, height, image::Rgba(rgba));
+        let mut bytes = Cursor::new(Vec::new());
+        image::DynamicImage::ImageRgba8(image)
+            .write_to(&mut bytes, image::ImageFormat::Png)
+            .expect("encode png");
+        bytes.into_inner()
+    }
+
+    fn serve_once(body: Vec<u8>) -> String {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind test image server");
+        let url = format!("http://{}", listener.local_addr().expect("local addr"));
+        std::thread::spawn(move || {
+            let Ok((mut stream, _)) = listener.accept() else {
+                return;
+            };
+            let mut request = [0_u8; 1024];
+            let _ = std::io::Read::read(&mut stream, &mut request);
+            let response = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: image/png\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                body.len()
+            );
+            let _ = std::io::Write::write_all(&mut stream, response.as_bytes());
+            let _ = std::io::Write::write_all(&mut stream, &body);
+            let _ = std::io::Write::flush(&mut stream);
+        });
+        url
+    }
+
+    #[test]
+    fn memory_image_load_populates_cache_off_thread() {
+        let request = ImageRequest {
+            source: ImageSource::Memory {
+                bytes: tiny_png(),
+                mime_type: Some("image/png".into()),
+            },
+            cache_width: Some(1),
+            cache_height: Some(1),
+            ..Default::default()
+        };
+        let key = request.stable_cache_key();
+        image_cache().lock().unwrap().remove(&key);
+        let before = image_cache_generation();
+
+        spawn_image_load(key.clone(), request);
+
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while image_cache_generation() == before && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+
+        let cache = image_cache().lock().unwrap();
+        let Some(ImageCacheEntry::Ready(image)) = cache.get(&key) else {
+            panic!("expected decoded image in cache");
+        };
+        assert_eq!(image.width(), 1);
+        assert_eq!(image.height(), 1);
+    }
+
+    #[test]
+    fn network_image_fetch_decodes_png_response() {
+        let url = serve_once(tiny_png());
+        let image = fetch_network_image(&url, Vec::new(), Some(1), Some(1))
+            .expect("fetch and decode test image");
+
+        assert_eq!(image.width(), 1);
+        assert_eq!(image.height(), 1);
+    }
+
+    #[test]
+    fn cached_image_request_paints_visible_pixels() {
+        let request = ImageRequest {
+            source: ImageSource::Memory {
+                bytes: tiny_png(),
+                mime_type: Some("image/png".into()),
+            },
+            cache_width: Some(1),
+            cache_height: Some(1),
+            ..Default::default()
+        };
+        let key = request.stable_cache_key();
+        image_cache().lock().unwrap().remove(&key);
+        let before = image_cache_generation();
+        spawn_image_load(key.clone(), request.clone());
+
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while image_cache_generation() == before && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+
+        let rect = fission_render::LayoutRect::new(0.0, 0.0, 4.0, 4.0);
+        let mut display_list = DisplayList::new(rect);
+        display_list.push(DisplayOp::DrawImage {
+            rect,
+            request,
+            fit: ImageFit::Fill,
+            alignment: ImageAlignment::Center,
+            bounds: rect,
+            node_id: None,
+        });
+        let scene = RenderScene::from_display_list(display_list);
+        let transparent = RenderColor {
+            r: 0,
+            g: 0,
+            b: 0,
+            a: 0,
+        };
+        let pixels = SoftwareRenderer::render(&scene, 4, 4, transparent, 1.0)
+            .expect("render software image scene");
+
+        assert!(
+            pixels
+                .chunks_exact(4)
+                .any(|pixel| pixel[3] > 0 && (pixel[0] > 0 || pixel[1] > 0 || pixel[2] > 0)),
+            "expected image draw to produce visible non-transparent pixels"
+        );
+    }
+
+    #[test]
+    fn cover_image_draw_is_clipped_to_destination_rect() {
+        let request = ImageRequest {
+            source: ImageSource::Memory {
+                bytes: solid_png(4, 2, [255, 0, 0, 255]),
+                mime_type: Some("image/png".into()),
+            },
+            ..Default::default()
+        };
+        let key = request.stable_cache_key();
+        image_cache().lock().unwrap().remove(&key);
+        let before = image_cache_generation();
+        spawn_image_load(key.clone(), request.clone());
+
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while image_cache_generation() == before && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+
+        let bounds = fission_render::LayoutRect::new(0.0, 0.0, 10.0, 10.0);
+        let rect = fission_render::LayoutRect::new(4.0, 4.0, 2.0, 2.0);
+        let mut display_list = DisplayList::new(bounds);
+        display_list.push(DisplayOp::DrawImage {
+            rect,
+            request,
+            fit: ImageFit::Cover,
+            alignment: ImageAlignment::Center,
+            bounds: rect,
+            node_id: None,
+        });
+        let scene = RenderScene::from_display_list(display_list);
+        let transparent = RenderColor {
+            r: 0,
+            g: 0,
+            b: 0,
+            a: 0,
+        };
+        let pixels = SoftwareRenderer::render(&scene, 10, 10, transparent, 1.0)
+            .expect("render clipped cover image");
+
+        let pixel_at = |x: usize, y: usize| {
+            let start = (y * 10 + x) * 4;
+            &pixels[start..start + 4]
+        };
+
+        assert_eq!(pixel_at(3, 4), &[0, 0, 0, 0]);
+        assert_eq!(pixel_at(6, 4), &[0, 0, 0, 0]);
+        assert!(
+            pixel_at(4, 4)[3] > 0 && pixel_at(4, 4)[0] > 0,
+            "expected destination rect to contain image pixels"
+        );
+    }
 }
 
 pub struct SoftwareRenderer {
@@ -466,6 +850,24 @@ impl SoftwareRenderer {
         }
     }
 
+    fn with_temporary_clip_rect<F>(
+        &mut self,
+        rect: fission_render::LayoutRect,
+        draw: F,
+    ) -> Result<()>
+    where
+        F: FnOnce(&mut Self) -> Result<()>,
+    {
+        let Some(path) = rect_path(rect) else {
+            return Ok(());
+        };
+        self.push_state();
+        self.ensure_clip_path(&path);
+        let result = draw(self);
+        self.pop_state();
+        result
+    }
+
     fn start_opacity_layer(&mut self, alpha: f32) -> Result<()> {
         let mut layer = Pixmap::new(self.width, self.height)
             .ok_or_else(|| anyhow!("failed to allocate software layer"))?;
@@ -546,9 +948,13 @@ impl SoftwareRenderer {
                     self.draw_rich_text(runs, *position, *bounds, *wrap)?;
                 }
                 DisplayOp::DrawImage {
-                    rect, source, fit, ..
+                    rect,
+                    request,
+                    fit,
+                    alignment,
+                    ..
                 } => {
-                    self.draw_image(*rect, source, *fit)?;
+                    self.draw_image(*rect, request, *fit, *alignment)?;
                 }
                 DisplayOp::DrawPath {
                     path,
@@ -808,10 +1214,11 @@ impl SoftwareRenderer {
     fn draw_image(
         &mut self,
         rect: fission_render::LayoutRect,
-        source: &str,
+        request: &ImageRequest,
         fit: ImageFit,
+        alignment: ImageAlignment,
     ) -> Result<()> {
-        let image = match cached_image(source) {
+        let image = match cached_image(request) {
             Some(image) => image,
             None => return Ok(()),
         };
@@ -829,22 +1236,24 @@ impl SoftwareRenderer {
                 let scale = (rect_w / img_w).min(rect_h / img_h);
                 let w = img_w * scale;
                 let h = img_h * scale;
+                let (offset_x, offset_y) = aligned_offset(rect_w - w, rect_h - h, alignment);
                 (
                     scale,
                     scale,
-                    rect.origin.x + (rect_w - w) / 2.0,
-                    rect.origin.y + (rect_h - h) / 2.0,
+                    rect.origin.x + offset_x,
+                    rect.origin.y + offset_y,
                 )
             }
             ImageFit::Cover => {
                 let scale = (rect_w / img_w).max(rect_h / img_h);
                 let w = img_w * scale;
                 let h = img_h * scale;
+                let (offset_x, offset_y) = aligned_offset(rect_w - w, rect_h - h, alignment);
                 (
                     scale,
                     scale,
-                    rect.origin.x + (rect_w - w) / 2.0,
-                    rect.origin.y + (rect_h - h) / 2.0,
+                    rect.origin.x + offset_x,
+                    rect.origin.y + offset_y,
                 )
             }
             ImageFit::None => (1.0, 1.0, rect.origin.x, rect.origin.y),
@@ -855,19 +1264,21 @@ impl SoftwareRenderer {
             .transform
             .post_translate(dx, dy)
             .post_scale(scale_x, scale_y);
-        let clip = self.current_clip().cloned();
-        let surface = self.current_surface_mut();
-        let mut paint = PixmapPaint::default();
-        paint.quality = FilterQuality::Bilinear;
-        surface.draw_pixmap(
-            0,
-            0,
-            image.as_ref().as_ref(),
-            &paint,
-            transform,
-            clip.as_ref(),
-        );
-        Ok(())
+        self.with_temporary_clip_rect(rect, |this| {
+            let clip = this.current_clip().cloned();
+            let surface = this.current_surface_mut();
+            let mut paint = PixmapPaint::default();
+            paint.quality = FilterQuality::Bilinear;
+            surface.draw_pixmap(
+                0,
+                0,
+                image.as_ref().as_ref(),
+                &paint,
+                transform,
+                clip.as_ref(),
+            );
+            Ok(())
+        })
     }
 
     fn draw_path(

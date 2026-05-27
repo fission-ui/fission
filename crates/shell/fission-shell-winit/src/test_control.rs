@@ -16,7 +16,7 @@ use std::sync::{Arc, Mutex};
 use winit::event_loop::EventLoopProxy;
 
 /// Sender for query responses from the main event loop back to the TCP server.
-pub type ResponseSender = mpsc::Sender<TestResponse>;
+pub type ResponseSender = fission_test_driver::TestResponseSender;
 /// Receiver for query responses.
 pub type ResponseReceiver = mpsc::Receiver<TestResponse>;
 /// Shared queue used on platforms where winit user events are unreliable.
@@ -33,15 +33,6 @@ pub enum EventInjector {
     },
 }
 
-/// Create a (sender, receiver) pair for query responses.
-///
-/// The sender is stored by the main event loop; when a query `TestEvent`
-/// (GetText, GetTree, Screenshot, etc.) is handled it sends the result
-/// through this channel. The TCP server thread waits on the receiver.
-pub fn create_response_channel() -> (ResponseSender, ResponseReceiver) {
-    mpsc::channel()
-}
-
 #[cfg(not(target_arch = "wasm32"))]
 pub fn create_pending_event_queue() -> PendingEventQueue {
     Arc::new(Mutex::new(VecDeque::new()))
@@ -49,11 +40,7 @@ pub fn create_pending_event_queue() -> PendingEventQueue {
 
 /// Spawn the TCP test-control server.
 #[cfg(not(target_arch = "wasm32"))]
-pub fn spawn_server(
-    port: u16,
-    injector: EventInjector,
-    response_rx: ResponseReceiver,
-) -> std::thread::JoinHandle<()> {
+pub fn spawn_server(port: u16, injector: EventInjector) -> std::thread::JoinHandle<()> {
     std::thread::spawn(move || {
         let listener = TcpListener::bind(format!("127.0.0.1:{}", port))
             .unwrap_or_else(|e| panic!("failed to bind test control port {}: {}", port, e));
@@ -61,7 +48,7 @@ pub fn spawn_server(
 
         for stream in listener.incoming() {
             match stream {
-                Ok(stream) => handle_connection(stream, &injector, &response_rx),
+                Ok(stream) => handle_connection(stream, &injector),
                 Err(e) => eprintln!("[fission-test-control] accept error: {}", e),
             }
         }
@@ -69,11 +56,7 @@ pub fn spawn_server(
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-fn handle_connection(
-    mut stream: TcpStream,
-    injector: &EventInjector,
-    response_rx: &ResponseReceiver,
-) {
+fn handle_connection(mut stream: TcpStream, injector: &EventInjector) {
     let mut buf = Vec::new();
     let mut tmp = [0u8; 4096];
 
@@ -144,16 +127,12 @@ fn handle_connection(
         }
     };
 
-    let response = dispatch_command(cmd, injector, response_rx);
+    let response = dispatch_command(cmd, injector);
     send_http_response(&mut stream, 200, &serde_json::to_string(&response).unwrap());
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-fn dispatch_command(
-    cmd: TestCommand,
-    injector: &EventInjector,
-    response_rx: &ResponseReceiver,
-) -> TestResponse {
+fn dispatch_command(cmd: TestCommand, injector: &EventInjector) -> TestResponse {
     match cmd {
         TestCommand::Tap { x, y } => {
             inject_event(injector, TestEvent::MouseMove { x, y });
@@ -200,10 +179,10 @@ fn dispatch_command(
             );
             TestResponse::Ok {}
         }
-        TestCommand::TapText { text } => {
-            inject_event(injector, TestEvent::TapText { text });
-            wait_for_response(response_rx)
-        }
+        TestCommand::TapText { text } => query_event(injector, |response_tx| TestEvent::TapText {
+            text,
+            response_tx,
+        }),
         TestCommand::Scroll { x, y, dx, dy } => {
             inject_event(injector, TestEvent::Scroll { x, y, dx, dy });
             TestResponse::Ok {}
@@ -229,29 +208,24 @@ fn dispatch_command(
             );
             TestResponse::Ok {}
         }
-        TestCommand::Screenshot { path } => {
-            inject_event(injector, TestEvent::Screenshot { path });
-            wait_for_response(response_rx)
-        }
-        TestCommand::CaptureScreenshot {} => {
-            inject_event(injector, TestEvent::CaptureScreenshot);
-            wait_for_response(response_rx)
-        }
+        TestCommand::Screenshot { path } => query_event(injector, |response_tx| {
+            TestEvent::Screenshot { path, response_tx }
+        }),
+        TestCommand::CaptureScreenshot {} => query_event(injector, |response_tx| {
+            TestEvent::CaptureScreenshot { response_tx }
+        }),
         TestCommand::GetText {} => {
-            inject_event(injector, TestEvent::GetText);
-            wait_for_response(response_rx)
+            query_event(injector, |response_tx| TestEvent::GetText { response_tx })
         }
         TestCommand::GetTree {} => {
-            inject_event(injector, TestEvent::GetTree);
-            wait_for_response(response_rx)
+            query_event(injector, |response_tx| TestEvent::GetTree { response_tx })
         }
         TestCommand::Wait { ms } => {
             std::thread::sleep(std::time::Duration::from_millis(ms));
             TestResponse::Ok {}
         }
         TestCommand::Pump {} => {
-            inject_event(injector, TestEvent::Pump);
-            wait_for_response(response_rx)
+            query_event(injector, |response_tx| TestEvent::Pump { response_tx })
         }
         TestCommand::Quit {} => {
             inject_event(injector, TestEvent::Quit);
@@ -272,6 +246,16 @@ fn dispatch_command(
             TestResponse::Ok {}
         }
     }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn query_event<F>(injector: &EventInjector, make_event: F) -> TestResponse
+where
+    F: FnOnce(ResponseSender) -> TestEvent,
+{
+    let (response_tx, response_rx) = mpsc::channel();
+    inject_event(injector, make_event(response_tx));
+    wait_for_response(&response_rx)
 }
 
 #[cfg(not(target_arch = "wasm32"))]

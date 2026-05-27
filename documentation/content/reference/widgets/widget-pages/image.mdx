@@ -1,52 +1,144 @@
 ---
 title: Image
-description: Display raster images or scalable vector graphics (SVG) content inside the layout tree.
+description: Display asset, file, network, memory, or SVG images inside the Fission layout tree.
 slug: /widgets/image
 ---
 # Image
 
-`Image` is the general image widget.
+`Image` displays visual content inside the ordinary Fission widget tree. Use it for product photos, profile images, diagrams, illustrations, thumbnails, and other still media that should be measured, laid out, clipped, and tested like the rest of your interface.
 
-Use it for photos, illustrations, thumbnails, diagrams, and any other visual content that belongs in the app's normal layout flow. The widget focuses on display, not asset management or accessibility semantics.
+An `Image` is declarative. Your widget describes what image should appear and how it should fit inside its layout box. The active shell is responsible for loading, decoding, caching, and repainting after asynchronous sources such as network images become available.
 
-## Example
+## Choose the source explicitly
+
+Use the typed constructors instead of passing raw strings around. They tell Fission what kind of source you mean and avoid ambiguous path-versus-URL behavior.
 
 ```rust
-use fission::core::op::ImageFit;
-use fission::core::ui::Image;
+use fission::prelude::*;
 
-let node = Image {
-    source: view.state.hero_image_url.clone(),
-    width: Some(320.0),
-    height: Some(180.0),
-    fit: Some(ImageFit::Cover),
-    ..Default::default()
-}
-.into_node();
+let avatar = Image::asset("assets/avatar.png")
+    .size(48.0, 48.0)
+    .semantic_label("Sam's profile photo")
+    .into_node();
+
+let product = Image::network(product.thumbnail.clone())
+    .size(220.0, 160.0)
+    .fit(ir_op::ImageFit::Contain)
+    .semantic_label(format!("{} product image", product.title))
+    .into_node();
 ```
 
-`Cover` is a good choice when the image should fill a card or hero frame even if some cropping occurs.
+Use `asset` for files shipped with the app, `file` for an explicit local file path, `network` for `http` or `https` images, `memory` when you already have bytes, and `svg_text` for inline SVG content. Network images are loaded asynchronously; the widget still reserves the size you give it, then the shell repaints when the decoded image is ready.
+
+## Pick the fit based on the content
+
+The `fit` setting controls how the decoded image is scaled inside the widget's layout box.
+
+| Fit | What it does | Good use cases | Tradeoff |
+| --- | --- | --- | --- |
+| `ImageFit::Contain` | Scales the whole image until it fits inside the box. | Product photos, diagrams, document previews, screenshots, anything where losing edges would be misleading. | May leave empty space on one axis. |
+| `ImageFit::Cover` | Scales the image until the whole box is covered. | Hero images, card backgrounds, decorative thumbnails where cropping is acceptable. | Crops whichever axis overflows. The renderer clips the image to the widget bounds. |
+| `ImageFit::Fill` | Stretches width and height independently. | Rare cases where distortion is acceptable, such as generated textures or placeholders. | Changes the image aspect ratio. |
+| `ImageFit::None` | Paints at the decoded image's natural pixel size. | Low-level rendering experiments or already-sized memory images. | Usually wrong in responsive UI because it ignores the layout box size. |
+
+For catalog-style screens, start with `Contain`. Users expect to see the whole product. For a large banner or background image, `Cover` usually looks better because it avoids letterboxing.
+
+## Control cropping with alignment
+
+When `Contain` leaves empty space or `Cover` crops an edge, `alignment` decides where the image sits inside the box.
+
+```rust
+let banner = Image::network(view.state.banner_url.clone())
+    .size(640.0, 240.0)
+    .fit(ir_op::ImageFit::Cover)
+    .alignment(ImageAlignment::TopCenter)
+    .semantic_label("Spring campaign banner")
+    .into_node();
+```
+
+Use centered alignment for most content. Use top, bottom, start, or end alignment when the meaningful part of the image consistently lives on one side.
+
+## Network images
+
+`Image::network` stores a typed network request. You can attach request headers and cache hints when the image endpoint needs them.
+
+```rust
+let protected = Image::network(view.state.signed_url.clone())
+    .header("Accept", "image/webp,image/png")
+    .cache_size(440, 320)
+    .cache_policy(ImageCachePolicy::MemoryOnly)
+    .size(220.0, 160.0)
+    .fit(ir_op::ImageFit::Contain)
+    .semantic_label("Invoice preview")
+    .into_node();
+```
+
+`cache_size` asks the loader to decode or resize toward a target pixel size. It is useful for long lists where a thumbnail should not keep a full-size original in memory. `cache_policy` describes the intended caching behavior; shell implementations may use it differently depending on platform support.
+
+Do not perform network fetches manually inside `build()`. `build()` should only describe the UI. Put the URL in app state and let the image pipeline load the bytes.
 
 ## Field table
 
 | Field | Type | Meaning | Notes / default behavior |
 | --- | --- | --- | --- |
-| `id` | `Option<NodeId>` | Stable node identity. | Defaults to `None`. |
-| `source` | `String` | Image source path, web address, inline scalable vector graphics (SVG), or SVG file path. | Required. The renderer treats inline `<svg...>` content and `.svg` files specially. |
-| `width` | `Option<f32>` | Fixed layout width. | Defaults to `None`. Set explicit dimensions or parent constraints for predictable results. |
-| `height` | `Option<f32>` | Fixed layout height. | Defaults to `None`. |
-| `fit` | `Option<ImageFit>` | How the image should scale inside its box. | Defaults to `Contain` when rendering non-scalable vector graphics (SVG) images. |
+| `id` | `Option<NodeId>` | Stable node identity. | Defaults to `None`. Most images do not need an explicit id. |
+| `request` | `ImageRequest` | Typed image request containing an asset, file, network URL, memory buffer, or inline SVG source. | Prefer `Image::asset`, `Image::file`, `Image::network`, `Image::memory`, or `Image::svg_text`. |
+| `width` | `Option<f32>` | Fixed layout width in logical points. | Defaults to `None`. Give images explicit dimensions or place them inside a parent that constrains them. |
+| `height` | `Option<f32>` | Fixed layout height in logical points. | Defaults to `None`. Lists and grids should usually give thumbnails both width and height. |
+| `fit` | `ImageFit` | How the image scales inside its box. | Defaults to `Contain`. |
+| `alignment` | `ImageAlignment` | Where fitted content sits when there is empty space or cropping. | Defaults to `Center`. |
 
-## Responsive and accessibility notes
+## Builder methods
 
-In responsive layouts, the main question is not only which image to show, but how much cropping is acceptable. `Contain` preserves the whole image but may leave empty space. `Cover` fills the region but may crop edges.
+| Method | Purpose | Notes |
+| --- | --- | --- |
+| `Image::asset(path)` | Load an app asset. | Use for images packaged with the app. |
+| `Image::file(path)` | Load a local file path. | Use only when the app intentionally works with local files. |
+| `Image::network(url)` | Load a remote image. | Loaded asynchronously by the shell. |
+| `Image::memory(bytes)` | Decode bytes already held by the app. | Good for capability results or generated previews. |
+| `Image::svg_text(content)` | Render inline SVG text. | Lowers to SVG drawing instead of raster image loading. |
+| `.size(width, height)` | Set both layout dimensions. | Preferred for thumbnails and cards. |
+| `.width(width)` / `.height(height)` | Set one layout dimension. | Use when the other axis comes from parent layout. |
+| `.fit(fit)` | Set scaling behavior. | `Contain` preserves full content; `Cover` fills and crops. |
+| `.alignment(alignment)` | Set crop or empty-space alignment. | Useful with `Cover` hero images. |
+| `.semantic_label(label)` | Add accessibility meaning. | Omit only for decorative images. |
+| `.cache_size(width, height)` | Request a decode/cache target size. | Helps thumbnail-heavy screens avoid wasting memory. |
+| `.header(name, value)` | Add a network header. | Applies only to network images. |
+| `.cache_policy(policy)` | Set network cache intent. | Applies only to network images. |
 
-The current public contract does not include alt text or a semantic label. If the image carries meaning, provide that meaning with surrounding text or parent-level semantics instead of assuming assistive technology can infer it.
+## Layout advice
 
-## Specific advice
+Give image widgets deliberate bounds. A source alone does not say how much space the image should occupy, and flexible containers need concrete constraints to produce predictable results.
 
-Give images deliberate layout constraints. A source string alone does not express how large the image should be in a flexible screen.
+For grids and cards, the most stable pattern is:
+
+```rust
+let thumbnail = Image::network(product.thumbnail.clone())
+    .size(220.0, 160.0)
+    .fit(ir_op::ImageFit::Contain)
+    .semantic_label(format!("Photo of {}", product.title))
+    .into_node();
+```
+
+For background-like imagery, use `Cover` and choose an alignment that keeps the important region visible:
+
+```rust
+let hero = Image::network(view.state.hero_url.clone())
+    .size(720.0, 320.0)
+    .fit(ir_op::ImageFit::Cover)
+    .alignment(ImageAlignment::Center)
+    .semantic_label("Featured destination")
+    .into_node();
+```
+
+The renderer clips fitted images to their widget bounds. If a `Cover` image appears outside its card, that is a renderer bug, not something app code should work around with manual clipping containers.
+
+## Accessibility and testing
+
+Set `semantic_label` when the image communicates information. A product photo, chart preview, document thumbnail, or profile image should have a useful label. Pure decoration can omit the label.
+
+Image rendering is testable. Cheap tests should verify that an `Image` lowers to `PaintOp::DrawImage` and then to `DisplayOp::DrawImage`. End-to-end tests can capture screenshots and assert that expected image regions contain visible pixels. Use fixed local or memory images for deterministic unit tests; use network images only in smoke tests where exercising the real shell loader is the point.
 
 ## Related
 
-[`Icon`](/reference/widgets/icon), [`Avatar`](/reference/widgets/avatar), [`Card`](/reference/widgets/card), and [`AspectRatio`](/reference/widgets/aspect-ratio).
+[`Icon`](/reference/widgets/icon), [`Avatar`](/reference/widgets/avatar), [`Card`](/reference/widgets/card), [`Grid`](/reference/widgets/grid), and [`AspectRatio`](/reference/widgets/aspect-ratio).

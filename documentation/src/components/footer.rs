@@ -100,12 +100,8 @@ fn footer_identity(ctx: &mut BuildCtx<DocsState>, view: &View<DocsState>) -> Nod
                 semantic_row(
                     "site-route:/",
                     vec![
-                        Image {
-                            source: "/img/fission-mark.svg".to_string(),
-                            width: Some(tokens.spacing.l),
-                            height: Some(tokens.spacing.l),
-                            ..Default::default()
-                        }
+                        Image::asset("/img/fission-mark.svg")
+                            .size(tokens.spacing.l, tokens.spacing.l)
                         .into_node(),
                         Text::new("Fission")
                             .size(tokens.typography.font_size_lg)

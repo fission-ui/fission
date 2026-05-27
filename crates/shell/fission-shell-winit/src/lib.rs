@@ -2908,8 +2908,9 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
         let mut current_mods: u8 = 0;
 
         // Test control (enabled via FISSION_TEST_CONTROL_PORT env var).
-        // The TCP server injects TestEvents via the EventLoopProxy and receives
-        // query responses through a dedicated mpsc channel.
+        // The TCP server injects TestEvents via the EventLoopProxy. Query
+        // events carry per-command response channels, so a timed-out command
+        // cannot poison the next command with a stale response.
         #[cfg(not(target_arch = "wasm32"))]
         let test_control_port = self.test_control_port.or_else(|| {
             std::env::var("FISSION_TEST_CONTROL_PORT")
@@ -2919,9 +2920,8 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
         #[cfg(all(target_os = "android", not(target_arch = "wasm32")))]
         let pending_test_events = test_control::create_pending_event_queue();
         #[cfg(not(target_arch = "wasm32"))]
-        let test_response_tx: Option<test_control::ResponseSender> =
-            test_control_port.map(|port| {
-                let (resp_tx, resp_rx) = test_control::create_response_channel();
+        let test_control_enabled = test_control_port
+            .map(|port| {
                 #[cfg(target_os = "android")]
                 let injector = test_control::EventInjector::Queue {
                     queue: pending_test_events.clone(),
@@ -2929,13 +2929,17 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                 };
                 #[cfg(not(target_os = "android"))]
                 let injector = test_control::EventInjector::Proxy(event_proxy.clone());
-                test_control::spawn_server(port, injector, resp_rx);
-                resp_tx
-            });
+                test_control::spawn_server(port, injector);
+                true
+            })
+            .unwrap_or(false);
         #[cfg(target_arch = "wasm32")]
-        let test_response_tx: Option<test_control::ResponseSender> = None;
+        let test_control_enabled = false;
+        #[cfg(not(target_os = "android"))]
+        let _ = test_control_enabled;
         // Pending screenshot/pump: path + whether it needs a screenshot (vs pump).
         let mut pending_screenshot_path: Option<String> = None;
+        let mut pending_screenshot_response_tx: Option<test_control::ResponseSender> = None;
         #[cfg(not(target_os = "android"))]
         let mut window_viewport = WindowViewportState::from_window(&platform_window);
         #[cfg(target_os = "android")]
@@ -2956,6 +2960,8 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
             paint: true,
             composite: true,
         };
+        let mut vello_image_cache_generation = fission_render_vello::image_cache_generation();
+        let mut software_image_cache_generation = software_renderer::image_cache_generation();
 
         let event_handler =
             move |event: Event<TestEvent>, elwt: &EventLoopWindowTarget<TestEvent>| {
@@ -3281,13 +3287,12 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                 );
                             }
                         }
-                        TestEvent::TapText { text } => {
+                        TestEvent::TapText { text, response_tx } => {
                             let Some(window) = platform_window.active_window() else {
-                                if let Some(ref tx) = test_response_tx {
-                                    let _ = tx.send(fission_test_driver::TestResponse::Error {
+                                let _ =
+                                    response_tx.send(fission_test_driver::TestResponse::Error {
                                         message: "window not ready".into(),
                                     });
-                                }
                                 return;
                             };
                             let resp = handle_tap_text(&text, &mut runtime, &pipeline);
@@ -3305,9 +3310,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                     invalidations.mark_build();
                                 }
                             }
-                            if let Some(ref tx) = test_response_tx {
-                                let _ = tx.send(resp);
-                            }
+                            let _ = response_tx.send(resp);
                             request_redraw_logged(
                                 window,
                                 elwt,
@@ -3318,16 +3321,16 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                 "test_tap_text",
                             );
                         }
-                        TestEvent::Screenshot { path } => {
+                        TestEvent::Screenshot { path, response_tx } => {
                             let Some(window) = platform_window.active_window() else {
-                                if let Some(ref tx) = test_response_tx {
-                                    let _ = tx.send(fission_test_driver::TestResponse::Error {
+                                let _ =
+                                    response_tx.send(fission_test_driver::TestResponse::Error {
                                         message: "window not ready".into(),
                                     });
-                                }
                                 return;
                             };
                             pending_screenshot_path = Some(path);
+                            pending_screenshot_response_tx = Some(response_tx);
                             pending_capture_settle = resize_is_unsettled(
                                 pending_resize.is_some(),
                                 resize_needs_settled_frame,
@@ -3335,16 +3338,16 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                             );
                             window.request_redraw();
                         }
-                        TestEvent::CaptureScreenshot => {
+                        TestEvent::CaptureScreenshot { response_tx } => {
                             let Some(window) = platform_window.active_window() else {
-                                if let Some(ref tx) = test_response_tx {
-                                    let _ = tx.send(fission_test_driver::TestResponse::Error {
+                                let _ =
+                                    response_tx.send(fission_test_driver::TestResponse::Error {
                                         message: "window not ready".into(),
                                     });
-                                }
                                 return;
                             };
                             pending_screenshot_path = Some("__capture__".into());
+                            pending_screenshot_response_tx = Some(response_tx);
                             pending_capture_settle = resize_is_unsettled(
                                 pending_resize.is_some(),
                                 resize_needs_settled_frame,
@@ -3352,28 +3355,24 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                             );
                             window.request_redraw();
                         }
-                        TestEvent::GetText => {
+                        TestEvent::GetText { response_tx } => {
                             let resp = build_get_text_response(&pipeline);
-                            if let Some(ref tx) = test_response_tx {
-                                let _ = tx.send(resp);
-                            }
+                            let _ = response_tx.send(resp);
                         }
-                        TestEvent::GetTree => {
+                        TestEvent::GetTree { response_tx } => {
                             let resp = build_get_tree_response(&pipeline);
-                            if let Some(ref tx) = test_response_tx {
-                                let _ = tx.send(resp);
-                            }
+                            let _ = response_tx.send(resp);
                         }
-                        TestEvent::Pump => {
+                        TestEvent::Pump { response_tx } => {
                             let Some(window) = platform_window.active_window() else {
-                                if let Some(ref tx) = test_response_tx {
-                                    let _ = tx.send(fission_test_driver::TestResponse::Error {
+                                let _ =
+                                    response_tx.send(fission_test_driver::TestResponse::Error {
                                         message: "window not ready".into(),
                                     });
-                                }
                                 return;
                             };
                             pending_screenshot_path = Some("__pump__".into());
+                            pending_screenshot_response_tx = Some(response_tx);
                             pending_capture_settle = resize_is_unsettled(
                                 pending_resize.is_some(),
                                 resize_needs_settled_frame,
@@ -3382,10 +3381,8 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                             window.request_redraw();
                         }
                         TestEvent::Wake => {}
-                        TestEvent::Wait { ms: _ } => {
-                            if let Some(ref tx) = test_response_tx {
-                                let _ = tx.send(fission_test_driver::TestResponse::Ok {});
-                            }
+                        TestEvent::Wait { ms: _, response_tx } => {
+                            let _ = response_tx.send(fission_test_driver::TestResponse::Ok {});
                         }
                         TestEvent::Quit => {
                             elwt.exit();
@@ -3861,6 +3858,32 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                             );
                         }
 
+                        let next_vello_image_generation =
+                            fission_render_vello::image_cache_generation();
+                        let next_software_image_generation =
+                            software_renderer::image_cache_generation();
+                        let image_cache_changed = next_vello_image_generation
+                            != vello_image_cache_generation
+                            || next_software_image_generation != software_image_cache_generation;
+                        if image_cache_changed {
+                            vello_image_cache_generation = next_vello_image_generation;
+                            software_image_cache_generation = next_software_image_generation;
+                            #[cfg(not(target_arch = "wasm32"))]
+                            retained_scene_cache.clear();
+                            invalidations.mark_paint();
+                            request_redraw_logged(
+                                &window,
+                                elwt,
+                                &mut last_redraw_at,
+                                min_frame,
+                                &mut redraw_pending,
+                                &mut frame_trace,
+                                "image_cache",
+                            );
+                        }
+                        let image_cache_pending = fission_render_vello::image_cache_has_pending()
+                            || software_renderer::image_cache_has_pending();
+
                         // When a frame_hook is registered, ensure the event loop
                         // wakes at least every 2 seconds so the hook fires even
                         // when no user input or animation is happening (e.g. for
@@ -3873,6 +3896,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
 
                         let has_pending_work = effect_results_dispatched
                             || frame_hook_wants_redraw
+                            || image_cache_changed
                             || invalidations.any()
                             || resize_unsettled
                             || pending_capture_settle;
@@ -3983,6 +4007,9 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                 }
                             }
                             elwt.set_control_flow(ControlFlow::WaitUntil(wake_at));
+                        } else if image_cache_pending {
+                            let wake_at = now + Duration::from_millis(50);
+                            elwt.set_control_flow(ControlFlow::WaitUntil(wake_at));
                         } else if let Some(blink_at) = blink_wake_at {
                             let reasons = frame_trace.take_redraw_reasons();
                             frame_trace.emit(
@@ -4022,7 +4049,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                 "schedule=idle pending_resize=false redraw_pending=false highest=none",
                             );
                             #[cfg(target_os = "android")]
-                            if test_response_tx.is_some() {
+                            if test_control_enabled {
                                 elwt.set_control_flow(ControlFlow::Poll);
                             } else {
                                 elwt.set_control_flow(ControlFlow::WaitUntil(
@@ -4531,6 +4558,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                             if capture_ready {
                                                 pending_capture_settle = false;
                                                 let _ = pending_screenshot_path.take();
+                                                let _ = pending_screenshot_response_tx.take();
                                             }
 
                                             pending_resize = None;
@@ -4800,7 +4828,9 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                                         layout_size_to_image_dimensions(
                                                             target_viewport,
                                                         );
-                                                    if let Some(ref tx) = test_response_tx {
+                                                    if let Some(tx) =
+                                                        pending_screenshot_response_tx.take()
+                                                    {
                                                         if path == "__pump__" {
                                                             let _ = tx.send(
                                                             fission_test_driver::TestResponse::Ok {},

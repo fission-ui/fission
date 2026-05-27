@@ -799,6 +799,155 @@ pub enum ImageFit {
     None,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Hash, Default)]
+pub enum ImageAlignment {
+    TopStart,
+    TopCenter,
+    TopEnd,
+    CenterStart,
+    #[default]
+    Center,
+    CenterEnd,
+    BottomStart,
+    BottomCenter,
+    BottomEnd,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Hash)]
+pub struct HttpHeader {
+    pub name: String,
+    pub value: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Hash, Default)]
+pub enum ImageCachePolicy {
+    #[default]
+    Default,
+    Reload,
+    MemoryOnly,
+    Disk,
+    NoStore,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Hash)]
+pub enum ImageSource {
+    Asset {
+        path: String,
+    },
+    File {
+        path: String,
+    },
+    Network {
+        url: String,
+        #[serde(default)]
+        headers: Vec<HttpHeader>,
+        #[serde(default)]
+        cache_policy: ImageCachePolicy,
+    },
+    Memory {
+        bytes: Vec<u8>,
+        #[serde(default)]
+        mime_type: Option<String>,
+    },
+    SvgText {
+        content: String,
+    },
+}
+
+impl Default for ImageSource {
+    fn default() -> Self {
+        Self::Asset {
+            path: String::new(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Hash, Default)]
+pub enum ImageLoadingBehavior {
+    #[default]
+    Empty,
+    ThemePlaceholder,
+    BlurHash(String),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Hash, Default)]
+pub enum ImageErrorBehavior {
+    #[default]
+    Empty,
+    ThemeError,
+    AltText,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Hash, Default)]
+pub struct ImageRequest {
+    pub source: ImageSource,
+    #[serde(default)]
+    pub cache_width: Option<u32>,
+    #[serde(default)]
+    pub cache_height: Option<u32>,
+    #[serde(default)]
+    pub semantic_label: Option<String>,
+    #[serde(default)]
+    pub loading: ImageLoadingBehavior,
+    #[serde(default)]
+    pub error: ImageErrorBehavior,
+}
+
+impl ImageSource {
+    pub fn stable_identity(&self) -> String {
+        match self {
+            Self::Asset { path } => format!("asset:{path}"),
+            Self::File { path } => format!("file:{path}"),
+            Self::Network {
+                url,
+                headers,
+                cache_policy,
+            } => {
+                let mut identity = format!("network:{cache_policy:?}:{url}");
+                for header in headers {
+                    identity.push('|');
+                    identity.push_str(&header.name.to_ascii_lowercase());
+                    identity.push('=');
+                    identity.push_str(&header.value);
+                }
+                identity
+            }
+            Self::Memory { bytes, mime_type } => {
+                let digest = blake3::hash(bytes);
+                format!("memory:{}:{digest}", mime_type.as_deref().unwrap_or(""))
+            }
+            Self::SvgText { content } => {
+                let digest = blake3::hash(content.as_bytes());
+                format!("svg:{digest}")
+            }
+        }
+    }
+
+    pub fn local_path(&self) -> Option<&str> {
+        match self {
+            Self::Asset { path } | Self::File { path } => Some(path),
+            _ => None,
+        }
+    }
+
+    pub fn network_url(&self) -> Option<&str> {
+        match self {
+            Self::Network { url, .. } => Some(url),
+            _ => None,
+        }
+    }
+}
+
+impl ImageRequest {
+    pub fn stable_cache_key(&self) -> String {
+        let mut hasher = blake3::Hasher::new();
+        hasher.update(self.source.stable_identity().as_bytes());
+        hasher.update(&self.cache_width.unwrap_or_default().to_le_bytes());
+        hasher.update(&self.cache_height.unwrap_or_default().to_le_bytes());
+        hasher.finalize().to_hex().to_string()
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TextStyle {
     pub font_size: LayoutUnit,
@@ -941,8 +1090,9 @@ pub enum PaintOp {
         paragraph_style: Option<TextParagraphStyle>,
     },
     DrawImage {
-        source: String,
+        request: ImageRequest,
         fit: ImageFit,
+        alignment: ImageAlignment,
     },
     DrawPath {
         path: String,
@@ -1017,10 +1167,15 @@ impl std::hash::Hash for PaintOp {
                 caret_radius.map(|r| r.to_bits()).hash(state);
                 paragraph_style.hash(state);
             }
-            Self::DrawImage { source, fit } => {
+            Self::DrawImage {
+                request,
+                fit,
+                alignment,
+            } => {
                 3.hash(state);
-                source.hash(state);
+                request.hash(state);
                 fit.hash(state);
+                alignment.hash(state);
             }
             Self::DrawPath { path, fill, stroke } => {
                 4.hash(state);
@@ -1046,9 +1201,9 @@ impl std::hash::Hash for PaintOp {
 mod tests {
     use super::{
         decode_inline_widget_marker, decode_text_paragraph_style, encode_inline_widget_marker,
-        encode_text_paragraph_style, InlineWidgetMarker, TextAlign, TextDirection,
-        TextHeightBehavior, TextOverflow, TextParagraphStyle, TextWidthBasis,
-        TEXT_PARAGRAPH_MAX_ENCODED_LINES,
+        encode_text_paragraph_style, HttpHeader, ImageCachePolicy, ImageRequest, ImageSource,
+        InlineWidgetMarker, TextAlign, TextDirection, TextHeightBehavior, TextOverflow,
+        TextParagraphStyle, TextWidthBasis, TEXT_PARAGRAPH_MAX_ENCODED_LINES,
     };
 
     #[test]
@@ -1090,6 +1245,50 @@ mod tests {
                 strut_line_height: None,
                 text_height_behavior: TextHeightBehavior::default(),
             })
+        );
+    }
+
+    #[test]
+    fn image_request_cache_key_is_stable_and_dimension_sensitive() {
+        let request = ImageRequest {
+            source: ImageSource::Network {
+                url: "https://cdn.example.com/image.webp".into(),
+                headers: vec![HttpHeader {
+                    name: "Accept".into(),
+                    value: "image/webp".into(),
+                }],
+                cache_policy: ImageCachePolicy::Default,
+            },
+            cache_width: Some(320),
+            cache_height: Some(180),
+            ..Default::default()
+        };
+
+        let same = request.clone();
+        let mut resized = request.clone();
+        resized.cache_width = Some(640);
+
+        assert_eq!(request.stable_cache_key(), same.stable_cache_key());
+        assert_ne!(request.stable_cache_key(), resized.stable_cache_key());
+    }
+
+    #[test]
+    fn image_source_helpers_report_path_and_network_sources() {
+        assert_eq!(
+            ImageSource::Asset {
+                path: "assets/logo.png".into()
+            }
+            .local_path(),
+            Some("assets/logo.png")
+        );
+        assert_eq!(
+            ImageSource::Network {
+                url: "https://example.com/logo.png".into(),
+                headers: Vec::new(),
+                cache_policy: ImageCachePolicy::Default,
+            }
+            .network_url(),
+            Some("https://example.com/logo.png")
         );
     }
 

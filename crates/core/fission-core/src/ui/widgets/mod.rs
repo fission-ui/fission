@@ -36,7 +36,10 @@ pub use container::Container;
 pub use fission_theme::{BadgeTone, ButtonHierarchy, CardPattern, ComponentSize, ComponentState};
 pub use grid::{Grid, GridItem};
 pub use icon::Icon;
-pub use image::Image;
+pub use image::{
+    HttpHeader, Image, ImageAlignment, ImageCachePolicy, ImageErrorBehavior, ImageLoadingBehavior,
+    ImageRequest, ImageSource,
+};
 pub use lazy_column::LazyColumn;
 pub use overlay::Overlay;
 pub use positioned::Positioned;

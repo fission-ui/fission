@@ -30,13 +30,9 @@ impl Widget<DocsState> for HomePageNav {
                     semantic_row(
                         "site-route:/",
                         vec![
-                            Image {
-                                source: "/img/fission-mark.svg".to_string(),
-                                width: Some(tokens.spacing.l),
-                                height: Some(tokens.spacing.l),
-                                ..Default::default()
-                            }
-                            .into_node(),
+                            Image::asset("/img/fission-mark.svg")
+                                .size(tokens.spacing.l, tokens.spacing.l)
+                                .into_node(),
                             Text::new("Fission")
                                 .size(tokens.typography.font_size_lg)
                                 .weight(tokens.typography.font_weight_bold)

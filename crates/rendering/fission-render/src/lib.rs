@@ -1,4 +1,6 @@
-use fission_ir::op::{EmbedKind, RichTextAnnotation, TextParagraphStyle};
+use fission_ir::op::{
+    EmbedKind, ImageAlignment, ImageRequest, RichTextAnnotation, TextParagraphStyle,
+};
 use fission_ir::{NodeId, WidgetNodeId};
 pub use fission_layout::{LayoutPoint, LayoutRect, LayoutSize, LayoutUnit};
 use serde::{Deserialize, Serialize};
@@ -147,8 +149,9 @@ pub enum DisplayOp {
     },
     DrawImage {
         rect: LayoutRect,
-        source: String,
+        request: ImageRequest,
         fit: ImageFit,
+        alignment: ImageAlignment,
         bounds: LayoutRect,
         node_id: Option<NodeId>,
     },

@@ -16,7 +16,7 @@
 //! - **Menus**: [`Menu`], [`MenuButton`], [`MenuItem`], [`Select`], [`Combobox`], [`SegmentedControl`]
 //! - **Navigation**: [`Tabs`], [`Accordion`]
 //! - **Display**: [`Badge`], [`Tag`], [`Card`], [`Avatar`], [`EmptyState`], [`Icon`]
-//! - **Loading**: [`ProgressBar`], [`Spinner`], [`Skeleton`]
+//! - **Loading**: [`ProgressBar`], [`Spinner`], [`Skeleton`], [`FutureBuilder`], [`RefreshIndicator`]
 //! - **Transitions**: [`Hero`]
 //!
 //! # Example
@@ -195,6 +195,12 @@ pub use stat::Stat;
 
 pub mod circular_progress;
 pub use circular_progress::CircularProgress;
+
+pub mod future_builder;
+pub use future_builder::{AsyncConnectionState, AsyncSnapshot, AsyncWidgetBuilder, FutureBuilder};
+
+pub mod refresh_indicator;
+pub use refresh_indicator::{RefreshIndicator, RefreshIndicatorStatus};
 
 pub mod stepper;
 pub use stepper::Stepper;
