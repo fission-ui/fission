@@ -13,7 +13,7 @@ Some of these widgets are still ordinary display widgets with a media flavor, su
 
 | Widget | Dedicated page | When to choose it |
 | --- | --- | --- |
-| `Image` | [Image](/reference/widgets/image) | Static image content |
+| `Image` | [Image](/reference/widgets/image) | Asset, file, memory, SVG, or network image content inside normal layout |
 | `Video` | [Video](/reference/widgets/video) | Video playback surface tied to runtime registration |
 | `WebView` | [WebView](/reference/widgets/web-view) | Embedded browser content surface |
 | `TerminalView` | [TerminalView](/reference/widgets/terminal-view) | Interactive terminal surface inside the app |
@@ -32,7 +32,7 @@ Some of these widgets are still ordinary display widgets with a media flavor, su
 
 ## How to choose within this family
 
-Use `Image` when the content is still ordinary image display.
+Use `Image` when the content is still ordinary image display. It supports typed asset, file, network, memory, and SVG sources, and it participates in layout like any other widget.
 
 Move to `Video`, `WebView`, or `TerminalView` when the surface needs runtime registration or host-backed behavior.
 

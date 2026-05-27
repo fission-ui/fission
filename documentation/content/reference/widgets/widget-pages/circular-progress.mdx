@@ -1,13 +1,13 @@
 ---
 title: CircularProgress
-description: Show determinate progress in a compact circular form factor.
+description: Show determinate or indeterminate progress in a compact circular form factor.
 slug: /widgets/circular-progress
 ---
 # CircularProgress
 
 `CircularProgress` is the round progress indicator.
 
-It is useful when progress needs to fit into a small square region such as a sidebar card, dashboard tile, or media status chip. It answers "how far through is this?" without consuming a full row the way a linear bar does.
+It is useful when progress needs to fit into a small square region such as a sidebar card, dashboard tile, media status chip, or refresh affordance. With `value: Some(...)` it answers "how far through is this?". With `value: None` it becomes an indeterminate animated activity indicator.
 
 ## Example
 
@@ -30,17 +30,18 @@ This gives a compact 72 percent progress ring that can sit beside text or a stat
 
 | Field | Type | Meaning | Notes / default behavior |
 | --- | --- | --- | --- |
-| `value` | `Option<f32>` | Progress fraction for the ring. | Use `Some` for determinate progress. `None` means indeterminate intent, but see note below. |
+| `value` | `Option<f32>` | Progress fraction for the ring. | Use `Some(0.0..=1.0)` for determinate progress. Use `None` for indeterminate activity. |
 | `size` | `f32` | Outer width and height of the indicator. | Defaults to `40.0`. |
 | `color` | `Option<Color>` | Indicator arc color override. | Defaults to the theme's primary color. |
 | `track_color` | `Option<Color>` | Background track color override. | Defaults to the theme's border color. |
 | `thickness` | `f32` | Stroke width of the ring. | Defaults to `4.0`. |
+| `animated` | `bool` | Whether indeterminate mode should spin. | Defaults to `true`. Applies when `value` is `None`. |
 
 ## Determinate versus indeterminate behavior
 
-The public contract suggests that `value: None` is the indeterminate mode. In the checked-in implementation, though, that mode currently renders a fixed partial arc rather than a spinning animated indicator. For true indeterminate loading feedback, [`Spinner`](/reference/widgets/spinner) is the better current choice.
+`value: None` is indeterminate mode. The widget draws a partial arc and, when `animated` is true, registers a rotation animation for its `id`. Give each concurrently animated indicator a stable distinct `WidgetNodeId` so their animation state does not collide.
 
-Also note that the widget expects a value in the `0.0` to `1.0` range and does not clamp it internally. Clamp upstream if the data may drift outside that range.
+For determinate progress, pass `Some(fraction)`. The widget expects a value in the `0.0` to `1.0` range and does not clamp it internally. Clamp upstream if the data may drift outside that range.
 
 ## Specific advice
 

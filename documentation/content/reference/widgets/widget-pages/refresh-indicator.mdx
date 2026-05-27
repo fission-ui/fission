@@ -1,0 +1,65 @@
+---
+title: RefreshIndicator
+description: Add a pull-to-refresh affordance above scrollable content.
+slug: /widgets/refresh-indicator
+---
+# RefreshIndicator
+
+`RefreshIndicator` adds a pull-to-refresh interaction around scrollable content.
+
+It is stateless. The app stores the current refresh status and pulled distance, reducers update those values from drag events, and `on_refresh` starts the actual refresh work. This keeps refresh behavior testable and consistent with the rest of Fission's state model.
+
+## Basic shape
+
+```rust
+use fission::prelude::*;
+
+let content = RefreshIndicator::new(product_list)
+    .id(WidgetNodeId::explicit("catalog.refresh"))
+    .status(view.state.refresh_status)
+    .pulled_extent(view.state.pulled_extent)
+    .trigger_distance(80.0)
+    .displacement(64.0)
+    .on_pull_start(with_reducer!(ctx, PullStarted, on_pull_started))
+    .on_pull_update(with_reducer!(ctx, PullUpdated, on_pull_updated))
+    .on_pull_cancel(with_reducer!(ctx, PullCanceled, on_pull_canceled))
+    .on_refresh(with_reducer!(ctx, RefreshProducts, on_refresh_products))
+    .build(ctx, view);
+```
+
+`on_pull_update` receives pointer drag data through the reducer context. Store the accumulated pulled distance in state. When the user releases after crossing `trigger_distance`, `on_refresh` fires.
+
+## Field table
+
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `id` | `WidgetNodeId` | Stable identity for the refresh indicator and its progress animation. | Set this explicitly when a screen has more than one refresh region. |
+| `child` | `Box<Node>` | Content being refreshed. | Usually a scrollable list or grid. |
+| `status` | `RefreshIndicatorStatus` | Current visual and interaction state. | Defaults to `Inactive`. |
+| `pulled_extent` | `f32` | Current pull distance in logical points. | Stored in app state. |
+| `trigger_distance` | `f32` | Pull distance needed to trigger refresh. | Defaults to `80.0`. |
+| `displacement` | `f32` | How far the child content is visually displaced. | Defaults to `40.0`. |
+| `edge_offset` | `f32` | Extra top offset before the indicator appears. | Defaults to `0.0`. |
+| `color` | `Option<Color>` | Progress arc color override. | Defaults to theme primary. |
+| `background_color` | `Option<Color>` | Indicator container background override. | Defaults to theme surface. |
+| `track_color` | `Option<Color>` | Progress track color override. | Defaults to theme border. |
+| `stroke_width` | `f32` | Progress stroke width. | Defaults to `4.0`. |
+| `indicator_size` | `f32` | Inner progress indicator size. | Defaults to `36.0`. |
+| `on_pull_start` | `Option<ActionEnvelope>` | Action dispatched when dragging starts. | Usually sets status to `Drag`. |
+| `on_pull_update` | `Option<ActionEnvelope>` | Action dispatched for drag movement. | Usually updates `pulled_extent` and arms the refresh. |
+| `on_pull_cancel` | `Option<ActionEnvelope>` | Action dispatched when release does not refresh. | Usually resets status and pull distance. |
+| `on_refresh` | `Option<ActionEnvelope>` | Action dispatched when the pull is released while armed. | Usually starts a job/resource refresh. |
+
+## Status values
+
+| Status | Meaning |
+| --- | --- |
+| `Inactive` | No pull is active and the indicator is hidden. |
+| `Drag` | The user is pulling but has not crossed the trigger distance. |
+| `Armed` | The pull distance is enough to refresh if released. |
+| `Refreshing` | Refresh work is running. The indicator uses indeterminate progress. |
+| `Done` | Refresh has completed and the indicator can settle. |
+
+## Related
+
+[`FutureBuilder`](/reference/widgets/future-builder), [`CircularProgress`](/reference/widgets/circular-progress), [`Scroll`](/reference/widgets/scroll), and [Resources and async](/docs/guides/resources-and-async).
