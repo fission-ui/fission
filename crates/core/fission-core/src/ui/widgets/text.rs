@@ -116,7 +116,7 @@ impl TextRunStyle {
             .font_size
             .or(fallback_size)
             .unwrap_or(theme.tokens.typography.body_medium_size);
-        let base_line_height = self.line_height;
+        let base_line_height = self.line_height.or(Some(base_font_size * 1.2));
         let base_letter_spacing = self.letter_spacing.unwrap_or(0.0);
         fission_ir::op::TextStyle {
             font_size: base_font_size * scale,
@@ -915,7 +915,7 @@ impl Text {
             locale: self.locale.clone(),
             font_weight: self.font_weight.unwrap_or(400),
             font_style: self.font_style.into(),
-            line_height: self.line_height.map(|value| value * scale),
+            line_height: Some(self.line_height.unwrap_or(base_font_size * 1.2) * scale),
             letter_spacing: self.letter_spacing.unwrap_or(0.0) * scale,
             background_color: None,
         }
