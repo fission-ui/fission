@@ -13,7 +13,7 @@ You write product behavior in Rust: state, actions, reducers, selectors, widgets
 
 Most days follow this loop:
 
-1. Open a project that has `fission.toml` at its root.
+1. Open a project that has [`fission.toml`](/reference/config/fission-toml/) at its root.
 2. Run the fastest useful target while developing the shared feature.
 3. Switch to the platform target whenever the question depends on a real host.
 4. Keep logs attached while the app runs.
@@ -37,7 +37,7 @@ fission devices
 fission run --target web
 ```
 
-`fission init .` is intentionally idempotent. On an existing project it should create or update missing Fission metadata without overwriting your app source. That matters when older examples or hand-written projects need a `fission.toml` before they can use newer CLI features.
+`fission init .` is intentionally idempotent. On an existing project it should create or update missing Fission metadata without overwriting your app source. That matters when older examples or hand-written projects need a [`fission.toml`](/reference/config/fission-toml/) before they can use newer CLI features.
 
 ## Choose the fastest target for the question
 
@@ -62,11 +62,11 @@ For example, an inbox screen should not contain Android packaging logic or brows
 
 That boundary keeps app code reviewable. A teammate can read the inbox module and understand the product behavior without also learning every target's launch script.
 
-## Use `fission.toml` as the project root
+## Use [`fission.toml`](/reference/config/fission-toml/) as the project root
 
-`fission.toml` is the authoritative manifest for the project. It should contain stable project facts and references to larger files:
+[`fission.toml`](/reference/config/fission-toml/) is the authoritative manifest for the project. It should contain stable project facts and references to larger files:
 
-| Belongs in `fission.toml` | Usually belongs in a referenced file |
+| Belongs in [`fission.toml`](/reference/config/fission-toml/) | Usually belongs in a referenced file |
 | --- | --- |
 | App name, app id, package ids, enabled targets | Full release notes |
 | Target declarations and generated host locations | Long store descriptions |

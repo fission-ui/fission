@@ -34,7 +34,7 @@ Run this once from the project root:
 fission add-capability volume-control --project-dir .
 ```
 
-That command records the capability in `fission.toml` and updates generated platform files where Fission can do so safely. It does not replace product-specific review of native manifests, usage text, entitlements, service identifiers, domains, or store policy.
+That command records the capability in [`fission.toml`](/reference/config/fission-toml/) and updates generated platform files where Fission can do so safely. It does not replace product-specific review of native manifests, usage text, entitlements, service identifiers, domains, or store policy.
 
 The CLI adds Android `MODIFY_AUDIO_SETTINGS`. iOS does not expose broad app-controlled system volume. Desktop providers can map to mixer APIs when appropriate, but packaged apps may have store policy constraints.
 

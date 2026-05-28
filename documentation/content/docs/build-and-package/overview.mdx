@@ -31,7 +31,7 @@ A readiness check should tell you three things:
 | --- | --- |
 | Can this machine build the package? | Android SDK/NDK present, Xcode tools present, Windows packaging tools present, required Rust targets installed. |
 | Is the project configured for the package? | App id, package id, icons, target folder, capability metadata, signing references, output directory. |
-| What should I do next if it fails? | Install a missing SDK, run `fission add-target`, add a signing reference, authenticate a provider CLI, or update `fission.toml`. |
+| What should I do next if it fails? | Install a missing SDK, run `fission add-target`, add a signing reference, authenticate a provider CLI, or update [`fission.toml`](/reference/config/fission-toml/). |
 
 Do not ignore readiness failures. They are meant to catch missing environment or project setup before the expensive build step.
 
@@ -79,7 +79,7 @@ Keep the manifest with the artifact in CI artifacts or release records.
 
 Signing is platform-owned. Fission orchestrates checks, configuration, receipts, and command flow, but it should use the tools provided by the platform owner for the signing operation itself.
 
-Do not commit signing passwords, private keys, tokens, or certificates into `fission.toml`.
+Do not commit signing passwords, private keys, tokens, or certificates into [`fission.toml`](/reference/config/fission-toml/).
 
 Use one of these sources instead:
 

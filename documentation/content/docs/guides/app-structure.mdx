@@ -34,7 +34,7 @@ The exact target folders depend on which targets you add. The important split is
 | `src/app.rs` | The shared product app: state, root widget, reducers, selectors, and modules used by every target. |
 | `src/lib.rs` | Shared exports and target entry helpers used by generated web/mobile hosts. |
 | `src/main.rs` | The default desktop binary entrypoint. Keep it small. |
-| `fission.toml` | Fission project metadata, targets, capabilities, site/release references, and package configuration. |
+| [`fission.toml`](/reference/config/fission-toml/) | Fission project metadata, targets, capabilities, site/release references, and package configuration. |
 | `platforms/<target>/` | Generated host files for web, Android, iOS, or other targets. Review them, but do not move product logic there. |
 
 If you remember one rule, make it this: product behavior belongs in shared Rust modules, not in generated platform folders.

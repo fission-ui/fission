@@ -35,7 +35,7 @@ Run this once from the project root:
 fission add-capability bluetooth --project-dir .
 ```
 
-That command records the capability in `fission.toml` and updates generated platform files where Fission can do so safely. It does not replace product-specific review of native manifests, usage text, entitlements, service identifiers, domains, or store policy.
+That command records the capability in [`fission.toml`](/reference/config/fission-toml/) and updates generated platform files where Fission can do so safely. It does not replace product-specific review of native manifests, usage text, entitlements, service identifiers, domains, or store policy.
 
 The CLI adds Android legacy and Android 12+ Bluetooth permissions plus optional feature declarations. iOS receives Bluetooth usage text. Desktop providers map the contract to the platform Bluetooth stack.
 

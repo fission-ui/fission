@@ -33,7 +33,7 @@ Fission projects move through a practical development lifecycle.
 
 | Lifecycle stage | Where to go | What the pages teach |
 | --- | --- | --- |
-| Setup | [Quickstart](/docs/learn/quickstart/), [Project structure](/docs/guides/app-structure/), [Add platform targets](/docs/cookbook/add-platform-targets/) | Create or open a project, understand `fission.toml`, and add desktop, web, Android, iOS, terminal, or static site targets without losing existing files. |
+| Setup | [Quickstart](/docs/learn/quickstart/), [Project structure](/docs/guides/app-structure/), [Add platform targets](/docs/cookbook/add-platform-targets/) | Create or open a project, understand [`fission.toml`](/reference/config/fission-toml/), and add desktop, web, Android, iOS, terminal, or static site targets without losing existing files. |
 | Learn | [Learn overview](/docs/learn/overview/), [Runtime model](/docs/learn/runtime-model/), [Rendering pipeline](/docs/learn/rendering-pipeline/) | Understand the architecture before copying patterns into a larger app. |
 | Build features | [Layout and widgets](/docs/guides/layout-and-widgets/), [Theming and internationalization](/docs/guides/theming-and-i18n/), [Design system](/docs/guides/design-system/), [Charts](/docs/charts/overview/), [Capabilities](/docs/capabilities/matrix/) | Build product screens, theme them, translate them, add charts, and request platform features through typed capabilities. |
 | Develop | [Development workflow](/docs/develop/workflow/), [Platform shells and CLI](/docs/guides/platform-shells-cli-and-testing/), [Terminal user interfaces](/docs/guides/terminal-user-interfaces/), [Static sites](/docs/guides/static-sites/) | Run the app on real targets, keep logs attached, use the terminal UI, and build content-backed static sites. |
@@ -58,7 +58,7 @@ If you are unsure where a piece of code belongs, ask what kind of thing it is:
 | Visual structure for the current frame | A widget `build()` method |
 | Theme, locale, title, viewport, or other app-wide presentation context | `Env` synchronized from state or seeded by the shell |
 | File I/O, networking, device access, notifications, camera, clipboard, or other host work | A capability, resource, command, job, service, or explicit effect |
-| Platform packaging, SDK setup, release metadata, or provider upload | `fission.toml`, release-content files, and `fission` CLI commands |
+| Platform packaging, SDK setup, release metadata, or provider upload | [`fission.toml`](/reference/config/fission-toml/), release-content files, and `fission` CLI commands |
 
 That separation is the reason the same product can run through multiple hosts without becoming several unrelated apps.
 

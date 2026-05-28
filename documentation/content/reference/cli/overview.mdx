@@ -20,7 +20,7 @@ This page explains how to use that bridge well.
 
 Most teams meet the command-line interface at two moments.
 
-The first moment is the start of a project. You run `fission init` when you want a fresh app with the expected file layout, a starter application, an initial desktop host, and a `fission.toml` manifest that records project metadata and target choices.
+The first moment is the start of a project. You run `fission init` when you want a fresh app with the expected file layout, a starter application, an initial desktop host, and a [`fission.toml`](/reference/config/fission-toml/) manifest that records project metadata and target choices.
 
 The second moment is when your shared app is ready to run in another host. At that point, you use `fission add-target` to generate the extra platform folder for web, Android, or iOS, or to add a specific desktop target if needed. The important idea is that you are not rewriting your app for each platform. You are generating the host wrapper around the same shared app model.
 
@@ -58,9 +58,9 @@ Run `fission init <path>` when you want a new project directory with the basic p
 fission init my-app
 ```
 
-This command creates the directory, writes the starter source files, seeds the default app icon, creates an initial desktop-ready entrypoint, and records project metadata in `fission.toml`.
+This command creates the directory, writes the starter source files, seeds the default app icon, creates an initial desktop-ready entrypoint, and records project metadata in [`fission.toml`](/reference/config/fission-toml/).
 
-If the directory already contains files, the command becomes non-destructive. It derives the package name from `Cargo.toml` when possible, detects existing `platforms/<target>/` folders, writes or updates `fission.toml`, and creates only missing generated support files. It does not overwrite existing source files, README files, host pages, scripts, or assets. That means you can safely run it on an existing example or app that predates `fission.toml`.
+If the directory already contains files, the command becomes non-destructive. It derives the package name from `Cargo.toml` when possible, detects existing `platforms/<target>/` folders, writes or updates [`fission.toml`](/reference/config/fission-toml/), and creates only missing generated support files. It does not overwrite existing source files, README files, host pages, scripts, or assets. That means you can safely run it on an existing example or app that predates [`fission.toml`](/reference/config/fission-toml/).
 
 ### Important `init` flags
 
@@ -85,13 +85,13 @@ These are the files most people open first:
 | `src/main.rs` | Rust source file | Starts the default desktop host | This is the shortest way to run a fresh scaffold with `cargo run` |
 | `src/lib.rs` | Rust source file | Exposes shared entry helpers for non-desktop hosts | Generated hosts call into this shared library layer |
 | `src/app.rs` | Rust source file | Contains the starter app logic | This is where you edit state, actions, reducers, and widgets |
-| `fission.toml` | manifest file | Records project metadata and enabled targets | The command-line interface updates this file when you add targets |
+| [`fission.toml`](/reference/config/fission-toml/) | manifest file | Records project metadata and enabled targets | The command-line interface updates this file when you add targets |
 | `assets/app-icon.png` | image asset | Seeds the default application icon | Generated hosts reuse it as their starting icon asset |
 | `platforms/<target>/README.md` | generated notes | Explains prerequisites and host-specific commands for that target | Read this whenever you add a new target |
 
 The key idea is that only some of those files describe your app. Files under `src/` are the shared product logic. Files under `platforms/` are host-specific scaffolding. The command-line interface keeps those concerns separate because Fission itself keeps the shared app model separate from the platform shell that runs it.
 
-On an existing project, treat the table as "created if missing." Existing files are preserved. The main required output is `fission.toml`, because commands such as `fission run --project-dir . --target web` use it to know which targets belong to the app.
+On an existing project, treat the table as "created if missing." Existing files are preserved. The main required output is [`fission.toml`](/reference/config/fission-toml/), because commands such as `fission run --project-dir . --target web` use it to know which targets belong to the app.
 
 ## Adding more hosts with `fission add-target`
 
@@ -101,7 +101,7 @@ Once you have an existing app, use `fission add-target` to generate another host
 fission add-target web ios android --project-dir my-app
 ```
 
-This command does not duplicate your shared widgets or reducers. Instead, it updates `fission.toml` and writes the generated files needed for the requested hosts under `platforms/`.
+This command does not duplicate your shared widgets or reducers. Instead, it updates [`fission.toml`](/reference/config/fission-toml/) and writes the generated files needed for the requested hosts under `platforms/`.
 
 If you are new to the term, a _target_ in this context means a host environment that packages and launches your shared app. A _generated host_ is the platform-specific wrapper the command-line interface writes so that environment can start the shared runtime. For web, that means a browser-oriented host page and helper script. For Android, that means the generated NativeActivity packaging files and emulator script. For iOS, that means the simulator bundle template and launch script. For desktop, the initial scaffold already gives you the direct desktop entrypoint.
 
@@ -250,7 +250,7 @@ Adds one or more generated host targets to an existing Fission project.
 fission add-capability <capabilities...> [--project-dir <dir>]
 ```
 
-Records host capabilities in `fission.toml` and updates generated platform config where Fission can do that safely. Current values include `nfc`, `biometric`, `passkeys`, `bluetooth`, `barcode-scanner`, `camera`, `geolocation`, `haptics`, `microphone`, `volume-control`, and `wifi`.
+Records host capabilities in [`fission.toml`](/reference/config/fission-toml/) and updates generated platform config where Fission can do that safely. Current manifest values include `barcode-scanner`, `biometric`, `bluetooth`, `camera`, `geolocation`, `haptics`, `microphone`, `nfc`, `notifications`, `passkeys`, `volume-control`, and `wifi`.
 
 Android changes are written to `platforms/android/AndroidManifest.xml`. iOS usage strings are written to `platforms/ios/Info.plist`, and entitlement-backed features such as NFC and Wi-Fi update `platforms/ios/Entitlements.plist`. See [Platform capabilities](/docs/guides/platform-capabilities/) before shipping because some features still need app-specific routes, usage text, app-store setup, or provider implementation.
 
@@ -324,7 +324,7 @@ Renders every static site route and validates generated internal links without p
 fission site build [--project-dir <dir>] [--release]
 ```
 
-Builds the static site into the output directory configured by `[site].out_dir` in `fission.toml`. For the Fission documentation site, that means `documentation/dist/site`. The build writes HTML, `site.css`, copied assets, optional search files, optional code-highlighting hooks, `sitemap.xml`, and `robots.txt` when those features are enabled.
+Builds the static site into the output directory configured by `[site].out_dir` in [`fission.toml`](/reference/config/fission-toml/). For the Fission documentation site, that means `documentation/dist/site`. The build writes HTML, `site.css`, copied assets, optional search files, optional code-highlighting hooks, `sitemap.xml`, and `robots.txt` when those features are enabled.
 
 ### `fission site serve`
 

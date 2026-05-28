@@ -35,7 +35,7 @@ Run this once from the project root:
 fission add-capability wifi --project-dir .
 ```
 
-That command records the capability in `fission.toml` and updates generated platform files where Fission can do so safely. It does not replace product-specific review of native manifests, usage text, entitlements, service identifiers, domains, or store policy.
+That command records the capability in [`fission.toml`](/reference/config/fission-toml/) and updates generated platform files where Fission can do so safely. It does not replace product-specific review of native manifests, usage text, entitlements, service identifiers, domains, or store policy.
 
 The CLI adds Android Wi-Fi, network, nearby Wi-Fi, and older fine-location permissions where needed. iOS requires Wi-Fi information or hotspot entitlements and location usage text for some flows. Desktop providers must use the platform network APIs or return unsupported errors.
 

@@ -49,7 +49,7 @@ Start from your project root:
 fission add-capability camera --project-dir .
 ```
 
-The command updates `fission.toml` and generated target files where the configuration is deterministic. For camera, that means Android camera permission and camera feature entries, plus iOS camera usage text. For features such as passkeys, deep links, notifications, or push, Fission records the capability but cannot safely invent production domains, service identifiers, associated domains, notification categories, or push provider data.
+The command updates [`fission.toml`](/reference/config/fission-toml/) and generated target files where the configuration is deterministic. For camera, that means Android camera permission and camera feature entries, plus iOS camera usage text. For features such as passkeys, deep links, notifications, or push, Fission records the capability but cannot safely invent production domains, service identifiers, associated domains, notification categories, or push provider data.
 
 Run a readiness check before you rely on the target:
 

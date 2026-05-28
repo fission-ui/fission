@@ -32,7 +32,7 @@ The same pattern works for other providers. The target, package format, provider
 
 ## Keep release metadata reviewable
 
-`fission.toml` is the root of the release configuration. It should contain the stable facts a reviewer expects to find quickly: app identity, package identifiers, provider IDs, active release, tracks, locales, and paths to the files that contain longer release content.
+[`fission.toml`](/reference/config/fission-toml/) is the root of the release configuration. It should contain the stable facts a reviewer expects to find quickly: app identity, package identifiers, provider IDs, active release, tracks, locales, and paths to the files that contain longer release content.
 
 Long text should live in referenced files. Full release notes, store descriptions, privacy declarations, review instructions, screenshots, preview videos, trailers, and generated content manifests are too large for the root manifest. Keeping them in `release-content/` makes them easier to review, localize, regenerate, and compare in pull requests.
 
@@ -120,7 +120,7 @@ Receipts record provider IDs, URLs, deployment IDs, submitted tracks, uploaded b
 
 ## Credentials stay out of project files
 
-Secrets do not belong in `fission.toml`. Store tokens, OAuth refresh tokens, signing passwords, API keys, and private keys should come from CI secrets, environment variables, provider CLIs, platform key stores, or the Fission credential vault.
+Secrets do not belong in [`fission.toml`](/reference/config/fission-toml/). Store tokens, OAuth refresh tokens, signing passwords, API keys, and private keys should come from CI secrets, environment variables, provider CLIs, platform key stores, or the Fission credential vault.
 
 Use the auth commands to inspect and manage local provider credentials:
 
@@ -146,7 +146,7 @@ fission beta distribute --project-dir . --provider play-store --artifact target/
 fission distribute status --project-dir . --provider microsoft-store --site production
 ```
 
-When a provider requires a manual first-time setup step, readiness should say exactly what to do and which values from `fission.toml` to copy into the provider portal.
+When a provider requires a manual first-time setup step, readiness should say exactly what to do and which values from [`fission.toml`](/reference/config/fission-toml/) to copy into the provider portal.
 
 ## Where to go next
 
