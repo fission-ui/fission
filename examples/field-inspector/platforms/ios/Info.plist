@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleDevelopmentRegion</key>
+  <string>en</string>
+  <key>CFBundleDisplayName</key>
+  <string>FieldInspector</string>
+  <key>CFBundleExecutable</key>
+  <string>field_inspector</string>
+  <key>CFBundleIdentifier</key>
+  <string>com.fission.examples.fieldinspector</string>
+  <key>CFBundleInfoDictionaryVersion</key>
+  <string>6.0</string>
+  <key>CFBundleName</key>
+  <string>FieldInspector</string>
+  <key>CFBundlePackageType</key>
+  <string>APPL</string>
+  <key>CFBundleShortVersionString</key>
+  <string>0.1.0</string>
+  <key>CFBundleVersion</key>
+  <string>1</string>
+  <key>CFBundleIconFile</key>
+  <string>AppIcon</string>
+  <key>LSRequiresIPhoneOS</key>
+  <true/>
+  <key>MinimumOSVersion</key>
+  <string>18.0</string>
+
+  <key>UIDeviceFamily</key>
+  <array>
+    <integer>1</integer>
+    <integer>2</integer>
+  </array>
+  <key>NFCReaderUsageDescription</key>
+  <string>This app uses NFC to scan nearby tags when you request it.</string>
+  <key>NSFaceIDUsageDescription</key>
+  <string>This app uses biometrics to authenticate you when you request it.</string>
+  <key>NSBluetoothAlwaysUsageDescription</key>
+  <string>This app uses Bluetooth when you request nearby-device features.</string>
+  <key>NSCameraUsageDescription</key>
+  <string>This app uses the camera to scan barcodes when you request it.</string>
+  <key>NSLocationWhenInUseUsageDescription</key>
+  <string>This app uses your location when you request location-aware features.</string>
+  <key>NSMicrophoneUsageDescription</key>
+  <string>This app uses the microphone when you request audio capture.</string>
+</dict>
+</plist>

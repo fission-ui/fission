@@ -1,0 +1,26 @@
+targets = [
+    "android",
+    "ios",
+    "linux",
+    "macos",
+    "web",
+    "windows",
+]
+capabilities = [
+    "barcode-scanner",
+    "biometric",
+    "bluetooth",
+    "camera",
+    "geolocation",
+    "haptics",
+    "microphone",
+    "nfc",
+    "notifications",
+    "passkeys",
+    "volume-control",
+    "wifi",
+]
+
+[app]
+name = "field-inspector"
+app_id = "com.fission.examples.fieldinspector"
