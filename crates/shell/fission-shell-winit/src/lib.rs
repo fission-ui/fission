@@ -93,7 +93,7 @@ pub use geolocation::{GeolocationHost, MemoryGeolocationHost, UnsupportedGeoloca
 mod haptics;
 pub use haptics::{HapticHost, MemoryHapticHost, UnsupportedHapticHost};
 mod barcode;
-#[cfg(any(target_os = "android", target_os = "ios"))]
+#[cfg(any(target_os = "android", target_os = "ios", target_os = "macos"))]
 mod barcode_decode;
 pub use barcode::{BarcodeScannerHost, MemoryBarcodeScannerHost, UnsupportedBarcodeScannerHost};
 mod biometric;
@@ -128,6 +128,8 @@ pub use volume::{MemoryVolumeHost, UnsupportedVolumeHost, VolumeHost};
 mod android_capabilities;
 #[cfg(target_os = "ios")]
 mod ios_capabilities;
+#[cfg(target_os = "macos")]
+mod macos_capabilities;
 #[cfg(target_arch = "wasm32")]
 mod web_capabilities;
 
@@ -234,6 +236,8 @@ fn register_builtin_operation_capabilities(async_registry: &mut AsyncRegistry) {
             async_registry,
             Arc::new(volume::native_volume_host()),
         );
+        #[cfg(target_os = "macos")]
+        macos_capabilities::register_macos_operation_capabilities(async_registry);
         #[cfg(target_os = "ios")]
         ios_capabilities::register_ios_operation_capabilities(async_registry);
     }
