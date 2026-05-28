@@ -489,6 +489,20 @@ fn ensure_target_configured(
 fn run_desktop(project: &FissionProject, options: &RunOptions, device: &Device) -> Result<()> {
     if matches!(device.target, Target::Macos) && cfg!(target_os = "macos") {
         let app = package_macos_run_app(project, &options.project_dir, options.release)?;
+        return run_macos_app_bundle(&app, options);
+    }
+    if matches!(device.target, Target::Linux) && cfg!(target_os = "linux") {
+        let app = package_linux_run_app(project, &options.project_dir, options.release)?;
+        let mut command = Command::new(&app.executable);
+        command.current_dir(&options.project_dir);
+        return run_child(
+            command,
+            options.detach,
+            detached_log_path(&options.project_dir, "desktop"),
+        );
+    }
+    if matches!(device.target, Target::Windows) && cfg!(target_os = "windows") {
+        let app = package_windows_run_app(project, &options.project_dir, options.release)?;
         let mut command = Command::new(&app.executable);
         command.current_dir(&options.project_dir);
         return run_child(
@@ -808,6 +822,11 @@ struct DesktopBinary {
 
 #[derive(Debug)]
 struct MacosRunApp {
+    bundle: PathBuf,
+}
+
+#[derive(Debug)]
+struct DesktopRunApp {
     executable: PathBuf,
 }
 
@@ -966,7 +985,157 @@ fn package_macos_run_app(
     )?;
     fs::write(contents.join("PkgInfo"), "APPL????")?;
 
-    Ok(MacosRunApp { executable })
+    Ok(MacosRunApp { bundle: app_bundle })
+}
+
+fn package_linux_run_app(
+    project: &FissionProject,
+    project_dir: &Path,
+    release: bool,
+) -> Result<DesktopRunApp> {
+    let project_dir = fs::canonicalize(project_dir).with_context(|| {
+        format!(
+            "failed to resolve project directory {}",
+            project_dir.display()
+        )
+    })?;
+    let binary = build_desktop_binary(&project_dir, release)?;
+    let profile = if release { "release" } else { "debug" };
+    let app_root = project_dir
+        .join(".fission/run/linux")
+        .join(profile)
+        .join(sanitize_file_stem(&project.app.name));
+    if app_root.exists() {
+        fs::remove_dir_all(&app_root).with_context(|| {
+            format!(
+                "failed to clear previous Linux run bundle at {}",
+                app_root.display()
+            )
+        })?;
+    }
+    let bin_dir = app_root.join("bin");
+    let applications_dir = app_root.join("share/applications");
+    let icons_dir = app_root.join("share/icons/hicolor/512x512/apps");
+    fs::create_dir_all(&bin_dir)?;
+    fs::create_dir_all(&applications_dir)?;
+    fs::create_dir_all(&icons_dir)?;
+
+    let executable = bin_dir.join(&binary.executable_name);
+    fs::copy(&binary.path, &executable).with_context(|| {
+        format!(
+            "failed to copy {} into Linux development bundle",
+            binary.path.display()
+        )
+    })?;
+    copy_unix_mode(&binary.path, &executable).ok();
+    if let Some(icon) = app_icon_path(&project_dir) {
+        let _ = fs::copy(icon, icons_dir.join(format!("{}.png", project.app.app_id)));
+    }
+    fs::write(
+        applications_dir.join(format!("{}.desktop", project.app.app_id)),
+        render_linux_desktop_entry(project, &executable),
+    )?;
+    Ok(DesktopRunApp { executable })
+}
+
+fn package_windows_run_app(
+    project: &FissionProject,
+    project_dir: &Path,
+    release: bool,
+) -> Result<DesktopRunApp> {
+    let project_dir = fs::canonicalize(project_dir).with_context(|| {
+        format!(
+            "failed to resolve project directory {}",
+            project_dir.display()
+        )
+    })?;
+    let binary = build_desktop_binary(&project_dir, release)?;
+    let profile = if release { "release" } else { "debug" };
+    let app_root = project_dir
+        .join(".fission/run/windows")
+        .join(profile)
+        .join(sanitize_file_stem(&project.app.name));
+    if app_root.exists() {
+        fs::remove_dir_all(&app_root).with_context(|| {
+            format!(
+                "failed to clear previous Windows run bundle at {}",
+                app_root.display()
+            )
+        })?;
+    }
+    fs::create_dir_all(&app_root)?;
+    let executable = app_root.join(platform_executable_name(&binary.executable_name));
+    fs::copy(&binary.path, &executable).with_context(|| {
+        format!(
+            "failed to copy {} into Windows development bundle",
+            binary.path.display()
+        )
+    })?;
+    if let Some(icon) = app_icon_path(&project_dir) {
+        let _ = fs::copy(icon, app_root.join("app-icon.png"));
+    }
+    fs::write(
+        app_root.join(format!(
+            "{}.manifest",
+            platform_executable_name(&binary.executable_name)
+        )),
+        render_windows_development_manifest(project),
+    )?;
+    Ok(DesktopRunApp { executable })
+}
+
+fn run_macos_app_bundle(app: &MacosRunApp, options: &RunOptions) -> Result<()> {
+    let log_path = detached_log_path(&options.project_dir, "desktop");
+    if let Some(parent) = log_path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    File::create(&log_path)
+        .with_context(|| format!("failed to create log file {}", log_path.display()))?;
+
+    let mut command = Command::new("open");
+    command.arg("-n");
+    if !options.detach {
+        command.arg("-W");
+    }
+    command
+        .arg("--stdout")
+        .arg(&log_path)
+        .arg("--stderr")
+        .arg(&log_path);
+    for (key, value) in macos_forwarded_env() {
+        command.arg("--env").arg(format!("{key}={value}"));
+    }
+    command.arg(&app.bundle);
+
+    if options.detach {
+        let status = command
+            .status()
+            .context("failed to launch macOS app bundle")?;
+        if !status.success() {
+            bail!("macOS app launch failed with {status}");
+        }
+        println!(
+            "Started {}. Logs: {}",
+            app.bundle.display(),
+            log_path.display()
+        );
+        Ok(())
+    } else {
+        println!(
+            "Launching {}. Logs: {}",
+            app.bundle.display(),
+            log_path.display()
+        );
+        run_status(&mut command, "macOS app")
+    }
+}
+
+fn macos_forwarded_env() -> Vec<(String, String)> {
+    env::vars()
+        .filter(|(key, _)| {
+            key == "RUST_BACKTRACE" || key.starts_with("FISSION_") || key.starts_with("RUST_LOG")
+        })
+        .collect()
 }
 
 fn render_macos_run_info_plist(
@@ -1074,6 +1243,81 @@ fn macos_display_name(name: &str) -> String {
         }
     }
     out.trim().to_string()
+}
+
+fn render_linux_desktop_entry(project: &FissionProject, executable: &Path) -> String {
+    format!(
+        "[Desktop Entry]\nType=Application\nName={}\nExec={}\nIcon={}\nStartupNotify=true\nStartupWMClass={}\nCategories=Utility;\n",
+        escape_desktop_entry(&macos_display_name(&project.app.name)),
+        escape_desktop_entry(&executable.display().to_string()),
+        escape_desktop_entry(&project.app.app_id),
+        escape_desktop_entry(&project.app.app_id)
+    )
+}
+
+fn render_windows_development_manifest(project: &FissionProject) -> String {
+    format!(
+        r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0">
+  <assemblyIdentity version="1.0.0.0" processorArchitecture="*" name="{}" type="win32"/>
+  <description>{}</description>
+  <trustInfo xmlns="urn:schemas-microsoft-com:asm.v3">
+    <security>
+      <requestedPrivileges>
+        <requestedExecutionLevel level="asInvoker" uiAccess="false"/>
+      </requestedPrivileges>
+    </security>
+  </trustInfo>
+  <application xmlns="urn:schemas-microsoft-com:asm.v3">
+    <windowsSettings>
+      <dpiAware xmlns="http://schemas.microsoft.com/SMI/2005/WindowsSettings">true/pm</dpiAware>
+      <dpiAwareness xmlns="http://schemas.microsoft.com/SMI/2016/WindowsSettings">PerMonitorV2</dpiAwareness>
+    </windowsSettings>
+  </application>
+</assembly>
+"#,
+        escape_xml(&project.app.app_id),
+        escape_xml(&macos_display_name(&project.app.name))
+    )
+}
+
+fn escape_desktop_entry(value: &str) -> String {
+    value
+        .replace('\\', "\\\\")
+        .replace('\n', "\\n")
+        .replace('\r', "")
+}
+
+fn sanitize_file_stem(value: &str) -> String {
+    let sanitized = value
+        .chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | '.') {
+                ch.to_ascii_lowercase()
+            } else {
+                '-'
+            }
+        })
+        .collect::<String>();
+    let trimmed = sanitized.trim_matches(['-', '.', '_']);
+    if trimmed.is_empty() {
+        "app".to_string()
+    } else {
+        trimmed.to_string()
+    }
+}
+
+#[cfg(unix)]
+fn copy_unix_mode(source: &Path, dest: &Path) -> Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+    let mode = fs::metadata(source)?.permissions().mode();
+    fs::set_permissions(dest, fs::Permissions::from_mode(mode))?;
+    Ok(())
+}
+
+#[cfg(not(unix))]
+fn copy_unix_mode(_source: &Path, _dest: &Path) -> Result<()> {
+    Ok(())
 }
 
 fn platform_executable_name(name: &str) -> String {
@@ -1467,4 +1711,37 @@ fn desktop_name() -> &'static str {
 
 fn current_os_detail() -> String {
     env::consts::OS.to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::BTreeSet;
+
+    fn project() -> FissionProject {
+        FissionProject {
+            app: fission_command_core::AppConfig {
+                name: "field-inspector".into(),
+                app_id: "com.fission.examples.fieldinspector".into(),
+            },
+            targets: BTreeSet::new(),
+            capabilities: BTreeSet::new(),
+        }
+    }
+
+    #[test]
+    fn linux_development_entry_uses_app_identity() {
+        let entry = render_linux_desktop_entry(&project(), Path::new("/tmp/field-inspector"));
+        assert!(entry.contains("Name=Field Inspector"));
+        assert!(entry.contains("Icon=com.fission.examples.fieldinspector"));
+        assert!(entry.contains("StartupWMClass=com.fission.examples.fieldinspector"));
+    }
+
+    #[test]
+    fn windows_development_manifest_uses_app_identity() {
+        let manifest = render_windows_development_manifest(&project());
+        assert!(manifest.contains("com.fission.examples.fieldinspector"));
+        assert!(manifest.contains("PerMonitorV2"));
+        assert!(manifest.contains("asInvoker"));
+    }
 }
