@@ -1,8 +1,10 @@
 pub mod doctor;
 
 use anyhow::{bail, Context, Result};
-use fission_command_core::{ios_executable_name, read_project_config, FissionProject, Target};
-use serde::Serialize;
+use fission_command_core::{
+    ios_executable_name, read_project_config, FissionProject, PlatformCapability, Target,
+};
+use serde::{Deserialize, Serialize};
 use std::env;
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, IsTerminal, Read, Seek, Write};
@@ -133,7 +135,7 @@ pub fn run_app(options: RunOptions) -> Result<()> {
     ensure_target_configured(&project, &options.project_dir, device.target)?;
 
     match device.target {
-        Target::Linux | Target::Macos | Target::Windows => run_desktop(&options, &device),
+        Target::Linux | Target::Macos | Target::Windows => run_desktop(&project, &options, &device),
         Target::Web => run_web(&options, &device),
         Target::Site => site_serve(
             &options.project_dir,
@@ -484,7 +486,18 @@ fn ensure_target_configured(
     Ok(())
 }
 
-fn run_desktop(options: &RunOptions, _device: &Device) -> Result<()> {
+fn run_desktop(project: &FissionProject, options: &RunOptions, device: &Device) -> Result<()> {
+    if matches!(device.target, Target::Macos) && cfg!(target_os = "macos") {
+        let app = package_macos_run_app(project, &options.project_dir, options.release)?;
+        let mut command = Command::new(&app.executable);
+        command.current_dir(&options.project_dir);
+        return run_child(
+            command,
+            options.detach,
+            detached_log_path(&options.project_dir, "desktop"),
+        );
+    }
+
     let mut command = Command::new("cargo");
     command.arg("run").current_dir(&options.project_dir);
     if options.release {
@@ -786,13 +799,301 @@ fn run_child(mut command: Command, detach: bool, log_path: PathBuf) -> Result<()
     Ok(())
 }
 
-fn build_desktop(project_dir: &Path, release: bool) -> Result<()> {
+#[derive(Debug)]
+struct DesktopBinary {
+    version: String,
+    executable_name: String,
+    path: PathBuf,
+}
+
+#[derive(Debug)]
+struct MacosRunApp {
+    executable: PathBuf,
+}
+
+#[derive(Debug, Deserialize)]
+struct CargoMetadata {
+    packages: Vec<CargoMetadataPackage>,
+    target_directory: PathBuf,
+}
+
+#[derive(Debug, Deserialize)]
+struct CargoMetadataPackage {
+    name: String,
+    version: String,
+    manifest_path: PathBuf,
+    targets: Vec<CargoMetadataTarget>,
+}
+
+#[derive(Debug, Deserialize)]
+struct CargoMetadataTarget {
+    name: String,
+    kind: Vec<String>,
+}
+
+fn build_desktop_binary(project_dir: &Path, release: bool) -> Result<DesktopBinary> {
+    let project_dir = fs::canonicalize(project_dir).with_context(|| {
+        format!(
+            "failed to resolve project directory {}",
+            project_dir.display()
+        )
+    })?;
+    let metadata = cargo_metadata(&project_dir)?;
+    let manifest_path = fs::canonicalize(project_dir.join("Cargo.toml")).with_context(|| {
+        format!(
+            "failed to resolve Cargo manifest at {}",
+            project_dir.join("Cargo.toml").display()
+        )
+    })?;
+    let package = metadata
+        .packages
+        .iter()
+        .find(|package| package.manifest_path == manifest_path)
+        .or_else(|| metadata.packages.first())
+        .context("cargo metadata did not include a package for this project")?;
+    let executable_name = package
+        .targets
+        .iter()
+        .find(|target| target.kind.iter().any(|kind| kind == "bin") && target.name == package.name)
+        .or_else(|| {
+            package
+                .targets
+                .iter()
+                .find(|target| target.kind.iter().any(|kind| kind == "bin"))
+        })
+        .map(|target| target.name.clone())
+        .with_context(|| {
+            format!(
+                "Cargo package `{}` does not define a binary target",
+                package.name
+            )
+        })?;
+
     let mut command = Command::new("cargo");
-    command.arg("build").current_dir(project_dir);
+    command
+        .arg("build")
+        .arg("--manifest-path")
+        .arg(project_dir.join("Cargo.toml"))
+        .arg("--package")
+        .arg(&package.name)
+        .current_dir(project_dir);
     if release {
         command.arg("--release");
     }
-    run_status(&mut command, "desktop build")
+    run_status(&mut command, "desktop build")?;
+
+    let profile = if release { "release" } else { "debug" };
+    let path = metadata
+        .target_directory
+        .join(profile)
+        .join(platform_executable_name(&executable_name));
+    if !path.exists() {
+        bail!(
+            "desktop build completed but expected binary is missing at {}",
+            path.display()
+        );
+    }
+
+    Ok(DesktopBinary {
+        version: package.version.clone(),
+        executable_name,
+        path,
+    })
+}
+
+fn cargo_metadata(project_dir: &Path) -> Result<CargoMetadata> {
+    let output = Command::new("cargo")
+        .arg("metadata")
+        .arg("--no-deps")
+        .arg("--format-version")
+        .arg("1")
+        .current_dir(project_dir)
+        .output()
+        .context("failed to run cargo metadata")?;
+    if !output.status.success() {
+        io::stderr().write_all(&output.stderr).ok();
+        bail!("cargo metadata failed with {}", output.status);
+    }
+    serde_json::from_slice(&output.stdout).context("failed to parse cargo metadata")
+}
+
+fn package_macos_run_app(
+    project: &FissionProject,
+    project_dir: &Path,
+    release: bool,
+) -> Result<MacosRunApp> {
+    let project_dir = fs::canonicalize(project_dir).with_context(|| {
+        format!(
+            "failed to resolve project directory {}",
+            project_dir.display()
+        )
+    })?;
+    let binary = build_desktop_binary(&project_dir, release)?;
+    let profile = if release { "release" } else { "debug" };
+    let app_name = macos_display_name(&project.app.name);
+    let app_bundle = project_dir
+        .join(".fission/run/macos")
+        .join(profile)
+        .join(format!("{app_name}.app"));
+    let contents = app_bundle.join("Contents");
+    let macos_dir = contents.join("MacOS");
+    let resources_dir = contents.join("Resources");
+    if app_bundle.exists() {
+        fs::remove_dir_all(&app_bundle).with_context(|| {
+            format!(
+                "failed to clear previous macOS run bundle at {}",
+                app_bundle.display()
+            )
+        })?;
+    }
+    fs::create_dir_all(&macos_dir)?;
+    fs::create_dir_all(&resources_dir)?;
+
+    let executable = macos_dir.join(&binary.executable_name);
+    fs::copy(&binary.path, &executable).with_context(|| {
+        format!(
+            "failed to copy {} into macOS app bundle",
+            binary.path.display()
+        )
+    })?;
+    if let Some(icon) = app_icon_path(&project_dir) {
+        let _ = fs::copy(icon, resources_dir.join("AppIcon.png"));
+    }
+
+    fs::write(
+        contents.join("Info.plist"),
+        render_macos_run_info_plist(project, &binary, &app_name),
+    )?;
+    fs::write(contents.join("PkgInfo"), "APPL????")?;
+
+    Ok(MacosRunApp { executable })
+}
+
+fn render_macos_run_info_plist(
+    project: &FissionProject,
+    binary: &DesktopBinary,
+    app_name: &str,
+) -> String {
+    format!(
+        r#"<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleIdentifier</key>
+  <string>{}</string>
+  <key>CFBundleName</key>
+  <string>{}</string>
+  <key>CFBundleDisplayName</key>
+  <string>{}</string>
+  <key>CFBundleExecutable</key>
+  <string>{}</string>
+  <key>CFBundlePackageType</key>
+  <string>APPL</string>
+  <key>CFBundleShortVersionString</key>
+  <string>{}</string>
+  <key>CFBundleVersion</key>
+  <string>{}</string>
+  <key>LSMinimumSystemVersion</key>
+  <string>13.0</string>
+  <key>NSHighResolutionCapable</key>
+  <true/>
+{}
+</dict>
+</plist>
+"#,
+        escape_xml(&project.app.app_id),
+        escape_xml(app_name),
+        escape_xml(app_name),
+        escape_xml(&binary.executable_name),
+        escape_xml(&binary.version),
+        escape_xml(&binary.version),
+        render_macos_run_capability_plist_entries(project)
+    )
+}
+
+fn render_macos_run_capability_plist_entries(project: &FissionProject) -> String {
+    let mut out = String::new();
+    if project
+        .capabilities
+        .contains(&PlatformCapability::Bluetooth)
+    {
+        out.push_str(
+            "  <key>NSBluetoothAlwaysUsageDescription</key>\n  <string>This app uses Bluetooth when you request nearby-device features.</string>\n",
+        );
+    }
+    if project.capabilities.contains(&PlatformCapability::Camera)
+        || project
+            .capabilities
+            .contains(&PlatformCapability::BarcodeScanner)
+    {
+        out.push_str(
+            "  <key>NSCameraUsageDescription</key>\n  <string>This app uses the camera when you request camera or barcode features.</string>\n",
+        );
+    }
+    if project
+        .capabilities
+        .contains(&PlatformCapability::Geolocation)
+        || project.capabilities.contains(&PlatformCapability::Wifi)
+    {
+        out.push_str(
+            "  <key>NSLocationWhenInUseUsageDescription</key>\n  <string>This app uses location information when you request location-aware or Wi-Fi features.</string>\n",
+        );
+    }
+    if project
+        .capabilities
+        .contains(&PlatformCapability::Microphone)
+    {
+        out.push_str(
+            "  <key>NSMicrophoneUsageDescription</key>\n  <string>This app uses the microphone when you request audio capture.</string>\n",
+        );
+    }
+    out
+}
+
+fn app_icon_path(project_dir: &Path) -> Option<PathBuf> {
+    let path = project_dir.join("assets/app-icon.png");
+    path.is_file().then_some(path)
+}
+
+fn macos_display_name(name: &str) -> String {
+    let mut out = String::new();
+    let mut uppercase_next = true;
+    for ch in name.chars() {
+        match ch {
+            '-' | '_' | ' ' => {
+                uppercase_next = true;
+                if !out.ends_with(' ') && !out.is_empty() {
+                    out.push(' ');
+                }
+            }
+            _ if uppercase_next => {
+                out.extend(ch.to_uppercase());
+                uppercase_next = false;
+            }
+            _ => out.push(ch),
+        }
+    }
+    out.trim().to_string()
+}
+
+fn platform_executable_name(name: &str) -> String {
+    if cfg!(target_os = "windows") {
+        format!("{name}.exe")
+    } else {
+        name.to_string()
+    }
+}
+
+fn escape_xml(value: &str) -> String {
+    value
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+}
+
+fn build_desktop(project_dir: &Path, release: bool) -> Result<()> {
+    build_desktop_binary(project_dir, release).map(|_| ())
 }
 
 fn run_target_script<F>(project_dir: &Path, relative_script: &str, configure: F) -> Result<()>
