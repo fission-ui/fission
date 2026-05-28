@@ -1,0 +1,25 @@
+[package]
+name = "field-inspector"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "field_inspector"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+anyhow = "1.0"
+fission = { path = "../../crates/authoring/fission", default-features = false, features = ["desktop", "web", "android", "ios"] }
+serde = { version = "1.0", features = ["derive"] }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+console_error_panic_hook = "0.1"
+reqwest = { version = "0.12", default-features = false, features = ["json"] }
+wasm-bindgen = "0.2"
+
+[dev-dependencies]
+fission-test-driver = { path = "../../crates/tools/fission-test-driver" }
+serde_json = "1.0"

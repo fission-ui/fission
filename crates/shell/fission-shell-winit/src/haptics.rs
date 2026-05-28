@@ -5,6 +5,13 @@ use fission_core::{
 use fission_shell::async_host::AsyncRegistry;
 use std::sync::{Arc, Mutex};
 
+#[cfg(any(target_os = "macos", target_os = "ios"))]
+use objc::{class, msg_send, sel, sel_impl};
+
+#[cfg(target_os = "ios")]
+#[link(name = "UIKit", kind = "framework")]
+extern "C" {}
+
 /// Host-side haptic feedback provider used by shell capability registration.
 pub trait HapticHost: Send + Sync + 'static {
     /// Plays impact feedback with the requested strength.
@@ -19,6 +26,161 @@ pub trait HapticHost: Send + Sync + 'static {
 
 #[derive(Debug, Default)]
 pub struct UnsupportedHapticHost;
+
+#[derive(Debug, Default)]
+pub struct NativeHapticHost;
+
+pub(crate) fn native_haptic_host() -> NativeHapticHost {
+    NativeHapticHost
+}
+
+impl NativeHapticHost {
+    #[cfg(target_os = "macos")]
+    fn perform_macos_haptic(pattern: usize) -> Result<(), HapticError> {
+        unsafe {
+            let manager = class!(NSHapticFeedbackManager);
+            let performer: *mut objc::runtime::Object = msg_send![manager, defaultPerformer];
+            if performer.is_null() {
+                return Err(HapticError::unsupported("macos_haptic_feedback"));
+            }
+            let _: () = msg_send![
+                performer,
+                performFeedbackPattern: pattern
+                performanceTime: 0usize
+            ];
+        }
+        Ok(())
+    }
+
+    #[cfg(target_os = "ios")]
+    fn perform_ios_impact(style: isize) -> Result<(), HapticError> {
+        unsafe {
+            let class = class!(UIImpactFeedbackGenerator);
+            let generator: *mut objc::runtime::Object = msg_send![class, alloc];
+            let generator: *mut objc::runtime::Object = msg_send![generator, initWithStyle: style];
+            let _: () = msg_send![generator, prepare];
+            let _: () = msg_send![generator, impactOccurred];
+        }
+        Ok(())
+    }
+
+    #[cfg(target_os = "ios")]
+    fn perform_ios_selection() -> Result<(), HapticError> {
+        unsafe {
+            let class = class!(UISelectionFeedbackGenerator);
+            let generator: *mut objc::runtime::Object = msg_send![class, new];
+            let _: () = msg_send![generator, prepare];
+            let _: () = msg_send![generator, selectionChanged];
+        }
+        Ok(())
+    }
+
+    #[cfg(target_os = "ios")]
+    fn perform_ios_notification(kind: isize) -> Result<(), HapticError> {
+        unsafe {
+            let class = class!(UINotificationFeedbackGenerator);
+            let generator: *mut objc::runtime::Object = msg_send![class, new];
+            let _: () = msg_send![generator, prepare];
+            let _: () = msg_send![generator, notificationOccurred: kind];
+        }
+        Ok(())
+    }
+}
+
+impl HapticHost for NativeHapticHost {
+    fn impact(&self, request: HapticImpactRequest) -> Result<(), HapticError> {
+        #[cfg(target_os = "ios")]
+        {
+            let style = match request.style {
+                fission_core::HapticImpactStyle::Light | fission_core::HapticImpactStyle::Soft => 0,
+                fission_core::HapticImpactStyle::Medium => 1,
+                fission_core::HapticImpactStyle::Heavy | fission_core::HapticImpactStyle::Rigid => {
+                    2
+                }
+            };
+            return Self::perform_ios_impact(style);
+        }
+
+        #[cfg(target_os = "macos")]
+        {
+            let pattern = match request.style {
+                fission_core::HapticImpactStyle::Light | fission_core::HapticImpactStyle::Soft => 1,
+                fission_core::HapticImpactStyle::Medium => 0,
+                fission_core::HapticImpactStyle::Heavy | fission_core::HapticImpactStyle::Rigid => {
+                    2
+                }
+            };
+            return Self::perform_macos_haptic(pattern);
+        }
+
+        #[cfg(not(any(target_os = "macos", target_os = "ios")))]
+        {
+            let _ = request;
+            Err(HapticError::unsupported("impact"))
+        }
+    }
+
+    fn notification(&self, request: HapticNotificationRequest) -> Result<(), HapticError> {
+        #[cfg(target_os = "ios")]
+        {
+            let kind = match request.kind {
+                fission_core::HapticNotificationKind::Success => 0,
+                fission_core::HapticNotificationKind::Warning => 1,
+                fission_core::HapticNotificationKind::Error => 2,
+            };
+            return Self::perform_ios_notification(kind);
+        }
+
+        #[cfg(target_os = "macos")]
+        {
+            let _ = request;
+            return Self::perform_macos_haptic(0);
+        }
+
+        #[cfg(not(any(target_os = "macos", target_os = "ios")))]
+        {
+            let _ = request;
+            Err(HapticError::unsupported("notification"))
+        }
+    }
+
+    fn selection(&self) -> Result<(), HapticError> {
+        #[cfg(target_os = "ios")]
+        {
+            return Self::perform_ios_selection();
+        }
+
+        #[cfg(target_os = "macos")]
+        {
+            return Self::perform_macos_haptic(1);
+        }
+
+        #[cfg(not(any(target_os = "macos", target_os = "ios")))]
+        {
+            Err(HapticError::unsupported("selection"))
+        }
+    }
+
+    fn pattern(&self, request: HapticPatternRequest) -> Result<(), HapticError> {
+        #[cfg(target_os = "ios")]
+        {
+            let _ = request;
+            return Self::perform_ios_impact(1);
+        }
+
+        #[cfg(target_os = "macos")]
+        {
+            let _ = request;
+            return Self::perform_macos_haptic(0);
+        }
+
+        #[cfg(not(any(target_os = "macos", target_os = "ios")))]
+        {
+            let _ = request;
+            Err(HapticError::unsupported("pattern"))
+        }
+    }
+}
 
 impl HapticHost for UnsupportedHapticHost {
     fn impact(&self, _request: HapticImpactRequest) -> Result<(), HapticError> {

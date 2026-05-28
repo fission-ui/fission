@@ -93,6 +93,8 @@ pub use geolocation::{GeolocationHost, MemoryGeolocationHost, UnsupportedGeoloca
 mod haptics;
 pub use haptics::{HapticHost, MemoryHapticHost, UnsupportedHapticHost};
 mod barcode;
+#[cfg(any(target_os = "android", target_os = "ios", target_os = "macos"))]
+mod barcode_decode;
 pub use barcode::{BarcodeScannerHost, MemoryBarcodeScannerHost, UnsupportedBarcodeScannerHost};
 mod biometric;
 pub use biometric::{BiometricHost, MemoryBiometricHost, UnsupportedBiometricHost};
@@ -122,6 +124,14 @@ mod wifi;
 pub use wifi::{MemoryWifiHost, UnsupportedWifiHost, WifiHost};
 mod volume;
 pub use volume::{MemoryVolumeHost, UnsupportedVolumeHost, VolumeHost};
+#[cfg(target_os = "android")]
+mod android_capabilities;
+#[cfg(target_os = "ios")]
+mod ios_capabilities;
+#[cfg(target_os = "macos")]
+mod macos_capabilities;
+#[cfg(target_arch = "wasm32")]
+mod web_capabilities;
 
 use fission_core::action::ActionEnvelope;
 
@@ -179,31 +189,58 @@ fn register_builtin_operation_capabilities(async_registry: &mut AsyncRegistry) {
             Ok(())
         },
     );
-    notifications::register_notification_capabilities(
-        async_registry,
-        Arc::new(UnsupportedNotificationHost),
-    );
-    nfc::register_nfc_capabilities(async_registry, Arc::new(UnsupportedNfcHost));
-    biometric::register_biometric_capabilities(async_registry, Arc::new(UnsupportedBiometricHost));
-    passkey::register_passkey_capabilities(async_registry, Arc::new(UnsupportedPasskeyHost));
-    bluetooth::register_bluetooth_capabilities(async_registry, Arc::new(UnsupportedBluetoothHost));
-    barcode::register_barcode_scanner_capabilities(
-        async_registry,
-        Arc::new(UnsupportedBarcodeScannerHost),
-    );
-    camera::register_camera_capabilities(async_registry, Arc::new(UnsupportedCameraHost));
-    clipboard::register_clipboard_capabilities(async_registry, Arc::new(DesktopClipboard::new()));
-    geolocation::register_geolocation_capabilities(
-        async_registry,
-        Arc::new(UnsupportedGeolocationHost),
-    );
-    haptics::register_haptic_capabilities(async_registry, Arc::new(UnsupportedHapticHost));
-    microphone::register_microphone_capabilities(
-        async_registry,
-        Arc::new(UnsupportedMicrophoneHost),
-    );
-    wifi::register_wifi_capabilities(async_registry, Arc::new(UnsupportedWifiHost));
-    volume::register_volume_capabilities(async_registry, Arc::new(UnsupportedVolumeHost));
+    #[cfg(target_arch = "wasm32")]
+    {
+        web_capabilities::register_web_operation_capabilities(async_registry);
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        notifications::register_notification_capabilities(
+            async_registry,
+            Arc::new(notifications::native_notification_host()),
+        );
+        nfc::register_nfc_capabilities(async_registry, Arc::new(UnsupportedNfcHost));
+        biometric::register_biometric_capabilities(
+            async_registry,
+            Arc::new(UnsupportedBiometricHost),
+        );
+        passkey::register_passkey_capabilities(async_registry, Arc::new(UnsupportedPasskeyHost));
+        bluetooth::register_bluetooth_capabilities(
+            async_registry,
+            Arc::new(UnsupportedBluetoothHost),
+        );
+        barcode::register_barcode_scanner_capabilities(
+            async_registry,
+            Arc::new(UnsupportedBarcodeScannerHost),
+        );
+        camera::register_camera_capabilities(async_registry, Arc::new(UnsupportedCameraHost));
+        clipboard::register_clipboard_capabilities(
+            async_registry,
+            Arc::new(DesktopClipboard::new()),
+        );
+        geolocation::register_geolocation_capabilities(
+            async_registry,
+            Arc::new(UnsupportedGeolocationHost),
+        );
+        haptics::register_haptic_capabilities(
+            async_registry,
+            Arc::new(haptics::native_haptic_host()),
+        );
+        microphone::register_microphone_capabilities(
+            async_registry,
+            Arc::new(UnsupportedMicrophoneHost),
+        );
+        wifi::register_wifi_capabilities(async_registry, Arc::new(UnsupportedWifiHost));
+        volume::register_volume_capabilities(
+            async_registry,
+            Arc::new(volume::native_volume_host()),
+        );
+        #[cfg(target_os = "macos")]
+        macos_capabilities::register_macos_operation_capabilities(async_registry);
+        #[cfg(target_os = "ios")]
+        ios_capabilities::register_ios_operation_capabilities(async_registry);
+    }
 }
 
 fn collect_startup_deep_links(config: &DeepLinkConfig) -> Vec<DeepLink> {
@@ -323,9 +360,34 @@ struct WindowViewportState {
 
 impl WindowViewportState {
     fn from_window(window: &Window) -> Self {
-        Self {
-            physical_size: window.inner_size(),
-            scale_factor: normalize_scale_factor(window.scale_factor()),
+        #[cfg(target_arch = "wasm32")]
+        if let Some(viewport) = web_browser_viewport_state() {
+            return viewport;
+        }
+
+        let reported_scale_factor = normalize_scale_factor(window.scale_factor());
+        #[cfg(target_os = "ios")]
+        {
+            let mut physical_size = window.inner_size();
+            let effective_scale_factor = ios_effective_scale_factor(reported_scale_factor);
+            if effective_scale_factor > reported_scale_factor && reported_scale_factor <= 1.0 {
+                physical_size = logical_viewport_to_physical_size(
+                    LayoutSize::new(physical_size.width as f32, physical_size.height as f32),
+                    effective_scale_factor,
+                );
+            }
+            return Self {
+                physical_size,
+                scale_factor: effective_scale_factor,
+            };
+        }
+
+        #[cfg(not(target_os = "ios"))]
+        {
+            Self {
+                physical_size: window.inner_size(),
+                scale_factor: reported_scale_factor,
+            }
         }
     }
 
@@ -475,12 +537,13 @@ fn build_window(
         // app explicitly opts into the device scale. Without this, iOS presents
         // a 1x render target scaled up by the simulator/device, which makes the
         // shell look visibly soft compared with web and Android.
-        let scale_factor = target
+        let reported_scale_factor = target
             .primary_monitor()
             .map(|monitor| monitor.scale_factor())
-            .filter(|scale| scale.is_finite() && *scale > 0.0)
             .unwrap_or(1.0);
-        window_builder = window_builder.with_scale_factor(scale_factor);
+        window_builder = window_builder.with_scale_factor(ios_effective_scale_factor(
+            normalize_scale_factor(reported_scale_factor),
+        ));
     }
     #[cfg(target_arch = "wasm32")]
     {
@@ -550,7 +613,7 @@ fn canvas_for_mount_selector(selector: &str) -> anyhow::Result<web_sys::HtmlCanv
 #[cfg(target_arch = "wasm32")]
 fn apply_web_canvas_style(canvas: &web_sys::HtmlCanvasElement) -> anyhow::Result<()> {
     let existing = canvas.get_attribute("style").unwrap_or_default();
-    let suffix = "display:block;border:0;outline:none;user-select:none;-webkit-user-drag:none;touch-action:none;-webkit-tap-highlight-color:transparent;";
+    let suffix = "display:block;width:100%;height:100%;border:0;outline:none;user-select:none;-webkit-user-drag:none;touch-action:none;-webkit-tap-highlight-color:transparent;";
     let style = if existing.trim().is_empty() {
         suffix.to_string()
     } else {
@@ -2111,8 +2174,79 @@ fn handle_key_down<S: AppState>(
     false
 }
 
+fn rects_intersect(a: LayoutRect, b: LayoutRect) -> bool {
+    a.x() < b.right() && a.right() > b.x() && a.y() < b.bottom() && a.bottom() > b.y()
+}
+
+fn visual_rect_for_node(
+    ir: &CoreIR,
+    snap: &fission_layout::LayoutSnapshot,
+    scroll: &fission_core::ScrollStateMap,
+    node_id: NodeId,
+) -> Option<LayoutRect> {
+    let mut rect = snap.get_node_rect(node_id)?;
+    let mut current = ir.nodes.get(&node_id).and_then(|node| node.parent);
+    while let Some(parent_id) = current {
+        let Some(parent) = ir.nodes.get(&parent_id) else {
+            break;
+        };
+        if let fission_ir::Op::Layout(fission_ir::LayoutOp::Scroll { direction, .. }) = &parent.op {
+            let offset = scroll.get_offset(parent_id);
+            match direction {
+                fission_ir::FlexDirection::Row => rect.origin.x -= offset,
+                fission_ir::FlexDirection::Column => rect.origin.y -= offset,
+            }
+        }
+        current = parent.parent;
+    }
+    Some(rect)
+}
+
+fn rect_visible_in_scroll_ancestors(
+    ir: &CoreIR,
+    snap: &fission_layout::LayoutSnapshot,
+    scroll: &fission_core::ScrollStateMap,
+    node_id: NodeId,
+    rect: LayoutRect,
+) -> bool {
+    let viewport = LayoutRect::new(
+        0.0,
+        0.0,
+        snap.viewport_size.width,
+        snap.viewport_size.height,
+    );
+    if !rects_intersect(rect, viewport) {
+        return false;
+    }
+
+    let mut current = ir.nodes.get(&node_id).and_then(|node| node.parent);
+    while let Some(parent_id) = current {
+        let Some(parent) = ir.nodes.get(&parent_id) else {
+            break;
+        };
+        if matches!(
+            parent.op,
+            fission_ir::Op::Layout(fission_ir::LayoutOp::Scroll { .. })
+                | fission_ir::Op::Layout(fission_ir::LayoutOp::Clip { .. })
+        ) {
+            let Some(parent_rect) = visual_rect_for_node(ir, snap, scroll, parent_id) else {
+                return false;
+            };
+            if !rects_intersect(rect, parent_rect) {
+                return false;
+            }
+        }
+        current = parent.parent;
+    }
+
+    true
+}
+
 /// Build the response for a GetText query.
-fn build_get_text_response(pipeline: &Pipeline) -> fission_test_driver::TestResponse {
+fn build_get_text_response(
+    pipeline: &Pipeline,
+    scroll: &fission_core::ScrollStateMap,
+) -> fission_test_driver::TestResponse {
     use fission_test_driver::{TestResponse, TextItem};
     let mut items = Vec::new();
     if let (Some(ir), Some(snap)) = (pipeline.prev_ir.as_ref(), pipeline.last_snapshot.as_ref()) {
@@ -2145,12 +2279,15 @@ fn build_get_text_response(pipeline: &Pipeline) -> fission_test_driver::TestResp
                     continue;
                 }
                 let check_id = node.parent.unwrap_or(id);
-                let rect = snap
-                    .get_node_rect(check_id)
-                    .or_else(|| snap.get_node_rect(id));
+                let rect = visual_rect_for_node(ir, snap, scroll, check_id)
+                    .or_else(|| visual_rect_for_node(ir, snap, scroll, id));
                 let (x, y, w, h) = rect
+                    .filter(|r| rect_visible_in_scroll_ancestors(ir, snap, scroll, id, *r))
                     .map(|r| (r.x(), r.y(), r.width(), r.height()))
                     .unwrap_or((0.0, 0.0, 0.0, 0.0));
+                if w <= 0.0 || h <= 0.0 {
+                    continue;
+                }
                 items.push(TextItem {
                     text,
                     x,
@@ -2164,8 +2301,13 @@ fn build_get_text_response(pipeline: &Pipeline) -> fission_test_driver::TestResp
     TestResponse::Text { items }
 }
 
-fn find_visible_text_center(pipeline: &Pipeline, text: &str) -> Option<(f32, f32)> {
-    let fission_test_driver::TestResponse::Text { items } = build_get_text_response(pipeline)
+fn find_visible_text_center(
+    pipeline: &Pipeline,
+    scroll: &fission_core::ScrollStateMap,
+    text: &str,
+) -> Option<(f32, f32)> {
+    let fission_test_driver::TestResponse::Text { items } =
+        build_get_text_response(pipeline, scroll)
     else {
         return None;
     };
@@ -2176,19 +2318,23 @@ fn find_visible_text_center(pipeline: &Pipeline, text: &str) -> Option<(f32, f32
 }
 
 /// Build the response for a GetTree query.
-fn build_get_tree_response(pipeline: &Pipeline) -> fission_test_driver::TestResponse {
+fn build_get_tree_response(
+    pipeline: &Pipeline,
+    scroll: &fission_core::ScrollStateMap,
+) -> fission_test_driver::TestResponse {
     use fission_test_driver::{SemanticNode, TestResponse};
     let mut nodes = Vec::new();
-    if let Some(ir) = &pipeline.prev_ir {
+    if let (Some(ir), Some(snap)) = (&pipeline.prev_ir, &pipeline.last_snapshot) {
         for (id, node) in &ir.nodes {
             if let fission_ir::Op::Semantics(sem) = &node.op {
-                let rect = pipeline
-                    .last_snapshot
-                    .as_ref()
-                    .and_then(|s| s.get_node_rect(*id));
+                let rect = visual_rect_for_node(ir, snap, scroll, *id)
+                    .filter(|r| rect_visible_in_scroll_ancestors(ir, snap, scroll, *id, *r));
                 let (x, y, w, h) = rect
                     .map(|r| (r.x(), r.y(), r.width(), r.height()))
                     .unwrap_or((0.0, 0.0, 0.0, 0.0));
+                if w <= 0.0 || h <= 0.0 {
+                    continue;
+                }
                 nodes.push(SemanticNode {
                     role: format!("{:?}", sem.role),
                     label: sem.label.clone(),
@@ -2213,7 +2359,9 @@ fn handle_tap_text(
 ) -> fission_test_driver::TestResponse {
     use fission_test_driver::TestResponse;
     if let (Some(ir), Some(snap)) = (pipeline.prev_ir.as_ref(), pipeline.last_snapshot.as_ref()) {
-        if let Some((cx, cy)) = find_visible_text_center(pipeline, text) {
+        if let Some((cx, cy)) =
+            find_visible_text_center(pipeline, &runtime.runtime_state.scroll, text)
+        {
             let point = LayoutPoint::new(cx, cy);
             let _ = runtime.handle_input(
                 InputEvent::Pointer(PointerEvent::Down {
@@ -2752,6 +2900,13 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
         // This allows the test control server to inject events via EventLoopProxy.
         let background_test_mode = std::env::var_os("FISSION_BACKGROUND_TEST").is_some();
         let mut event_loop_builder = EventLoopBuilder::<TestEvent>::with_user_event();
+        #[cfg(target_os = "android")]
+        if let Some(app) = android_app.as_ref() {
+            android_capabilities::register_android_operation_capabilities(
+                &mut self.async_registry,
+                app,
+            );
+        }
         #[cfg(target_os = "android")]
         if let Some(app) = android_app {
             event_loop_builder.with_android_app(app);
@@ -3356,11 +3511,13 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                             window.request_redraw();
                         }
                         TestEvent::GetText { response_tx } => {
-                            let resp = build_get_text_response(&pipeline);
+                            let resp =
+                                build_get_text_response(&pipeline, &runtime.runtime_state.scroll);
                             let _ = response_tx.send(resp);
                         }
                         TestEvent::GetTree { response_tx } => {
-                            let resp = build_get_tree_response(&pipeline);
+                            let resp =
+                                build_get_tree_response(&pipeline, &runtime.runtime_state.scroll);
                             let _ = response_tx.send(resp);
                         }
                         TestEvent::Pump { response_tx } => {
@@ -5617,6 +5774,39 @@ fn normalize_scale_factor(scale_factor: f64) -> f64 {
     }
 }
 
+#[cfg(target_os = "ios")]
+fn ios_effective_scale_factor(reported_scale_factor: f64) -> f64 {
+    std::env::var("FISSION_IOS_SCALE_FACTOR")
+        .ok()
+        .and_then(|value| value.parse::<f64>().ok())
+        .filter(|scale| scale.is_finite() && *scale > 0.0)
+        .unwrap_or_else(|| {
+            if reported_scale_factor >= 2.0 {
+                reported_scale_factor
+            } else {
+                3.0
+            }
+        })
+}
+
+#[cfg(target_arch = "wasm32")]
+fn web_browser_viewport_state() -> Option<WindowViewportState> {
+    let window = web_sys::window()?;
+    let width = window.inner_width().ok()?.as_f64()? as f32;
+    let height = window.inner_height().ok()?.as_f64()? as f32;
+    if !width.is_finite() || !height.is_finite() || width <= 0.0 || height <= 0.0 {
+        return None;
+    }
+    let scale_factor = normalize_scale_factor(window.device_pixel_ratio());
+    Some(WindowViewportState {
+        physical_size: logical_viewport_to_physical_size(
+            LayoutSize::new(width, height),
+            scale_factor,
+        ),
+        scale_factor,
+    })
+}
+
 fn physical_size_to_layout_size(size: PhysicalSize<u32>, scale_factor: f64) -> LayoutSize {
     let scale_factor = normalize_scale_factor(scale_factor);
     LayoutSize {
@@ -5688,16 +5878,18 @@ mod tests {
         logical_viewport_to_physical_size, logical_viewport_to_render_target_size,
         native_window_size_for_logical_viewport, normalize_scale_factor,
         normalize_winit_scroll_delta, physical_position_to_layout_point,
-        physical_size_to_layout_size, repeating_animation_redraw_interval, resize_is_unsettled,
-        resolve_build_viewport, sync_tracked_target_texture_size_to_surface,
-        texture_plans_fit_device_limits, LiveResizeController, WindowViewportState,
+        physical_size_to_layout_size, rect_visible_in_scroll_ancestors,
+        repeating_animation_redraw_interval, resize_is_unsettled, resolve_build_viewport,
+        sync_tracked_target_texture_size_to_surface, texture_plans_fit_device_limits,
+        visual_rect_for_node, LiveResizeController, WindowViewportState,
     };
     use crate::pipeline::CompositorTexturePlan;
     use crate::InvalidationSet;
-    use fission_core::env::{ActiveAnimation, AnimationStateMap};
+    use fission_core::env::{ActiveAnimation, AnimationStateMap, ScrollStateMap};
     use fission_core::{AnimationPropertyId, DeepLinkConfig, WidgetNodeId};
     use fission_ir::semantics::MouseCursor;
-    use fission_layout::{LayoutRect, LayoutSize};
+    use fission_ir::{CoreIR, FlexDirection, LayoutOp, NodeId, Op};
+    use fission_layout::{LayoutNodeGeometry, LayoutRect, LayoutSize, LayoutSnapshot};
     use std::collections::HashMap;
     use std::time::Duration;
     use winit::dpi::{PhysicalPosition, PhysicalSize};
@@ -5752,6 +5944,69 @@ mod tests {
             PhysicalPosition::new(0, 100),
         );
         assert_eq!(point, fission_render::LayoutPoint::new(120.0, 180.0));
+    }
+
+    #[test]
+    fn visual_rect_subtracts_ancestor_scroll_offset() {
+        let scroll = NodeId::from_u128(1);
+        let child = NodeId::from_u128(2);
+        let mut ir = CoreIR::new();
+        ir.add_node(
+            child,
+            Op::Paint(fission_ir::PaintOp::DrawRect {
+                fill: None,
+                stroke: None,
+                corner_radius: 0.0,
+                shadow: None,
+            }),
+            Vec::new(),
+        );
+        ir.add_node(
+            scroll,
+            Op::Layout(LayoutOp::Scroll {
+                direction: FlexDirection::Column,
+                show_scrollbar: true,
+                width: None,
+                height: None,
+                min_width: None,
+                max_width: None,
+                min_height: None,
+                max_height: None,
+                padding: [0.0; 4],
+                flex_grow: 0.0,
+                flex_shrink: 1.0,
+            }),
+            vec![child],
+        );
+        ir.set_root(scroll);
+
+        let mut snapshot = LayoutSnapshot::new(LayoutSize::new(100.0, 100.0));
+        snapshot.nodes.insert(
+            scroll,
+            LayoutNodeGeometry {
+                rect: LayoutRect::new(0.0, 0.0, 100.0, 100.0),
+                content_size: LayoutSize::new(100.0, 400.0),
+            },
+        );
+        snapshot.nodes.insert(
+            child,
+            LayoutNodeGeometry {
+                rect: LayoutRect::new(0.0, 150.0, 80.0, 20.0),
+                content_size: LayoutSize::new(80.0, 20.0),
+            },
+        );
+        let mut scroll_map = ScrollStateMap::default();
+        scroll_map.set_offset(scroll, 120.0);
+
+        let visual = visual_rect_for_node(&ir, &snapshot, &scroll_map, child).unwrap();
+        assert_eq!(visual, LayoutRect::new(0.0, 30.0, 80.0, 20.0));
+        assert!(rect_visible_in_scroll_ancestors(
+            &ir,
+            &snapshot,
+            &scroll_map,
+            child,
+            visual
+        ));
     }
 
     #[test]

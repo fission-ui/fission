@@ -152,6 +152,14 @@ fn fill_paint(fill: &Fill) -> Paint<'static> {
     paint
 }
 
+fn normalized_scale_factor(scale_factor: f32) -> f32 {
+    if scale_factor.is_finite() && scale_factor > 0.0 {
+        scale_factor
+    } else {
+        1.0
+    }
+}
+
 fn stroke_style(stroke: &Stroke) -> TinyStroke {
     let mut style = TinyStroke::default();
     style.width = stroke.width;
@@ -658,6 +666,43 @@ mod image_tests {
     }
 
     #[test]
+    fn high_dpi_render_uses_device_space_without_logical_upscale() {
+        let bounds = fission_render::LayoutRect::new(0.0, 0.0, 10.0, 10.0);
+        let rect = fission_render::LayoutRect::new(1.0, 1.0, 2.0, 2.0);
+        let mut display_list = DisplayList::new(bounds);
+        display_list.push(DisplayOp::DrawRect {
+            rect,
+            fill: Some(Fill::Solid(RenderColor {
+                r: 255,
+                g: 0,
+                b: 0,
+                a: 255,
+            })),
+            stroke: None,
+            corner_radius: 0.0,
+            shadow: None,
+            bounds: rect,
+            node_id: None,
+        });
+        let scene = RenderScene::from_display_list(display_list);
+        let transparent = RenderColor {
+            r: 0,
+            g: 0,
+            b: 0,
+            a: 0,
+        };
+        let pixels = SoftwareRenderer::render(&scene, 20, 20, transparent, 2.0)
+            .expect("render high-DPI software scene");
+
+        let pixel_at = |x: usize, y: usize| {
+            let start = (y * 20 + x) * 4;
+            &pixels[start..start + 4]
+        };
+        assert_eq!(pixel_at(0, 0), &[0, 0, 0, 0]);
+        assert_eq!(pixel_at(3, 3), &[255, 0, 0, 255]);
+    }
+
+    #[test]
     fn cover_image_draw_is_clipped_to_destination_rect() {
         let request = ImageRequest {
             source: ImageSource::Memory {
@@ -714,18 +759,25 @@ mod image_tests {
 pub struct SoftwareRenderer {
     width: u32,
     height: u32,
+    scale_factor: f32,
     surfaces: Vec<Pixmap>,
     states: Vec<DrawState>,
 }
 
 impl SoftwareRenderer {
-    pub fn new(width: u32, height: u32, background: RenderColor) -> Result<Self> {
+    fn new_with_scale(
+        width: u32,
+        height: u32,
+        background: RenderColor,
+        scale_factor: f32,
+    ) -> Result<Self> {
         let mut root = Pixmap::new(width.max(1), height.max(1))
             .ok_or_else(|| anyhow!("failed to allocate software render target"))?;
         root.fill(tiny_color(background));
         Ok(Self {
             width: width.max(1),
             height: height.max(1),
+            scale_factor: normalized_scale_factor(scale_factor),
             surfaces: vec![root],
             states: vec![DrawState {
                 transform: Transform::identity(),
@@ -743,33 +795,11 @@ impl SoftwareRenderer {
         background: RenderColor,
         scale_factor: f32,
     ) -> Result<Vec<u8>> {
-        let logical_width = ((width.max(1) as f32) / scale_factor.max(1.0)).round() as u32;
-        let logical_height = ((height.max(1) as f32) / scale_factor.max(1.0)).round() as u32;
-        let mut renderer = Self::new(logical_width.max(1), logical_height.max(1), background)?;
+        let mut renderer =
+            Self::new_with_scale(width.max(1), height.max(1), background, scale_factor)?;
         let display_list = scene.flatten();
         renderer.render_ops(&display_list)?;
-        if scale_factor <= 1.0 {
-            return Ok(renderer.finish());
-        }
-
-        let logical = renderer.finish_pixmap();
-        let mut output = Pixmap::new(width.max(1), height.max(1))
-            .ok_or_else(|| anyhow!("failed to allocate upscaled software render target"))?;
-        output.fill(tiny_color(background));
-        let mut paint = PixmapPaint::default();
-        paint.quality = FilterQuality::Bilinear;
-        output.draw_pixmap(
-            0,
-            0,
-            logical.as_ref(),
-            &paint,
-            Transform::from_scale(
-                width.max(1) as f32 / logical.width() as f32,
-                height.max(1) as f32 / logical.height() as f32,
-            ),
-            None,
-        );
-        Ok(output.take())
+        Ok(renderer.finish())
     }
 
     fn finish(self) -> Vec<u8> {
@@ -799,6 +829,15 @@ impl SoftwareRenderer {
 
     fn current_clip(&self) -> Option<&Mask> {
         self.current_state().clip.as_ref()
+    }
+
+    fn device_transform(&self, logical: Transform) -> Transform {
+        let scale = self.scale_factor;
+        logical.post_scale(scale, scale)
+    }
+
+    fn current_device_transform(&self) -> Transform {
+        self.device_transform(self.current_state().transform)
     }
 
     fn push_state(&mut self) {
@@ -837,7 +876,7 @@ impl SoftwareRenderer {
     }
 
     fn ensure_clip_path(&mut self, path: &Path) {
-        let transform = self.current_state().transform;
+        let transform = self.current_device_transform();
         let width = self.width;
         let height = self.height;
         let state = self.current_state_mut();
@@ -1003,7 +1042,7 @@ impl SoftwareRenderer {
         }
         .ok_or_else(|| anyhow!("failed to build rectangle path"))?;
 
-        let transform = self.current_state().transform;
+        let transform = self.current_device_transform();
         let clip = self.current_clip().cloned();
         let surface = self.current_surface_mut();
 
@@ -1171,7 +1210,7 @@ impl SoftwareRenderer {
         color_for: impl Fn(&fontdue::layout::GlyphPosition<U>, &U) -> RenderColor,
     ) -> Result<()> {
         let font = default_font();
-        let transform = self.current_state().transform;
+        let transform = self.current_device_transform();
         let clip = self.current_clip().cloned();
         let surface = self.current_surface_mut();
 
@@ -1180,7 +1219,26 @@ impl SoftwareRenderer {
                 continue;
             }
             let color = color_for(glyph, &glyph.user_data);
-            let (metrics, bitmap) = font.rasterize_indexed(glyph.key.glyph_index, glyph.key.px);
+            let (draw_x, draw_y, px, draw_transform) = if transform.is_scale_translate()
+                && transform.sx > 0.0
+                && transform.sy > 0.0
+                && (transform.sx - transform.sy).abs() < 0.01
+            {
+                (
+                    (glyph.x * transform.sx + transform.tx).round() as i32,
+                    (glyph.y * transform.sy + transform.ty).round() as i32,
+                    (glyph.key.px * transform.sx).max(1.0),
+                    Transform::identity(),
+                )
+            } else {
+                (
+                    glyph.x.round() as i32,
+                    glyph.y.round() as i32,
+                    glyph.key.px,
+                    transform,
+                )
+            };
+            let (metrics, bitmap) = font.rasterize_indexed(glyph.key.glyph_index, px);
             if metrics.width == 0 || metrics.height == 0 || bitmap.is_empty() {
                 continue;
             }
@@ -1200,11 +1258,11 @@ impl SoftwareRenderer {
             let pixmap = Pixmap::from_vec(rgba, size)
                 .ok_or_else(|| anyhow!("failed to create glyph pixmap"))?;
             surface.draw_pixmap(
-                glyph.x.round() as i32,
-                glyph.y.round() as i32,
+                draw_x,
+                draw_y,
                 pixmap.as_ref(),
                 &PixmapPaint::default(),
-                transform,
+                draw_transform,
                 clip.as_ref(),
             );
         }
@@ -1259,11 +1317,12 @@ impl SoftwareRenderer {
             ImageFit::None => (1.0, 1.0, rect.origin.x, rect.origin.y),
         };
 
-        let transform = self
-            .current_state()
-            .transform
-            .post_translate(dx, dy)
-            .post_scale(scale_x, scale_y);
+        let transform = self.device_transform(
+            self.current_state()
+                .transform
+                .post_translate(dx, dy)
+                .post_scale(scale_x, scale_y),
+        );
         self.with_temporary_clip_rect(rect, |this| {
             let clip = this.current_clip().cloned();
             let surface = this.current_surface_mut();
@@ -1296,10 +1355,11 @@ impl SoftwareRenderer {
             Some(path) => path,
             None => return Ok(()),
         };
-        let transform = self
-            .current_state()
-            .transform
-            .post_translate(bounds.origin.x, bounds.origin.y);
+        let transform = self.device_transform(
+            self.current_state()
+                .transform
+                .post_translate(bounds.origin.x, bounds.origin.y),
+        );
         let clip = self.current_clip().cloned();
         let surface = self.current_surface_mut();
         if let Some(fill) = fill {
@@ -1346,11 +1406,12 @@ impl SoftwareRenderer {
         } else {
             (1.0, bounds.origin.x, bounds.origin.y)
         };
-        let transform = self
-            .current_state()
-            .transform
-            .post_translate(dx, dy)
-            .post_scale(scale, scale);
+        let transform = self.device_transform(
+            self.current_state()
+                .transform
+                .post_translate(dx, dy)
+                .post_scale(scale, scale),
+        );
         let clip = self.current_clip().cloned();
         let surface = self.current_surface_mut();
 
