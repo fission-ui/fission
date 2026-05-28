@@ -113,6 +113,9 @@ The render pipeline (`Pipeline`) manages incremental updates:
 | Variable | Default | Purpose |
 |----------|---------|---------|
 | `FISSION_MAX_FPS` | `60` | Maximum frame rate (throttled via `WaitUntil`). |
+| `FISSION_RENDERER` | `auto` | Select the renderer. Native targets accept `auto`, `native-vello-gpu`, `native-vello-cpu`, or `native-software`. Web accepts `auto`, `webgpu-vello`, or `canvas2d-software` via `globalThis.FISSION_RENDERER` or the `?fission_renderer=` query parameter. |
+| `FISSION_FORCE_SOFTWARE_RENDERER` | `false` | Native compatibility escape hatch that forces the software upload path. This should not be used for normal production runs. |
+| `FISSION_VELLO_USE_CPU` | `false` | Native compatibility escape hatch that asks Vello to use its CPU mode while still presenting through the GPU surface. |
 | `FISSION_TEXTINPUT_BLINK` | `true` | Enable/disable cursor blinking in text inputs. |
 | `FISSION_TEXTINPUT_BLINK_MS` | `530` | Cursor blink period in milliseconds. |
 | `FISSION_USE_SYSTEM_FONTS` | `false` | Include system fonts in the font collection. |
@@ -128,4 +131,4 @@ When `FISSION_TEST_CONTROL_PORT` is set, the shell spawns a TCP server that acce
 
 - **Desktop**: used by `fission-shell-desktop`
 - **iOS / Android**: used by `fission-shell-mobile`
-- **Web**: not used today; `fission-shell-web` remains separate work
+- **Web**: used by `fission-shell-web`; WebGPU/Vello is the default renderer when the browser exposes a usable WebGPU adapter, and Canvas2D/software remains the compatibility fallback.

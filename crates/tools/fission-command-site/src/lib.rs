@@ -182,16 +182,86 @@ fn handle_http_request(mut stream: TcpStream, root: &Path) -> Result<()> {
     let mut reader = io::BufReader::new(stream.try_clone()?);
     let mut request_line = String::new();
     reader.read_line(&mut request_line)?;
-    let path = request_line
-        .split_whitespace()
-        .nth(1)
+    let mut request_parts = request_line.split_whitespace();
+    let method = request_parts.next().unwrap_or("GET");
+    let path = request_parts
+        .next()
         .unwrap_or("/")
         .split('?')
         .next()
         .unwrap_or("/");
+    if method == "POST" && path == "/__fission/renderer" {
+        let body = read_http_body(&mut reader)?;
+        println!("{}", format_renderer_diagnostic(&body));
+        stream.write_all(&http_response(204, "text/plain", b""))?;
+        return Ok(());
+    }
     let response = static_response(root, path)?;
     stream.write_all(&response)?;
     Ok(())
+}
+
+fn format_renderer_diagnostic(body: &str) -> String {
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(body) else {
+        return format!("renderer diagnostics: {}", body.trim());
+    };
+    let active = value
+        .get("active")
+        .and_then(|value| value.as_str())
+        .unwrap_or("unknown");
+    let requested = value
+        .get("requested")
+        .and_then(|value| value.as_str())
+        .unwrap_or("unknown");
+    let backend = value
+        .get("backend")
+        .and_then(|value| value.as_str())
+        .map(|backend| format!(" backend={backend}"))
+        .unwrap_or_default();
+    let fallback = value
+        .get("fallback_reason")
+        .and_then(|value| value.as_str())
+        .map(|reason| format!(" fallback_reason={reason}"))
+        .unwrap_or_default();
+    let width = value
+        .get("width")
+        .and_then(|value| value.as_u64())
+        .unwrap_or(0);
+    let height = value
+        .get("height")
+        .and_then(|value| value.as_u64())
+        .unwrap_or(0);
+    let scale = value
+        .get("scale_factor")
+        .and_then(|value| value.as_f64())
+        .unwrap_or(1.0);
+    format!(
+        "renderer: {active} requested={requested}{backend} size={width}x{height} scale={scale:.2}{fallback}"
+    )
+}
+
+fn read_http_body(reader: &mut io::BufReader<TcpStream>) -> Result<String> {
+    let mut content_length = 0usize;
+    loop {
+        let mut line = String::new();
+        reader.read_line(&mut line)?;
+        let trimmed = line.trim_end();
+        if trimmed.is_empty() {
+            break;
+        }
+        if let Some(value) = trimmed
+            .strip_prefix("Content-Length:")
+            .or_else(|| trimmed.strip_prefix("content-length:"))
+        {
+            content_length = value.trim().parse().unwrap_or(0);
+        }
+    }
+    let mut body = vec![0u8; content_length.min(1024 * 1024)];
+    if !body.is_empty() {
+        use std::io::Read as _;
+        reader.read_exact(&mut body)?;
+    }
+    Ok(String::from_utf8_lossy(&body).into_owned())
 }
 
 fn static_response(root: &Path, request_path: &str) -> Result<Vec<u8>> {
@@ -259,6 +329,41 @@ fn content_type(path: &Path) -> &'static str {
         "svg" => "image/svg+xml",
         "css" => "text/css; charset=utf-8",
         _ => "application/octet-stream",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::format_renderer_diagnostic;
+
+    #[test]
+    fn formats_renderer_diagnostic_as_cli_line() {
+        let body = r#"{
+            "active":"webgpu-vello",
+            "requested":"auto",
+            "backend":"BrowserWebGpu",
+            "width":1200,
+            "height":800,
+            "scale_factor":2.0
+        }"#;
+        assert_eq!(
+            format_renderer_diagnostic(body),
+            "renderer: webgpu-vello requested=auto backend=BrowserWebGpu size=1200x800 scale=2.00"
+        );
+    }
+
+    #[test]
+    fn keeps_fallback_reason_visible() {
+        let body = r#"{
+            "active":"canvas2d-software",
+            "requested":"auto",
+            "fallback_reason":"webgpu_vello_init_failed:no adapter",
+            "width":800,
+            "height":600,
+            "scale_factor":1.0
+        }"#;
+        assert!(format_renderer_diagnostic(body)
+            .contains("fallback_reason=webgpu_vello_init_failed:no adapter"));
     }
 }
 
