@@ -30,7 +30,7 @@ State is the source of truth for the UI. Do not store whether the host "probably
 
 There is no single safe `add-capability` value for this feature because the product owns the route/provider details, or because the default host can expose the feature without generated permission files. You still configure the shell explicitly and review target packaging before release.
 
-Deep links are product routes, so the app must name them explicitly. Android uses intent filters. iOS and macOS use URL schemes or associated domains. Windows uses protocol activation or package metadata. Web and static sites use ordinary URL paths. Fission can store the route intent in `fission.toml`, but you still review the generated native files because route names and domains are product-owned.
+Deep links are product routes, so the app must name them explicitly. Android uses intent filters. iOS and macOS use URL schemes or associated domains. Windows uses protocol activation or package metadata. Web and static sites use ordinary URL paths. Fission can store the route intent in [`fission.toml`](/reference/config/fission-toml/), but you still review the generated native files because route names and domains are product-owned.
 
 This is the difference between the Fission API, a provider, and packaging configuration:
 

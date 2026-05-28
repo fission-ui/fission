@@ -10,6 +10,8 @@ use std::collections::{HashMap, VecDeque};
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
+#[cfg(target_arch = "wasm32")]
+use std::{cell::RefCell, rc::Rc};
 #[cfg(feature = "tray")]
 use winit::event::StartCause;
 #[cfg(target_os = "android")]
@@ -72,6 +74,10 @@ mod compositor;
 use compositor::TextureLayerCompositor;
 mod pipeline;
 pub use pipeline::{InvalidationSet, Pipeline};
+mod renderer_diagnostics;
+#[cfg(target_arch = "wasm32")]
+use renderer_diagnostics::renderer_request_from_value;
+use renderer_diagnostics::{emit_renderer_report, RendererReport, RendererRequest};
 mod software_renderer;
 use software_renderer::SoftwareRenderer;
 mod video_backend;
@@ -308,6 +314,7 @@ struct RenderState<'w> {
     #[cfg(feature = "three-d")]
     scene3d_renderer: fission_3d::render::Scene3DRenderer,
     main_renderer: MainRenderer,
+    renderer_report: RendererReport,
 }
 
 enum MainRenderer {
@@ -322,6 +329,7 @@ enum MainRenderer {
 struct WebCanvasPresenter {
     canvas: HtmlCanvasElement,
     context: CanvasRenderingContext2d,
+    report: RendererReport,
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -336,12 +344,34 @@ impl WebCanvasPresenter {
             .ok_or_else(|| anyhow::anyhow!("2D canvas context is unavailable"))?
             .dyn_into::<CanvasRenderingContext2d>()
             .map_err(|error| anyhow::anyhow!(js_error_to_string(error.into())))?;
-        Ok(Self { canvas, context })
+        Ok(Self {
+            canvas,
+            context,
+            report: RendererReport::new(
+                "canvas2d-software",
+                web_renderer_request(),
+                None,
+                None,
+                None,
+                0,
+                0,
+                1.0,
+            ),
+        })
     }
 
-    fn present(&mut self, rgba: &[u8], width: u32, height: u32) -> anyhow::Result<()> {
+    fn present(
+        &mut self,
+        rgba: &[u8],
+        width: u32,
+        height: u32,
+        scale_factor: f64,
+    ) -> anyhow::Result<()> {
         self.canvas.set_width(width.max(1));
         self.canvas.set_height(height.max(1));
+        self.report.width = width.max(1);
+        self.report.height = height.max(1);
+        self.report.scale_factor = scale_factor;
         let image =
             ImageData::new_with_u8_clamped_array_and_sh(Clamped(rgba), width.max(1), height.max(1))
                 .map_err(|error| anyhow::anyhow!(js_error_to_string(error)))?;
@@ -351,6 +381,37 @@ impl WebCanvasPresenter {
         Ok(())
     }
 }
+
+#[cfg(target_arch = "wasm32")]
+struct WebGpuPresenter {
+    render_cx: RenderContext,
+    render_state: RenderState<'static>,
+    scene: Scene,
+    retained_scene_cache: RetainedSceneCache,
+}
+
+#[cfg(target_arch = "wasm32")]
+enum WebRenderer {
+    WebGpu(WebGpuPresenter),
+    Canvas2d(WebCanvasPresenter),
+}
+
+#[cfg(target_arch = "wasm32")]
+impl WebRenderer {
+    fn report(&self) -> &RendererReport {
+        match self {
+            Self::WebGpu(presenter) => &presenter.render_state.renderer_report,
+            Self::Canvas2d(presenter) => &presenter.report,
+        }
+    }
+
+    fn active_name(&self) -> &str {
+        self.report().active.as_str()
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+type PendingWebGpuInit = Rc<RefCell<Option<Result<WebGpuPresenter, String>>>>;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 struct WindowViewportState {
@@ -438,28 +499,6 @@ fn create_render_state<'w>(
     device_handle.device.on_uncaptured_error(Box::new(|error| {
         eprintln!("wgpu uncaptured error: {error}");
     }));
-    let downlevel_caps = device_handle.adapter().get_downlevel_capabilities();
-    let force_software_renderer = std::env::var("FISSION_FORCE_SOFTWARE_RENDERER")
-        .map(|value| matches!(value.to_ascii_lowercase().as_str(), "1" | "true" | "yes"))
-        .unwrap_or(false);
-    let supports_indirect_execution = downlevel_caps
-        .flags
-        .contains(wgpu::DownlevelFlags::INDIRECT_EXECUTION);
-    let use_software_renderer = force_software_renderer
-        || (cfg!(any(target_os = "ios", target_os = "android")) && !supports_indirect_execution);
-    let use_cpu_vello = std::env::var("FISSION_VELLO_USE_CPU")
-        .map(|value| matches!(value.to_ascii_lowercase().as_str(), "1" | "true" | "yes"))
-        .unwrap_or(false)
-        || !supports_indirect_execution;
-    if use_software_renderer {
-        eprintln!(
-            "fission-shell-winit: using software renderer fallback (missing INDIRECT_EXECUTION support)"
-        );
-    } else if use_cpu_vello {
-        eprintln!(
-            "fission-shell-winit: using Vello CPU fallback (missing INDIRECT_EXECUTION support)"
-        );
-    }
     let surface_caps = surface.surface.get_capabilities(device_handle.adapter());
     surface.config.alpha_mode = surface_caps
         .alpha_modes
@@ -493,27 +532,21 @@ fn create_render_state<'w>(
         wgpu::TextureFormat::Rgba8Unorm,
     );
 
-    let main_renderer = if use_software_renderer {
-        MainRenderer::Software
-    } else {
-        let renderer = VelloSceneRenderer::new(
-            &device_handle.device,
-            RendererOptions {
-                use_cpu: use_cpu_vello,
-                antialiasing_support: AaSupport::all(),
-                num_init_threads: None,
-                pipeline_cache: None,
-            },
-        )
-        .map_err(|error| anyhow::anyhow!("failed to create vello renderer: {error}"))?;
-
-        let texture_compositor =
-            TextureLayerCompositor::new(&device_handle.device, wgpu::TextureFormat::Rgba8Unorm);
-        MainRenderer::Vello {
-            renderer,
-            texture_compositor,
-        }
-    };
+    let request = native_renderer_request();
+    let supports_indirect_execution = device_handle
+        .adapter()
+        .get_downlevel_capabilities()
+        .flags
+        .contains(wgpu::DownlevelFlags::INDIRECT_EXECUTION);
+    let (main_renderer, renderer_report) = create_native_main_renderer(
+        device_handle,
+        request,
+        supports_indirect_execution,
+        viewport.physical_size.width,
+        viewport.physical_size.height,
+        viewport.scale_factor,
+    )?;
+    emit_renderer_report(&renderer_report);
 
     Ok(RenderState {
         surface,
@@ -521,7 +554,446 @@ fn create_render_state<'w>(
         #[cfg(feature = "three-d")]
         scene3d_renderer,
         main_renderer,
+        renderer_report,
     })
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn native_renderer_request() -> RendererRequest {
+    let request = RendererRequest::from_env();
+    let force_cpu_vello = std::env::var("FISSION_VELLO_USE_CPU")
+        .map(|value| matches!(value.to_ascii_lowercase().as_str(), "1" | "true" | "yes"))
+        .unwrap_or(false);
+    let force_software_renderer = std::env::var("FISSION_FORCE_SOFTWARE_RENDERER")
+        .map(|value| matches!(value.to_ascii_lowercase().as_str(), "1" | "true" | "yes"))
+        .unwrap_or(false);
+    if force_software_renderer {
+        RendererRequest::NativeSoftware
+    } else if force_cpu_vello {
+        RendererRequest::NativeVelloCpu
+    } else {
+        request
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+fn web_renderer_request() -> RendererRequest {
+    if let Some(window) = web_sys::window() {
+        if let Ok(search) = window.location().search() {
+            if let Some(value) = query_param(&search, "fission_renderer") {
+                return renderer_request_from_value(Some(&value));
+            }
+        }
+        let global = js_sys::global();
+        if let Ok(value) = js_sys::Reflect::get(
+            &global,
+            &wasm_bindgen::JsValue::from_str("FISSION_RENDERER"),
+        ) {
+            if let Some(value) = value.as_string() {
+                return renderer_request_from_value(Some(&value));
+            }
+        }
+    }
+    RendererRequest::Auto
+}
+
+#[cfg(target_arch = "wasm32")]
+fn query_param(search: &str, name: &str) -> Option<String> {
+    let search = search.strip_prefix('?').unwrap_or(search);
+    search.split('&').find_map(|part| {
+        let mut pieces = part.splitn(2, '=');
+        let key = pieces.next()?;
+        if key == name {
+            pieces.next().map(|value| value.replace('+', " "))
+        } else {
+            None
+        }
+    })
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn create_native_main_renderer(
+    device_handle: &vello::util::DeviceHandle,
+    request: RendererRequest,
+    supports_indirect_execution: bool,
+    width: u32,
+    height: u32,
+    scale_factor: f64,
+) -> anyhow::Result<(MainRenderer, RendererReport)> {
+    let (backend, adapter) = adapter_labels(device_handle.adapter());
+    if matches!(request, RendererRequest::NativeSoftware) {
+        return Ok((
+            MainRenderer::Software,
+            RendererReport::new(
+                "native-software-upload",
+                request,
+                backend,
+                adapter,
+                Some("forced_by_renderer_request".to_string()),
+                width,
+                height,
+                scale_factor,
+            ),
+        ));
+    }
+
+    if matches!(request, RendererRequest::Auto)
+        && cfg!(target_os = "ios")
+        && !supports_indirect_execution
+    {
+        return Ok((
+            MainRenderer::Software,
+            RendererReport::new(
+                "native-software-upload",
+                request,
+                backend,
+                adapter,
+                Some("ios_adapter_missing_indirect_execution".to_string()),
+                width,
+                height,
+                scale_factor,
+            ),
+        ));
+    }
+
+    let cpu_requested = matches!(request, RendererRequest::NativeVelloCpu);
+    match create_vello_main_renderer(device_handle, cpu_requested) {
+        Ok(renderer) => {
+            let active = if cpu_requested {
+                "native-vello-cpu"
+            } else if cfg!(target_os = "ios") || cfg!(target_os = "macos") {
+                "metal-vello"
+            } else {
+                "native-vello"
+            };
+            Ok((
+                renderer,
+                RendererReport::new(
+                    active,
+                    request,
+                    backend,
+                    adapter,
+                    if matches!(request, RendererRequest::NativeVelloCpu) {
+                        Some("forced_cpu_vello".to_string())
+                    } else if cpu_requested {
+                        Some("missing_indirect_execution".to_string())
+                    } else {
+                        None
+                    },
+                    width,
+                    height,
+                    scale_factor,
+                ),
+            ))
+        }
+        Err(gpu_error) if request.is_explicit_gpu() => Err(anyhow::anyhow!(
+            "requested native Vello GPU renderer but initialization failed: {gpu_error}"
+        )),
+        Err(gpu_error) => match create_vello_main_renderer(device_handle, true) {
+            Ok(renderer) => Ok((
+                renderer,
+                RendererReport::new(
+                    "native-vello-cpu",
+                    request,
+                    backend,
+                    adapter,
+                    Some(format!("gpu_vello_init_failed:{gpu_error}")),
+                    width,
+                    height,
+                    scale_factor,
+                ),
+            )),
+            Err(cpu_error) => Ok((
+                MainRenderer::Software,
+                RendererReport::new(
+                    "native-software-upload",
+                    request,
+                    backend,
+                    adapter,
+                    Some(format!(
+                        "gpu_vello_init_failed:{gpu_error};cpu_vello_init_failed:{cpu_error}"
+                    )),
+                    width,
+                    height,
+                    scale_factor,
+                ),
+            )),
+        },
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn create_vello_main_renderer(
+    device_handle: &vello::util::DeviceHandle,
+    use_cpu: bool,
+) -> anyhow::Result<MainRenderer> {
+    let renderer = VelloSceneRenderer::new(
+        &device_handle.device,
+        RendererOptions {
+            use_cpu,
+            antialiasing_support: AaSupport::all(),
+            num_init_threads: None,
+            pipeline_cache: None,
+        },
+    )
+    .map_err(|error| anyhow::anyhow!("failed to create vello renderer: {error}"))?;
+
+    let texture_compositor =
+        TextureLayerCompositor::new(&device_handle.device, wgpu::TextureFormat::Rgba8Unorm);
+    Ok(MainRenderer::Vello {
+        renderer,
+        texture_compositor,
+    })
+}
+
+fn adapter_labels(adapter: &wgpu::Adapter) -> (Option<String>, Option<String>) {
+    let info = adapter.get_info();
+    let backend = Some(format!("{:?}", info.backend));
+    let adapter = (!info.name.trim().is_empty()).then_some(info.name);
+    (backend, adapter)
+}
+
+#[cfg(target_arch = "wasm32")]
+async fn create_webgpu_presenter(
+    canvas: HtmlCanvasElement,
+    viewport: WindowViewportState,
+    request: RendererRequest,
+) -> anyhow::Result<WebGpuPresenter> {
+    canvas.set_width(viewport.physical_size.width.max(1));
+    canvas.set_height(viewport.physical_size.height.max(1));
+    let mut render_cx = RenderContext::new();
+    let surface = render_cx
+        .instance
+        .create_surface(wgpu::SurfaceTarget::Canvas(canvas))
+        .map_err(|error| anyhow::anyhow!("failed to create webgpu canvas surface: {error}"))?;
+    let mut surface = render_cx
+        .create_render_surface(
+            surface,
+            viewport.physical_size.width,
+            viewport.physical_size.height,
+            wgpu::PresentMode::AutoVsync,
+        )
+        .await
+        .map_err(|error| anyhow::anyhow!("failed to create webgpu render surface: {error}"))?;
+
+    let device_handle = &render_cx.devices[surface.dev_id];
+    let surface_caps = surface.surface.get_capabilities(device_handle.adapter());
+    surface.config.alpha_mode = surface_caps
+        .alpha_modes
+        .iter()
+        .copied()
+        .find(|mode| *mode == wgpu::CompositeAlphaMode::PostMultiplied)
+        .unwrap_or_else(|| {
+            surface_caps
+                .alpha_modes
+                .first()
+                .copied()
+                .unwrap_or(wgpu::CompositeAlphaMode::Opaque)
+        });
+    surface
+        .surface
+        .configure(&device_handle.device, &surface.config);
+
+    let target_texture_size = (surface.config.width, surface.config.height);
+    recreate_target_texture(
+        &mut surface,
+        &render_cx,
+        target_texture_size.0,
+        target_texture_size.1,
+    );
+    let main_renderer = create_webgpu_main_renderer(device_handle, request)?;
+    let (backend, adapter) = adapter_labels(device_handle.adapter());
+    let renderer_report = RendererReport::new(
+        "webgpu-vello",
+        request,
+        backend,
+        adapter,
+        None,
+        viewport.physical_size.width,
+        viewport.physical_size.height,
+        viewport.scale_factor,
+    );
+    let render_state = RenderState {
+        surface,
+        target_texture_size,
+        #[cfg(feature = "three-d")]
+        scene3d_renderer: fission_3d::render::Scene3DRenderer::new(
+            &device_handle.device,
+            viewport.physical_size.width,
+            viewport.physical_size.height,
+            wgpu::TextureFormat::Rgba8Unorm,
+        ),
+        main_renderer,
+        renderer_report,
+    };
+    Ok(WebGpuPresenter {
+        render_cx,
+        render_state,
+        scene: Scene::new(),
+        retained_scene_cache: RetainedSceneCache::default(),
+    })
+}
+
+#[cfg(target_arch = "wasm32")]
+fn create_webgpu_main_renderer(
+    device_handle: &vello::util::DeviceHandle,
+    request: RendererRequest,
+) -> anyhow::Result<MainRenderer> {
+    if matches!(request, RendererRequest::Canvas2dSoftware) {
+        return Err(anyhow::anyhow!(
+            "webgpu renderer disabled by renderer request"
+        ));
+    }
+    let renderer = VelloSceneRenderer::new(
+        &device_handle.device,
+        RendererOptions {
+            use_cpu: false,
+            antialiasing_support: AaSupport::all(),
+            num_init_threads: None,
+            pipeline_cache: None,
+        },
+    )
+    .map_err(|error| anyhow::anyhow!("failed to create webgpu Vello renderer: {error}"))?;
+    let texture_compositor =
+        TextureLayerCompositor::new(&device_handle.device, wgpu::TextureFormat::Rgba8Unorm);
+    Ok(MainRenderer::Vello {
+        renderer,
+        texture_compositor,
+    })
+}
+
+#[cfg(target_arch = "wasm32")]
+fn publish_web_renderer_report(report: &RendererReport) {
+    let line = report.concise_line();
+    web_sys::console::info_1(&wasm_bindgen::JsValue::from_str(&format!(
+        "fission-shell-winit: {line}"
+    )));
+    set_web_global_json("__FISSION_RENDERER_INFO", report);
+    post_web_runtime_event("/__fission/renderer", report);
+}
+
+#[cfg(target_arch = "wasm32")]
+#[derive(serde::Serialize)]
+struct WebFramePerf<'a> {
+    renderer: &'a str,
+    total_ms: f64,
+}
+
+#[cfg(target_arch = "wasm32")]
+#[derive(serde::Serialize)]
+struct WebInputLatency<'a> {
+    renderer: &'a str,
+    latency_ms: f64,
+}
+
+#[cfg(target_arch = "wasm32")]
+fn publish_web_frame_perf(renderer: &str, total_ms: f64) {
+    let perf = WebFramePerf { renderer, total_ms };
+    append_web_perf_sample("frames", total_ms);
+    diag::emit(
+        diag::DiagCategory::Frame,
+        diag::DiagLevel::Debug,
+        diag::DiagEventKind::FramePerformance {
+            renderer: renderer.to_string(),
+            total_ms,
+        },
+    );
+    set_web_global_json("__FISSION_LAST_FRAME_PERF", &perf);
+}
+
+#[cfg(target_arch = "wasm32")]
+fn publish_web_input_latency(renderer: &str, latency_ms: f64) {
+    let latency = WebInputLatency {
+        renderer,
+        latency_ms,
+    };
+    append_web_perf_sample("inputLatencies", latency_ms);
+    diag::emit(
+        diag::DiagCategory::Input,
+        diag::DiagLevel::Debug,
+        diag::DiagEventKind::InputLatency {
+            renderer: renderer.to_string(),
+            latency_ms,
+        },
+    );
+    set_web_global_json("__FISSION_LAST_INPUT_LATENCY", &latency);
+}
+
+#[cfg(target_arch = "wasm32")]
+fn set_web_global_json<T: serde::Serialize>(name: &str, value: &T) {
+    let Ok(json) = serde_json::to_string(value) else {
+        return;
+    };
+    let Ok(js_value) = js_sys::JSON::parse(&json) else {
+        return;
+    };
+    let _ = js_sys::Reflect::set(
+        &js_sys::global(),
+        &wasm_bindgen::JsValue::from_str(name),
+        &js_value,
+    );
+}
+
+#[cfg(target_arch = "wasm32")]
+fn append_web_perf_sample(name: &str, value: f64) {
+    let global = js_sys::global();
+    let key = wasm_bindgen::JsValue::from_str("__FISSION_PERF");
+    let perf = js_sys::Reflect::get(&global, &key)
+        .ok()
+        .filter(|value| value.is_object())
+        .unwrap_or_else(|| {
+            let object = js_sys::Object::new();
+            let _ = js_sys::Reflect::set(&global, &key, &object);
+            object.into()
+        });
+    let sample_key = wasm_bindgen::JsValue::from_str(name);
+    let samples = js_sys::Reflect::get(&perf, &sample_key)
+        .ok()
+        .and_then(|value| value.dyn_into::<js_sys::Array>().ok())
+        .unwrap_or_else(|| {
+            let array = js_sys::Array::new();
+            let _ = js_sys::Reflect::set(&perf, &sample_key, &array);
+            array
+        });
+    samples.push(&wasm_bindgen::JsValue::from_f64(value));
+    while samples.length() > 240 {
+        samples.shift();
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+fn post_web_runtime_event<T: serde::Serialize>(path: &str, value: &T) {
+    let Some(window) = web_sys::window() else {
+        return;
+    };
+    let Ok(body) = serde_json::to_string(value) else {
+        return;
+    };
+    let init = web_sys::RequestInit::new();
+    init.set_method("POST");
+    init.set_mode(web_sys::RequestMode::SameOrigin);
+    init.set_body(&wasm_bindgen::JsValue::from_str(&body));
+    let Ok(request) = web_sys::Request::new_with_str_and_init(path, &init) else {
+        return;
+    };
+    let _ = request.headers().set("content-type", "application/json");
+    wasm_bindgen_futures::spawn_local(async move {
+        let _ = wasm_bindgen_futures::JsFuture::from(window.fetch_with_request(&request)).await;
+    });
+}
+
+#[cfg(target_arch = "wasm32")]
+fn web_bool_global(name: &str) -> bool {
+    js_sys::Reflect::get(&js_sys::global(), &wasm_bindgen::JsValue::from_str(name))
+        .ok()
+        .and_then(|value| {
+            value.as_bool().or_else(|| {
+                value
+                    .as_string()
+                    .map(|s| matches!(s.as_str(), "1" | "true" | "yes"))
+            })
+        })
+        .unwrap_or(false)
 }
 
 fn build_window(
@@ -2957,7 +3429,13 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
         #[cfg(not(target_arch = "wasm32"))]
         let mut render_state: Option<RenderState<'_>> = None;
         #[cfg(target_arch = "wasm32")]
-        let mut web_canvas_presenter: Option<WebCanvasPresenter> = None;
+        let mut web_renderer: Option<WebRenderer> = None;
+        #[cfg(target_arch = "wasm32")]
+        let pending_webgpu_init: PendingWebGpuInit = Rc::new(RefCell::new(None));
+        #[cfg(target_arch = "wasm32")]
+        let mut webgpu_init_in_flight = false;
+        #[cfg(target_arch = "wasm32")]
+        let mut web_renderer_reported = false;
         #[cfg(not(target_arch = "wasm32"))]
         let mut scene = Scene::new();
         #[cfg(not(target_arch = "wasm32"))]
@@ -3060,6 +3538,8 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
         let mut presented_frames: u64 = 0;
         let mut next_text_trace_seq: u64 = 0;
         let mut pending_text_traces: VecDeque<PendingTextTrace> = VecDeque::new();
+        #[cfg(target_arch = "wasm32")]
+        let mut pending_web_input_at: Option<Instant> = None;
         let mut current_mods: u8 = 0;
 
         // Test control (enabled via FISSION_TEST_CONTROL_PORT env var).
@@ -3537,7 +4017,19 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                             );
                             window.request_redraw();
                         }
-                        TestEvent::Wake => {}
+                        TestEvent::Wake => {
+                            if let Some(window) = platform_window.active_window() {
+                                request_redraw_logged(
+                                    window,
+                                    elwt,
+                                    &mut last_redraw_at,
+                                    min_frame,
+                                    &mut redraw_pending,
+                                    &mut frame_trace,
+                                    "wake",
+                                );
+                            }
+                        }
                         TestEvent::Wait { ms: _, response_tx } => {
                             let _ = response_tx.send(fission_test_driver::TestResponse::Ok {});
                         }
@@ -3639,7 +4131,10 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                         }
                         #[cfg(target_arch = "wasm32")]
                         {
-                            web_canvas_presenter = None;
+                            web_renderer = None;
+                            webgpu_init_in_flight = false;
+                            *pending_webgpu_init.borrow_mut() = None;
+                            web_renderer_reported = false;
                         }
                         #[cfg(target_os = "android")]
                         {
@@ -4027,6 +4522,10 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                             software_image_cache_generation = next_software_image_generation;
                             #[cfg(not(target_arch = "wasm32"))]
                             retained_scene_cache.clear();
+                            #[cfg(target_arch = "wasm32")]
+                            if let Some(WebRenderer::WebGpu(presenter)) = web_renderer.as_mut() {
+                                presenter.retained_scene_cache.clear();
+                            }
                             invalidations.mark_paint();
                             request_redraw_logged(
                                 &window,
@@ -4387,24 +4886,132 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                     (swapchain_size.width, swapchain_size.height);
 
                                 #[cfg(target_arch = "wasm32")]
-                                if web_canvas_presenter.is_none() {
-                                    match WebCanvasPresenter::new(window) {
-                                        Ok(presenter) => {
-                                            web_canvas_presenter = Some(presenter);
+                                if web_renderer.is_none() {
+                                    let request = web_renderer_request();
+                                    if matches!(request, RendererRequest::Canvas2dSoftware) {
+                                        match WebCanvasPresenter::new(window) {
+                                            Ok(mut presenter) => {
+                                                presenter.report = RendererReport::new(
+                                                    "canvas2d-software",
+                                                    request,
+                                                    None,
+                                                    None,
+                                                    Some("forced_by_renderer_request".to_string()),
+                                                    render_target_size.0,
+                                                    render_target_size.1,
+                                                    scale_factor,
+                                                );
+                                                web_renderer =
+                                                    Some(WebRenderer::Canvas2d(presenter));
+                                            }
+                                            Err(err) => {
+                                                eprintln!("web canvas not ready yet: {err}");
+                                                request_redraw_logged(
+                                                    &window,
+                                                    elwt,
+                                                    &mut last_redraw_at,
+                                                    min_frame,
+                                                    &mut redraw_pending,
+                                                    &mut frame_trace,
+                                                    "web_canvas_pending",
+                                                );
+                                                diag::end_frame(diag::FrameStats::default());
+                                                return;
+                                            }
                                         }
-                                        Err(err) => {
-                                            eprintln!("web canvas not ready yet: {err}");
-                                            request_redraw_logged(
-                                                &window,
-                                                elwt,
-                                                &mut last_redraw_at,
-                                                min_frame,
-                                                &mut redraw_pending,
-                                                &mut frame_trace,
-                                                "web_canvas_pending",
-                                            );
-                                            diag::end_frame(diag::FrameStats::default());
-                                            return;
+                                    } else if let Some(result) =
+                                        pending_webgpu_init.borrow_mut().take()
+                                    {
+                                        match result {
+                                            Ok(presenter) => {
+                                                web_renderer = Some(WebRenderer::WebGpu(presenter));
+                                            }
+                                            Err(error) if request.is_explicit_gpu() => {
+                                                eprintln!(
+                                                    "webgpu-vello renderer requested but initialization failed: {error}"
+                                                );
+                                                diag::end_frame(diag::FrameStats::default());
+                                                panic!(
+                                                    "webgpu-vello renderer requested but initialization failed: {error}"
+                                                );
+                                            }
+                                            Err(error) => match WebCanvasPresenter::new(window) {
+                                                Ok(mut presenter) => {
+                                                    presenter.report = RendererReport::new(
+                                                        "canvas2d-software",
+                                                        request,
+                                                        None,
+                                                        None,
+                                                        Some(format!(
+                                                            "webgpu_vello_init_failed:{error}"
+                                                        )),
+                                                        render_target_size.0,
+                                                        render_target_size.1,
+                                                        scale_factor,
+                                                    );
+                                                    web_renderer =
+                                                        Some(WebRenderer::Canvas2d(presenter));
+                                                }
+                                                Err(err) => {
+                                                    eprintln!(
+                                                        "web renderer fallback failed; webgpu error: {error}; canvas error: {err}"
+                                                    );
+                                                    request_redraw_logged(
+                                                        &window,
+                                                        elwt,
+                                                        &mut last_redraw_at,
+                                                        min_frame,
+                                                        &mut redraw_pending,
+                                                        &mut frame_trace,
+                                                        "web_canvas_pending",
+                                                    );
+                                                    diag::end_frame(diag::FrameStats::default());
+                                                    return;
+                                                }
+                                            },
+                                        }
+                                    } else {
+                                        if !webgpu_init_in_flight {
+                                            match window.canvas() {
+                                                Some(canvas) => {
+                                                    let pending = pending_webgpu_init.clone();
+                                                    let proxy = event_proxy.clone();
+                                                    let init_viewport = viewport_state;
+                                                    webgpu_init_in_flight = true;
+                                                    wasm_bindgen_futures::spawn_local(async move {
+                                                        let result = create_webgpu_presenter(
+                                                            canvas,
+                                                            init_viewport,
+                                                            request,
+                                                        )
+                                                        .await
+                                                        .map_err(|error| error.to_string());
+                                                        *pending.borrow_mut() = Some(result);
+                                                        let _ = proxy.send_event(TestEvent::Wake);
+                                                    });
+                                                }
+                                                None => {
+                                                    eprintln!("web canvas not ready yet");
+                                                }
+                                            }
+                                        }
+                                        request_redraw_logged(
+                                            &window,
+                                            elwt,
+                                            &mut last_redraw_at,
+                                            min_frame,
+                                            &mut redraw_pending,
+                                            &mut frame_trace,
+                                            "webgpu_renderer_pending",
+                                        );
+                                        diag::end_frame(diag::FrameStats::default());
+                                        return;
+                                    }
+
+                                    if !web_renderer_reported {
+                                        if let Some(renderer) = web_renderer.as_ref() {
+                                            publish_web_renderer_report(renderer.report());
+                                            web_renderer_reported = true;
                                         }
                                     }
                                 }
@@ -4675,39 +5282,301 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                     Ok(_stats) => {
                                         #[cfg(target_arch = "wasm32")]
                                         {
-                                            let retained_scene = pipeline.retained_scene().expect(
-                                                "retained render scene missing before render",
-                                            );
-                                            let rgba = SoftwareRenderer::render(
-                                                retained_scene,
-                                                render_target_size.0,
-                                                render_target_size.1,
-                                                fission_render::Color {
-                                                    r: env.theme.tokens.colors.background.r,
-                                                    g: env.theme.tokens.colors.background.g,
-                                                    b: env.theme.tokens.colors.background.b,
-                                                    a: env.theme.tokens.colors.background.a,
-                                                },
-                                                scale_factor as f32,
-                                            )
-                                            .expect("failed to rasterize software web frame");
-
-                                            let Some(presenter) = web_canvas_presenter.as_mut()
-                                            else {
-                                                eprintln!("web canvas presenter is unavailable");
+                                            let Some(renderer) = web_renderer.as_mut() else {
+                                                eprintln!("web renderer is unavailable");
                                                 diag::end_frame(diag::FrameStats::default());
                                                 return;
                                             };
-                                            if let Err(err) = presenter.present(
-                                                &rgba,
-                                                render_target_size.0,
-                                                render_target_size.1,
-                                            ) {
-                                                eprintln!(
-                                                    "failed to present web canvas frame: {err}"
-                                                );
-                                                diag::end_frame(diag::FrameStats::default());
-                                                return;
+                                            let active_renderer =
+                                                renderer.active_name().to_string();
+                                            match renderer {
+                                                WebRenderer::Canvas2d(presenter) => {
+                                                    let retained_scene = pipeline
+                                                        .retained_scene()
+                                                        .expect(
+                                                            "retained render scene missing before render",
+                                                        );
+                                                    let rgba = SoftwareRenderer::render(
+                                                        retained_scene,
+                                                        render_target_size.0,
+                                                        render_target_size.1,
+                                                        fission_render::Color {
+                                                            r: env.theme.tokens.colors.background.r,
+                                                            g: env.theme.tokens.colors.background.g,
+                                                            b: env.theme.tokens.colors.background.b,
+                                                            a: env.theme.tokens.colors.background.a,
+                                                        },
+                                                        scale_factor as f32,
+                                                    )
+                                                    .expect(
+                                                        "failed to rasterize software web frame",
+                                                    );
+
+                                                    if let Err(err) = presenter.present(
+                                                        &rgba,
+                                                        render_target_size.0,
+                                                        render_target_size.1,
+                                                        scale_factor,
+                                                    ) {
+                                                        eprintln!(
+                                                            "failed to present web canvas frame: {err}"
+                                                        );
+                                                        diag::end_frame(diag::FrameStats::default());
+                                                        return;
+                                                    }
+                                                }
+                                                WebRenderer::WebGpu(presenter) => {
+                                                    if swapchain_size.width
+                                                        != presenter
+                                                            .render_state
+                                                            .surface
+                                                            .config
+                                                            .width
+                                                        || swapchain_size.height
+                                                            != presenter
+                                                                .render_state
+                                                                .surface
+                                                                .config
+                                                                .height
+                                                    {
+                                                        presenter.render_cx.resize_surface(
+                                                            &mut presenter.render_state.surface,
+                                                            swapchain_size.width,
+                                                            swapchain_size.height,
+                                                        );
+                                                        let device_handle = &presenter
+                                                            .render_cx
+                                                            .devices
+                                                            [presenter.render_state.surface.dev_id];
+                                                        presenter
+                                                            .render_state
+                                                            .surface
+                                                            .config
+                                                            .alpha_mode =
+                                                            wgpu::CompositeAlphaMode::PostMultiplied;
+                                                        presenter
+                                                            .render_state
+                                                            .surface
+                                                            .surface
+                                                            .configure(
+                                                                &device_handle.device,
+                                                                &presenter
+                                                                    .render_state
+                                                                    .surface
+                                                                    .config,
+                                                            );
+                                                        sync_tracked_target_texture_size_to_surface(
+                                                            &mut presenter
+                                                                .render_state
+                                                                .target_texture_size,
+                                                            swapchain_size,
+                                                        );
+                                                    }
+                                                    if render_target_size
+                                                        != presenter
+                                                            .render_state
+                                                            .target_texture_size
+                                                    {
+                                                        recreate_target_texture(
+                                                            &mut presenter.render_state.surface,
+                                                            &presenter.render_cx,
+                                                            render_target_size.0,
+                                                            render_target_size.1,
+                                                        );
+                                                        presenter
+                                                            .render_state
+                                                            .target_texture_size =
+                                                            render_target_size;
+                                                    }
+
+                                                    let surface_texture = match presenter
+                                                        .render_state
+                                                        .surface
+                                                        .surface
+                                                        .get_current_texture()
+                                                    {
+                                                        Ok(texture) => texture,
+                                                        Err(err) => {
+                                                            eprintln!(
+                                                                "failed to get webgpu surface texture: {err}"
+                                                            );
+                                                            diag::end_frame(
+                                                                diag::FrameStats::default(),
+                                                            );
+                                                            return;
+                                                        }
+                                                    };
+                                                    let device_handle =
+                                                        &presenter.render_cx.devices
+                                                            [presenter.render_state.surface.dev_id];
+
+                                                    let clear_color = vello::wgpu::Color {
+                                                        r: env.theme.tokens.colors.background.r
+                                                            as f64
+                                                            / 255.0,
+                                                        g: env.theme.tokens.colors.background.g
+                                                            as f64
+                                                            / 255.0,
+                                                        b: env.theme.tokens.colors.background.b
+                                                            as f64
+                                                            / 255.0,
+                                                        a: env.theme.tokens.colors.background.a
+                                                            as f64
+                                                            / 255.0,
+                                                    };
+                                                    match &mut presenter.render_state.main_renderer
+                                                    {
+                                                        MainRenderer::Vello {
+                                                            renderer,
+                                                            texture_compositor,
+                                                        } => {
+                                                            let texture_plans =
+                                                                pipeline.texture_compositor_plans();
+                                                            let texture_plans_fit_limits =
+                                                                texture_plans_fit_device_limits(
+                                                                    texture_plans,
+                                                                    scale_factor,
+                                                                    device_handle
+                                                                        .device
+                                                                        .limits()
+                                                                        .max_texture_dimension_2d,
+                                                                );
+                                                            let has_active_scroll_offsets = runtime
+                                                                .runtime_state
+                                                                .scroll
+                                                                .offsets
+                                                                .values()
+                                                                .any(|offset| offset.abs() > 0.5);
+                                                            let enable_texture_compositor =
+                                                                web_bool_global(
+                                                                    "FISSION_ENABLE_TEXTURE_COMPOSITOR",
+                                                                );
+                                                            if !enable_texture_compositor
+                                                                || texture_plans.is_empty()
+                                                                || !texture_plans_fit_limits
+                                                                || has_active_scroll_offsets
+                                                            {
+                                                                let render_params =
+                                                                    vello::RenderParams {
+                                                                        base_color:
+                                                                            vello::peniko::Color::from_rgba8(
+                                                                                env.theme
+                                                                                    .tokens
+                                                                                    .colors
+                                                                                    .background
+                                                                                    .r,
+                                                                                env.theme
+                                                                                    .tokens
+                                                                                    .colors
+                                                                                    .background
+                                                                                    .g,
+                                                                                env.theme
+                                                                                    .tokens
+                                                                                    .colors
+                                                                                    .background
+                                                                                    .b,
+                                                                                env.theme
+                                                                                    .tokens
+                                                                                    .colors
+                                                                                    .background
+                                                                                    .a,
+                                                                            ),
+                                                                        width: render_target_size.0,
+                                                                        height: render_target_size.1,
+                                                                        antialiasing_method:
+                                                                            vello::AaConfig::Area,
+                                                                    };
+
+                                                                presenter.scene.reset();
+                                                                let retained_scene = pipeline
+                                                                    .retained_scene()
+                                                                    .expect(
+                                                                        "retained render scene missing before render",
+                                                                    );
+                                                                let mut renderer_wrapper =
+                                                                    VelloRenderer::new(
+                                                                        &mut presenter.scene,
+                                                                        measurer.clone(),
+                                                                        &mut presenter
+                                                                            .retained_scene_cache,
+                                                                        scale_factor,
+                                                                    );
+                                                                renderer_wrapper
+                                                                    .render_scene(retained_scene)
+                                                                    .expect(
+                                                                        "failed to encode retained scene",
+                                                                    );
+                                                                renderer
+                                                                    .render_to_texture(
+                                                                        &device_handle.device,
+                                                                        &device_handle.queue,
+                                                                        &presenter.scene,
+                                                                        &presenter
+                                                                            .render_state
+                                                                            .surface
+                                                                            .target_view,
+                                                                        &render_params,
+                                                                    )
+                                                                    .expect(
+                                                                        "failed to render webgpu frame",
+                                                                    );
+                                                            } else {
+                                                                let force_full_compositor_redraw =
+                                                                    invalidations.build
+                                                                        || invalidations.layout
+                                                                        || invalidations.paint;
+                                                                let _compositor_stats =
+                                                                    texture_compositor
+                                                                        .render_layers(
+                                                                            &device_handle.device,
+                                                                            &device_handle.queue,
+                                                                            renderer,
+                                                                            &mut presenter
+                                                                                .retained_scene_cache,
+                                                                            measurer.clone(),
+                                                                            scale_factor,
+                                                                            render_target_size.0,
+                                                                            render_target_size.1,
+                                                                            pipeline
+                                                                                .texture_compositor_root_transform(),
+                                                                            texture_plans,
+                                                                            force_full_compositor_redraw,
+                                                                            clear_color,
+                                                                            &presenter
+                                                                                .render_state
+                                                                                .surface
+                                                                                .target_view,
+                                                                        )
+                                                                        .expect(
+                                                                            "failed to composite webgpu texture layers",
+                                                                        );
+                                                            }
+                                                        }
+                                                        MainRenderer::Software => {}
+                                                    }
+
+                                                    let surface_view =
+                                                        surface_texture.texture.create_view(
+                                                            &wgpu::TextureViewDescriptor::default(),
+                                                        );
+                                                    let mut encoder = device_handle
+                                                        .device
+                                                        .create_command_encoder(
+                                                            &wgpu::CommandEncoderDescriptor {
+                                                                label: Some("WebGPU Surface Blit"),
+                                                            },
+                                                        );
+                                                    presenter.render_state.surface.blitter.copy(
+                                                        &device_handle.device,
+                                                        &mut encoder,
+                                                        &presenter.render_state.surface.target_view,
+                                                        &surface_view,
+                                                    );
+                                                    device_handle
+                                                        .queue
+                                                        .submit(Some(encoder.finish()));
+                                                    surface_texture.present();
+                                                }
                                             }
 
                                             let capture_ready =
@@ -4730,6 +5599,15 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                                 &mut pending_text_traces,
                                                 presented_frames,
                                             );
+
+                                            let total_ms = now.elapsed().as_secs_f64() * 1000.0;
+                                            publish_web_frame_perf(&active_renderer, total_ms);
+                                            if let Some(input_at) = pending_web_input_at.take() {
+                                                publish_web_input_latency(
+                                                    &active_renderer,
+                                                    input_at.elapsed().as_secs_f64() * 1000.0,
+                                                );
+                                            }
 
                                             diag::end_frame(diag::FrameStats::default());
                                         }
@@ -5039,6 +5917,17 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                                 presented_frames,
                                             );
 
+                                            diag::emit(
+                                                diag::DiagCategory::Frame,
+                                                diag::DiagLevel::Debug,
+                                                diag::DiagEventKind::FramePerformance {
+                                                    renderer: render_state
+                                                        .renderer_report
+                                                        .active
+                                                        .clone(),
+                                                    total_ms: now.elapsed().as_secs_f64() * 1000.0,
+                                                },
+                                            );
                                             diag::end_frame(diag::FrameStats::default());
                                         }
                                     }
@@ -5112,6 +6001,8 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                 last_cursor_position = None;
                             }
                             WindowEvent::MouseInput { state, button, .. } => {
+                                #[cfg(target_arch = "wasm32")]
+                                pending_web_input_at.get_or_insert_with(Instant::now);
                                 if let Some(position) = last_cursor_position {
                                     let point =
                                         window_physical_position_to_layout_point(window, position);
@@ -5148,6 +6039,8 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                 }
                             }
                             WindowEvent::MouseWheel { delta, .. } => {
+                                #[cfg(target_arch = "wasm32")]
+                                pending_web_input_at.get_or_insert_with(Instant::now);
                                 if let Some(position) = last_cursor_position {
                                     let scale_factor = window.scale_factor();
                                     let point =
@@ -5189,6 +6082,8 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                 }
                             }
                             WindowEvent::Touch(touch) => {
+                                #[cfg(target_arch = "wasm32")]
+                                pending_web_input_at.get_or_insert_with(Instant::now);
                                 let current_position = touch.location;
                                 // Some mobile backends report the end/cancel location after the
                                 // contact has already been cleared. Keep the last active touch
@@ -5357,6 +6252,8 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                 }
                             }
                             WindowEvent::KeyboardInput { event, .. } => {
+                                #[cfg(target_arch = "wasm32")]
+                                pending_web_input_at.get_or_insert_with(Instant::now);
                                 if event.state.is_pressed() {
                                     use winit::keyboard::{Key, NamedKey};
                                     let key_code = match event.logical_key {
@@ -5413,6 +6310,8 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                 }
                             }
                             WindowEvent::Ime(ime) => {
+                                #[cfg(target_arch = "wasm32")]
+                                pending_web_input_at.get_or_insert_with(Instant::now);
                                 if let (Some(ir), Some(layout)) =
                                     (&pipeline.prev_ir, &pipeline.last_snapshot)
                                 {

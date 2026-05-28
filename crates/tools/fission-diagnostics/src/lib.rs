@@ -161,6 +161,24 @@ pub enum DiagEventKind {
         cache_misses: u32,
         tiles_rasterized: u32,
     },
+    RendererSelected {
+        active: String,
+        requested: String,
+        backend: Option<String>,
+        adapter: Option<String>,
+        fallback_reason: Option<String>,
+        width: u32,
+        height: u32,
+        scale_factor: f64,
+    },
+    FramePerformance {
+        renderer: String,
+        total_ms: f64,
+    },
+    InputLatency {
+        renderer: String,
+        latency_ms: f64,
+    },
 
     AnimationSummary {
         active_count: u32,
@@ -586,4 +604,27 @@ pub struct SnapshotBlob {
 /// Trait for components that can produce a JSON snapshot of their internal state.
 pub trait SnapshotProvider {
     fn snapshot(&self, kind: SnapshotKind) -> Option<SnapshotBlob>;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::DiagEventKind;
+
+    #[test]
+    fn renderer_selected_diagnostic_serializes_renderer_identity() {
+        let event = DiagEventKind::RendererSelected {
+            active: "webgpu-vello".to_string(),
+            requested: "auto".to_string(),
+            backend: Some("BrowserWebGpu".to_string()),
+            adapter: Some("Chrome".to_string()),
+            fallback_reason: None,
+            width: 1280,
+            height: 720,
+            scale_factor: 2.0,
+        };
+        let json = serde_json::to_string(&event).expect("serialize renderer diagnostic");
+        assert!(json.contains("RendererSelected"));
+        assert!(json.contains("webgpu-vello"));
+        assert!(json.contains("BrowserWebGpu"));
+    }
 }

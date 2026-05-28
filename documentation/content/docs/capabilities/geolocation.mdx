@@ -35,7 +35,7 @@ Run this once from the project root:
 fission add-capability geolocation --project-dir .
 ```
 
-That command records the capability in `fission.toml` and updates generated platform files where Fission can do so safely. It does not replace product-specific review of native manifests, usage text, entitlements, service identifiers, domains, or store policy.
+That command records the capability in [`fission.toml`](/reference/config/fission-toml/) and updates generated platform files where Fission can do so safely. It does not replace product-specific review of native manifests, usage text, entitlements, service identifiers, domains, or store policy.
 
 The CLI adds Android coarse and fine location permissions and iOS when-in-use usage text. Desktop and web providers map the same contract to OS location services, browser geolocation, portals, or a typed unsupported error.
 

@@ -35,7 +35,7 @@ Run this once from the project root:
 fission add-capability camera --project-dir .
 ```
 
-That command records the capability in `fission.toml` and updates generated platform files where Fission can do so safely. It does not replace product-specific review of native manifests, usage text, entitlements, service identifiers, domains, or store policy.
+That command records the capability in [`fission.toml`](/reference/config/fission-toml/) and updates generated platform files where Fission can do so safely. It does not replace product-specific review of native manifests, usage text, entitlements, service identifiers, domains, or store policy.
 
 The CLI adds Android camera permission and optional camera/front/flash features. iOS receives `NSCameraUsageDescription`. Desktop targets need a provider and packaged apps may need macOS camera usage text or Windows webcam capability metadata.
 

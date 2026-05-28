@@ -35,7 +35,7 @@ Run this once from the project root:
 fission add-capability barcode-scanner --project-dir .
 ```
 
-That command records the capability in `fission.toml` and updates generated platform files where Fission can do so safely. It does not replace product-specific review of native manifests, usage text, entitlements, service identifiers, domains, or store policy.
+That command records the capability in [`fission.toml`](/reference/config/fission-toml/) and updates generated platform files where Fission can do so safely. It does not replace product-specific review of native manifests, usage text, entitlements, service identifiers, domains, or store policy.
 
 The CLI adds camera-related mobile configuration because live scanning normally uses the camera. Apps that only decode existing image bytes may not need camera access on every target, but the capability declaration keeps future live scanning explicit.
 

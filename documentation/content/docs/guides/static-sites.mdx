@@ -30,15 +30,15 @@ The `documentation/` project uses the static site target to exercise the feature
 | --- | --- | --- |
 | Custom Fission route | `documentation/src/components/home.rs` renders `/` | The landing page is a normal widget tree, so product pages can use the same component style as apps |
 | Content routes | `documentation/content/docs`, `documentation/content/reference`, and `documentation/content/blog` | Markdown files become generated routes without hand-writing every page |
-| Documentation template | `fission::site::documentation` in `documentation/fission.toml` | Content pages get a header, left sidebar, article body, right table of contents, footer, and responsive layout |
+| Documentation template | `fission::site::documentation` in [`documentation/fission.toml`](/reference/config/fission-toml/) | Content pages get a header, left sidebar, article body, right table of contents, footer, and responsive layout |
 | Sidebar files | `documentation/site/*.toml` | Navigation is explicit, reviewable, and independent from the Markdown body |
 | Content transform | `documentation/src/charts.rs` | The site can expand generated chart catalog sections before rendering Markdown |
 | Light and dark themes | `FissionSite::light_dark_themes(...)` in `documentation/src/main.rs` | The generated CSS contains both theme modes and the page includes a small theme toggle script |
 | User CSS | `documentation/site/overrides.css` | Site-specific polish can be appended after generated CSS without replacing the renderer |
 | Page elements | `[[site.elements]]` and `FissionSite::page_element(...)` | Document-level scripts, verification tags, analytics snippets, and provider metadata can be inserted without hard-coding them into the generic shell |
 | Static assets | `documentation/static` | Logos, favicons, fonts, and chart screenshots are copied into the output directory |
-| Code highlighting | `[site.code_highlighting]` in `documentation/fission.toml` | Code blocks can opt into client-side syntax highlighting without loading it on pages that do not need it |
-| Client search | `[site.search]` in `documentation/fission.toml` | The build writes a client-side search index so the deployed site does not need a hosted search service |
+| Code highlighting | `[site.code_highlighting]` in [`documentation/fission.toml`](/reference/config/fission-toml/) | Code blocks can opt into client-side syntax highlighting without loading it on pages that do not need it |
+| Client search | `[site.search]` in [`documentation/fission.toml`](/reference/config/fission-toml/) | The build writes a client-side search index so the deployed site does not need a hosted search service |
 | Search shortcut | Generated search script | The header search button and Command/Control-K open the local search interface |
 | SEO metadata | Site and page front matter | Pages emit titles, descriptions, canonical links, Open Graph metadata, Twitter metadata, and JSON-LD structured data |
 | Sitemap and robots | `generate_sitemap` and `generate_robots` | Crawlers can discover the generated route set from static files |
@@ -199,7 +199,7 @@ That ordering matters. The shell gives the static renderer a stable base. Theme 
 
 ## Search
 
-Enable search in `fission.toml`:
+Enable search in [`fission.toml`](/reference/config/fission-toml/):
 
 ```toml
 [site.search]
@@ -214,7 +214,7 @@ Search is most useful on documentation and reference sites. For tiny marketing s
 
 Most page content should come from Fission widgets or Markdown. A small number of document-level concerns do not belong in the widget tree: analytics tags, search-console verification tags, consent-manager bootstraps, provider-specific `<meta>` tags, or a script that only applies to a documentation section. The static site shell supports those as page elements.
 
-Use `[[site.elements]]` in `fission.toml` when the element is site configuration:
+Use `[[site.elements]]` in [`fission.toml`](/reference/config/fission-toml/) when the element is site configuration:
 
 ```toml
 [[site.elements]]

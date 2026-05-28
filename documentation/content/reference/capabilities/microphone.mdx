@@ -40,7 +40,7 @@ Providers should return typed errors for unsupported operations, denied permissi
 
 The CLI adds Android `RECORD_AUDIO` and iOS `NSMicrophoneUsageDescription`. Packaged macOS apps need microphone usage text, and Windows packages may need microphone capability metadata.
 
-When a CLI value exists, `fission add-capability <value> --project-dir .` records the capability in `fission.toml` and updates generated target files where Fission can do that deterministically. Android generated configuration lives in `platforms/android/AndroidManifest.xml`. iOS generated configuration lives in `platforms/ios/Info.plist` and `platforms/ios/Entitlements.plist` when entitlements are required. Desktop package metadata is reviewed during packaging because Windows, macOS, and Linux use different permission and distribution systems.
+When a CLI value exists, `fission add-capability <value> --project-dir .` records the capability in [`fission.toml`](/reference/config/fission-toml/) and updates generated target files where Fission can do that deterministically. Android generated configuration lives in `platforms/android/AndroidManifest.xml`. iOS generated configuration lives in `platforms/ios/Info.plist` and `platforms/ios/Entitlements.plist` when entitlements are required. Desktop package metadata is reviewed during packaging because Windows, macOS, and Linux use different permission and distribution systems.
 
 ## Runtime behavior
 

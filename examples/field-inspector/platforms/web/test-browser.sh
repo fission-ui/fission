@@ -138,6 +138,7 @@ CHROME=$(detect_chrome) || {
 rm -rf "$PROFILE_DIR"
 "$CHROME" \
   --headless=new \
+  --enable-unsafe-webgpu \
   --no-first-run \
   --no-default-browser-check \
   --remote-debugging-port="$CDP_PORT" \
@@ -232,6 +233,9 @@ class CdpClient {
     } else if (message.method === 'Log.entryAdded') {
       const entry = message.params?.entry;
       if (entry?.level === 'error') {
+        if ((entry.url ?? '').endsWith('/__fission/renderer')) {
+          return;
+        }
         this.errors.push(`browser log error: ${entry.text}${entry.url ? ` (${entry.url}:${entry.lineNumber ?? 0})` : ''}`);
       }
     }
@@ -259,16 +263,20 @@ function errorBlock(errors) {
   return errors.slice(0, 10).map((error, index) => `${index + 1}. ${error}`).join('\n');
 }
 
-async function readCanvas(client) {
+async function readRuntimeStatus(client) {
   const expression = `(() => {
     const canvas = document.querySelector('canvas');
     if (!canvas) return { ready: false, reason: 'no canvas element' };
     const rect = canvas.getBoundingClientRect();
+    const perf = globalThis.__FISSION_PERF ?? { frames: [], inputLatencies: [] };
     return {
       ready: rect.width > 0 && rect.height > 0,
       width: Math.round(rect.width),
       height: Math.round(rect.height),
       gpu: typeof navigator.gpu !== 'undefined',
+      renderer: globalThis.__FISSION_RENDERER_INFO ?? null,
+      frames: Array.isArray(perf.frames) ? perf.frames.slice(-120) : [],
+      inputLatencies: Array.isArray(perf.inputLatencies) ? perf.inputLatencies.slice(-30) : [],
       title: document.title,
     };
   })()`;
@@ -277,6 +285,19 @@ async function readCanvas(client) {
     throw new Error(formatException(result.exceptionDetails));
   }
   return result.result?.value ?? { ready: false, reason: 'evaluation returned no value' };
+}
+
+function average(values) {
+  if (!values.length) return 0;
+  return values.reduce((sum, value) => sum + value, 0) / values.length;
+}
+
+async function clickCanvasCenter(client, status) {
+  const x = Math.max(1, Math.floor(status.width / 2));
+  const y = Math.max(1, Math.floor(status.height / 2));
+  await client.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x, y, button: 'none' });
+  await client.send('Input.dispatchMouseEvent', { type: 'mousePressed', x, y, button: 'left', clickCount: 1 });
+  await client.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x, y, button: 'left', clickCount: 1 });
 }
 
 async function main() {
@@ -292,16 +313,43 @@ async function main() {
 
     const deadline = Date.now() + 60_000;
     let readySince = null;
-    let lastCanvas = null;
+    let lastStatus = null;
     while (Date.now() < deadline) {
       if (client.errors.length > 0) {
         throw new Error(`browser reported runtime/console errors:\n${errorBlock(client.errors)}`);
       }
-      lastCanvas = await readCanvas(client);
-      if (lastCanvas.ready) {
+      lastStatus = await readRuntimeStatus(client);
+      if (lastStatus.ready && lastStatus.renderer) {
         readySince ??= Date.now();
         if (Date.now() - readySince >= 1_500) {
-          console.log(`Web app rendered canvas ${lastCanvas.width}x${lastCanvas.height}; no runtime console errors observed.`);
+          const renderer = lastStatus.renderer.active;
+          if (lastStatus.gpu && renderer === 'canvas2d-software' && !lastStatus.renderer.fallback_reason && process.env.FISSION_ALLOW_WEBGPU_FALLBACK !== '1') {
+            throw new Error(`WebGPU is exposed but Fission used canvas2d-software without a fallback reason: ${JSON.stringify(lastStatus.renderer)}`);
+          }
+          await clickCanvasCenter(client, lastStatus);
+          const inputDeadline = Date.now() + 10_000;
+          while (Date.now() < inputDeadline) {
+            lastStatus = await readRuntimeStatus(client);
+            if ((lastStatus.inputLatencies ?? []).length > 0) break;
+            await sleep(100);
+          }
+          const frames = lastStatus.frames ?? [];
+          const latencies = lastStatus.inputLatencies ?? [];
+          if (frames.length < 2) {
+            throw new Error(`web perf smoke did not capture enough frame samples: ${JSON.stringify(lastStatus)}`);
+          }
+          if (latencies.length < 1) {
+            throw new Error(`web perf smoke did not capture input latency samples: ${JSON.stringify(lastStatus)}`);
+          }
+          const avgFrame = average(frames.slice(-30));
+          const avgLatency = average(latencies.slice(-10));
+          if (avgFrame > Number(process.env.FISSION_WEB_MAX_AVG_FRAME_MS ?? 80)) {
+            throw new Error(`web average frame time ${avgFrame.toFixed(2)}ms exceeded smoke threshold`);
+          }
+          if (avgLatency > Number(process.env.FISSION_WEB_MAX_INPUT_LATENCY_MS ?? 180)) {
+            throw new Error(`web input latency ${avgLatency.toFixed(2)}ms exceeded smoke threshold`);
+          }
+          console.log(`Web app renderer ${renderer}; canvas ${lastStatus.width}x${lastStatus.height}; avg frame ${avgFrame.toFixed(2)}ms; avg input latency ${avgLatency.toFixed(2)}ms.`);
           return;
         }
       } else {
@@ -309,7 +357,7 @@ async function main() {
       }
       await sleep(250);
     }
-    throw new Error(`web app did not render a non-empty canvas. Last canvas state: ${JSON.stringify(lastCanvas)}`);
+    throw new Error(`web app did not render a non-empty canvas with renderer diagnostics. Last state: ${JSON.stringify(lastStatus)}`);
   } finally {
     client.close();
   }

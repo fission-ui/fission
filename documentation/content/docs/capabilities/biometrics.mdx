@@ -34,7 +34,7 @@ Run this once from the project root:
 fission add-capability biometric --project-dir .
 ```
 
-That command records the capability in `fission.toml` and updates generated platform files where Fission can do so safely. It does not replace product-specific review of native manifests, usage text, entitlements, service identifiers, domains, or store policy.
+That command records the capability in [`fission.toml`](/reference/config/fission-toml/) and updates generated platform files where Fission can do so safely. It does not replace product-specific review of native manifests, usage text, entitlements, service identifiers, domains, or store policy.
 
 The CLI adds Android biometric permissions and the iOS Face ID usage string. macOS and Windows support local authentication through host providers. Web fingerprint prompts are normally passkeys/WebAuthn rather than raw biometric access.
 

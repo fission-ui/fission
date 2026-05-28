@@ -39,9 +39,9 @@ Providers should return typed errors for unsupported operations, denied permissi
 
 ## Platform configuration
 
-Deep links are product routes, so the app must name them explicitly. Android uses intent filters. iOS and macOS use URL schemes or associated domains. Windows uses protocol activation or package metadata. Web and static sites use ordinary URL paths. Fission can store the route intent in `fission.toml`, but you still review the generated native files because route names and domains are product-owned.
+Deep links are product routes, so the app must name them explicitly. Android uses intent filters. iOS and macOS use URL schemes or associated domains. Windows uses protocol activation or package metadata. Web and static sites use ordinary URL paths. Fission can store the route intent in [`fission.toml`](/reference/config/fission-toml/), but you still review the generated native files because route names and domains are product-owned.
 
-When a CLI value exists, `fission add-capability <value> --project-dir .` records the capability in `fission.toml` and updates generated target files where Fission can do that deterministically. Android generated configuration lives in `platforms/android/AndroidManifest.xml`. iOS generated configuration lives in `platforms/ios/Info.plist` and `platforms/ios/Entitlements.plist` when entitlements are required. Desktop package metadata is reviewed during packaging because Windows, macOS, and Linux use different permission and distribution systems.
+When a CLI value exists, `fission add-capability <value> --project-dir .` records the capability in [`fission.toml`](/reference/config/fission-toml/) and updates generated target files where Fission can do that deterministically. Android generated configuration lives in `platforms/android/AndroidManifest.xml`. iOS generated configuration lives in `platforms/ios/Info.plist` and `platforms/ios/Entitlements.plist` when entitlements are required. Desktop package metadata is reviewed during packaging because Windows, macOS, and Linux use different permission and distribution systems.
 
 ## Runtime behavior
 

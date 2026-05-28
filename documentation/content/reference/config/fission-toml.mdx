@@ -1,0 +1,669 @@
+---
+title: fission.toml manifest
+summary: Complete reference for the Fission project manifest, including app metadata, targets, capabilities, static-site settings, package settings, release metadata, distribution providers, signing references, beta testing, and release workflows.
+description: Complete reference for every fission.toml section currently read by the Fission command-line interface and static-site shell.
+---
+
+# fission.toml manifest
+
+`fission.toml` is the project manifest read by the Fission command-line interface and the static-site shell. It is the place for stable project facts: the app identity, enabled targets, declared host capabilities, site build settings, package references, release entries, provider configuration, and release workflow commands.
+
+Keep this file human-reviewable. Short identifiers and paths belong here. Long release notes, localized store descriptions, review instructions, privacy declarations, screenshots, videos, certificates, private keys, and tokens should live in referenced files, provider tools, CI secrets, or the Fission credential vault.
+
+## Minimal app manifest
+
+Most app projects need only this at the start:
+
+```toml
+targets = ["linux", "macos", "windows"]
+
+[app]
+name = "my-app"
+app_id = "com.example.my_app"
+```
+
+`fission init` writes this file for you. `fission add-target` and `fission add-capability` update it idempotently.
+
+## Parsing rules
+
+Fission commands currently read the sections they need instead of requiring one giant schema object. That has a few practical consequences:
+
+| Rule | Contract |
+| --- | --- |
+| File location | The manifest must be named `fission.toml` and live at the project root passed by `--project-dir`. |
+| Required for app commands | `fission run`, `fission build`, `fission test`, `fission package`, `fission add-target`, and `fission add-capability` require `[app]` and `targets`. |
+| Required for site commands | `fission site ...` requires `[app].name`. The `[site]` table is optional but needed for non-default site behavior. |
+| Unknown fields | Unknown fields are tolerated by current TOML deserializers, but they do not affect behavior. Do not rely on an undocumented field unless the command that reads it is listed here. |
+| Paths | Paths are project-relative unless explicitly described as absolute or provider-owned. Absolute paths are accepted in some release/package paths, but project-relative paths are easier to review and reproduce. |
+| Secrets | Do not put secrets in this file. Use environment variables, provider command-line tools, platform key stores, CI secrets, or `fission auth import`. |
+
+## Root fields
+
+Root fields appear before any table header.
+
+| Field | Type | Required | Accepted values | Meaning |
+| --- | --- | --- | --- | --- |
+| `targets` | array of strings | Yes for app/package commands | `android`, `ios`, `linux`, `macos`, `site`, `web`, `windows` | Declares which generated hosts belong to the project. Commands use it to reject packaging/running a target that has not been added. |
+| `capabilities` | array of strings | No | `barcode-scanner`, `biometric`, `bluetooth`, `camera`, `geolocation`, `haptics`, `microphone`, `nfc`, `notifications`, `passkeys`, `volume-control`, `wifi` | Declares host capabilities the app intends to use. `fission add-capability` updates this list and generated Android/iOS files where the configuration is deterministic. |
+
+Clipboard and deep-link APIs are runtime/platform capabilities, but they are not currently accepted values in the root `capabilities` array. Deep-link routes still need product-owned native or web routing configuration, and clipboard currently does not require root manifest declaration.
+
+The terminal user interface shell is currently a shell/tooling surface rather than a root `targets` value, so `terminal` and `tui` are not accepted in `targets`.
+
+## `[app]`
+
+`[app]` identifies the product and package. It is required by normal app commands.
+
+| Field | Type | Required | Meaning |
+| --- | --- | --- | --- |
+| `name` | string | Yes | Rust package/app name used by generated scripts and site fallback title. Prefer a Cargo-compatible kebab-case name such as `field-inspector`. |
+| `app_id` | string | Yes | Stable application identifier used by generated mobile/desktop package metadata. Use a reverse-domain identifier such as `com.example.field_inspector`. |
+
+`app.name` should match the Cargo package name for normal generated projects. `fission init` refuses to set a conflicting name for an existing Cargo package because the generated scripts call Cargo by package name.
+
+## `[site]`
+
+`[site]` configures the static-site target. It is used by `fission site ...`, `fission package --target site --format static`, and static-site publishing providers.
+
+| Field | Type | Required | Default | Meaning |
+| --- | --- | --- | --- | --- |
+| `entry` | string | No | none | When present, `fission site ...` delegates to the project's Rust site builder by running the Cargo package and passing `build`, `check`, `routes`, or `serve`. Use this for custom Fission-rendered marketing pages. |
+| `title` | string | No | `[app].name` | Site title used in generated document titles and the default header. |
+| `description` | string | No | none | Default SEO description used when a route does not provide front matter description. |
+| `logo` | string | No | none | Site asset path for the header logo, such as `/img/fission-mark.svg`. |
+| `favicon` | string | No | none | Site asset path for the generated `<link rel="icon">`. |
+| `base_url` | string | No | none | Absolute public origin used to generate canonical URLs and sitemap entries, such as `https://fission.rs`. |
+| `base_path` | string | No | `/` | Static package metadata base path. GitHub project pages often use `/<repo>/`; custom domains usually use `/`. |
+| `canonical_url` | string | No | none | Static package metadata canonical URL. Use this when a distributor needs the public site URL recorded in package metadata. |
+| `out_dir` | string | No | `target/fission/site` | Output directory for generated HTML, CSS, assets, search index, sitemap, and robots file. |
+| `default_locale` | string | No | `en` | Locale used for the HTML `lang` attribute and search index metadata. |
+| `asset_dirs` | array of strings | No | `[]` | Directories copied into the generated site root. This documentation site uses `static`. |
+| `css_files` | array of strings | No | `[]` | Project CSS files appended after Fission's generated CSS. Later rules can override generated rules. |
+| `generate_sitemap` | boolean | No | `false` | Writes `sitemap.xml` when enabled. `base_url` must be set for route URLs to be emitted. |
+| `generate_robots` | boolean | No | `false` | Writes `robots.txt`. If `base_url` is set, the file includes a sitemap URL. |
+| `cache_control` | string | No | `public, max-age=31536000, immutable` | Static package cache policy written into package metadata and `_headers`. |
+
+The current documentation manifest also contains `locales` and `pretty_urls`. Those fields are tolerated by the current parser but are not authoritative behavior switches today. `default_locale` is the locale field currently consumed by the static-site shell, and generated output already uses pretty route URLs.
+
+### `[[site.nav]]`
+
+Each `[[site.nav]]` entry adds one top-level navigation link to the generated documentation template.
+
+| Field | Type | Required | Meaning |
+| --- | --- | --- | --- |
+| `title` | string | Yes | Text shown in the header navigation. |
+| `href` | string | Yes | Site route or absolute URL. Site routes should start with `/`. |
+
+Example:
+
+```toml
+[[site.nav]]
+title = "Learn"
+href = "/docs/learn/overview/"
+```
+
+### `[[site.routes]]`
+
+Each `[[site.routes]]` entry maps a content directory to generated routes. If no routes are configured, Fission uses `content/` at `/content`.
+
+| Field | Type | Required | Default | Meaning |
+| --- | --- | --- | --- | --- |
+| `kind` | string | No | `content` | Only `content` routes are currently consumed. Other values are ignored by the content-route loader. |
+| `path` | string | Yes | none | URL prefix for generated pages, such as `/docs`, `/reference`, or `/blog`. |
+| `source` | string | Yes | none | Project-relative directory containing `.md` or `.mdx` files. The directory must exist and contain Markdown files. |
+| `template` | string | No | default documentation page | Template identity. `fission::site::documentation` selects the standard documentation layout in the current site app. |
+| `sidebar` | string | No | none | Project-relative TOML file describing left-sidebar entries for this content route. |
+
+Example:
+
+```toml
+[[site.routes]]
+kind = "content"
+path = "/reference"
+source = "content/reference"
+template = "fission::site::documentation"
+sidebar = "site/reference-sidebar.toml"
+```
+
+### `[[site.elements]]`
+
+`[[site.elements]]` inserts raw trusted document-level HTML. Use it for analytics snippets, verification tags, consent scripts, preload hints, or other document features that do not belong in a Fission widget.
+
+| Field | Type | Required | Accepted values / condition | Meaning |
+| --- | --- | --- | --- | --- |
+| `placement` | string | Yes | `head-start`, `head-end`, `body-start`, `body-end`; underscores and `head:start`/`body:end` aliases are accepted | Where the raw HTML fragment is inserted. |
+| `html` | string | Required unless `file` is set | Mutually exclusive with `file` | Inline raw HTML. |
+| `file` | string | Required unless `html` is set | Mutually exclusive with `html` | Project-relative file containing raw HTML. |
+| `routes` | array of strings | No | `[]` | Exact route filters. Empty means every route unless `route_prefixes` is set. |
+| `route_prefixes` | array of strings | No | `[]` | Prefix route filters, such as `/docs/`. |
+
+Exactly one of `html` or `file` must be set. Setting both is an error.
+
+### `[site.code_highlighting]`
+
+Code highlighting is optional and only loads highlighting assets on pages that contain code blocks.
+
+| Field | Type | Required | Default | Meaning |
+| --- | --- | --- | --- | --- |
+| `enabled` | boolean | No | `false` | Enables client-side code highlighting. |
+| `stylesheet_href` | string | No | hosted Highlight.js dark CSS URL | CSS URL inserted on pages with code blocks. |
+| `script_src` | string | No | hosted Highlight.js script URL | Script URL inserted on pages with code blocks. |
+
+### `[site.search]`
+
+Client-side search is optional. When enabled, the build writes a local search index and script into the generated site.
+
+| Field | Type | Required | Default | Meaning |
+| --- | --- | --- | --- | --- |
+| `enabled` | boolean | No | `false` | Enables generated client-side search assets. |
+| `output_path` | string | No | `search` | Output directory below the site root for `search.js`, `manifest.json`, document metadata, and shards. |
+| `min_token_len` | integer | No | `2` | Minimum token length included in the search index. |
+
+## `[package]`
+
+`[package]` contains packaging and signing references. It is read by `fission package`, `fission signing ...`, and readiness checks.
+
+### `[package.macos]`
+
+| Field | Type | Required | Meaning |
+| --- | --- | --- | --- |
+| `bundle_id` | string | No | Overrides `[app].app_id` for macOS `.app` and `.pkg` output. |
+| `minimum_os` | string | No | Records the intended minimum macOS version for package metadata. |
+| `entitlements` | string | No | Project-relative entitlements plist passed to `codesign` when signing. |
+| `signing_identity` | string | No | Developer ID/Application identity used to sign `.app` bundles. If omitted, the app is not code-signed by Fission. |
+| `installer_identity` | string | No | Developer ID Installer identity passed to `pkgbuild`/`productbuild` for `.pkg` output. |
+| `notarize` | boolean | No | When `true`, notarization requires `APP_STORE_CONNECT_API_KEY_PATH`, `APP_STORE_CONNECT_KEY_ID`, and `APP_STORE_CONNECT_ISSUER_ID`. |
+
+### `[package.android]`
+
+| Field | Type | Required | Meaning |
+| --- | --- | --- | --- |
+| `keystore` | string | No | Project-relative upload/signing keystore path recorded for signing readiness. |
+| `upload_keystore` | string | No | Alternate upload keystore path for app-store release workflows. |
+| `keystore_alias` | string | No | Alias inside the keystore. |
+| `package_name` | string | Required for Android signing readiness | Android package name expected by signing/release checks. Usually matches `[app].app_id`. |
+
+Keystore passwords are not stored in `fission.toml`. Use `ANDROID_KEYSTORE_PASSWORD` and `ANDROID_KEY_PASSWORD` or an OS/CI secret store.
+
+### `[package.ios]`
+
+| Field | Type | Required | Meaning |
+| --- | --- | --- | --- |
+| `bundle_id` | string | No | iOS bundle identifier used by signing readiness. Usually matches `[app].app_id`. |
+| `team_id` | string | No | Apple Developer Team ID for signing workflows. |
+| `entitlements` | string | No | Project-relative entitlements plist. |
+| `provisioning_profile` | string | No | Project-relative provisioning profile reference. |
+| `signing_identity` | string | No | Signing identity for release packaging. |
+
+### `[package.windows]`
+
+| Field | Type | Required | Meaning |
+| --- | --- | --- | --- |
+| `identity_name` | string | No | MSIX package identity name. |
+| `publisher` | string | No | Windows package publisher distinguished name. |
+| `certificate` | string | No | Project-relative certificate file reference. |
+| `certificate_thumbprint` | string | No | Certificate thumbprint used when signing through the Windows certificate store. |
+
+Certificate passwords are not stored in `fission.toml`. Use `WINDOWS_CERTIFICATE_PASSWORD` or an OS/CI secret store.
+
+### `[[package.secondary_artifacts]]`, `[[package.symbols]]`, and `[[package.crash_assets]]`
+
+These entries add extra files or directories to the artifact manifest. `[[package.symbols]]` defaults `kind` to `debug_symbols`; `[[package.crash_assets]]` defaults `kind` to `crash_diagnostics`.
+
+| Field | Type | Required | Meaning |
+| --- | --- | --- | --- |
+| `path` | string | Required to include an artifact | File or directory to add. The path must exist during packaging. |
+| `kind` | string | No | Artifact kind. Defaults to `secondary_artifact`, `debug_symbols`, or `crash_diagnostics` depending on the table. |
+| `purpose` | string | No | Human-readable purpose. Defaults to `kind`. |
+| `platform` | string | No | Platform label recorded in the artifact manifest. |
+| `upload_provider` | string | Recommended for symbols/crash assets | Provider or backend that should receive this artifact. |
+
+## `[distribution]`
+
+`[distribution]` configures publishing providers. Provider names in CLI flags use kebab-case, such as `github-pages`; TOML table names use snake_case, such as `distribution.github_pages.production`.
+
+Distribution providers that support multiple profiles use `[distribution.<provider>.<profile>]`. The CLI selects a profile with `--site`, defaulting to `production`. Store providers currently use one table per provider instead of named profiles.
+
+### `[distribution.github_pages.<profile>]`
+
+| Field | Type | Required | Accepted values / default | Meaning |
+| --- | --- | --- | --- | --- |
+| `owner` | string | Required unless inferable | GitHub owner/user/org | Repository owner. If omitted, Fission tries to infer it from the `origin` remote. |
+| `repo` | string | Required unless inferable | repository name | Repository name. If omitted, Fission tries to infer it from the `origin` remote. |
+| `mode` | string | No | `actions`; publish supports `actions` and `branch`; readiness also recognizes `manual` | Publishing model. `actions` generates/follows a workflow; `branch` pushes static output to a Pages branch. |
+| `source` | string | No | `github-actions` | Pages source mode expected by readiness for Actions publishing. |
+| `source_branch` | string | No | `gh-pages` for branch mode | Branch used by branch-mode publishing. |
+| `source_path` | string | No | `/` | Subdirectory on the Pages branch used by branch-mode publishing. |
+| `site_kind` | string | No | project site | `user` or `organization` means root Pages URL; otherwise project Pages URL is assumed. |
+| `base_path` | string | No | computed from `site_kind`, `repo`, and custom domain | Expected site base path. Custom domains use `/`; project sites usually use `/<repo>/`. |
+| `custom_domain` | string | No | none | Domain written to `CNAME` in branch mode and reported in receipts. |
+| `enforce_https` | boolean | No | `true` | Recorded HTTPS policy for readiness/follow-up. |
+| `remote` | string | No | `origin` | Git remote used by branch-mode publishing. |
+| `production_branch` | string | No | `main` | Branch the generated workflow listens to. |
+| `workflow` | string | No | `fission-pages.yml` | Workflow filename under `.github/workflows/` for Actions mode. |
+
+### `[distribution.github_releases.<profile>]`
+
+| Field | Type | Required | Accepted values / default | Meaning |
+| --- | --- | --- | --- | --- |
+| `owner` | string | Required unless inferable | GitHub owner/user/org | Repository owner. If omitted, Fission tries to infer it from the `origin` remote. |
+| `repo` | string | Required unless inferable | repository name | Repository name. If omitted, Fission tries to infer it from the `origin` remote. |
+| `tag` | string | Required unless `--deploy` or Cargo version resolves one | release tag | Release tag. If omitted, Fission uses `--deploy`, then `v<package.version>` from Cargo metadata. |
+| `name` | string | No | none | Release title passed to `gh release create/edit --title`. |
+| `target_commitish` | string | No | provider default | Git ref passed as the release target. |
+| `notes` | string | No | none | Inline release notes. If set, it wins over `notes_file`. |
+| `notes_file` | string | No | none | Project-relative release notes file passed to `gh`. Used only when `notes` is absent. |
+| `draft` | boolean | No | `false` | Creates/updates a draft release. |
+| `prerelease` | boolean | No | `false` | Marks the release as a prerelease. |
+| `make_latest` | string | No | provider default | Accepted values are `true`, `false`, and `legacy`. |
+| `replace_assets` | boolean | No | `false` | Uses `gh release upload --clobber` to replace assets with the same name. |
+| `upload_artifact_manifest` | boolean | No | `true` | Uploads the Fission artifact manifest JSON alongside package assets. |
+
+GitHub Releases publishing uses the GitHub CLI. A developer can authenticate with `gh auth login`, `GH_TOKEN`, `GITHUB_TOKEN`, or a token imported into the Fission credential vault.
+
+### `[distribution.cloudflare_pages.<profile>]`
+
+| Field | Type | Required | Default | Meaning |
+| --- | --- | --- | --- | --- |
+| `account_id` | string | Required unless `CLOUDFLARE_ACCOUNT_ID` is set | none | Cloudflare account id. |
+| `project_name` | string | Yes | none | Pages project name. |
+| `environment` | string | No | production | Non-production environments are passed as a branch to the provider CLI. |
+| `custom_domain` | string | No | none | Public custom domain reported in receipts. |
+| `base_path` | string | No | `/` | Should normally stay `/` for dedicated static hosting. |
+
+Cloudflare Pages upload intentionally shells out to the provider CLI. Fission does not implement a replacement deploy protocol.
+
+### `[distribution.netlify.<profile>]`
+
+| Field | Type | Required | Meaning |
+| --- | --- | --- | --- |
+| `site_id` | string | Yes | Netlify site id. |
+| `team_slug` | string | No | Team slug shown during setup/status. |
+| `production` | boolean | No | Whether the deploy should target production behavior. |
+| `custom_domain` | string | No | Public custom domain reported in receipts. |
+| `base_path` | string | No | Should normally stay `/` for dedicated static hosting. |
+
+### `[distribution.s3.<profile>]`
+
+| Field | Type | Required | Default | Meaning |
+| --- | --- | --- | --- | --- |
+| `bucket` | string | Yes | none | S3-compatible bucket name. |
+| `endpoint` | string | No | provider default | Custom endpoint for S3-compatible object stores. |
+| `region` | string | No | `us-east-1` for URL generation | Region used by the S3 client/provider. |
+| `prefix` | string | No | none | Remote object prefix. |
+| `profile` | string | No | environment/provider default | Credential/profile name for provider SDK/tooling. |
+| `path_style` | boolean | No | `false` | Enables path-style endpoint URLs. |
+| `visibility` | string | No | `private` | Use `public` when the uploaded files should produce public URLs. |
+| `presign_ttl_seconds` | integer | No | provider default | TTL for generated presigned links where used. |
+
+### `[distribution.google_drive.<profile>]`
+
+| Field | Type | Required | Default | Meaning |
+| --- | --- | --- | --- | --- |
+| `folder_id` | string | No | root/current provider default | Parent folder id. When set, uploaded files are placed in that folder. |
+| `name_prefix` | string | No | none | Prefix applied to uploaded file names. |
+| `share` | boolean | No | `false` | Requests shareable links after upload. |
+
+### `[distribution.onedrive.<profile>]`
+
+| Field | Type | Required | Default | Meaning |
+| --- | --- | --- | --- | --- |
+| `root` | string | No | provider default | OneDrive root selector used by the Graph upload backend. |
+| `path_prefix` | string | No | none | Remote path prefix. |
+| `conflict_behavior` | string | No | `replace` | Conflict behavior sent to the provider, such as `replace`, `rename`, or `fail` depending on provider support. |
+
+### `[distribution.dropbox.<profile>]`
+
+| Field | Type | Required | Default | Meaning |
+| --- | --- | --- | --- | --- |
+| `path_prefix` | string | No | none | Remote Dropbox path prefix. |
+| `mode` | string | No | `overwrite` | Dropbox write mode. |
+| `autorename` | boolean | No | `false` | Allows Dropbox to rename conflicting uploads. |
+
+### `[distribution.play_store]`
+
+| Field | Type | Required | Default | Meaning |
+| --- | --- | --- | --- | --- |
+| `package_name` | string | Required for Play publish, metadata, reviews, and beta operations | none | Android package name in Google Play. |
+| `default_track` | string | No | command/provider default | Track used when `--track` is omitted. |
+| `service_account` | string | No | environment/vault | Service-account JSON path, inline JSON, or token source used by release tooling when environment/vault credentials are absent. |
+| `release_status` | string | No | provider default | Track release status sent to Play publishing. |
+
+Credentials can also come from `PLAY_STORE_ACCESS_TOKEN`, `PLAY_STORE_SERVICE_ACCOUNT_JSON`, `GOOGLE_APPLICATION_CREDENTIALS`, or the Fission credential vault.
+
+### `[distribution.app_store]`
+
+| Field | Type | Required | Meaning |
+| --- | --- | --- | --- |
+| `app_id` | string | Required unless `bundle_id` can resolve the app through the provider API | App Store Connect app id. |
+| `bundle_id` | string | Required when `app_id` is omitted | Bundle id used to look up the app. |
+| `issuer_id` | string | Required unless `APP_STORE_CONNECT_ISSUER_ID` is set | App Store Connect issuer id. |
+| `key_id` | string | Required unless `APP_STORE_CONNECT_KEY_ID` is set | App Store Connect API key id. |
+| `api_key_path` | string | Required unless key material comes from env/vault | Path to `.p8` API key. |
+| `default_track` | string | No | Default release/beta track label for commands that accept tracks. |
+
+API key material can also come from `APP_STORE_CONNECT_API_KEY`, `APP_STORE_CONNECT_API_KEY_PATH`, or the Fission credential vault.
+
+### `[distribution.microsoft_store]`
+
+| Field | Type | Required | Accepted values / meaning |
+| --- | --- | --- | --- |
+| `product_id` | string | Required | Microsoft Store product id. |
+| `package_identity_name` | string | No | Package identity name for package metadata. |
+| `tenant_id` | string | Required unless `AZURE_TENANT_ID` or `PARTNER_CENTER_TENANT_ID` is set | Microsoft Entra tenant id. |
+| `client_id` | string | Required unless `AZURE_CLIENT_ID` or `PARTNER_CENTER_CLIENT_ID` is set | Microsoft Entra client id. |
+| `seller_id` | string | Required unless `MICROSOFT_STORE_SELLER_ID` or `PARTNER_CENTER_SELLER_ID` is set | Partner Center seller id. |
+| `package_url` | string | Required for MSI/EXE Store submissions unless `--deploy <https-url>` supplies one | HTTPS URL to an uploaded package. |
+| `package_type` | string | No | Usually `exe`, `msi`, `msix`, or `msixupload`; if omitted, Fission infers from the primary artifact extension. |
+| `flight_id` | string | Required for MSIX private flight when `--track private` is used | Package flight id. Passing a non-empty custom `--track` can also be treated as a flight id. |
+| `package_rollout_percentage` | integer | No | Must be between `0` and `100`. |
+| `msstore_project` | string | No | Project directory passed to Microsoft Store Developer CLI for MSIX publishing. Defaults to the Fission project root. |
+| `msstore_reconfigure` | boolean | No | When `true`, Fission attempts to configure the provider CLI using configured credentials before publishing. |
+| `languages` | array of strings | No | Listing/package languages for provider setup. |
+| `architectures` | array of strings | No | Package architectures for provider setup. |
+| `is_silent_install` | boolean | No | Installer metadata for MSI/EXE submissions. |
+| `installer_parameters` | string | No | Installer command-line parameters for MSI/EXE submissions. |
+| `generic_doc_url` | string | No | Documentation/support URL for installer submissions. |
+| `submit` | boolean | No | When `true`, publishes/submits instead of creating a non-committed package submission where the backend supports that distinction. |
+
+The Microsoft Store provider supports both Store API metadata operations and MSIX-specific publishing through the platform provider tooling. Fission uses the provider tooling/API; it does not build a custom replacement for platform submission systems.
+
+## `[release]` and `[[releases]]`
+
+Release configuration keeps long content out of `fission.toml` by referencing sidecar files.
+
+### `[release]`
+
+| Field | Type | Required for `release-config validate` | Meaning |
+| --- | --- | --- | --- |
+| `active_release` | string | Yes | Id of the `[[releases]]` entry currently being edited, validated, or pushed. |
+| `metadata_root` | string | Yes | Root directory for release metadata sidecar files. |
+| `content_output_dir` | string | Yes | Output directory for generated/captured release content. |
+| `default_locales` | array of strings | Yes | Locales used when a release entry does not override `locales`. |
+
+### `[[releases]]`
+
+| Field | Type | Required | Meaning |
+| --- | --- | --- | --- |
+| `id` | string | Required when referenced by `release.active_release` | Stable release id, commonly `<version>+<build>`. |
+| `version` | string | Yes for validation and App Store metadata sync | User-facing version string. |
+| `build` | integer | Yes for validation | Monotonically increasing platform build number. |
+| `status` | string | Yes for validation | Release status label, such as `candidate`, `internal`, or `production`. Fission records the string and provider-specific commands interpret tracks/status separately. |
+| `tracks` | array of strings | Yes for validation | Provider destinations, such as `play-store:internal`, `app-store:testflight`, or `microsoft-store:public`. |
+| `locales` | array of strings | No | Overrides `release.default_locales` for this release. |
+| `metadata` | string | Yes for validation | Project-relative sidecar file with provider-specific localized metadata. |
+| `release_notes` | string | Yes for validation | Project-relative directory containing localized `<locale>.md` release notes. |
+| `review` | string | No | Project-relative review-instructions sidecar file. |
+| `privacy` | string | No | Project-relative privacy sidecar file. |
+
+### `[release.store_listing.<provider>.<locale>]`
+
+Store listing tables hold short stable listing fields. Long localized paragraphs still belong in the active release metadata sidecar file referenced by `[[releases]].metadata`.
+
+Provider keys currently read from `fission.toml` are `play_store`, `app_store`, and `microsoft_store`.
+
+| Field | Providers | Type | Required condition | Meaning |
+| --- | --- | --- | --- | --- |
+| `title` | all | string | Required for Play if `name` is absent | Store title. |
+| `name` | all | string | Alternative to `title` for Play; also read by App Store/Microsoft metadata flows | Store display name. |
+| `short_description` | Play, Microsoft | string | Required for Play listing push; recommended for Microsoft | Short store summary. |
+| `subtitle` | App Store, Microsoft | string | No | Subtitle where supported. |
+| `keywords` | App Store, Microsoft | array of strings | No | Search keywords. App Store joins these for provider payloads. |
+| `support_url` | App Store, Microsoft | string | Recommended/required by some store review flows | Support URL. |
+| `marketing_url` | App Store | string | No | Marketing URL. |
+| `privacy_url` | all | string | Recommended/required by store policy | Privacy URL. |
+| `video` | Play | string | No | Play listing video URL. |
+| `video_url` | Play | string | No | Alternate video URL field accepted by the local schema. |
+
+The release metadata sidecar referenced by `[[releases]].metadata` can contain:
+
+```toml
+[play_store.en-US]
+full_description = "Long Play Store description."
+description = "Optional shorter description."
+
+[app_store.en-US]
+description = "Long App Store description."
+promotional_text = "Optional promotional text."
+
+[microsoft_store.en-US]
+description = "Long Microsoft Store description."
+features = ["Fast", "Private", "Cross-platform"]
+search_terms = ["notes", "tasks"]
+```
+
+## `[release.screenshots]` and `[release.assets]`
+
+Release-content settings live under `[release]` because screenshots, preview media, and store assets are part of the release lifecycle.
+
+### `[release.screenshots]`
+
+| Field | Type | Required | Default | Meaning |
+| --- | --- | --- | --- | --- |
+| `raw_dir` | string | No | `release-content/screenshots/raw` | Directory where raw captures are written/read. |
+| `rendered_dir` | string | No | `release-content/screenshots/rendered` | Directory where store-ready rendered assets are written. |
+
+### `[[release.screenshots.scenarios]]`
+
+| Field | Type | Required | Meaning |
+| --- | --- | --- | --- |
+| `id` | string | Yes for useful output names | Stable scenario id. |
+| `name` | string | No | Human-readable scenario name. |
+| `targets` | array of strings | No | Target labels this scenario applies to. |
+| `script` | string | Required unless `command` is set | Project-relative script started before capture. |
+| `command` | string | Required unless `script` is set | Command started before capture. |
+| `test_port` | integer | No | Test-control port. If omitted, Fission chooses a free loopback port. |
+| `timeout_ms` | integer | No | Timeout while waiting for the test-control server. |
+| `wait_for` | string | No | Reserved wait condition label for scenario orchestration. |
+
+### `[[release.screenshots.scenarios.steps]]`
+
+| Field | Type | Required | Meaning |
+| --- | --- | --- | --- |
+| `cmd` | string | Yes | One of `tap_text`, `type_text`, `press_key`, `tap`, `scroll`, `wait`, `pump`, `resize`, `screenshot`, `capture_screenshot`. |
+| `text` | string | Required for `tap_text` and `type_text` | Text to tap or type. |
+| `key` | string | Required for `press_key` | Key name. |
+| `modifiers` | integer | No | Modifier bitset for `press_key`; defaults to `0`. |
+| `ms` | integer | No | Wait duration for `wait`; defaults to `250`. |
+| `x`, `y` | numbers | Required for `tap`; optional origins for `scroll` | Coordinates. |
+| `dx`, `dy` | numbers | No | Scroll deltas; default to `0`. |
+| `width`, `height` | integers | Required for `resize` | Simulated viewport size. |
+| `name` | string | No | Screenshot filename label. |
+| `path` | string | No | Explicit screenshot path below `raw_dir`. |
+
+### `[release.assets.app_store]`, `[release.assets.play_store]`, and `[release.assets.microsoft_store]`
+
+| Table | Field | Type | Meaning |
+| --- | --- | --- | --- |
+| `[release.assets.app_store]` | `screenshot_sets_dir` | string | Directory containing App Store screenshot sets. |
+| `[release.assets.app_store]` | `app_previews_dir` | string | Directory containing App Store preview videos. |
+| `[release.assets.app_store]` | `review_attachments` | array of strings | Project-relative files attached for review workflows. |
+| `[release.assets.play_store]` | `screenshot_sets_dir` | string | Directory containing Play Store screenshot sets. |
+| `[release.assets.play_store]` | `preview_video_dir` | string | Directory containing Play preview videos. |
+| `[release.assets.play_store]` | `feature_graphic` | string | Feature graphic path. |
+| `[release.assets.microsoft_store]` | `screenshot_sets_dir` | string | Directory containing Microsoft Store screenshots. |
+| `[release.assets.microsoft_store]` | `trailers_dir` | string | Directory containing trailers. |
+| `[release.assets.microsoft_store]` | `logo_dir` | string | Directory containing Store logos. |
+
+## `[beta.play_store.tracks.<track>]`
+
+Beta group configuration currently reads Google Play track tester configuration from `fission.toml`.
+
+| Field | Type | Required | Meaning |
+| --- | --- | --- | --- |
+| `tester_source` | string | No | Source label for tester/group sync. |
+| `group` | string | No | One tester group email/name. |
+| `groups` | array of strings | No | Additional tester groups. |
+
+App Store beta operations use provider API groups and command flags today rather than a dedicated `fission.toml` beta table.
+
+## `[release_workflows.<name>]`
+
+Release workflows let a project name repeatable lifecycle command sequences.
+
+| Field | Type | Required | Meaning |
+| --- | --- | --- | --- |
+| `commands` | array of strings | Yes | Commands run by `fission release-workflow run <name>`. Each string is split with shell-like quoting and executed through the current `fission` binary. |
+
+Example:
+
+```toml
+[release_workflows.production]
+commands = [
+  "readiness package --target site --format static --release",
+  "package --target site --format static --release",
+  "distribute publish --provider github-pages --site production --yes",
+]
+```
+
+## Complete static site example
+
+```toml
+targets = ["site"]
+
+[app]
+name = "example-docs"
+app_id = "com.example.docs"
+
+[site]
+entry = "crate::site_app"
+title = "Example Docs"
+description = "Documentation and marketing pages for Example."
+base_url = "https://docs.example.com"
+base_path = "/"
+canonical_url = "https://docs.example.com"
+out_dir = "dist/site"
+default_locale = "en-GB"
+generate_sitemap = true
+generate_robots = true
+logo = "/img/logo.svg"
+favicon = "/img/favicon.svg"
+asset_dirs = ["static"]
+css_files = ["site/overrides.css"]
+
+[site.code_highlighting]
+enabled = true
+
+[site.search]
+enabled = true
+output_path = "search"
+min_token_len = 2
+
+[[site.nav]]
+title = "Learn"
+href = "/docs/learn/overview/"
+
+[[site.routes]]
+kind = "content"
+path = "/docs"
+source = "content/docs"
+template = "fission::site::documentation"
+sidebar = "site/docs-sidebar.toml"
+
+[[site.elements]]
+placement = "head-end"
+file = "site/analytics.html"
+route_prefixes = ["/docs/", "/reference/"]
+
+[distribution.github_pages.production]
+owner = "example"
+repo = "example-docs"
+mode = "actions"
+source = "github-actions"
+site_kind = "project"
+base_path = "/"
+custom_domain = "docs.example.com"
+enforce_https = true
+workflow = "publish-website.yml"
+production_branch = "main"
+```
+
+## Complete release skeleton
+
+```toml
+targets = ["android", "ios", "windows", "macos", "linux"]
+capabilities = ["camera", "geolocation", "notifications"]
+
+[app]
+name = "example-app"
+app_id = "com.example.app"
+
+[package.android]
+package_name = "com.example.app"
+keystore = "release-content/signing/android/upload.keystore"
+keystore_alias = "upload"
+
+[package.ios]
+bundle_id = "com.example.app"
+team_id = "ABCDE12345"
+entitlements = "platforms/ios/Entitlements.plist"
+provisioning_profile = "release-content/signing/ios/App.mobileprovision"
+
+[package.macos]
+bundle_id = "com.example.app"
+signing_identity = "Developer ID Application: Example Ltd"
+installer_identity = "Developer ID Installer: Example Ltd"
+entitlements = "platforms/macos/Entitlements.plist"
+notarize = true
+
+[package.windows]
+identity_name = "Example.App"
+publisher = "CN=Example Ltd"
+certificate_thumbprint = "0123456789ABCDEF"
+
+[distribution.play_store]
+package_name = "com.example.app"
+default_track = "internal"
+release_status = "draft"
+
+[distribution.app_store]
+bundle_id = "com.example.app"
+issuer_id = "00000000-0000-0000-0000-000000000000"
+key_id = "ABC123DEFG"
+api_key_path = "release-content/signing/app-store/AuthKey_ABC123DEFG.p8"
+default_track = "testflight"
+
+[distribution.microsoft_store]
+product_id = "9ABCDE12345"
+package_type = "msix"
+flight_id = "private-flight-id"
+package_rollout_percentage = 10
+
+[release]
+active_release = "1.0.0+1"
+metadata_root = "release-content/metadata"
+content_output_dir = "release-content"
+default_locales = ["en-US"]
+
+[release.store_listing.play_store.en-US]
+title = "Example App"
+short_description = "A focused app for real work."
+privacy_url = "https://example.com/privacy"
+support_url = "https://example.com/support"
+
+[[releases]]
+id = "1.0.0+1"
+version = "1.0.0"
+build = 1
+status = "candidate"
+tracks = ["play-store:internal", "app-store:testflight", "microsoft-store:private"]
+locales = ["en-US"]
+metadata = "release-content/metadata/1.0.0+1/release.toml"
+release_notes = "release-content/metadata/1.0.0+1/notes"
+review = "release-content/metadata/1.0.0+1/review.toml"
+privacy = "release-content/metadata/1.0.0+1/privacy.toml"
+```
+
+## Validation commands
+
+Use the reference above while editing, then let the CLI check the fields it can verify locally:
+
+```sh
+fission readiness package --target site --format static --project-dir .
+fission readiness distribute --provider github-pages --site production --project-dir .
+fission release-config validate --project-dir .
+fission release-content validate --project-dir .
+fission signing status --target android --project-dir .
+```
+
+Those commands do not replace provider review, store policy review, or platform signing setup. They catch missing paths, missing fields, unsupported target/format pairs, unavailable tools, and credentials that the local machine can see.

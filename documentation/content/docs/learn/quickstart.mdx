@@ -59,7 +59,7 @@ Before you run anything, it helps to know what the important files are for.
 |---|---|
 | `src/main.rs` | The default desktop entrypoint. When you run `cargo run` on Windows, macOS, or Linux, this is the file that starts the app. |
 | `src/app.rs` | The shared app itself. This is the most important file to open first. The starter project keeps the counter state, the increment action, the reducer, and the widget tree here. |
-| `fission.toml` | The Fission project manifest. It records project information such as the app identifier and which extra targets you have generated. The command-line interface updates this file when you add more platforms. |
+| [`fission.toml`](/reference/config/fission-toml/) | The Fission project manifest. It records project information such as the app identifier and which extra targets you have generated. The command-line interface updates this file when you add more platforms. |
 | `platforms/<target>/...` | Generated platform-specific wrapper files. These are created when you add a target such as web, Android, or iOS. They include small helper files, platform notes, and host scripts for building and launching on that target. |
 
 You will also see `src/lib.rs`. It contains shared entry helpers so the same app can be wired into desktop, web, and mobile hosts without copying the app logic into several places.
@@ -106,7 +106,7 @@ Web is usually the easiest next step after desktop.
 fission add-target web --project-dir my-app
 ```
 
-This updates `fission.toml`, creates `platforms/web/`, and adds files such as a browser host page plus the `platforms/web/run-browser.sh` host script. That script builds the WebAssembly package and serves it locally. Before running it, read `platforms/web/README.md` for the exact prerequisites, including `wasm-pack`.
+This updates [`fission.toml`](/reference/config/fission-toml/), creates `platforms/web/`, and adds files such as a browser host page plus the `platforms/web/run-browser.sh` host script. That script builds the WebAssembly package and serves it locally. Before running it, read `platforms/web/README.md` for the exact prerequisites, including `wasm-pack`.
 
 After the target is added, the normal command is:
 

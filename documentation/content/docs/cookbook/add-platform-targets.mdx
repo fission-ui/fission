@@ -39,7 +39,7 @@ Your shared code under `src/` remains the shared app. The target generation step
 
 When the command runs, it does two important things.
 
-First, it updates `fission.toml` so the project records which targets exist.
+First, it updates [`fission.toml`](/reference/config/fission-toml/) so the project records which targets exist.
 
 Second, it creates the generated platform folders under `platforms/`. Those folders contain the host scripts, manifests, and notes that make each target runnable.
 
@@ -80,7 +80,7 @@ After the command finishes, your shared app logic is still in the same place.
 
 `src/app.rs` still contains the shared app logic.
 
-`fission.toml` now records the targets you added.
+[`fission.toml`](/reference/config/fission-toml/) now records the targets you added.
 
 The new part is the generated `platforms/` folders.
 

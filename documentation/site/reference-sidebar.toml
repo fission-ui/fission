@@ -172,6 +172,11 @@ href = "/reference/cli/overview/"
 level = 1
 
 [[items]]
+title = "fission.toml manifest"
+href = "/reference/config/fission-toml/"
+level = 1
+
+[[items]]
 title = "Widgets"
 href = "/reference/widgets/catalog/"
 level = 0
