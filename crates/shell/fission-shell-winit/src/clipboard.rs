@@ -4,10 +4,20 @@ use fission_core::{
     READ_CLIPBOARD_CONTENT, READ_CLIPBOARD_TEXT, WRITE_CLIPBOARD_CONTENT, WRITE_CLIPBOARD_TEXT,
 };
 use fission_shell::async_host::AsyncRegistry;
+#[cfg(target_os = "ios")]
+use objc::{class, msg_send, sel, sel_impl};
+#[cfg(target_os = "ios")]
+use std::ffi::CStr;
+#[cfg(target_os = "ios")]
+use std::os::raw::{c_char, c_void};
 use std::sync::{Arc, Mutex};
 
 #[cfg(not(any(target_os = "android", target_os = "ios", target_arch = "wasm32")))]
 use arboard::Clipboard as Arboard;
+
+#[cfg(target_os = "ios")]
+#[link(name = "UIKit", kind = "framework")]
+extern "C" {}
 
 pub struct DesktopClipboard {
     #[cfg(not(any(target_os = "android", target_os = "ios", target_arch = "wasm32")))]
@@ -27,6 +37,11 @@ impl DesktopClipboard {
 
 impl Clipboard for DesktopClipboard {
     fn get_text(&self) -> Option<String> {
+        #[cfg(target_os = "ios")]
+        if let Some(text) = ios_clipboard_text() {
+            return Some(text);
+        }
+
         #[cfg(not(any(target_os = "android", target_os = "ios", target_arch = "wasm32")))]
         if let Ok(mut lock) = self.system.lock() {
             if let Some(cb) = lock.as_mut() {
@@ -42,12 +57,57 @@ impl Clipboard for DesktopClipboard {
         if let Ok(mut memory) = self.memory.lock() {
             *memory = text.to_string();
         }
+        #[cfg(target_os = "ios")]
+        ios_set_clipboard_text(text);
+
         #[cfg(not(any(target_os = "android", target_os = "ios", target_arch = "wasm32")))]
         if let Ok(mut lock) = self.system.lock() {
             if let Some(cb) = lock.as_mut() {
                 let _ = cb.set_text(text);
             }
         }
+    }
+}
+
+#[cfg(target_os = "ios")]
+fn ios_clipboard_text() -> Option<String> {
+    unsafe {
+        let pasteboard: *mut objc::runtime::Object =
+            msg_send![class!(UIPasteboard), generalPasteboard];
+        if pasteboard.is_null() {
+            return None;
+        }
+        let string: *mut objc::runtime::Object = msg_send![pasteboard, string];
+        if string.is_null() {
+            return None;
+        }
+        let c_string: *const c_char = msg_send![string, UTF8String];
+        if c_string.is_null() {
+            return None;
+        }
+        CStr::from_ptr(c_string)
+            .to_str()
+            .ok()
+            .map(ToOwned::to_owned)
+    }
+}
+
+#[cfg(target_os = "ios")]
+fn ios_set_clipboard_text(text: &str) {
+    unsafe {
+        let pasteboard: *mut objc::runtime::Object =
+            msg_send![class!(UIPasteboard), generalPasteboard];
+        if pasteboard.is_null() {
+            return;
+        }
+        let string: *mut objc::runtime::Object = msg_send![class!(NSString), alloc];
+        let string: *mut objc::runtime::Object = msg_send![
+            string,
+            initWithBytes: text.as_ptr() as *const c_void
+            length: text.len()
+            encoding: 4usize
+        ];
+        let _: () = msg_send![pasteboard, setString: string];
     }
 }
 

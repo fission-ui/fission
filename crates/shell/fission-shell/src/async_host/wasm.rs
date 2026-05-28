@@ -169,7 +169,7 @@ impl AsyncRegistry {
     ) where
         C: OperationCapability,
         F: Fn(C::Request, CapabilityCtx) -> Fut + Send + Sync + 'static,
-        Fut: Future<Output = Result<C::Ok, C::Err>> + Send + 'static,
+        Fut: Future<Output = Result<C::Ok, C::Err>> + 'static,
     {
         let handler = Arc::new(handler);
         self.operations.insert(
@@ -228,7 +228,7 @@ impl AsyncRegistry {
     where
         J: JobSpec,
         F: Fn(J::Request, JobCtx) -> Fut + Send + Sync + 'static,
-        Fut: Future<Output = Result<J::Ok, J::Err>> + Send + 'static,
+        Fut: Future<Output = Result<J::Ok, J::Err>> + 'static,
     {
         let handler = Arc::new(handler);
         self.jobs.insert(
@@ -284,9 +284,8 @@ impl AsyncRegistry {
     where
         S: ServiceSpec + 'static,
         F: Fn(S::Config, fission_core::ServiceCtx<S>) -> Fut + Send + Sync + 'static,
-        Fut: Future<Output = Result<Box<dyn fission_core::ServiceRunner<S>>, S::StartErr>>
-            + Send
-            + 'static,
+        Fut:
+            Future<Output = Result<Box<dyn fission_core::ServiceRunner<S>>, S::StartErr>> + 'static,
     {
         self.services.insert(
             service.name.to_string(),

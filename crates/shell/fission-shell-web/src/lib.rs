@@ -1,5 +1,5 @@
 use anyhow::Result;
-use fission_core::{Action, AppState, Env, Widget};
+use fission_core::{Action, ActionRegistry, AppState, Env, Widget};
 use fission_shell::async_host::AsyncRegistry;
 use fission_shell_winit::WinitApp;
 
@@ -237,6 +237,10 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WebApp<S, W> {
     {
         self.inner = self.inner.on_notification_response(handler);
         self
+    }
+
+    pub fn absorb_registry(&mut self, registry: ActionRegistry<S>) {
+        self.inner.absorb_registry(registry);
     }
 
     pub fn run(self) -> Result<()> {

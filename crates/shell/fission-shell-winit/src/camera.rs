@@ -5,6 +5,7 @@ use fission_core::{
     SET_CAMERA_FLASHLIGHT,
 };
 use fission_shell::async_host::AsyncRegistry;
+use std::io::Cursor;
 use std::sync::{Arc, Mutex};
 
 /// Host-side camera and flashlight provider.
@@ -92,14 +93,29 @@ impl Default for MemoryCameraHost {
                 }],
             },
             CameraCapture {
-                bytes: vec![0xff, 0xd8, 0xff, 0xd9],
-                content_type: "image/jpeg".into(),
-                width: 1,
-                height: 1,
+                bytes: demo_capture_png(96, 72),
+                content_type: "image/png".into(),
+                width: 96,
+                height: 72,
                 camera_id: Some("memory-camera".into()),
             },
         )
     }
+}
+
+fn demo_capture_png(width: u32, height: u32) -> Vec<u8> {
+    let mut image = image::RgbaImage::new(width, height);
+    for (x, y, pixel) in image.enumerate_pixels_mut() {
+        let red = 24 + ((x * 140) / width.max(1)) as u8;
+        let green = 120 + ((y * 90) / height.max(1)) as u8;
+        let blue = 180 + (((x + y) * 50) / (width + height).max(1)) as u8;
+        *pixel = image::Rgba([red, green, blue, 255]);
+    }
+    let mut bytes = Cursor::new(Vec::new());
+    image::DynamicImage::ImageRgba8(image)
+        .write_to(&mut bytes, image::ImageFormat::Png)
+        .expect("encode in-memory camera capture");
+    bytes.into_inner()
 }
 
 impl CameraHost for MemoryCameraHost {
@@ -191,7 +207,10 @@ mod tests {
         assert_eq!(availability.permission, CameraPermission::Granted);
 
         let capture = host.capture_photo(CameraCaptureRequest::default()).unwrap();
-        assert_eq!(capture.content_type, "image/jpeg");
+        assert_eq!(capture.width, 96);
+        assert_eq!(capture.height, 72);
+        assert_eq!(capture.content_type, "image/png");
+        image::load_from_memory(&capture.bytes).expect("memory camera capture should decode");
 
         let request = CameraFlashlightRequest {
             enabled: true,
