@@ -12,9 +12,11 @@ use fission_shell_site::{
     StyleRegistry,
 };
 use serde::Serialize;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 use std::time::SystemTime;
+
+pub const MAX_SERVER_ACTION_BODY_BYTES: usize = 1024 * 1024;
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct ServerRequest {
@@ -83,6 +85,7 @@ pub struct ServerRenderer {
     cache: Arc<dyn Cache>,
     jobs: ServerJobRegistry,
     action_signer: ServerActionSigner,
+    allowed_action_origins: BTreeSet<String>,
     render_pass_limit: usize,
     viewport_size: LayoutSize,
 }
@@ -95,6 +98,7 @@ impl ServerRenderer {
             cache: Arc::new(MokaCache::default()),
             jobs,
             action_signer: ServerActionSigner::development(),
+            allowed_action_origins: BTreeSet::new(),
             render_pass_limit: 4,
             viewport_size: LayoutSize::new(1280.0, 900.0),
         }
@@ -117,6 +121,21 @@ impl ServerRenderer {
 
     pub fn with_action_signer(mut self, signer: ServerActionSigner) -> Self {
         self.action_signer = signer;
+        self
+    }
+
+    pub fn with_allowed_action_origin(mut self, origin: impl Into<String>) -> Self {
+        self.allowed_action_origins.insert(origin.into());
+        self
+    }
+
+    pub fn with_allowed_action_origins<I, O>(mut self, origins: I) -> Self
+    where
+        I: IntoIterator<Item = O>,
+        O: Into<String>,
+    {
+        self.allowed_action_origins
+            .extend(origins.into_iter().map(Into::into));
         self
     }
 
@@ -275,8 +294,40 @@ impl ServerRenderer {
     }
 
     fn handle_action(&self, request: ServerRequest) -> Result<ServerResponse> {
-        let token: SignedServerAction = serde_json::from_slice(&request.body)?;
-        let action = self.action_signer.verify(&token)?;
+        if request.body.len() > MAX_SERVER_ACTION_BODY_BYTES {
+            return Ok(ServerResponse::text(
+                413,
+                "text/plain; charset=utf-8",
+                "server action body too large",
+            ));
+        }
+        if !self.action_origin_allowed(&request) {
+            return Ok(ServerResponse::text(
+                403,
+                "text/plain; charset=utf-8",
+                "server action origin rejected",
+            ));
+        }
+        let token: SignedServerAction = match serde_json::from_slice(&request.body) {
+            Ok(token) => token,
+            Err(_) => {
+                return Ok(ServerResponse::text(
+                    400,
+                    "text/plain; charset=utf-8",
+                    "invalid server action token",
+                ))
+            }
+        };
+        let action = match self.action_signer.verify_once(&token) {
+            Ok(action) => action,
+            Err(_) => {
+                return Ok(ServerResponse::text(
+                    403,
+                    "text/plain; charset=utf-8",
+                    "server action token rejected",
+                ))
+            }
+        };
         let route_path = normalize_server_path(&action.route_path);
         let Some(route) = self.app.find_route(&route_path) else {
             return Ok(ServerResponse::text(
@@ -296,6 +347,23 @@ impl ServerRenderer {
             cache_status: None,
         })
     }
+
+    fn action_origin_allowed(&self, request: &ServerRequest) -> bool {
+        if self.allowed_action_origins.is_empty() {
+            return true;
+        }
+        let Some(origin) = header_value(&request.headers, "origin") else {
+            return true;
+        };
+        self.allowed_action_origins.contains(origin)
+    }
+}
+
+fn header_value<'a>(headers: &'a BTreeMap<String, String>, name: &str) -> Option<&'a String> {
+    headers
+        .iter()
+        .find(|(candidate, _)| candidate.eq_ignore_ascii_case(name))
+        .map(|(_, value)| value)
 }
 
 fn page_response(page: &RenderedPage, freshness: Freshness) -> ServerResponse {
@@ -351,9 +419,17 @@ fn route_manifest_script(route: &WebRoute) -> Result<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{MokaCache, ProgressiveWorker, RevalidationPolicy, WasmIsland, WebRouteMode};
+    use crate::{
+        CacheError, CacheTag, InvalidationReport, MokaCache, ProgressiveWorker, RevalidationPolicy,
+        WasmIsland, WebRouteMode,
+    };
     use fission_core::ui::Text;
-    use fission_core::{AppState, BuildCtx, Node, View, Widget};
+    use fission_core::{
+        Action, ActionId, AppState, BuildCtx, Handler, JobRef, JobResource, JobSpec, Node,
+        ReducerContext, ResourceKey, View, Widget,
+    };
+    use serde::{Deserialize, Serialize};
+    use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
     use std::time::Duration;
 
@@ -367,6 +443,52 @@ mod tests {
     impl Widget<TestState> for TestPage {
         fn build(&self, _ctx: &mut BuildCtx<TestState>, _view: &View<TestState>) -> Node {
             Text::new(self.0).into_node()
+        }
+    }
+
+    #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+    struct TestAction;
+
+    impl Action for TestAction {
+        fn static_id() -> ActionId {
+            ActionId::from_name("server-renderer.test-action")
+        }
+    }
+
+    struct CountingCache {
+        inner: MokaCache,
+        puts: AtomicUsize,
+    }
+
+    impl CountingCache {
+        fn new() -> Self {
+            Self {
+                inner: MokaCache::default(),
+                puts: AtomicUsize::new(0),
+            }
+        }
+
+        fn put_count(&self) -> usize {
+            self.puts.load(Ordering::SeqCst)
+        }
+    }
+
+    impl Cache for CountingCache {
+        fn get(&self, key: &CacheKey) -> Result<Option<CacheEntry>, CacheError> {
+            self.inner.get(key)
+        }
+
+        fn put(&self, entry: CacheEntry) -> Result<(), CacheError> {
+            self.puts.fetch_add(1, Ordering::SeqCst);
+            self.inner.put(entry)
+        }
+
+        fn remove(&self, key: &CacheKey) -> Result<(), CacheError> {
+            self.inner.remove(key)
+        }
+
+        fn invalidate_tag(&self, tag: &CacheTag) -> Result<InvalidationReport, CacheError> {
+            self.inner.invalidate_tag(tag)
         }
     }
 
@@ -391,6 +513,61 @@ mod tests {
         assert!(cache
             .contains_fresh(&CacheKey::new("page:/?"), SystemTime::now())
             .unwrap());
+    }
+
+    #[test]
+    fn revalidated_cache_key_normalizes_query_order() {
+        let cache = Arc::new(MokaCache::default());
+        let app = FissionServerApp::new("Test").route_widget::<TestState, _>(
+            "/search",
+            "Search",
+            None,
+            WebRouteMode::Revalidated(
+                RevalidationPolicy::new(Duration::from_secs(60)).tag("search"),
+            ),
+            TestPage("Hello query cache"),
+        );
+        let renderer = ServerRenderer::new(app).with_cache(cache.clone());
+        let mut first = ServerRequest::get("/search");
+        first.query.insert("b".to_string(), "2".to_string());
+        first.query.insert("a".to_string(), "1".to_string());
+        let mut second = ServerRequest::get("/search");
+        second.query.insert("a".to_string(), "1".to_string());
+        second.query.insert("b".to_string(), "2".to_string());
+
+        assert_eq!(
+            renderer.handle(first).unwrap().cache_status,
+            Some(Freshness::Expired)
+        );
+        assert_eq!(
+            renderer.handle(second).unwrap().cache_status,
+            Some(Freshness::Fresh)
+        );
+        assert!(cache
+            .contains_fresh(&CacheKey::new("page:/search/?a=1&b=2"), SystemTime::now())
+            .unwrap());
+    }
+
+    #[test]
+    fn private_server_routes_do_not_write_full_page_public_cache_entries() {
+        let cache = Arc::new(CountingCache::new());
+        let app = FissionServerApp::new("Test").route_widget::<TestState, _>(
+            "/account",
+            "Account",
+            None,
+            WebRouteMode::ServerPrivate(Default::default()),
+            TestPage("Private account"),
+        );
+        let renderer = ServerRenderer::new(app).with_cache(cache.clone());
+
+        let first = renderer.handle(ServerRequest::get("/account")).unwrap();
+        let second = renderer.handle(ServerRequest::get("/account")).unwrap();
+
+        assert_eq!(first.status, 200);
+        assert_eq!(second.status, 200);
+        assert_eq!(first.cache_status, None);
+        assert_eq!(second.cache_status, None);
+        assert_eq!(cache.put_count(), 0);
     }
 
     #[test]
@@ -438,5 +615,182 @@ mod tests {
         assert!(html.contains("fission-route-manifest"));
         assert!(html.contains("filters"));
         assert!(html.contains("cart-root"));
+    }
+
+    #[test]
+    fn signed_action_post_rejects_invalid_body_signature_origin_size_and_replay() {
+        let renderer = ServerRenderer::new(
+            FissionServerApp::new("Test").server_route_widget::<TestState, _>(
+                "/",
+                "Home",
+                None,
+                TestPage("Action page"),
+            ),
+        )
+        .with_allowed_action_origin("https://app.example");
+        let token = renderer.sign_action("/", 0, TestAction, Duration::from_secs(60));
+        let body = serde_json::to_vec(&token).unwrap();
+
+        let invalid_body = renderer
+            .handle(ServerRequest::post(
+                "/__fission/action",
+                b"not-json".to_vec(),
+            ))
+            .unwrap();
+        assert_eq!(invalid_body.status, 400);
+
+        let oversized = renderer
+            .handle(ServerRequest::post(
+                "/__fission/action",
+                vec![b'x'; MAX_SERVER_ACTION_BODY_BYTES + 1],
+            ))
+            .unwrap();
+        assert_eq!(oversized.status, 413);
+
+        let mut wrong_origin = ServerRequest::post("/__fission/action", body.clone());
+        wrong_origin
+            .headers
+            .insert("origin".to_string(), "https://evil.example".to_string());
+        assert_eq!(renderer.handle(wrong_origin).unwrap().status, 403);
+
+        let mut allowed = ServerRequest::post("/__fission/action", body.clone());
+        allowed
+            .headers
+            .insert("origin".to_string(), "https://app.example".to_string());
+        assert_eq!(renderer.handle(allowed).unwrap().status, 200);
+
+        let mut replay = ServerRequest::post("/__fission/action", body.clone());
+        replay
+            .headers
+            .insert("origin".to_string(), "https://app.example".to_string());
+        assert_eq!(renderer.handle(replay).unwrap().status, 403);
+
+        let other_signer = ServerActionSigner::new("other-secret");
+        let forged = other_signer.sign("/", 0, TestAction, Duration::from_secs(60));
+        let mut forged_request =
+            ServerRequest::post("/__fission/action", serde_json::to_vec(&forged).unwrap());
+        forged_request
+            .headers
+            .insert("origin".to_string(), "https://app.example".to_string());
+        assert_eq!(renderer.handle(forged_request).unwrap().status, 403);
+    }
+
+    #[derive(Debug)]
+    struct MissingJob;
+
+    #[derive(Clone, Debug, Serialize, Deserialize)]
+    struct MissingJobRequest;
+
+    impl JobSpec for MissingJob {
+        type Request = MissingJobRequest;
+        type Ok = ();
+        type Err = String;
+
+        const NAME: &'static str = "server-renderer.missing-job";
+    }
+
+    const MISSING_JOB: JobRef<MissingJob> = JobRef::new(MissingJob::NAME);
+
+    #[derive(Clone)]
+    struct MissingJobPage;
+
+    impl Widget<TestState> for MissingJobPage {
+        fn build(&self, ctx: &mut BuildCtx<TestState>, _view: &View<TestState>) -> Node {
+            ctx.resources.job(JobResource::new(
+                ResourceKey::new("missing-job"),
+                MISSING_JOB,
+                MissingJobRequest,
+            ));
+            Text::new("Missing job").into_node()
+        }
+    }
+
+    #[test]
+    fn server_rendering_rejects_unregistered_jobs_instead_of_silently_skipping_them() {
+        let renderer = ServerRenderer::new(
+            FissionServerApp::new("Test").server_route_widget::<TestState, _>(
+                "/",
+                "Home",
+                None,
+                MissingJobPage,
+            ),
+        );
+
+        let error = renderer.handle(ServerRequest::get("/")).unwrap_err();
+        assert!(error.to_string().contains("missing-job"));
+    }
+
+    #[derive(Debug, Default)]
+    struct LoopState {
+        count: u32,
+    }
+
+    impl AppState for LoopState {}
+
+    #[derive(Debug)]
+    struct LoopJob;
+
+    #[derive(Clone, Debug, Serialize, Deserialize)]
+    struct LoopJobRequest {
+        count: u32,
+    }
+
+    impl JobSpec for LoopJob {
+        type Request = LoopJobRequest;
+        type Ok = ();
+        type Err = String;
+
+        const NAME: &'static str = "server-renderer.loop-job";
+    }
+
+    const LOOP_JOB: JobRef<LoopJob> = JobRef::new(LoopJob::NAME);
+
+    #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+    struct LoopLoaded;
+
+    impl Action for LoopLoaded {
+        fn static_id() -> ActionId {
+            ActionId::from_name("server-renderer.loop-loaded")
+        }
+    }
+
+    fn on_loop_loaded(
+        state: &mut LoopState,
+        _action: LoopLoaded,
+        _ctx: &mut ReducerContext<LoopState>,
+    ) {
+        state.count = state.count.saturating_add(1);
+    }
+
+    #[derive(Clone)]
+    struct LoopPage;
+
+    impl Widget<LoopState> for LoopPage {
+        fn build(&self, ctx: &mut BuildCtx<LoopState>, view: &View<LoopState>) -> Node {
+            let on_ok = ctx.bind(LoopLoaded, on_loop_loaded as Handler<LoopState, LoopLoaded>);
+            ctx.resources.job(
+                JobResource::new(
+                    ResourceKey::new("loop-job"),
+                    LOOP_JOB,
+                    LoopJobRequest {
+                        count: view.state.count,
+                    },
+                )
+                .deps(view.state.count)
+                .on_ok(on_ok),
+            );
+            Text::new(format!("loop {}", view.state.count)).into_node()
+        }
+    }
+
+    #[test]
+    fn server_rendering_fails_when_job_drain_exceeds_pass_limit() {
+        let app = FissionServerApp::new("Test")
+            .jobs(ServerJobRegistry::new().register_job(LOOP_JOB, |_request, _ctx| Ok(())))
+            .server_route_widget::<LoopState, _>("/", "Home", None, LoopPage);
+        let renderer = ServerRenderer::new(app).with_render_pass_limit(1);
+
+        let error = renderer.handle(ServerRequest::get("/")).unwrap_err();
+        assert!(error.to_string().contains("exceeded render pass limit"));
     }
 }

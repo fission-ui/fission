@@ -540,6 +540,33 @@ mod tests {
     }
 
     #[test]
+    fn moka_cache_does_not_store_no_store_entries() {
+        let cache = MokaCache::default();
+        let mut entry = entry("page:/private", "private", Duration::from_secs(60));
+        entry.scope = CacheScope::NoStore;
+        let key = entry.key.clone();
+
+        cache.put(entry).unwrap();
+
+        assert!(cache.get(&key).unwrap().is_none());
+    }
+
+    #[test]
+    fn moka_cache_remove_cleans_tag_index() {
+        let cache = MokaCache::default();
+        let key = CacheKey::new("page:/remove");
+        cache
+            .put(entry(key.as_str(), "catalog", Duration::from_secs(60)))
+            .unwrap();
+
+        cache.remove(&key).unwrap();
+        let report = cache.invalidate_tag(&CacheTag::new("catalog")).unwrap();
+
+        assert_eq!(report.removed_keys, 0);
+        assert_eq!(report.removed_tags, 0);
+    }
+
+    #[test]
     fn cache_entry_reports_fresh_stale_and_expired() {
         let entry = entry("page:/", "home", Duration::from_millis(10));
         assert_eq!(entry.freshness(entry.created_at), Freshness::Fresh);
@@ -565,6 +592,43 @@ mod tests {
 
         assert!(pipeline.get(&key).unwrap().is_some());
         assert!(hot.get(&key).unwrap().is_some());
+    }
+
+    #[test]
+    fn pipeline_respects_read_only_layers_on_put() {
+        let read_only = Arc::new(MokaCache::default());
+        let writable = Arc::new(MokaCache::default());
+        let key = CacheKey::new("page:/readonly");
+        let pipeline = CachePipeline::with_policies(vec![
+            (read_only.clone(), CacheLayerPolicy::ReadOnly),
+            (writable.clone(), CacheLayerPolicy::WriteThrough),
+        ]);
+
+        pipeline
+            .put(entry(key.as_str(), "catalog", Duration::from_secs(60)))
+            .unwrap();
+
+        assert!(read_only.get(&key).unwrap().is_none());
+        assert!(writable.get(&key).unwrap().is_some());
+    }
+
+    #[test]
+    fn pipeline_invalidation_reaches_all_layers() {
+        let hot = Arc::new(MokaCache::default());
+        let shared = Arc::new(MokaCache::default());
+        let key = CacheKey::new("page:/invalidate");
+        hot.put(entry(key.as_str(), "catalog", Duration::from_secs(60)))
+            .unwrap();
+        shared
+            .put(entry(key.as_str(), "catalog", Duration::from_secs(60)))
+            .unwrap();
+        let pipeline = CachePipeline::new(vec![hot.clone(), shared.clone()]);
+
+        let report = pipeline.invalidate_tag(&CacheTag::new("catalog")).unwrap();
+
+        assert_eq!(report.removed_keys, 2);
+        assert!(hot.get(&key).unwrap().is_none());
+        assert!(shared.get(&key).unwrap().is_none());
     }
 
     #[cfg(feature = "redis")]

@@ -1,4 +1,4 @@
-use crate::{ServerRenderer, ServerRequest};
+use crate::{ServerRenderer, ServerRequest, MAX_SERVER_ACTION_BODY_BYTES};
 use anyhow::{Context, Result};
 use std::io::{self, BufRead, Read, Write};
 use std::net::{TcpListener, TcpStream};
@@ -82,7 +82,13 @@ fn parse_request(stream: &TcpStream) -> Result<ServerRequest> {
             headers.insert(name, value);
         }
     }
-    let mut body = vec![0u8; content_length.min(1024 * 1024)];
+    if content_length > MAX_SERVER_ACTION_BODY_BYTES {
+        anyhow::bail!(
+            "request body exceeds {} bytes",
+            MAX_SERVER_ACTION_BODY_BYTES
+        );
+    }
+    let mut body = vec![0u8; content_length];
     if !body.is_empty() {
         reader.read_exact(&mut body)?;
     }

@@ -65,10 +65,13 @@ fn worker_plan(
     worker: &ProgressiveWorker,
     options: &BrowserArtifactBuildOptions,
 ) -> Result<BrowserArtifactPlan> {
+    validate_artifact_id("worker", &worker.id)?;
     let entry = worker
         .entry
         .clone()
         .with_context(|| format!("worker `{}` is missing an entry path", worker.id))?;
+    validate_entry_path("worker", &worker.id, &entry)?;
+    validate_package_name(&options.package_name)?;
     Ok(BrowserArtifactPlan {
         id: worker.id.clone(),
         kind: BrowserArtifactKind::Worker,
@@ -85,10 +88,14 @@ fn island_plan(
     island: &WasmIsland,
     options: &BrowserArtifactBuildOptions,
 ) -> Result<BrowserArtifactPlan> {
+    validate_artifact_id("island", &island.id)?;
     let entry = island
         .entry
         .clone()
         .with_context(|| format!("island `{}` is missing an entry path", island.id))?;
+    validate_entry_path("island", &island.id, &entry)?;
+    validate_artifact_id("island mount", &island.mount_id)?;
+    validate_package_name(&options.package_name)?;
     Ok(BrowserArtifactPlan {
         id: island.id.clone(),
         kind: BrowserArtifactKind::Island,
@@ -223,6 +230,59 @@ fn path_for_manifest(project_dir: &Path, shim_dir: &Path) -> String {
     project_dir.to_string_lossy().replace('\\', "/")
 }
 
+fn validate_artifact_id(kind: &str, id: &str) -> Result<()> {
+    if id.is_empty() {
+        bail!("{kind} id must not be empty");
+    }
+    if id == "." || id == ".." || id.contains('/') || id.contains('\\') {
+        bail!("{kind} id `{id}` must be a plain path segment");
+    }
+    if !id
+        .bytes()
+        .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
+    {
+        bail!("{kind} id `{id}` may only contain ASCII letters, digits, '-' or '_'");
+    }
+    Ok(())
+}
+
+fn validate_package_name(name: &str) -> Result<()> {
+    if name.is_empty() {
+        bail!("package name must not be empty");
+    }
+    if !name
+        .bytes()
+        .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
+    {
+        bail!("package name `{name}` is not safe for generated Cargo manifests");
+    }
+    Ok(())
+}
+
+fn validate_entry_path(kind: &str, id: &str, entry: &str) -> Result<()> {
+    let mut segments = entry.split("::").peekable();
+    if segments.peek().is_none() {
+        bail!("{kind} `{id}` entry path must not be empty");
+    }
+    for segment in segments {
+        if !is_rust_ident(segment) {
+            bail!("{kind} `{id}` entry path `{entry}` must be a Rust item path");
+        }
+    }
+    Ok(())
+}
+
+fn is_rust_ident(segment: &str) -> bool {
+    let mut chars = segment.chars();
+    let Some(first) = chars.next() else {
+        return false;
+    };
+    if !(first == '_' || first.is_ascii_alphabetic()) {
+        return false;
+    }
+    chars.all(|ch| ch == '_' || ch.is_ascii_alphanumeric())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -292,5 +352,48 @@ mod tests {
         .unwrap();
         assert!(worker.contains("demo::filters::boot"));
         let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn rejects_path_traversal_ids_and_source_injection_entries() {
+        let root =
+            std::env::temp_dir().join(format!("fission-artifacts-invalid-{}", std::process::id()));
+        let app = FissionServerApp::new("Artifacts")
+            .route_widget::<State, _>(
+                "/",
+                "Home",
+                None,
+                WebRouteMode::Server(ServerRenderPolicy::default()),
+                Page,
+            )
+            .worker(
+                "/",
+                ProgressiveWorker::new("../escape", "/escape.wasm").entry("demo::filters::boot"),
+            );
+        let options = BrowserArtifactBuildOptions {
+            project_dir: root.clone(),
+            output_dir: root.join("target/fission/server"),
+            package_name: "demo".into(),
+            package_default_features: true,
+            package_features: Vec::new(),
+            release: false,
+            compile: false,
+        };
+        assert!(BrowserArtifactBuild::from_app(&app, &options).is_err());
+
+        let app = FissionServerApp::new("Artifacts")
+            .route_widget::<State, _>(
+                "/",
+                "Home",
+                None,
+                WebRouteMode::Server(ServerRenderPolicy::default()),
+                Page,
+            )
+            .worker(
+                "/",
+                ProgressiveWorker::new("filters", "/filters.wasm")
+                    .entry("demo::filters::boot(); std::process::exit(1)"),
+            );
+        assert!(BrowserArtifactBuild::from_app(&app, &options).is_err());
     }
 }

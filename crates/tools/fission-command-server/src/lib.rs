@@ -119,3 +119,54 @@ fn run_server_builder(
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+
+    fn temp_project(name: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!("{name}-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn server_entry_configuration_is_required() {
+        let dir = temp_project("fission-server-config-missing");
+        fs::write(dir.join("fission.toml"), "[app]\nname = \"Test\"\n").unwrap();
+
+        let error = ensure_server_entry_configured(&dir).unwrap_err();
+        assert!(error.to_string().contains("[server].entry"));
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn reads_package_name_and_browser_feature_for_artifact_shims() {
+        let dir = temp_project("fission-server-config-package");
+        fs::write(
+            dir.join("Cargo.toml"),
+            r#"[package]
+name = "server-app"
+version = "0.1.0"
+edition = "2021"
+
+[features]
+default = ["server"]
+server = []
+browser = []
+"#,
+        )
+        .unwrap();
+
+        assert_eq!(package_name(&dir).unwrap(), "server-app");
+        assert!(package_features(&dir)
+            .unwrap()
+            .iter()
+            .any(|feature| feature == "browser"));
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+}

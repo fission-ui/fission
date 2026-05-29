@@ -43,10 +43,14 @@ pub use cache::{
 pub use jobs::{ServerJobCtx, ServerJobError, ServerJobRegistry};
 pub use protocol::{
     AriaPoliteness, DomBatch, DomOp, MainToWorker, NavigateMode, NavigateRequest, ScrollBlock,
-    WorkerBoot, WorkerDomEvent, WorkerError, WorkerLog, WorkerLogLevel, WorkerRequest,
-    WorkerRequestKind, WorkerResize, WorkerResponse, WorkerToMain,
+    WorkerBoot, WorkerDomEvent, WorkerDomPolicy, WorkerError, WorkerLog, WorkerLogLevel,
+    WorkerProtocolError, WorkerRequest, WorkerRequestKind, WorkerResize, WorkerResponse,
+    WorkerToMain,
 };
-pub use render::{RenderedServerRoute, ServerRenderer, ServerRequest, ServerResponse};
+pub use render::{
+    RenderedServerRoute, ServerRenderer, ServerRequest, ServerResponse,
+    MAX_SERVER_ACTION_BODY_BYTES,
+};
 pub use route::{
     ClientAppPolicy, ProgressiveWorker, RevalidationPolicy, ServerPrivatePolicy,
     ServerRenderPolicy, ServerResourcePolicy, WasmIsland, WebRoute, WebRouteMode,
