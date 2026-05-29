@@ -1,4 +1,4 @@
-use crate::app::StoreState;
+use crate::app::{on_add_to_cart, AddToCart, StoreState};
 use crate::data::{Card, CatalogResponse, StoreError};
 use fission::prelude::*;
 
@@ -8,7 +8,7 @@ pub struct CardGrid {
 }
 
 impl Widget<StoreState> for CardGrid {
-    fn build(&self, _ctx: &mut BuildCtx<StoreState>, _view: &View<StoreState>) -> Node {
+    fn build(&self, ctx: &mut BuildCtx<StoreState>, _view: &View<StoreState>) -> Node {
         let Some(catalog) = self.snapshot.data() else {
             return loading_or_error(&self.snapshot);
         };
@@ -19,7 +19,11 @@ impl Widget<StoreState> for CardGrid {
             };
             let row = (index / 3 + 1) as i16;
             let col = (index % 3 + 1) as i16;
-            children.push(GridItem::new(card_tile(card)).cell(row, col).into_node());
+            children.push(
+                GridItem::new(card_tile(ctx, card))
+                    .cell(row, col)
+                    .into_node(),
+            );
         }
         Column {
             gap: Some(18.0),
@@ -129,8 +133,12 @@ fn section_title() -> Node {
     .into_node()
 }
 
-fn card_tile(card: &Card) -> Node {
+fn card_tile(ctx: &mut BuildCtx<StoreState>, card: &Card) -> Node {
     let accent = color(card.accent.0, card.accent.1, card.accent.2);
+    let add = ctx.bind(
+        AddToCart(card.slug.to_string()),
+        reduce_with!(on_add_to_cart),
+    );
     Container::new(
         Column {
             gap: Some(14.0),
@@ -172,6 +180,34 @@ fn card_tile(card: &Card) -> Node {
                             .line_height(18.0)
                             .color(color(148, 163, 184))
                             .into_node(),
+                    ],
+                    align_items: ir_op::AlignItems::Center,
+                    ..Default::default()
+                }
+                .into_node(),
+                Row {
+                    gap: Some(10.0),
+                    children: vec![
+                        Text::new("View details")
+                            .size(14.0)
+                            .line_height(20.0)
+                            .weight(800)
+                            .color(accent)
+                            .semantics_identifier(format!("site-route:/cards/{}/", card.slug))
+                            .into_node(),
+                        Spacer {
+                            flex_grow: 1.0,
+                            ..Default::default()
+                        }
+                        .into_node(),
+                        Button {
+                            variant: ButtonVariant::Outline,
+                            child: Some(Box::new(Text::new("Add").into_node())),
+                            on_press: Some(add),
+                            padding: Some([12.0, 12.0, 8.0, 8.0]),
+                            ..Default::default()
+                        }
+                        .into_node(),
                     ],
                     align_items: ir_op::AlignItems::Center,
                     ..Default::default()

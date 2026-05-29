@@ -5,18 +5,20 @@ A server-side Fission example that sells collectible Pokémon cards using normal
 It demonstrates:
 
 - revalidated routes with a five-minute TTL and tag invalidation metadata;
+- one route per product card, including cacheable detail pages under `/cards/<slug>`;
 - the default Moka-backed cache used through the server shell's `Cache` trait;
 - server-side `FutureBuilder` job draining before HTML is returned;
-- signed HTTP action dispatch into normal reducers for server mutations;
-- route-local progressive-enhancement worker declarations for DOM behaviour such as filtering;
-- route-local WASM island declarations for a focused cart drawer;
-- generated per-worker and per-island WASM shim crates;
+- signed HTTP action dispatch into normal reducers through real HTML forms;
+- add-to-basket buttons that post signed action tokens back to the server route;
+- route-local progressive-enhancement worker declarations loaded from generated WASM artifacts;
+- route-local WASM island declarations loaded from generated WASM artifacts;
+- generated per-worker and per-island WASM shim crates copied into `/assets/...`;
 - production-style Rust organisation with data, server setup, and reusable widget components split into modules.
 
 Run it locally:
 
 ```sh
-cargo run -p pokemon-card-store
+fission server serve --project-dir examples/pokemon-card-store
 ```
 
 Then open `http://127.0.0.1:8124/`.

@@ -1,19 +1,19 @@
 use crate::components::{card_grid::CardGrid, hero::Hero, shell::StoreShell};
-use crate::data::{CatalogRequest, CatalogResponse, StoreError, CATALOG_JOB};
+use crate::data::{self, CatalogRequest, CatalogResponse, StoreError, CATALOG_JOB};
 use fission::core::ResourceKey;
 use fission::prelude::*;
 
 #[derive(Debug, Clone)]
 pub struct StoreState {
     pub catalog: AsyncSnapshot<CatalogResponse, StoreError>,
-    pub cart_count: u32,
+    pub cart_items: Vec<String>,
 }
 
 impl Default for StoreState {
     fn default() -> Self {
         Self {
             catalog: AsyncSnapshot::waiting(),
-            cart_count: 0,
+            cart_items: Vec::new(),
         }
     }
 }
@@ -27,8 +27,7 @@ impl Widget<StoreState> for StoreHomePage {
     fn build(&self, ctx: &mut BuildCtx<StoreState>, view: &View<StoreState>) -> Node {
         let catalog_loaded = with_reducer!(ctx, CatalogLoaded, on_catalog_loaded);
         let catalog_failed = with_reducer!(ctx, CatalogFailed, on_catalog_failed);
-        let add_demo_card = with_reducer!(ctx, AddDemoCard, on_add_demo_card);
-        let _ = add_demo_card;
+        ctx.register::<AddToCart, _>(reduce_with!(on_add_to_cart));
 
         let catalog_request = CatalogRequest { generation: 1 };
         let catalog_snapshot = view.state.catalog.clone();
@@ -54,8 +53,109 @@ impl Widget<StoreState> for StoreHomePage {
                 gap: Some(28.0),
                 children: vec![
                     Hero.build(ctx, view),
-                    cart_summary(view.state.cart_count),
+                    cart_summary(view),
                     card_grid,
+                    browser_runtime_panel(),
+                ],
+                ..Default::default()
+            }
+            .into_node(),
+        }
+        .build(ctx, view)
+    }
+}
+
+#[derive(Clone)]
+pub struct StoreCardPage {
+    pub slug: String,
+}
+
+impl Widget<StoreState> for StoreCardPage {
+    fn build(&self, ctx: &mut BuildCtx<StoreState>, view: &View<StoreState>) -> Node {
+        let Some(card) = data::card_by_slug(&self.slug) else {
+            return StoreShell {
+                child: not_found(&self.slug),
+            }
+            .build(ctx, view);
+        };
+        let add = ctx.bind(
+            AddToCart(card.slug.to_string()),
+            reduce_with!(on_add_to_cart),
+        );
+        let accent = color(card.accent.0, card.accent.1, card.accent.2);
+        StoreShell {
+            child: Column {
+                gap: Some(24.0),
+                children: vec![
+                    Text::new("Card details")
+                        .size(14.0)
+                        .line_height(18.0)
+                        .weight(800)
+                        .color(accent)
+                        .semantics_identifier("site-route:/")
+                        .into_node(),
+                    Container::new(
+                        Row {
+                            gap: Some(28.0),
+                            align_items: ir_op::AlignItems::Stretch,
+                            children: vec![
+                                detail_art(card),
+                                Column {
+                                    gap: Some(18.0),
+                                    children: vec![
+                                        Text::new(card.name)
+                                            .size(48.0)
+                                            .line_height(54.0)
+                                            .weight(900)
+                                            .color(color(248, 250, 252))
+                                            .into_node(),
+                                        Text::new(format!(
+                                            "{} · {} · {}",
+                                            card.set, card.rarity, card.type_line
+                                        ))
+                                        .size(16.0)
+                                        .line_height(24.0)
+                                        .weight(800)
+                                        .color(accent)
+                                        .into_node(),
+                                        Text::new(card.description)
+                                            .size(18.0)
+                                            .line_height(30.0)
+                                            .color(color(203, 213, 225))
+                                            .into_node(),
+                                        Text::new(format!(
+                                            "£{:.2} · {} currently in stock",
+                                            card.price, card.stock
+                                        ))
+                                        .size(24.0)
+                                        .line_height(30.0)
+                                        .weight(900)
+                                        .color(color(255, 255, 255))
+                                        .into_node(),
+                                        Button {
+                                            variant: ButtonVariant::Filled,
+                                            child: Some(Box::new(
+                                                Text::new("Add this card to basket").into_node(),
+                                            )),
+                                            on_press: Some(add),
+                                            ..Default::default()
+                                        }
+                                        .into_node(),
+                                        cart_summary(view),
+                                    ],
+                                    ..Default::default()
+                                }
+                                .into_node(),
+                            ],
+                            ..Default::default()
+                        }
+                        .into_node(),
+                    )
+                    .padding_all(28.0)
+                    .border(accent.with_alpha(120), 1.0)
+                    .border_radius(30.0)
+                    .bg(color(15, 23, 42))
+                    .into_node(),
                 ],
                 ..Default::default()
             }
@@ -87,12 +187,22 @@ pub fn on_catalog_failed(state: &mut StoreState, ctx: &mut ReducerContext<StoreS
     state.catalog = AsyncSnapshot::with_error(AsyncConnectionState::Done, error);
 }
 
-#[fission_reducer(AddDemoCard)]
-pub fn on_add_demo_card(state: &mut StoreState) {
-    state.cart_count = state.cart_count.saturating_add(1);
+#[fission_reducer(AddToCart)]
+pub fn on_add_to_cart(state: &mut StoreState, slug: String) {
+    if data::card_by_slug(&slug).is_some() {
+        state.cart_items.push(slug);
+    }
 }
 
-fn cart_summary(cart_count: u32) -> Node {
+fn cart_summary(view: &View<StoreState>) -> Node {
+    let cart_count = view.state.cart_items.len();
+    let last = view
+        .state
+        .cart_items
+        .last()
+        .and_then(|slug| data::card_by_slug(slug))
+        .map(|card| format!("Last added: {}", card.name))
+        .unwrap_or_else(|| "Choose a card to exercise signed server actions.".to_string());
     Container::new(
         Row {
             gap: Some(12.0),
@@ -113,7 +223,7 @@ fn cart_summary(cart_count: u32) -> Node {
                     ..Default::default()
                 }
                 .into_node(),
-                Text::new("Signed actions post back to the server reducer path")
+                Text::new(last)
                     .size(13.0)
                     .line_height(18.0)
                     .color(color(147, 197, 253))
@@ -127,6 +237,123 @@ fn cart_summary(cart_count: u32) -> Node {
     .border(color(59, 130, 246).with_alpha(120), 1.0)
     .border_radius(18.0)
     .bg(color(30, 64, 175).with_alpha(80))
+    .into_node()
+}
+
+fn browser_runtime_panel() -> Node {
+    Container::new(
+        Row {
+            gap: Some(14.0),
+            children: vec![
+                status_chip(
+                    "Worker",
+                    "worker-status:catalog-filters",
+                    "Waiting for worker",
+                ),
+                status_chip("Island", "island-status:cart-drawer", "Waiting for island"),
+            ],
+            ..Default::default()
+        }
+        .into_node(),
+    )
+    .padding_all(18.0)
+    .border(color(71, 85, 105), 1.0)
+    .border_radius(20.0)
+    .bg(color(15, 23, 42))
+    .into_node()
+}
+
+fn status_chip(label: &str, identifier: &str, status: &str) -> Node {
+    Column {
+        gap: Some(4.0),
+        children: vec![
+            Text::new(label)
+                .size(12.0)
+                .line_height(16.0)
+                .weight(800)
+                .color(color(148, 163, 184))
+                .into_node(),
+            Text::new(status)
+                .size(15.0)
+                .line_height(20.0)
+                .weight(800)
+                .color(color(226, 232, 240))
+                .semantics_identifier(identifier)
+                .into_node(),
+        ],
+        ..Default::default()
+    }
+    .into_node()
+}
+
+fn detail_art(card: &data::Card) -> Node {
+    let accent = color(card.accent.0, card.accent.1, card.accent.2);
+    Container::new(
+        Column {
+            gap: Some(14.0),
+            children: vec![
+                Text::new(card.type_line)
+                    .size(16.0)
+                    .line_height(22.0)
+                    .weight(900)
+                    .color(color(15, 23, 42))
+                    .into_node(),
+                Spacer {
+                    flex_grow: 1.0,
+                    ..Default::default()
+                }
+                .into_node(),
+                Text::new(card.name)
+                    .size(34.0)
+                    .line_height(39.0)
+                    .weight(900)
+                    .color(color(15, 23, 42))
+                    .into_node(),
+            ],
+            ..Default::default()
+        }
+        .into_node(),
+    )
+    .width(360.0)
+    .height(500.0)
+    .padding_all(28.0)
+    .border_radius(24.0)
+    .bg(accent)
+    .into_node()
+}
+
+fn not_found(slug: &str) -> Node {
+    Container::new(
+        Column {
+            gap: Some(12.0),
+            children: vec![
+                Text::new("Card not found")
+                    .size(34.0)
+                    .line_height(40.0)
+                    .weight(900)
+                    .color(color(248, 250, 252))
+                    .into_node(),
+                Text::new(format!("No card route exists for `{slug}`."))
+                    .size(16.0)
+                    .line_height(24.0)
+                    .color(color(203, 213, 225))
+                    .into_node(),
+                Text::new("Back to catalogue")
+                    .size(15.0)
+                    .line_height(20.0)
+                    .weight(800)
+                    .color(color(147, 197, 253))
+                    .semantics_identifier("site-route:/")
+                    .into_node(),
+            ],
+            ..Default::default()
+        }
+        .into_node(),
+    )
+    .padding_all(28.0)
+    .border(color(248, 113, 113).with_alpha(120), 1.0)
+    .border_radius(24.0)
+    .bg(color(15, 23, 42))
     .into_node()
 }
 

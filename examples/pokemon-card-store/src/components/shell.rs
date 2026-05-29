@@ -34,12 +34,14 @@ fn nav(view: &View<StoreState>) -> Node {
                 .line_height(28.0)
                 .weight(800)
                 .color(color(248, 250, 252))
+                .semantics_identifier("site-route:/")
                 .into_node(),
             Spacer {
                 flex_grow: 1.0,
                 ..Default::default()
             }
             .into_node(),
+            nav_link("Catalogue", "/"),
             pill("Revalidated HTML", color(34, 197, 94)),
             pill("Worker filters", color(96, 165, 250)),
             pill("Cart island", color(244, 114, 182)),
@@ -48,6 +50,16 @@ fn nav(view: &View<StoreState>) -> Node {
         ..Default::default()
     }
     .into_node()
+}
+
+fn nav_link(label: &str, href: &str) -> Node {
+    Text::new(label)
+        .size(14.0)
+        .line_height(20.0)
+        .weight(800)
+        .color(color(191, 219, 254))
+        .semantics_identifier(format!("site-route:{href}"))
+        .into_node()
 }
 
 fn footer(_view: &View<StoreState>) -> Node {

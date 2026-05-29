@@ -1,5 +1,5 @@
-use crate::app::{StoreHomePage, StoreState};
-use crate::data::{catalog_response, CATALOG_JOB};
+use crate::app::{StoreCardPage, StoreHomePage, StoreState};
+use crate::data::{cards, catalog_response, CATALOG_JOB};
 use fission::server::{
     FissionServerApp, ProgressiveWorker, RevalidationPolicy, ServerJobRegistry, WasmIsland,
     WebRouteMode,
@@ -7,7 +7,7 @@ use fission::server::{
 use std::time::Duration;
 
 pub fn pokemon_card_store_server() -> FissionServerApp {
-    FissionServerApp::new("Pokemon Card Store")
+    let mut app = FissionServerApp::new("Pokemon Card Store")
         .jobs(
             ServerJobRegistry::new()
                 .register_job(CATALOG_JOB, |_request, _ctx| Ok(catalog_response())),
@@ -39,5 +39,21 @@ pub fn pokemon_card_store_server() -> FissionServerApp {
             )
             .entry("pokemon_card_store::islands::cart_drawer_boot")
             .description("Focused Fission island for cart state, checkout totals, and item edits."),
-        )
+        );
+    for card in cards() {
+        app = app.route_widget::<StoreState, _>(
+            format!("/cards/{}", card.slug),
+            format!("{} | Pokemon Card Store", card.name),
+            Some(card.description.to_string()),
+            WebRouteMode::Revalidated(
+                RevalidationPolicy::new(Duration::from_secs(300))
+                    .stale_while_revalidate(Duration::from_secs(60))
+                    .tags(["catalog", "pokemon-cards", card.slug]),
+            ),
+            StoreCardPage {
+                slug: card.slug.to_string(),
+            },
+        );
+    }
+    app
 }
