@@ -74,6 +74,14 @@
     }
   }
 
+  function dispatchBridgeEvent(bridge,payload){
+    if(bridge.worker){
+      bridge.worker.postMessage({kind:'event',payload:payload});
+      return null;
+    }
+    return callBridge(bridge,bridge.eventExport,payload);
+  }
+
   function normalizeMessages(output){
     if(!output)return[];
     if(Array.isArray(output))return output;
@@ -164,7 +172,7 @@
         checked:domEvent&&domEvent.target&&'checked'in domEvent.target?!!domEvent.target.checked:null,
         sequence:++bridge.sequence
       };
-      try{callBridge(bridge,bridge.eventExport,payload);}catch(error){setTextBySemantics(bridge.statusSemantics,bridge.kind+' failed: '+error.message);}
+      try{dispatchBridgeEvent(bridge,payload);}catch(error){setTextBySemantics(bridge.statusSemantics,bridge.kind+' failed: '+error.message);}
     };
     el.addEventListener(event,handler);
     if(event==='click'){
@@ -193,9 +201,120 @@
     region.textContent=String(text||'');
   }
 
+  function bridgeBootPayload(config,kind){
+    return {
+      type:'boot',
+      protocol_version:1,
+      artifact:{kind:kind,id:config.id},
+      route:currentManifest.route||window.location.pathname,
+      mount_id:config.mount_id||null,
+      root_node_id:config.root_node_id||config.mount_id||null,
+      theme_id:document.documentElement.getAttribute('data-theme')||'default',
+      locale:document.documentElement.lang||'en',
+      props:config.props||{}
+    };
+  }
+
+  function workerRuntimeSource(){
+    return `
+var textEncoder=new TextEncoder();
+var textDecoder=new TextDecoder();
+var bridge=null;
+function getMemory(exports){
+  if(exports&&exports.memory instanceof WebAssembly.Memory)return exports.memory;
+  return null;
+}
+function readOutput(exports){
+  var ptrFn=exports.fission_bridge_output_ptr;
+  var lenFn=exports.fission_bridge_output_len;
+  var memory=getMemory(exports);
+  if(typeof ptrFn!=='function'||typeof lenFn!=='function'||!memory)return null;
+  var ptr=ptrFn();
+  var len=lenFn();
+  if(!len)return null;
+  return JSON.parse(textDecoder.decode(new Uint8Array(memory.buffer,ptr,len)));
+}
+function callBridge(exportName,payload){
+  var exports=bridge.exports;
+  var fn=exports[exportName];
+  var alloc=exports.fission_bridge_alloc;
+  var dealloc=exports.fission_bridge_dealloc;
+  var memory=getMemory(exports);
+  if(typeof fn!=='function'||typeof alloc!=='function'||typeof dealloc!=='function'||!memory)throw new Error('artifact does not export the Fission browser bridge ABI');
+  var data=textEncoder.encode(JSON.stringify(payload||{}));
+  var ptr=alloc(data.length);
+  new Uint8Array(memory.buffer,ptr,data.length).set(data);
+  try{
+    var code=fn(ptr,data.length);
+    var output=readOutput(exports);
+    if(output)self.postMessage({kind:'output',output:output});
+    if(code!==0)throw new Error('artifact returned bridge error '+code);
+  }finally{
+    dealloc(ptr,data.length);
+  }
+}
+self.onmessage=function(event){
+  var message=event.data||{};
+  if(message.kind==='boot'){
+    fetch(message.artifact).then(function(response){
+      if(!response.ok)throw new Error(message.artifact+' returned '+response.status);
+      return response.arrayBuffer();
+    }).then(function(bytes){
+      return WebAssembly.instantiate(bytes,{});
+    }).then(function(result){
+      bridge={exports:result.instance.exports,entryExport:message.entryExport,eventExport:message.eventExport};
+      callBridge(bridge.entryExport,message.payload);
+      self.postMessage({kind:'ready'});
+    }).catch(function(error){
+      self.postMessage({kind:'error',message:error.message});
+    });
+  }else if(message.kind==='event'&&bridge){
+    try{callBridge(bridge.eventExport,message.payload);}catch(error){self.postMessage({kind:'error',message:error.message});}
+  }
+};`;
+  }
+
+  function instantiateWorkerArtifact(config,statusSemantics){
+    var bridge={
+      id:config.id,
+      kind:'worker',
+      config:config,
+      worker:null,
+      eventExport:'fission_worker_event',
+      statusSemantics:statusSemantics,
+      sequence:0,
+      boundEvents:Object.create(null)
+    };
+    bridgeInstances.push(bridge);
+    var scriptUrl=URL.createObjectURL(new Blob([workerRuntimeSource()],{type:'application/javascript'}));
+    var worker=new Worker(scriptUrl);
+    bridge.worker=worker;
+    worker.onmessage=function(event){
+      var message=event.data||{};
+      if(message.kind==='output')applyBridgeOutput(bridge,message.output);
+      else if(message.kind==='error')setTextBySemantics(statusSemantics,'Worker failed: '+message.message);
+      else if(message.kind==='ready')URL.revokeObjectURL(scriptUrl);
+    };
+    worker.onerror=function(error){
+      setTextBySemantics(statusSemantics,'Worker failed: '+(error.message||'browser worker error'));
+      URL.revokeObjectURL(scriptUrl);
+    };
+    worker.postMessage({
+      kind:'boot',
+      artifact:new URL(config.artifact,window.location.href).href,
+      entryExport:'fission_worker_entry',
+      eventExport:'fission_worker_event',
+      payload:bridgeBootPayload(config,'worker')
+    });
+    return Promise.resolve(bridge);
+  }
+
   function instantiateArtifact(config,kind){
     if(!config||!config.artifact)return Promise.resolve(null);
     var statusSemantics=(kind==='worker'?'worker-status:':'island-status:')+config.id;
+    if(kind==='worker'&&typeof Worker==='function'){
+      return instantiateWorkerArtifact(config,statusSemantics);
+    }
     return fetch(config.artifact).then(function(response){
       if(!response.ok)throw new Error(config.artifact+' returned '+response.status);
       return response.arrayBuffer();
@@ -214,18 +333,7 @@
         boundEvents:Object.create(null)
       };
       bridgeInstances.push(bridge);
-      var boot={
-        type:'boot',
-        protocol_version:1,
-        artifact:{kind:kind,id:config.id},
-        route:currentManifest.route||window.location.pathname,
-        mount_id:config.mount_id||null,
-        root_node_id:config.root_node_id||config.mount_id||null,
-        theme_id:document.documentElement.getAttribute('data-theme')||'default',
-        locale:document.documentElement.lang||'en',
-        props:config.props||{}
-      };
-      callBridge(bridge,bridge.entryExport,boot);
+      callBridge(bridge,bridge.entryExport,bridgeBootPayload(config,kind));
       if(kind==='island'){
         var mount=document.getElementById(config.mount_id)||bySemantics(statusSemantics);
         if(mount)mount.setAttribute('data-fission-island-loaded','true');
