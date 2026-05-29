@@ -39,7 +39,7 @@ fn store_home_renders_real_product_html_after_draining_catalog_job() {
     assert!(html.contains("View details"));
     assert!(html.contains("cards/charizard-holo/"));
     assert!(html.contains("Browser bridge"));
-    assert!(html.contains("island-action:add-card"));
+    assert!(html.contains("Island booting"));
     assert!(html.contains("worker-filter-summary"));
     assert!(html.contains("method=\"post\""));
     assert!(html.contains("name=\"token\""));
@@ -91,10 +91,17 @@ fn form_encoded_action_token_dispatches_like_browser_submit() {
     );
 
     let response = renderer.handle(request).unwrap();
-    let html = response.body_string();
-    assert_eq!(response.status, 200);
+    assert_eq!(response.status, 303);
+    assert!(response
+        .headers
+        .iter()
+        .any(|(name, value)| name.eq_ignore_ascii_case("location") && value == "/"));
+
+    let cookie = cookie_header(&response);
+    let redirected = renderer.handle(get_with_cookie("/", &cookie)).unwrap();
+    let html = redirected.body_string();
     assert!(html.contains("1 item in the server cart"));
-    assert!(html.contains("Pikachu Yellow Cheeks"));
+    assert!(html.contains("Last added: Pikachu Yellow Cheeks"));
 }
 
 #[test]

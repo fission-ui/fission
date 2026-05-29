@@ -197,7 +197,12 @@ async function waitFor(client, expression, timeoutMs, label) {
     if (value) return value;
     await sleep(200);
   }
-  throw new Error(`${label} timed out`);
+  const diagnostics = await evaluate(client, `({
+    worker: document.querySelector('[data-fission-semantics="worker-status:catalog-filters"]')?.textContent,
+    island: document.querySelector('[data-fission-semantics="island-status:cart-drawer"]')?.textContent,
+    body: document.body.textContent.slice(-1000)
+  })`).catch(error => ({ error: String(error) }));
+  throw new Error(`${label} timed out: ${JSON.stringify(diagnostics)}; events=${JSON.stringify(client.events.slice(-20))}`);
 }
 
 const serverPort = await freePort();
@@ -225,7 +230,7 @@ timeout = setTimeout(() => {
   stopChildren();
   console.error('browser bridge E2E timed out');
   process.exit(124);
-}, 120000);
+}, 240000);
 
 try {
   server = spawn('cargo', [
@@ -256,12 +261,36 @@ try {
   const page = await waitForPage(cdpPort);
   client = cdpClient(await connectWebSocket(page.webSocketDebuggerUrl));
   await client.send('Runtime.enable');
+  await client.send('Log.enable');
 
   await waitFor(
     client,
     `document.querySelector('[data-fission-semantics="worker-status:catalog-filters"]')?.textContent === 'Worker bridge ready' && document.querySelector('[data-fission-semantics="island-status:cart-drawer"]')?.textContent === 'Island bridge ready'`,
     15000,
     'browser bridge boot',
+  );
+
+  await evaluate(client, `document.querySelector('form.fission-server-action-form button[type="submit"]')?.click()`);
+  await waitFor(
+    client,
+    `location.pathname === '/' && document.body.textContent.includes('1 item in the server cart')`,
+    15000,
+    'server action redirect',
+  );
+  const afterServerAction = await evaluate(client, `({
+    path: location.pathname,
+    serverCart: document.body.textContent.includes('1 item in the server cart'),
+    internalActionPath: location.pathname === '/__fission/action'
+  })`);
+  if (afterServerAction.internalActionPath || !afterServerAction.serverCart) {
+    throw new Error(`server action did not redirect back to the route with updated state: ${JSON.stringify(afterServerAction)}`);
+  }
+
+  await waitFor(
+    client,
+    `document.querySelector('[data-fission-semantics="worker-status:catalog-filters"]')?.textContent === 'Worker bridge ready' && document.querySelector('[data-fission-semantics="island-status:cart-drawer"]')?.textContent === 'Island bridge ready'`,
+    15000,
+    'browser bridge reboot after server action',
   );
 
   const initial = await evaluate(client, `({
@@ -286,7 +315,7 @@ try {
         short: document.querySelector('[data-fission-semantics="island-cart-count-short"]')?.textContent,
         total: document.querySelector('[data-fission-semantics="island-cart-total"]')?.textContent,
         line: document.querySelector('[data-fission-semantics="island-cart-line"]')?.textContent,
-        status: document.querySelector('[data-fission-semantics="island-status:cart-drawer"]')?.textContent,
+        status: document.querySelector('[data-fission-semantics="cart-drawer"] [data-fission-semantics="island-status:cart-drawer"]')?.textContent,
         lineColor: getComputedStyle(document.querySelector('[data-fission-semantics="island-cart-line"] .fission-site-text-run') || document.querySelector('[data-fission-semantics="island-cart-line"]')).color,
       };
     })()`,
@@ -297,7 +326,7 @@ try {
   if (afterClick.short !== '1') throw new Error(`short count was not updated: ${JSON.stringify(afterClick)}`);
   if (afterClick.total !== '£249.00') throw new Error(`subtotal was not updated: ${JSON.stringify(afterClick)}`);
   if (!afterClick.line.includes('Charizard Holo')) throw new Error(`line item was not updated: ${JSON.stringify(afterClick)}`);
-  if (!afterClick.status.includes('1 client event')) throw new Error(`status was not updated: ${JSON.stringify(afterClick)}`);
+  if (!afterClick.status.includes('reducer event')) throw new Error(`status was not updated: ${JSON.stringify(afterClick)}`);
   if (afterClick.lineColor === 'rgb(0, 0, 0)') throw new Error(`bridge text update lost generated text styling: ${JSON.stringify(afterClick)}`);
 
   await waitFor(
