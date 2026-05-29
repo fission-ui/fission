@@ -14,7 +14,8 @@ mod site;
 
 pub use build::{
     build_content_site, build_site, check_content_site, check_site, list_content_routes,
-    list_site_routes, SiteBuildOptions, SiteBuildReport, SiteContentRouteConfig, SiteRouteReport,
+    list_site_routes, site_base_css, site_enhancement_js, SiteBuildOptions, SiteBuildReport,
+    SiteContentRouteConfig, SiteRouteReport,
 };
 pub use html::{
     render_ir_to_html, render_ir_to_html_with_styles, theme_variables_css, CodeHighlightingOptions,

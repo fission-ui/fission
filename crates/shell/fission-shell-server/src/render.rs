@@ -8,12 +8,14 @@ use anyhow::{anyhow, Result};
 use fission_core::{Env, LoweringContext, RuntimeResourceDeclaration, RuntimeState};
 use fission_layout::LayoutSize;
 use fission_shell_site::{
-    render_ir_to_html_with_styles, theme_variables_css, CssVariableMap, HtmlRenderOptions,
-    StyleRegistry,
+    render_ir_to_html_with_styles, site_base_css, site_enhancement_js, theme_variables_css,
+    CssVariableMap, HtmlRenderOptions, StyleRegistry,
 };
 use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet};
-use std::sync::Arc;
+use std::fs;
+use std::path::{Component, Path, PathBuf};
+use std::sync::{Arc, RwLock};
 use std::time::SystemTime;
 
 pub const MAX_SERVER_ACTION_BODY_BYTES: usize = 1024 * 1024;
@@ -83,6 +85,7 @@ pub struct RenderedServerRoute {
 pub struct ServerRenderer {
     app: FissionServerApp,
     cache: Arc<dyn Cache>,
+    style_cache: RwLock<BTreeMap<String, String>>,
     jobs: ServerJobRegistry,
     action_signer: ServerActionSigner,
     allowed_action_origins: BTreeSet<String>,
@@ -96,6 +99,7 @@ impl ServerRenderer {
         Self {
             app,
             cache: Arc::new(MokaCache::default()),
+            style_cache: RwLock::new(BTreeMap::new()),
             jobs,
             action_signer: ServerActionSigner::development(),
             allowed_action_origins: BTreeSet::new(),
@@ -179,6 +183,9 @@ impl ServerRenderer {
                 "method not allowed",
             ));
         }
+        if let Some(response) = self.handle_asset_request(&asset_request_path(&request.path))? {
+            return Ok(response);
+        }
         let path = normalize_server_path(&request.path);
         let Some(route) = self.app.find_route(&path) else {
             return Ok(ServerResponse::text(
@@ -195,6 +202,7 @@ impl ServerRenderer {
                 match entry.freshness(now) {
                     Freshness::Fresh | Freshness::Stale => {
                         if let Some(page) = entry.rendered_page() {
+                            self.remember_route_css(&route.route.path, &page.css)?;
                             let mut response = page_response(page, entry.freshness(now));
                             response.headers.push((
                                 "x-fission-cache".to_string(),
@@ -279,18 +287,95 @@ impl ServerRenderer {
             ..Default::default()
         };
         let rendered = render_ir_to_html_with_styles(&lowering.ir, &render_options, &mut styles)?;
-        let css = format!(
-            "{}\n{}\n{}",
-            theme_variables_css(":root", &self.app.theme),
-            rendered.css,
-            styles.to_css()
-        );
+        let css = rendered.css.clone();
+        self.remember_route_css(&route.route.path, &css)?;
         Ok(RenderedServerRoute {
             route: route.route.clone(),
             html: rendered.html,
             css,
             resources,
         })
+    }
+
+    fn handle_asset_request(&self, request_path: &str) -> Result<Option<ServerResponse>> {
+        match request_path {
+            "/site.css" => Ok(Some(self.site_css_response()?)),
+            "/site-enhancement.js" => Ok(Some(ServerResponse::text(
+                200,
+                "application/javascript; charset=utf-8",
+                site_enhancement_js(),
+            ))),
+            "/favicon.ico" => Ok(Some(self.favicon_response()?)),
+            path if path.starts_with("/assets/") => Ok(Some(self.project_asset_response(path)?)),
+            _ => Ok(None),
+        }
+    }
+
+    fn site_css_response(&self) -> Result<ServerResponse> {
+        let mut css = String::new();
+        css.push_str(site_base_css());
+        css.push('\n');
+        css.push_str(&theme_variables_css(":root", &self.app.theme));
+        let styles = self
+            .style_cache
+            .read()
+            .map_err(|_| anyhow!("server style cache lock poisoned"))?;
+        for style in styles.values() {
+            css.push('\n');
+            css.push_str(style);
+        }
+        Ok(ServerResponse::text(200, "text/css; charset=utf-8", css))
+    }
+
+    fn remember_route_css(&self, route_path: &str, css: &str) -> Result<()> {
+        self.style_cache
+            .write()
+            .map_err(|_| anyhow!("server style cache lock poisoned"))?
+            .insert(route_path.to_string(), css.to_string());
+        Ok(())
+    }
+
+    fn favicon_response(&self) -> Result<ServerResponse> {
+        for path in [
+            self.app.project_dir.join("favicon.ico"),
+            self.app.project_dir.join("assets/favicon.ico"),
+            self.app.project_dir.join("public/favicon.ico"),
+        ] {
+            if path.is_file() {
+                return file_response(&path);
+            }
+        }
+        Ok(ServerResponse {
+            status: 204,
+            headers: vec![("content-type".to_string(), "image/x-icon".to_string())],
+            body: Vec::new(),
+            cache_status: None,
+        })
+    }
+
+    fn project_asset_response(&self, request_path: &str) -> Result<ServerResponse> {
+        let Some(relative) = safe_relative_asset_path(request_path) else {
+            return Ok(ServerResponse::text(
+                400,
+                "text/plain; charset=utf-8",
+                "invalid asset path",
+            ));
+        };
+        for root in [
+            self.app.project_dir.join("target/fission/server"),
+            self.app.project_dir.clone(),
+            self.app.project_dir.join("public"),
+        ] {
+            let candidate = root.join(&relative);
+            if candidate.is_file() {
+                return file_response(&candidate);
+            }
+        }
+        Ok(ServerResponse::text(
+            404,
+            "text/plain; charset=utf-8",
+            "asset not found",
+        ))
     }
 
     fn handle_action(&self, request: ServerRequest) -> Result<ServerResponse> {
@@ -356,6 +441,67 @@ impl ServerRenderer {
             return true;
         };
         self.allowed_action_origins.contains(origin)
+    }
+}
+
+fn asset_request_path(path: &str) -> String {
+    let mut out = if path.starts_with('/') {
+        path.to_string()
+    } else {
+        format!("/{path}")
+    };
+    while out.contains("//") {
+        out = out.replace("//", "/");
+    }
+    if out.len() > 1 {
+        out = out.trim_end_matches('/').to_string();
+    }
+    out
+}
+
+fn safe_relative_asset_path(request_path: &str) -> Option<PathBuf> {
+    let path = Path::new(request_path.trim_start_matches('/'));
+    let mut out = PathBuf::new();
+    for component in path.components() {
+        match component {
+            Component::Normal(segment) => out.push(segment),
+            _ => return None,
+        }
+    }
+    (!out.as_os_str().is_empty()).then_some(out)
+}
+
+fn file_response(path: &Path) -> Result<ServerResponse> {
+    let body = fs::read(path)?;
+    Ok(ServerResponse {
+        status: 200,
+        headers: vec![(
+            "content-type".to_string(),
+            content_type_for_path(path).to_string(),
+        )],
+        body,
+        cache_status: None,
+    })
+}
+
+fn content_type_for_path(path: &Path) -> &'static str {
+    match path
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .map(|extension| extension.to_ascii_lowercase())
+        .as_deref()
+    {
+        Some("css") => "text/css; charset=utf-8",
+        Some("js") => "application/javascript; charset=utf-8",
+        Some("wasm") => "application/wasm",
+        Some("ico") => "image/x-icon",
+        Some("svg") => "image/svg+xml",
+        Some("png") => "image/png",
+        Some("jpg") | Some("jpeg") => "image/jpeg",
+        Some("webp") => "image/webp",
+        Some("json") => "application/json; charset=utf-8",
+        Some("txt") => "text/plain; charset=utf-8",
+        _ => "application/octet-stream",
     }
 }
 
@@ -429,9 +575,11 @@ mod tests {
         ReducerContext, ResourceKey, View, Widget,
     };
     use serde::{Deserialize, Serialize};
+    use std::fs;
+    use std::path::PathBuf;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
-    use std::time::Duration;
+    use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
     #[derive(Debug, Default)]
     struct TestState;
@@ -618,6 +766,88 @@ mod tests {
     }
 
     #[test]
+    fn server_renderer_serves_site_css_and_enhancement_script() {
+        let renderer = ServerRenderer::new(
+            FissionServerApp::new("Test").server_route_widget::<TestState, _>(
+                "/",
+                "Home",
+                None,
+                TestPage("Asset page"),
+            ),
+        );
+
+        let page = renderer.handle(ServerRequest::get("/")).unwrap();
+        assert_eq!(page.status, 200);
+
+        let css = renderer.handle(ServerRequest::get("/site.css")).unwrap();
+        assert_eq!(css.status, 200);
+        assert_eq!(
+            response_header(&css, "content-type"),
+            Some("text/css; charset=utf-8")
+        );
+        let css = css.body_string();
+        assert!(css.contains(".fission-site-root"));
+        assert!(css.contains(":root"));
+
+        let js = renderer
+            .handle(ServerRequest::get("/site-enhancement.js"))
+            .unwrap();
+        assert_eq!(js.status, 200);
+        assert_eq!(
+            response_header(&js, "content-type"),
+            Some("application/javascript; charset=utf-8")
+        );
+        assert!(js.body_string().contains("fission-site-js"));
+    }
+
+    #[test]
+    fn server_renderer_does_not_404_default_favicon_request() {
+        let renderer = ServerRenderer::new(
+            FissionServerApp::new("Test").server_route_widget::<TestState, _>(
+                "/",
+                "Home",
+                None,
+                TestPage("Favicon page"),
+            ),
+        );
+
+        let response = renderer.handle(ServerRequest::get("/favicon.ico")).unwrap();
+        assert_eq!(response.status, 204);
+        assert_eq!(response.body.len(), 0);
+    }
+
+    #[test]
+    fn server_renderer_serves_project_assets_without_path_traversal() {
+        let root = temp_project_dir("server-renderer-assets");
+        let asset_dir = root.join("target/fission/server/assets/workers");
+        fs::create_dir_all(&asset_dir).unwrap();
+        fs::write(asset_dir.join("filters.wasm"), b"\0asm").unwrap();
+        fs::write(root.join("secret.txt"), b"secret").unwrap();
+        let renderer = ServerRenderer::new(
+            FissionServerApp::new("Test")
+                .project_dir(&root)
+                .server_route_widget::<TestState, _>("/", "Home", None, TestPage("Asset page")),
+        );
+
+        let asset = renderer
+            .handle(ServerRequest::get("/assets/workers/filters.wasm"))
+            .unwrap();
+        assert_eq!(asset.status, 200);
+        assert_eq!(
+            response_header(&asset, "content-type"),
+            Some("application/wasm")
+        );
+        assert_eq!(asset.body, b"\0asm");
+
+        let traversal = renderer
+            .handle(ServerRequest::get("/assets/../secret.txt"))
+            .unwrap();
+        assert_eq!(traversal.status, 400);
+
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
     fn signed_action_post_rejects_invalid_body_signature_origin_size_and_replay() {
         let renderer = ServerRenderer::new(
             FissionServerApp::new("Test").server_route_widget::<TestState, _>(
@@ -792,5 +1022,21 @@ mod tests {
 
         let error = renderer.handle(ServerRequest::get("/")).unwrap_err();
         assert!(error.to_string().contains("exceeded render pass limit"));
+    }
+
+    fn response_header<'a>(response: &'a ServerResponse, name: &str) -> Option<&'a str> {
+        response
+            .headers
+            .iter()
+            .find(|(candidate, _)| candidate.eq_ignore_ascii_case(name))
+            .map(|(_, value)| value.as_str())
+    }
+
+    fn temp_project_dir(name: &str) -> PathBuf {
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        std::env::temp_dir().join(format!("{name}-{}-{nanos}", std::process::id()))
     }
 }

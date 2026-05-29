@@ -25,6 +25,14 @@ const SITE_CSS: &str = include_str!("../assets/site.css");
 const SITE_ENHANCEMENT_JS: &str = include_str!("../assets/site-enhancement.js");
 const SEARCH_JS: &str = include_str!("../assets/search.js");
 
+pub fn site_base_css() -> &'static str {
+    SITE_CSS
+}
+
+pub fn site_enhancement_js() -> &'static str {
+    SITE_ENHANCEMENT_JS
+}
+
 #[derive(Clone, Debug)]
 pub struct SiteBuildOptions {
     pub project_dir: PathBuf,

@@ -44,8 +44,9 @@ fn handle_stream(mut stream: TcpStream, renderer: &ServerRenderer) -> Result<()>
     let response = renderer.handle(request)?;
     write!(
         stream,
-        "HTTP/1.1 {} OK\r\ncontent-length: {}\r\n",
+        "HTTP/1.1 {} {}\r\ncontent-length: {}\r\n",
         response.status,
+        reason_phrase(response.status),
         response.body.len()
     )?;
     for (name, value) in response.headers {
@@ -114,4 +115,30 @@ fn parse_path_and_query(raw: &str) -> (String, std::collections::BTreeMap<String
         out.insert(key.to_string(), value.to_string());
     }
     (path.to_string(), out)
+}
+
+fn reason_phrase(status: u16) -> &'static str {
+    match status {
+        200 => "OK",
+        204 => "No Content",
+        400 => "Bad Request",
+        403 => "Forbidden",
+        404 => "Not Found",
+        405 => "Method Not Allowed",
+        413 => "Payload Too Large",
+        500 => "Internal Server Error",
+        _ => "OK",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::reason_phrase;
+
+    #[test]
+    fn reason_phrase_matches_common_error_statuses() {
+        assert_eq!(reason_phrase(404), "Not Found");
+        assert_eq!(reason_phrase(405), "Method Not Allowed");
+        assert_eq!(reason_phrase(413), "Payload Too Large");
+    }
 }
