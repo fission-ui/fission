@@ -167,9 +167,7 @@ pub fn build_app(options: BuildOptions) -> Result<()> {
         }
         Target::Web => build_web(&options.project_dir, options.release),
         Target::Site => site_build(&options.project_dir, options.release),
-        Target::Server => {
-            fission_command_server::artifacts(&options.project_dir, options.release, true)
-        }
+        Target::Server => fission_command_server::build(&options.project_dir, options.release),
         Target::Ios => {
             require_host(Target::Ios)?;
             let script = options.project_dir.join("platforms/ios/package-sim.sh");

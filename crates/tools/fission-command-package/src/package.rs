@@ -976,6 +976,7 @@ fn render_server_dockerfile(
 WORKDIR /workspace
 COPY workspace/ .
 WORKDIR /workspace/{project_relative}
+RUN rustup target add wasm32-unknown-unknown
 RUN cargo build --release --package {package_name} --bin {binary_name}
 RUN mkdir -p target/fission/server && cargo run --release --package {package_name} --bin {binary_name} -- artifacts --package-name {package_name}{artifact_args}
 
@@ -984,6 +985,7 @@ RUN useradd --system --uid 10001 --home /nonexistent --shell /usr/sbin/nologin f
 WORKDIR /app
 COPY --from=builder /workspace/target/release/{binary_name} /usr/local/bin/{binary_name}
 COPY --from=builder /workspace/{project_relative}/target/fission/server /app/server-artifacts
+COPY --from=builder /workspace/{project_relative}/fission.toml /app/fission.toml
 ENV HOST=0.0.0.0
 ENV PORT={port}
 ENV FISSION_SERVER_ARTIFACTS=/app/server-artifacts
@@ -1123,13 +1125,29 @@ fn copy_docker_source_tree(source: &Path, dest: &Path) -> Result<()> {
         let name_str = name.to_string_lossy();
         if matches!(
             name_str.as_ref(),
-            ".git" | "target" | "dist" | "node_modules" | ".idea" | ".vscode"
+            ".git"
+                | ".tmp"
+                | "target"
+                | "dist"
+                | "node_modules"
+                | "platforms"
+                | ".idea"
+                | ".vscode"
         ) {
             continue;
         }
         let source_path = entry.path();
         let dest_path = dest.join(&name);
-        if entry.file_type()?.is_dir() {
+        let file_type = entry.file_type()?;
+        if file_type.is_symlink() {
+            let Ok(metadata) = fs::metadata(&source_path) else {
+                continue;
+            };
+            if !metadata.is_file() {
+                continue;
+            }
+        }
+        if file_type.is_dir() {
             copy_docker_source_tree(&source_path, &dest_path)?;
         } else {
             if let Some(parent) = dest_path.parent() {
@@ -2008,10 +2026,13 @@ mod tests {
 
         assert!(dockerfile.contains("COPY workspace/ ."));
         assert!(dockerfile.contains("WORKDIR /workspace/examples/pokemon-card-store"));
+        assert!(dockerfile.contains("rustup target add wasm32-unknown-unknown"));
         assert!(dockerfile.contains(
             "cargo build --release --package pokemon-card-store --bin pokemon-card-store"
         ));
         assert!(dockerfile.contains("artifacts --package-name pokemon-card-store --release --package-no-default-features --package-feature browser"));
+        assert!(dockerfile.contains("COPY --from=builder /workspace/examples/pokemon-card-store/fission.toml /app/fission.toml"));
+        assert!(dockerfile.contains("ENV FISSION_SERVER_ARTIFACTS=/app/server-artifacts"));
         assert!(dockerfile
             .contains("CMD [\"sh\", \"-c\", \"exec /usr/local/bin/pokemon-card-store serve"));
     }
@@ -2030,6 +2051,34 @@ mod tests {
         assert!(manifest.contains("tower-http"));
         assert!(main.contains("ServeDir::new"));
 
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn docker_source_copy_skips_tmp_and_target_directories() {
+        let root =
+            std::env::temp_dir().join(format!("fission-docker-source-copy-{}", std::process::id()));
+        let source = root.join("source");
+        let dest = root.join("dest");
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(source.join(".tmp/cache")).unwrap();
+        fs::create_dir_all(source.join("target/debug")).unwrap();
+        fs::create_dir_all(source.join("platforms/android/build")).unwrap();
+        fs::write(source.join("Cargo.toml"), "[package]\nname = \"demo\"\n").unwrap();
+        fs::write(source.join(".tmp/cache/secret"), "do not copy").unwrap();
+        fs::write(source.join("target/debug/app"), "do not copy").unwrap();
+        fs::write(
+            source.join("platforms/android/build/app.apk"),
+            "do not copy",
+        )
+        .unwrap();
+
+        copy_docker_source_tree(&source, &dest).unwrap();
+
+        assert!(dest.join("Cargo.toml").exists());
+        assert!(!dest.join(".tmp").exists());
+        assert!(!dest.join("target").exists());
+        assert!(!dest.join("platforms").exists());
         let _ = fs::remove_dir_all(root);
     }
 

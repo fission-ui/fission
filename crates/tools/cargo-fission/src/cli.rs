@@ -127,7 +127,7 @@ pub(crate) enum Command {
         #[command(subcommand)]
         command: SiteCommand,
     },
-    /// Check, serve, or list routes for a server-rendered Fission web app.
+    /// Build, check, serve, or list routes for a server-rendered Fission web app.
     Server {
         #[command(subcommand)]
         command: ServerCommand,
@@ -373,6 +373,15 @@ pub(crate) enum SiteCommand {
 
 #[derive(Subcommand, Debug)]
 pub(crate) enum ServerCommand {
+    /// Build the server binary and route-local browser artifacts.
+    Build {
+        /// Project directory; defaults to the current working directory.
+        #[arg(long, default_value = ".")]
+        project_dir: PathBuf,
+        /// Build in release mode.
+        #[arg(long)]
+        release: bool,
+    },
     /// Check that the server app renders all declared routes.
     Check {
         /// Project directory; defaults to the current working directory.

@@ -1,10 +1,18 @@
 use anyhow::{bail, Context, Result};
+use std::net::TcpListener;
 use std::path::Path;
 use std::process::Command;
 
 pub fn check(project_dir: &Path, release: bool) -> Result<()> {
     ensure_server_entry_configured(project_dir)?;
+    artifacts(project_dir, release, true).context("failed to build server browser artifacts")?;
     run_server_builder(project_dir, release, "check", &[])
+}
+
+pub fn build(project_dir: &Path, release: bool) -> Result<()> {
+    ensure_server_entry_configured(project_dir)?;
+    artifacts(project_dir, release, true).context("failed to build server browser artifacts")?;
+    build_server_binary(project_dir, release)
 }
 
 pub fn routes(project_dir: &Path) -> Result<()> {
@@ -14,6 +22,7 @@ pub fn routes(project_dir: &Path) -> Result<()> {
 
 pub fn serve(project_dir: &Path, release: bool, host: String, port: u16) -> Result<()> {
     ensure_server_entry_configured(project_dir)?;
+    ensure_server_address_available(&host, port)?;
     artifacts(project_dir, release, true).context("failed to build server browser artifacts")?;
     let port = port.to_string();
     run_server_builder(
@@ -22,6 +31,17 @@ pub fn serve(project_dir: &Path, release: bool, host: String, port: u16) -> Resu
         "serve",
         &["--host", host.as_str(), "--port", port.as_str()],
     )
+}
+
+fn ensure_server_address_available(host: &str, port: u16) -> Result<()> {
+    let address = format!("{host}:{port}");
+    let listener = TcpListener::bind(&address).with_context(|| {
+        format!(
+            "server address {address} is already in use; stop the existing process or choose another port with --port"
+        )
+    })?;
+    drop(listener);
+    Ok(())
 }
 
 pub fn artifacts(project_dir: &Path, release: bool, compile: bool) -> Result<()> {
@@ -121,6 +141,33 @@ fn run_server_builder(
     Ok(())
 }
 
+fn build_server_binary(project_dir: &Path, release: bool) -> Result<()> {
+    let manifest_path = project_dir.join("Cargo.toml");
+    if !manifest_path.exists() {
+        bail!(
+            "server entry is configured but {} is missing",
+            manifest_path.display()
+        );
+    }
+    let manifest_path = manifest_path
+        .canonicalize()
+        .with_context(|| format!("failed to resolve {}", manifest_path.display()))?;
+    let mut command = Command::new("cargo");
+    command.current_dir(project_dir);
+    command
+        .arg("build")
+        .arg("--manifest-path")
+        .arg(&manifest_path);
+    if release {
+        command.arg("--release");
+    }
+    let status = command.status().context("failed to build server app")?;
+    if !status.success() {
+        bail!("server app build failed with {status}");
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -169,5 +216,14 @@ browser = []
             .any(|feature| feature == "browser"));
 
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn serve_preflight_reports_busy_port_before_building_artifacts() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+
+        let error = ensure_server_address_available("127.0.0.1", port).unwrap_err();
+        assert!(error.to_string().contains("already in use"));
     }
 }

@@ -107,6 +107,10 @@ where
             SiteCommand::Routes { project_dir } => fission_command_site::routes(&project_dir),
         },
         Command::Server { command } => match command {
+            ServerCommand::Build {
+                project_dir,
+                release,
+            } => fission_command_server::build(&project_dir, release),
             ServerCommand::Check {
                 project_dir,
                 release,
