@@ -1,0 +1,68 @@
+---
+title: Workers and islands
+description: Add progressive enhancement workers and focused WASM islands to Fission server-rendered pages.
+---
+
+# Workers and islands
+
+A server-rendered page should not become a giant browser app by accident. Fission uses two smaller enhancement models so each piece of interactivity has a clear cost and boundary.
+
+A worker is for progressive enhancement. It can observe server-rendered DOM, send small DOM commands to the page script, handle filtering or sorting, and keep most of the page as normal HTML.
+
+An island is for a focused interactive surface that needs Fission's normal browser runtime. It is useful for a cart drawer, configurator, chart editor, media control, or any section where widget state and reducers are worth the WASM cost.
+
+## 1. Declare workers on the route that needs them
+
+```rust
+.worker(
+    "/",
+    ProgressiveWorker::new("catalog-filters", "/assets/workers/catalog-filters.wasm")
+        .entry("pokemon_card_store::workers::catalog_filters_boot")
+        .root_node_id("catalog-grid")
+        .description("Client-side filtering and sort controls over server-rendered cards."),
+)
+```
+
+The worker id should be stable. The artifact path is the browser path the generated page will load. The entry path identifies the Rust function used by the generated shim crate.
+
+Use workers for small DOM-oriented behavior: expanding filters, sorting already-rendered cards, toggling comparison rows, or coordinating keyboard shortcuts. Do not put core business state in a worker if that state belongs on the server or in an island.
+
+## 2. Declare islands for focused app-like areas
+
+```rust
+.island(
+    "/",
+    WasmIsland::new(
+        "cart-drawer",
+        "/assets/islands/cart-drawer.wasm",
+        "cart-drawer",
+    )
+    .entry("pokemon_card_store::islands::cart_drawer_boot")
+    .description("Focused Fission island for cart state, checkout totals, and item edits."),
+)
+```
+
+The mount id should match the element rendered by the server page. The island receives its own artifact so the browser only downloads it where the route needs it.
+
+Use islands for stateful UI that benefits from normal Fission reducers and widgets. Keep islands focused. If every route needs the entire app as one island, you probably want the normal web target instead of server-rendering.
+
+## 3. Generate artifacts
+
+```sh
+fission server artifacts --project-dir examples/pokemon-card-store
+```
+
+The command writes generated shim crates and, when compilation is enabled, builds one WASM output per worker and island. The separation matters because it keeps route-specific JavaScript and WASM small.
+
+During release packaging, run artifacts as part of the build or let the Docker package perform the artifact generation in the image build stage. The artifact declarations remain in Rust so route metadata, HTML output, and generated files stay aligned.
+
+## 4. Prefer the smallest enhancement that works
+
+| Need | Use |
+| --- | --- |
+| Collapse a menu, toggle a filter, sort visible rows | Worker |
+| Cart drawer, live editor, rich control panel | Island |
+| Whole app runs in browser and owns the canvas/runtime | Web target |
+| Page has no runtime behavior beyond links | Static site or server-rendered HTML |
+
+This split keeps server pages fast and crawlable while still allowing rich interaction where it earns its cost.

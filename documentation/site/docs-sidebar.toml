@@ -203,6 +203,36 @@ href = "/docs/guides/static-sites/"
 level = 2
 
 [[items]]
+title = "Content routes"
+href = "/docs/guides/static-site-content-routes/"
+level = 3
+
+[[items]]
+title = "Custom static pages"
+href = "/docs/guides/static-site-custom-pages/"
+level = 3
+
+[[items]]
+title = "Package static sites"
+href = "/docs/guides/static-site-packaging-and-docker/"
+level = 3
+
+[[items]]
+title = "Server-rendered sites"
+href = "/docs/guides/server-sites/"
+level = 2
+
+[[items]]
+title = "Server data and actions"
+href = "/docs/guides/server-site-caching-jobs-actions/"
+level = 3
+
+[[items]]
+title = "Workers and islands"
+href = "/docs/guides/server-site-workers-islands/"
+level = 3
+
+[[items]]
 title = "Charts"
 href = "/docs/charts/overview/"
 level = 1
@@ -310,6 +340,21 @@ level = 2
 [[items]]
 title = "Modal text flow"
 href = "/docs/cookbook/modal-text-flow/"
+level = 2
+
+[[items]]
+title = "Build a documentation site"
+href = "/docs/cookbook/build-documentation-site/"
+level = 2
+
+[[items]]
+title = "Build a server-rendered store"
+href = "/docs/cookbook/build-pokemon-card-store/"
+level = 2
+
+[[items]]
+title = "Package Docker images"
+href = "/docs/cookbook/package-docker-images/"
 level = 2
 
 [[items]]

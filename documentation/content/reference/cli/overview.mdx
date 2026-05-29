@@ -47,6 +47,11 @@ Fission exposes these public command-line interface entry points:
 | `fission site check` | Renders all static site routes and validates links without writing the final site | In pull-request validation for site content |
 | `fission site build` | Builds the static site into the configured output directory | Before publishing documentation or marketing pages |
 | `fission site serve` | Builds and serves the generated static site locally | When reviewing site pages in a browser |
+| `fission server check` | Renders all server routes and verifies the server app can produce HTML | Before deploying server-rendered routes |
+| `fission server serve` | Runs the server-rendered app locally | When reviewing dynamic pages, jobs, workers, and islands |
+| `fission server artifacts` | Generates per-worker and per-island browser artifacts | Before packaging server pages with browser enhancements |
+| `fission package` | Packages an app, static site, or server into a release artifact manifest | Before publishing or archiving release output |
+| `fission publish` | Publishes a packaged artifact to a configured provider | When uploading to static hosts, GitHub Releases, object storage, stores, or Docker registries |
 
 Repository developers may see the package name `cargo-fission` in workspace commands. That is the package that builds and installs the developer-facing `fission` command; product documentation and generated project files should use `fission ...`.
 
@@ -121,6 +126,8 @@ The current target values are:
 | `macos` | macOS desktop host | Desktop target metadata and notes |
 | `windows` | Windows desktop host | Desktop target metadata and notes |
 | `web` | Browser host | `platforms/web/` with a helper script and README |
+| `server` | Server-rendered web host | `platforms/server/` notes plus `[server].entry` in [`fission.toml`](/reference/config/fission-toml/) |
+| `site` | Static HTML site | `content/` and static-site configuration |
 | `android` | Android host | `platforms/android/` with packaging files, script, and README |
 | `ios` | iOS host | `platforms/ios/` with simulator bundle files, script, and README |
 
@@ -333,6 +340,46 @@ fission site serve [--project-dir <dir>] [--host <host>] [--port <port>] [--rele
 ```
 
 Builds the static site and serves the generated output with a local static file server. By default it binds to `127.0.0.1:8123` and opens the browser. Use `--no-open` for scripts or remote development environments.
+
+### `fission server check`
+
+```sh
+fission server check [--project-dir <dir>] [--release]
+```
+
+Runs the configured `[server].entry`, renders every declared server route, and fails if the route cannot produce HTML.
+
+### `fission server serve`
+
+```sh
+fission server serve [--project-dir <dir>] [--host <host>] [--port <port>] [--release]
+```
+
+Runs the server-rendered app locally. The default port is `8124`.
+
+### `fission server artifacts`
+
+```sh
+fission server artifacts [--project-dir <dir>] [--release] [--no-compile]
+```
+
+Generates per-worker and per-island browser shim crates, then compiles them unless `--no-compile` is set.
+
+### `fission package`
+
+```sh
+fission package --target <target> --format <format> [--project-dir <dir>] [--release] [--json]
+```
+
+Packages an app or site into a release artifact manifest. Current relevant pairs include `site/static`, `site/docker-image`, `server/docker-image`, `linux/run`, `macos/app`, `macos/pkg`, `windows/exe`, `windows/msi`, `windows/msix`, `android/apk`, `android/aab`, and `ios/ipa`.
+
+### `fission publish`
+
+```sh
+fission publish --provider <provider> --artifact <artifact-manifest.json> [--site <profile>] [--track <track>] [--dry-run] [--yes]
+```
+
+Publishes a packaged artifact to the selected provider. `fission distribute publish ...` is still available, but `publish` is the direct command developers should reach for in normal release workflows.
 
 ## Static site workflow
 

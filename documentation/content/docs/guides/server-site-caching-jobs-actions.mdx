@@ -1,0 +1,80 @@
+---
+title: Server caching, jobs, and actions
+description: Use server-side jobs, cache policies, revalidation, and signed actions in Fission server-rendered apps.
+---
+
+# Server caching, jobs, and actions
+
+Server-rendered Fission routes need a clear data story. A page may be static for a while, dynamic per request, or dynamic per user. Fission keeps those decisions explicit through route modes, cache configuration, jobs, and signed action dispatch.
+
+## 1. Configure the cache provider
+
+The default in-memory cache is Moka. It is appropriate for local development, small deployments, and single-process services.
+
+```toml
+[server.cache]
+provider = "moka"
+max_capacity = 10000
+ttl = "5m"
+stale_while_revalidate = "1m"
+```
+
+The cache trait is intentionally separate from the provider. That lets a project use Redis or a layered cache later without changing page widgets. A common production shape is an in-memory layer for hot entries and a shared network cache for cross-instance reuse.
+
+## 2. Pick a route mode
+
+Use a revalidated route when the page can be reused for a period, then rebuilt after its time-to-live expires.
+
+```rust
+WebRouteMode::Revalidated(
+    RevalidationPolicy::new(Duration::from_secs(300))
+        .stale_while_revalidate(Duration::from_secs(60))
+        .tags(["catalog", "pokemon-cards"]),
+)
+```
+
+The route can be served from cache while it is fresh. After the TTL, the server can rebuild it without recompiling or redeploying the application. Tags let product events invalidate related routes, such as invalidating `catalog` pages after a product import.
+
+Use fully dynamic routes for pages that depend on the current user, request headers, private account data, or a session-specific cart. Use static-site output for pages that never need request-time data.
+
+## 3. Drain jobs before returning HTML
+
+Jobs are server-owned work units that produce data needed by a route. The Pokémon example registers a catalog job:
+
+```rust
+ServerJobRegistry::new().register_job(CATALOG_JOB, |_request, _ctx| {
+    Ok(catalog_response())
+})
+```
+
+A `FutureBuilder` or resource-like widget can request that job during the render pass. The server shell drains the registered job, stores the result in the render context, and renders the final HTML with the data already present.
+
+Use jobs for data fetching, product catalogs, recommendations, inventory summaries, user-specific account panels, and other work that should happen on the server before the page is sent.
+
+## 4. Use signed action dispatch for mutations
+
+Server actions are HTTP-triggered reducer dispatches. They must be signed because the server is accepting an external request and translating it into application state changes.
+
+The safe model is:
+
+1. render a form or control with an action identity;
+2. include a signed token scoped to the route, action, expiry, and intended payload shape;
+3. accept the HTTP request only if the signature, expiry, and payload size pass validation;
+4. run the reducer on the server;
+5. return a redirect, updated HTML, or a focused response for the enhanced client.
+
+Do not expose arbitrary Rust functions as HTTP actions. Keep actions narrow and typed. Use the same reducer discipline you would use in the app: a small action describes what happened, and the reducer updates state.
+
+## 5. Test the threat model
+
+Server routes should have tests for more than happy-path rendering. Cover these cases:
+
+| Test area | What to verify |
+| --- | --- |
+| Cache expiry | Fresh entries are reused, stale entries can be rebuilt, and invalidation tags clear the right routes |
+| Job draining | Missing jobs fail clearly and registered jobs produce the expected page data |
+| Action signatures | Unsigned, expired, tampered, oversized, or wrong-route requests are rejected |
+| Private data | User-specific data is not cached under a public key |
+| Generated artifacts | Worker and island artifact declarations produce the expected output paths |
+
+The server shell has unit and integration tests for the protocol pieces. Your app tests should add product-specific assertions for the data and reducers you own.

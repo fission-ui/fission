@@ -1,0 +1,113 @@
+---
+title: Static site custom pages
+description: Build marketing pages and custom site routes as normal Fission widgets rendered to static HTML.
+---
+
+# Static site custom pages
+
+Content routes are good for articles. Custom pages are for the designed parts of a site: home pages, product pages, pricing pages, feature overviews, launch pages, and landing pages.
+
+A custom page is not a special HTML template. It is a normal Fission widget tree registered as a static site route. The site shell renders that widget tree at build time and lowers it to semantic HTML and generated CSS.
+
+## 1. Create reusable page components
+
+Use normal Rust modules and `Widget` implementations. Avoid putting a whole page into one function. The documentation site uses this pattern for its home page components.
+
+```rust
+use fission::prelude::*;
+
+#[derive(Clone)]
+pub struct HomePageHero;
+
+impl<State: AppState> Widget<State> for HomePageHero {
+    fn build(&self, _ctx: &mut BuildCtx<State>, _view: &View<State>) -> Node {
+        Column {
+            gap: Some(20.0),
+            children: vec![
+                Text::new("Build production apps in Rust")
+                    .size(56.0)
+                    .weight(FontWeight::Bold)
+                    .into_node(),
+                Text::new("Desktop, mobile, web, terminal, static sites, and server-rendered pages share one application model.")
+                    .size(20.0)
+                    .into_node(),
+            ],
+            ..Default::default()
+        }
+        .into_node()
+    }
+}
+```
+
+A component should describe one reusable part of the page. Keep data loading, routing, and product configuration outside the component so it remains easy to test and reuse.
+
+## 2. Register a route widget
+
+Create the site app in `src/main.rs` or another module and register the custom route.
+
+```rust
+use anyhow::Result;
+use fission::prelude::*;
+use fission::site::{build_from_cli, FissionSite};
+
+#[derive(Default)]
+struct SiteState;
+impl AppState for SiteState {}
+
+fn site_app() -> FissionSite {
+    FissionSite::new().route_widget::<SiteState, _>(
+        "/",
+        "My Product",
+        Some("A fast, crawlable product site built with Fission.".to_string()),
+        HomePageHero,
+    )
+}
+
+fn main() -> Result<()> {
+    build_from_cli(site_app())
+}
+```
+
+The title and description are route metadata. They become part of the generated document metadata and search index.
+
+## 3. Share header, footer, and themes
+
+A serious site normally has a shared header and footer. Put those in reusable widgets or configure them through the site app. Use the design system and theme rather than hard-coded colors when possible, then use `css_files` only for site-specific overrides.
+
+```toml
+[site]
+css_files = ["site/overrides.css"]
+asset_dirs = ["static"]
+```
+
+Generated CSS is written before user CSS. That means your override file can fine-tune spacing, responsive behavior, or product-specific visuals without replacing the static renderer.
+
+## 4. Keep the page static by default
+
+A custom static page should be useful before JavaScript loads. Theme switching, sidebar expansion, search, code highlighting, and small document-level scripts are fine. Continuous runtime state, device APIs, and app-like flows belong in a Fission web app, a server route, or a focused island.
+
+Use this rule while designing pages:
+
+| Page behavior | Static custom page? | Better target if not |
+| --- | --- | --- |
+| Hero, feature cards, pricing, docs links | Yes | Static site |
+| Search dialog over generated index | Yes | Static site with search enabled |
+| Account dashboard with user-specific data | No | Server-rendered route or web app |
+| Cart drawer with local state | Maybe | WASM island inside a server page |
+| Live editor or canvas-heavy UI | No | Web target |
+
+## 5. Verify the output
+
+Run the full site check before publishing.
+
+```sh
+fission site check --project-dir . --release
+```
+
+Then build and inspect the output.
+
+```sh
+fission site build --project-dir . --release
+```
+
+Open the generated `index.html` and `site.css` if the page looks wrong. The HTML should contain the real content, not a blank app shell. That is what keeps the site crawlable and shareable.

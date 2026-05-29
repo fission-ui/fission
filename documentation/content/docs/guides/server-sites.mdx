@@ -1,0 +1,129 @@
+---
+title: Server-rendered sites
+description: Build dynamic, cacheable, server-rendered web experiences with Fission widgets, jobs, services, actions, workers, and islands.
+---
+
+# Server-rendered sites
+
+The server shell is for web experiences that need more than static HTML but should still keep the advantages of Fission's widget model. It is useful for ecommerce stores, dashboards, catalogs, account pages, portals, documentation with dynamic sections, and any route that needs request-time data, per-session state, revalidation, or server-side actions.
+
+The Pokémon Card Store example under `examples/pokemon-card-store` is the reference project. It renders a storefront from normal Fission widgets, uses a revalidated route with a time-to-live, drains a server job before responding, declares a progressive worker for filtering, declares a focused WASM island for the cart drawer, and can be packaged into a Docker image.
+
+## 1. Enable the server target
+
+A server project declares `server` as a target and points `[server].entry` at the Rust function that creates the server app.
+
+```toml
+targets = ["server"]
+
+[app]
+name = "pokemon-card-store"
+app_id = "ai.worka.fission.examples.pokemon-card-store"
+
+[server]
+entry = "pokemon_card_store::pokemon_card_store_server"
+default_route_mode = "revalidated"
+render_pass_limit = 4
+```
+
+The entry function is used by CLI commands such as `fission server check`, `fission server serve`, `fission server artifacts`, and Docker packaging.
+
+## 2. Build the server app
+
+The server app is assembled in normal Rust. This abbreviated version mirrors the structure in `examples/pokemon-card-store/src/server.rs`.
+
+```rust
+use fission::server::{
+    FissionServerApp, ProgressiveWorker, RevalidationPolicy, ServerJobRegistry,
+    WasmIsland, WebRouteMode,
+};
+use std::time::Duration;
+
+pub fn pokemon_card_store_server() -> FissionServerApp {
+    FissionServerApp::new("Pokemon Card Store")
+        .jobs(ServerJobRegistry::new().register_job(CATALOG_JOB, |_request, _ctx| {
+            Ok(catalog_response())
+        }))
+        .route_widget::<StoreState, _>(
+            "/",
+            "Pokemon Card Store",
+            Some("A Fission server-rendered storefront for collectible cards.".to_string()),
+            WebRouteMode::Revalidated(
+                RevalidationPolicy::new(Duration::from_secs(300))
+                    .stale_while_revalidate(Duration::from_secs(60))
+                    .tags(["catalog", "pokemon-cards"]),
+            ),
+            StoreHomePage,
+        )
+        .worker(
+            "/",
+            ProgressiveWorker::new("catalog-filters", "/assets/workers/catalog-filters.wasm")
+                .entry("pokemon_card_store::workers::catalog_filters_boot")
+                .root_node_id("catalog-grid"),
+        )
+        .island(
+            "/",
+            WasmIsland::new("cart-drawer", "/assets/islands/cart-drawer.wasm", "cart-drawer")
+                .entry("pokemon_card_store::islands::cart_drawer_boot"),
+        )
+}
+```
+
+The route widget remains the page's source of truth. Jobs and cache policy describe when data is prepared and how long generated output can be reused. Workers and islands describe browser-side enhancement without turning the whole page into one large browser app.
+
+## 3. Use a normal CLI entrypoint
+
+The binary delegates to the server shell's CLI runner.
+
+```rust
+use fission::server::run_from_cli;
+use pokemon_card_store::pokemon_card_store_server;
+
+fn main() -> anyhow::Result<()> {
+    run_from_cli(pokemon_card_store_server())
+}
+```
+
+That one entrypoint supports `check`, `routes`, `serve`, and `artifacts` subcommands. Fission's top-level CLI calls those subcommands for you.
+
+## 4. Check, serve, and generate browser artifacts
+
+Render all declared routes:
+
+```sh
+fission server check --project-dir examples/pokemon-card-store
+```
+
+Serve locally:
+
+```sh
+fission server serve --project-dir examples/pokemon-card-store --host 127.0.0.1 --port 8124
+```
+
+Generate worker and island shim crates:
+
+```sh
+fission server artifacts --project-dir examples/pokemon-card-store
+```
+
+Run these before packaging. A server route can fail because a widget cannot render server-side, a job is missing, a worker entry is invalid, or an island cannot produce a browser artifact. The `check` and `artifacts` commands catch those problems before deployment.
+
+## 5. Package the server as a Docker image
+
+Server apps usually deploy as processes. Fission's Docker package format creates a context that builds the server app inside a Rust builder image and runs the compiled binary in a runtime image.
+
+```toml
+[package.docker]
+port = 8080
+tags = ["ghcr.io/example/pokemon-card-store:0.1.0"]
+```
+
+```sh
+fission package \
+  --project-dir examples/pokemon-card-store \
+  --target server \
+  --format docker-image \
+  --release
+```
+
+The generated image runs the server app with `serve --host 0.0.0.0 --port $PORT`. The artifact manifest records the Dockerfile, image metadata, generated context, configured tags, and validation checks.

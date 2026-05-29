@@ -1,0 +1,157 @@
+---
+title: Build a documentation site
+sidebar_position: 20
+description: Recreate the core shape of the Fission documentation site with content routes, custom pages, sidebars, search, SEO, and publishing output.
+---
+
+# Build a documentation site
+
+This cookbook builds a small site with the same architecture as the Fission documentation: a custom home page, Markdown-driven docs, an explicit sidebar, static assets, search, code highlighting, sitemap, robots file, and a generated static output directory.
+
+## 1. Create the project
+
+```sh
+fission init docs-site
+cd docs-site
+fission add-target site --project-dir .
+```
+
+Set the site fields in [`fission.toml`](/reference/config/fission-toml/):
+
+```toml
+targets = ["site"]
+
+[app]
+name = "docs-site"
+app_id = "com.example.docs_site"
+
+[site]
+entry = "crate::site_app"
+title = "Docs Site"
+description = "Documentation for the product."
+base_url = "https://docs.example.com"
+out_dir = "dist/site"
+asset_dirs = ["static"]
+logo = "/img/logo.svg"
+favicon = "/img/favicon.svg"
+generate_sitemap = true
+generate_robots = true
+
+[site.code_highlighting]
+enabled = true
+
+[site.search]
+enabled = true
+
+[[site.routes]]
+kind = "content"
+path = "/docs"
+source = "content/docs"
+template = "fission::site::documentation"
+sidebar = "site/docs-sidebar.toml"
+```
+
+## 2. Add content and sidebar
+
+```text
+content/docs/intro.mdx
+content/docs/learn/quickstart.mdx
+site/docs-sidebar.toml
+static/img/logo.svg
+```
+
+`content/docs/intro.mdx`:
+
+```mdx
+---
+title: Introduction
+description: Learn what the product does.
+---
+
+# Introduction
+
+Start here.
+```
+
+`site/docs-sidebar.toml`:
+
+```toml
+[[items]]
+title = "Start"
+href = "/docs/intro/"
+level = 1
+group = true
+
+[[items]]
+title = "Introduction"
+href = "/docs/intro/"
+level = 2
+
+[[items]]
+title = "Quickstart"
+href = "/docs/learn/quickstart/"
+level = 2
+```
+
+## 3. Add a custom home page
+
+```rust
+use anyhow::Result;
+use fission::prelude::*;
+use fission::site::{build_from_cli, FissionSite};
+
+#[derive(Default)]
+struct SiteState;
+impl AppState for SiteState {}
+
+#[derive(Clone)]
+struct HomePage;
+
+impl Widget<SiteState> for HomePage {
+    fn build(&self, _ctx: &mut BuildCtx<SiteState>, _view: &View<SiteState>) -> Node {
+        Column {
+            gap: Some(18.0),
+            children: vec![
+                Text::new("Documentation people can actually use")
+                    .size(48.0)
+                    .weight(FontWeight::Bold)
+                    .into_node(),
+                Text::new("A custom Fission page rendered to static HTML.").into_node(),
+            ],
+            ..Default::default()
+        }
+        .into_node()
+    }
+}
+
+pub fn site_app() -> FissionSite {
+    FissionSite::new().route_widget::<SiteState, _>(
+        "/",
+        "Docs Site",
+        Some("A Fission static documentation site.".to_string()),
+        HomePage,
+    )
+}
+
+fn main() -> Result<()> {
+    build_from_cli(site_app())
+}
+```
+
+## 4. Check and build
+
+```sh
+fission site check --project-dir .
+fission site build --project-dir . --release
+```
+
+Review `dist/site/index.html`, `dist/site/docs/intro/index.html`, `dist/site/site.css`, `dist/site/search/`, `dist/site/sitemap.xml`, and `dist/site/robots.txt`.
+
+## 5. Package and publish
+
+```sh
+fission package --project-dir . --target site --format static --release
+fission publish --project-dir . --provider github-pages --artifact target/fission/release/site/static/artifact-manifest.json --site production
+```
+
+That is the same lifecycle used by the Fission documentation site: source-controlled content and widgets in the project, generated static output in the build, and provider upload from a package manifest.

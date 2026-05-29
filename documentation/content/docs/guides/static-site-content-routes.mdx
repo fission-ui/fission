@@ -1,0 +1,158 @@
+---
+title: Static site content routes
+sidebar_position: 10
+description: Add Markdown content routes, sidebars, metadata, search, code highlighting, and static assets to a Fission site.
+---
+
+# Static site content routes
+
+Content routes are the part of the static-site target that let a site grow without registering every page in Rust. You put Markdown or MDX files in a folder, describe that folder in [`fission.toml`](/reference/config/fission-toml/), and the site shell turns each file into a generated route.
+
+Use this model for documentation, reference pages, release notes, blogs, policy pages, and other pages where the main content is text with occasional code, tables, images, and links. Use custom Fission route widgets when the page needs a designed product layout rather than an article layout.
+
+## 1. Enable the site target
+
+Start with a Fission project that has the `site` target enabled.
+
+```toml
+targets = ["site"]
+
+[app]
+name = "my-docs"
+app_id = "com.example.my_docs"
+```
+
+If the project already exists, this is the safe command path:
+
+```sh
+fission init .
+fission add-target site --project-dir .
+```
+
+`fission init .` is idempotent. It writes missing project metadata and preserves existing source files.
+
+## 2. Create a content folder
+
+Create a folder for the section you want to publish. This example uses `content/docs`.
+
+```text
+my-docs/
+  content/
+    docs/
+      intro.mdx
+      learn/
+        quickstart.mdx
+```
+
+A page uses front matter for route metadata and Markdown for the body.
+
+```mdx
+---
+title: Quickstart
+description: Build and run your first app.
+---
+
+# Quickstart
+
+This page becomes a generated HTML route.
+```
+
+The title is used in the article heading, browser title, search index, and generated metadata. The description is used for SEO and social previews. Keep both specific to the page.
+
+## 3. Register the content route
+
+Add a `[[site.routes]]` block. The `path` is the public URL prefix. The `source` is the project-relative folder containing Markdown files.
+
+```toml
+[site]
+entry = "crate::site_app"
+title = "My Docs"
+description = "Documentation for my product."
+base_url = "https://docs.example.com"
+out_dir = "dist/site"
+asset_dirs = ["static"]
+generate_sitemap = true
+generate_robots = true
+
+[[site.routes]]
+kind = "content"
+path = "/docs"
+source = "content/docs"
+template = "fission::site::documentation"
+sidebar = "site/docs-sidebar.toml"
+```
+
+With that config, `content/docs/learn/quickstart.mdx` becomes `/docs/learn/quickstart/`. The built-in documentation template renders a header, collapsible left sidebar, article body, right table of contents, and footer.
+
+## 4. Write the sidebar explicitly
+
+Sidebars are explicit TOML files because generated alphabetical navigation is rarely good product documentation. A small sidebar looks like this:
+
+```toml
+[[items]]
+title = "Start"
+href = "/docs/intro/"
+level = 1
+group = true
+
+[[items]]
+title = "Introduction"
+href = "/docs/intro/"
+level = 2
+
+[[items]]
+title = "Quickstart"
+href = "/docs/learn/quickstart/"
+level = 2
+```
+
+The static shell progressively enhances the sidebar. Top-level groups are shown first, nested groups can expand, and the current page's ancestors open automatically. Without JavaScript, the sidebar remains plain links.
+
+## 5. Add assets, code highlighting, and search
+
+Static assets are copied from the directories listed in `asset_dirs`.
+
+```toml
+[site]
+asset_dirs = ["static"]
+logo = "/img/logo.svg"
+favicon = "/img/favicon.svg"
+```
+
+Code highlighting is opt-in. The generated page only loads highlighting assets on pages that contain code blocks.
+
+```toml
+[site.code_highlighting]
+enabled = true
+```
+
+Client-side search is also opt-in. It writes a local index into the generated site, so no hosted search service is required.
+
+```toml
+[site.search]
+enabled = true
+output_path = "search"
+min_token_len = 2
+```
+
+## 6. Check, build, and serve
+
+Use `check` while writing content because it renders all routes and validates internal links.
+
+```sh
+fission site check --project-dir .
+```
+
+Use `serve` when you need to review the generated site in a browser.
+
+```sh
+fission site serve --project-dir . --host 127.0.0.1 --port 8123
+```
+
+Use `build` in release workflows.
+
+```sh
+fission site build --project-dir . --release
+```
+
+The output directory contains ordinary HTML, CSS, JavaScript, search files, sitemap, robots file, and copied assets. It can be hosted on any static host or packaged into a Docker image.

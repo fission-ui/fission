@@ -1,0 +1,153 @@
+---
+title: Build a server-rendered store
+sidebar_position: 21
+description: Recreate the Pokémon Card Store example with server routes, cache configuration, jobs, workers, islands, and Docker packaging.
+---
+
+# Build a server-rendered store
+
+This cookbook recreates the structure of the Pokémon Card Store example. The goal is a server-rendered ecommerce page: HTML is produced on the server, product data is loaded through a job, the page is cacheable with a TTL, filters use a progressive worker, and the cart uses a focused WASM island.
+
+## 1. Configure the server target
+
+```toml
+targets = ["server"]
+
+[app]
+name = "pokemon-card-store"
+app_id = "ai.worka.fission.examples.pokemon-card-store"
+
+[server]
+entry = "pokemon_card_store::pokemon_card_store_server"
+default_route_mode = "revalidated"
+render_pass_limit = 4
+
+[server.cache]
+provider = "moka"
+max_capacity = 10000
+ttl = "5m"
+stale_while_revalidate = "1m"
+
+[server.workers]
+separate_artifacts = true
+bridge = "generated"
+
+[server.islands]
+separate_artifacts = true
+preload = "route"
+```
+
+The cache settings say that generated pages can be held in memory and revalidated. The worker and island settings say browser artifacts should be generated separately rather than bundled into one large file.
+
+## 2. Model the data
+
+Use typed Rust data rather than loosely shaped maps. This mirrors the example's `CardProduct` idea.
+
+```rust
+#[derive(Clone, Debug)]
+pub struct CardProduct {
+    pub id: u32,
+    pub name: String,
+    pub set: String,
+    pub price_pence: u32,
+    pub stock: u32,
+    pub image_url: String,
+}
+
+pub fn catalog_response() -> Vec<CardProduct> {
+    vec![
+        CardProduct {
+            id: 1,
+            name: "Pikachu Illustrator".to_string(),
+            set: "Promo".to_string(),
+            price_pence: 125000,
+            stock: 1,
+            image_url: "/img/cards/pikachu.svg".to_string(),
+        },
+    ]
+}
+```
+
+In a real store this function would call a database or service. The widget tree should not care where the data came from; it should receive typed data and render it.
+
+## 3. Register a catalog job
+
+```rust
+pub const CATALOG_JOB: &str = "catalog";
+
+let jobs = ServerJobRegistry::new().register_job(CATALOG_JOB, |_request, _ctx| {
+    Ok(catalog_response())
+});
+```
+
+The route can ask for the catalog during rendering. The server shell drains the job before returning HTML, so the user receives a populated page rather than a blank loading shell.
+
+## 4. Render the page as widgets
+
+```rust
+#[derive(Clone)]
+pub struct StoreHomePage;
+
+impl Widget<StoreState> for StoreHomePage {
+    fn build(&self, _ctx: &mut BuildCtx<StoreState>, view: &View<StoreState>) -> Node {
+        Column {
+            gap: Some(24.0),
+            children: vec![
+                Text::new("Pokémon Card Store")
+                    .size(44.0)
+                    .weight(FontWeight::Bold)
+                    .into_node(),
+                CardGrid::new(view.state().products.clone()).into_node(),
+            ],
+            ..Default::default()
+        }
+        .into_node()
+    }
+}
+```
+
+Keep the page split into components. A production example should have `components/hero.rs`, `components/card_grid.rs`, and `components/shell.rs` rather than one large file.
+
+## 5. Add worker and island declarations
+
+```rust
+.worker(
+    "/",
+    ProgressiveWorker::new("catalog-filters", "/assets/workers/catalog-filters.wasm")
+        .entry("pokemon_card_store::workers::catalog_filters_boot")
+        .root_node_id("catalog-grid"),
+)
+.island(
+    "/",
+    WasmIsland::new("cart-drawer", "/assets/islands/cart-drawer.wasm", "cart-drawer")
+        .entry("pokemon_card_store::islands::cart_drawer_boot"),
+)
+```
+
+The page stays server-rendered. The worker adds lightweight DOM behavior. The island owns the cart drawer because cart state and reducer-driven interaction are worth a focused WASM artifact.
+
+## 6. Check, run, and package
+
+```sh
+fission server check --project-dir examples/pokemon-card-store
+fission server artifacts --project-dir examples/pokemon-card-store
+fission server serve --project-dir examples/pokemon-card-store --host 127.0.0.1 --port 8124
+```
+
+Package as a Docker image when you are ready to deploy the server process:
+
+```toml
+[package.docker]
+port = 8080
+tags = ["ghcr.io/example/pokemon-card-store:0.1.0"]
+
+[distribution.docker_registry.production]
+tags = ["ghcr.io/example/pokemon-card-store:0.1.0"]
+```
+
+```sh
+fission package --project-dir examples/pokemon-card-store --target server --format docker-image --release
+fission publish --project-dir examples/pokemon-card-store --provider docker-registry --artifact target/fission/release/server/docker-image/artifact-manifest.json --site production
+```
+
+The resulting package manifest is the release record for the server image context and tags.

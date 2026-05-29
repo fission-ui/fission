@@ -78,6 +78,7 @@ The provider determines the remaining required flags.
 | Mobile stores | Track, tester group, rollout percentage, review information, release notes. |
 | Desktop stores | Package flight, private/public audience, certification metadata, package identity. |
 | Object storage | Bucket/container, prefix, content type, cache headers, public link policy. |
+| Docker registries | Image tags, authenticated Docker CLI session, and push permission for the target repositories. |
 
 The command should write a receipt under `target/fission/distribution/`.
 
@@ -105,6 +106,7 @@ Distribution uploads an artifact or static site to a provider.
 fission distribute --project-dir . --provider github-pages --artifact target/fission/release/site/static/artifact-manifest.json --site production
 fission distribute --project-dir . --provider github-releases --artifact target/fission/release/macos/pkg/artifact-manifest.json --deploy v1.2.3
 fission distribute --project-dir . --provider microsoft-store --artifact target/fission/release/windows/msix/artifact-manifest.json --track public
+fission publish --project-dir . --provider docker-registry --artifact target/fission/release/server/docker-image/artifact-manifest.json --site production
 ```
 
 Receipts are not source files, but they are useful release evidence. A receipt records provider ids, URLs, deployment ids, uploaded bytes, artifact hashes, release status, and follow-up steps.

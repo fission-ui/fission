@@ -1,0 +1,92 @@
+---
+title: Package static sites
+description: Package Fission static sites as static artifacts or Docker images and publish them through hosting providers or registries.
+---
+
+# Package static sites
+
+A local `fission site build` proves the site can render. Packaging turns that output into a release artifact with a manifest, hashes, MIME metadata, route metadata, and validation checks. Publishing should use that manifest rather than guessing which folder or file belongs to a release.
+
+## 1. Build and check the site first
+
+```sh
+fission site check --project-dir documentation --release
+fission site build --project-dir documentation --release
+```
+
+`check` catches broken links and rendering errors. `build` writes the configured output directory.
+
+## 2. Package static output
+
+```sh
+fission package \
+  --project-dir documentation \
+  --target site \
+  --format static \
+  --release
+```
+
+The package command writes `target/fission/release/site/static/artifact-manifest.json`. That manifest lists every generated file, its size, hash, MIME type, target, format, and validation state.
+
+Use it when publishing:
+
+```sh
+fission publish \
+  --project-dir documentation \
+  --provider github-pages \
+  --artifact target/fission/release/site/static/artifact-manifest.json \
+  --site production
+```
+
+`fission publish` is the direct publish command. `fission distribute publish` remains available for workflows that prefer the older action-oriented spelling.
+
+## 3. Package a static site as a Docker image
+
+A static site can also be packaged into an OCI/Docker image. Fission generates a Docker context containing the rendered site and a small Rust static-file server. The server adapter is configured in [`fission.toml`](/reference/config/fission-toml/).
+
+```toml
+[package.docker]
+adapter = "axum"
+port = 8080
+tags = ["ghcr.io/example/my-docs:1.0.0", "ghcr.io/example/my-docs:latest"]
+```
+
+Then package the image:
+
+```sh
+fission package \
+  --project-dir documentation \
+  --target site \
+  --format docker-image \
+  --release
+```
+
+By default, Fission runs `docker build` with the configured tags. Set `build = false` under `[package.docker]` if you only want the generated Docker context for CI to build later.
+
+## 4. Publish image tags to a registry
+
+Configure the registry tags under `distribution.docker_registry` when the publish destination differs from the local package tags or when you want an explicit release profile.
+
+```toml
+[distribution.docker_registry.production]
+tags = ["ghcr.io/example/my-docs:1.0.0", "ghcr.io/example/my-docs:latest"]
+```
+
+Authenticate with the Docker CLI, then publish:
+
+```sh
+docker login ghcr.io
+fission publish \
+  --project-dir documentation \
+  --provider docker-registry \
+  --artifact target/fission/release/site/docker-image/artifact-manifest.json \
+  --site production
+```
+
+Fission uses the Docker CLI for registry login, tagging, and pushing. That keeps authentication consistent with the tools most registries already document and avoids storing registry passwords in [`fission.toml`](/reference/config/fission-toml/).
+
+## 5. Choose static hosting or image hosting deliberately
+
+Use a static hosting provider when you want a public documentation or marketing site with no server process to run. Use a Docker image when the deployment platform expects containers, when you need the same static site artifact to run in several environments, or when your organization standardizes on container deployment for review apps.
+
+Both flows begin with the same Fission site project. The difference is only the package format and publish provider.

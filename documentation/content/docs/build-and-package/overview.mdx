@@ -47,7 +47,8 @@ A target is where the app runs. A format is the package shape for that target.
 | Android | `.apk`, `.aab` | You want emulator/device install or Android store distribution. |
 | iOS | `.ipa` | You want release distribution through Apple tooling. |
 | Web | Static asset directory or archive | You want to host a browser app. |
-| Static site | Static HTML output or archive | You want documentation, marketing, reference, or content pages. |
+| Static site | Static HTML output, Docker image | You want documentation, marketing, reference, or content pages. |
+| Server-rendered site | Docker image | You want a dynamic web process for server-rendered pages, jobs, cache, workers, and islands. |
 
 Choose the smallest format that matches the next step. APK is good for direct Android testing. AAB is for Android store upload. `.app` is useful for local macOS validation. `.pkg` is useful when you need an installer. MSIX is the right Windows format for Microsoft Store-style packaging.
 
@@ -107,6 +108,15 @@ fission package --project-dir documentation --target site --format static --rele
 ```
 
 That gives static publishing commands the same durable input as binary publishing commands.
+
+Static sites and server-rendered sites can also be packaged as Docker images:
+
+```bash
+fission package --project-dir documentation --target site --format docker-image --release
+fission package --project-dir examples/pokemon-card-store --target server --format docker-image --release
+```
+
+The static-site image contains the generated HTML plus a small Rust static-file server. The server-rendered image builds the app binary inside the image and runs it as the container process.
 
 ## 6. Package before publishing
 

@@ -27,6 +27,8 @@ The current command-line interface target set includes:
 - `macos`
 - `linux`
 - `web`
+- `site`
+- `server`
 - `ios`
 - `android`
 
@@ -55,6 +57,18 @@ The web target generates a browser host around the shared runtime. In practice, 
 The checked-in proof path is `examples/web-smoke/`, and generated apps use the same style of launcher through `./platforms/web/run-browser.sh`.
 
 Treat the web target as a real browser host with its own validation needs, not as a cosmetic variation of desktop.
+
+## Static site expectations
+
+The `site` target renders Fission widgets and Markdown content into static HTML, CSS, search assets, sitemap files, robots files, and copied assets. Use it for documentation, marketing, reference, blog, and other mostly-read pages where crawlable output matters.
+
+Static sites are validated with `fission site check`, built with `fission site build`, and packaged with `fission package --target site --format static` or `--format docker-image`.
+
+## Server-rendered expectations
+
+The `server` target runs a Fission server app that renders HTML at request time or through revalidated cache entries. Use it when pages need server jobs, request-time data, signed actions, cache invalidation, progressive workers, or focused WASM islands.
+
+Server apps are validated with `fission server check`, run locally with `fission server serve`, and packaged as Docker images with `fission package --target server --format docker-image`.
 
 ## Android expectations
 

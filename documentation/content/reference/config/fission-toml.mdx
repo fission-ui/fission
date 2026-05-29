@@ -43,7 +43,7 @@ Root fields appear before any table header.
 
 | Field | Type | Required | Accepted values | Meaning |
 | --- | --- | --- | --- | --- |
-| `targets` | array of strings | Yes for app/package commands | `android`, `ios`, `linux`, `macos`, `site`, `web`, `windows` | Declares which generated hosts belong to the project. Commands use it to reject packaging/running a target that has not been added. |
+| `targets` | array of strings | Yes for app/package commands | `android`, `ios`, `linux`, `macos`, `server`, `site`, `web`, `windows` | Declares which generated hosts belong to the project. Commands use it to reject packaging/running a target that has not been added. |
 | `capabilities` | array of strings | No | `barcode-scanner`, `biometric`, `bluetooth`, `camera`, `geolocation`, `haptics`, `microphone`, `nfc`, `notifications`, `passkeys`, `volume-control`, `wifi` | Declares host capabilities the app intends to use. `fission add-capability` updates this list and generated Android/iOS files where the configuration is deterministic. |
 
 Clipboard and deep-link APIs are runtime/platform capabilities, but they are not currently accepted values in the root `capabilities` array. Deep-link routes still need product-owned native or web routing configuration, and clipboard currently does not require root manifest declaration.
@@ -159,9 +159,58 @@ Client-side search is optional. When enabled, the build writes a local search in
 | `output_path` | string | No | `search` | Output directory below the site root for `search.js`, `manifest.json`, document metadata, and shards. |
 | `min_token_len` | integer | No | `2` | Minimum token length included in the search index. |
 
+## `[server]`
+
+`[server]` configures the server-rendered web target. It is used by `fission server ...`, `fission run --target server`, and `fission package --target server --format docker-image`.
+
+| Field | Type | Required | Default | Meaning |
+| --- | --- | --- | --- | --- |
+| `entry` | string | Yes for server commands | none | Rust path to the function that returns the `FissionServerApp`, such as `pokemon_card_store::pokemon_card_store_server`. |
+| `default_route_mode` | string | No | app default | Route mode used when a route does not specify its own mode. Common values are `static`, `dynamic`, and `revalidated`. |
+| `render_pass_limit` | integer | No | shell default | Maximum render passes allowed while jobs/resources settle before the server returns HTML. |
+
+### `[server.cache]`
+
+| Field | Type | Required | Default | Meaning |
+| --- | --- | --- | --- | --- |
+| `provider` | string | No | `moka` | Cache backend. `moka` is the built-in in-memory provider. |
+| `max_capacity` | integer | No | provider default | Maximum number of cache entries for providers that support a bounded in-memory cache. |
+| `ttl` | duration string | No | route/provider default | Default time-to-live for revalidated pages, such as `5m` or `30s`. |
+| `stale_while_revalidate` | duration string | No | none | How long stale content may be served while a background rebuild refreshes it. |
+
+### `[server.workers]` and `[server.islands]`
+
+| Table | Field | Type | Required | Meaning |
+| --- | --- | --- | --- | --- |
+| `[server.workers]` | `separate_artifacts` | boolean | No | When `true`, worker declarations generate separate browser artifacts. |
+| `[server.workers]` | `bridge` | string | No | Browser bridge mode for generated worker shims. Current projects use `generated`. |
+| `[server.islands]` | `separate_artifacts` | boolean | No | When `true`, island declarations generate separate browser artifacts. |
+| `[server.islands]` | `preload` | string | No | Preload policy for island artifacts. `route` means preload artifacts required by the current route. |
+
 ## `[package]`
 
 `[package]` contains packaging and signing references. It is read by `fission package`, `fission signing ...`, and readiness checks.
+
+### `[package.docker]`
+
+`[package.docker]` configures `fission package --format docker-image` for static sites and server-rendered sites.
+
+| Field | Type | Required | Default | Meaning |
+| --- | --- | --- | --- | --- |
+| `adapter` | string | No | `axum` | Static-site image server adapter. Accepted values are `axum` and `actix`. Server-rendered app images ignore this field because the app binary is the server. |
+| `port` | integer | No | `8080` | Container port exposed by the generated Dockerfile and used as the default `PORT` environment value. |
+| `base_image` | string | No | `debian:bookworm-slim` | Runtime stage base image. The builder stage uses the official Rust image because the package is compiled inside the Docker build. |
+| `tags` | array of strings | No | `<app-name>:<cargo-version>` | Docker tags applied during `docker build`. Include registry prefixes here when you want the package step to tag for publishing. |
+| `build` | boolean | No | `true` | When `true`, Fission runs `docker build`. Set to `false` to generate only the Docker context and manifest for CI to build later. |
+
+Example:
+
+```toml
+[package.docker]
+adapter = "axum"
+port = 8080
+tags = ["ghcr.io/example/pokemon-card-store:0.1.0", "ghcr.io/example/pokemon-card-store:latest"]
+```
 
 ### `[package.macos]`
 
@@ -260,6 +309,21 @@ Distribution providers that support multiple profiles use `[distribution.<provid
 | `upload_artifact_manifest` | boolean | No | `true` | Uploads the Fission artifact manifest JSON alongside package assets. |
 
 GitHub Releases publishing uses the GitHub CLI. A developer can authenticate with `gh auth login`, `GH_TOKEN`, `GITHUB_TOKEN`, or a token imported into the Fission credential vault.
+
+### `[distribution.docker_registry.<profile>]`
+
+Docker registry publishing pushes image tags produced by `fission package --format docker-image`. Fission uses the Docker CLI for authentication and push operations, so the normal setup is `docker login <registry>` before publishing.
+
+| Field | Type | Required | Meaning |
+| --- | --- | --- | --- |
+| `tags` | array of strings | Required unless `image-metadata.json` from the package contains tags | Fully qualified tags to push, such as `ghcr.io/example/app:1.0.0`. If these tags differ from the package tags, Fission tags the local image before pushing. |
+
+Example:
+
+```toml
+[distribution.docker_registry.production]
+tags = ["ghcr.io/example/pokemon-card-store:0.1.0", "ghcr.io/example/pokemon-card-store:latest"]
+```
 
 ### `[distribution.cloudflare_pages.<profile>]`
 
@@ -549,6 +613,11 @@ enabled = true
 output_path = "search"
 min_token_len = 2
 
+[package.docker]
+adapter = "axum"
+port = 8080
+tags = ["ghcr.io/example/example-docs:1.0.0"]
+
 [[site.nav]]
 title = "Learn"
 href = "/docs/learn/overview/"
@@ -576,6 +645,45 @@ custom_domain = "docs.example.com"
 enforce_https = true
 workflow = "publish-website.yml"
 production_branch = "main"
+
+[distribution.docker_registry.production]
+tags = ["ghcr.io/example/example-docs:1.0.0"]
+```
+
+## Complete server-rendered site example
+
+```toml
+targets = ["server"]
+
+[app]
+name = "pokemon-card-store"
+app_id = "ai.worka.fission.examples.pokemon-card-store"
+
+[server]
+entry = "pokemon_card_store::pokemon_card_store_server"
+default_route_mode = "revalidated"
+render_pass_limit = 4
+
+[server.cache]
+provider = "moka"
+max_capacity = 10000
+ttl = "5m"
+stale_while_revalidate = "1m"
+
+[server.workers]
+separate_artifacts = true
+bridge = "generated"
+
+[server.islands]
+separate_artifacts = true
+preload = "route"
+
+[package.docker]
+port = 8080
+tags = ["ghcr.io/example/pokemon-card-store:0.1.0"]
+
+[distribution.docker_registry.production]
+tags = ["ghcr.io/example/pokemon-card-store:0.1.0"]
 ```
 
 ## Complete release skeleton
