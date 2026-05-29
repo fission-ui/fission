@@ -127,6 +127,11 @@ pub(crate) enum Command {
         #[command(subcommand)]
         command: SiteCommand,
     },
+    /// Check, serve, or list routes for a server-rendered Fission web app.
+    Server {
+        #[command(subcommand)]
+        command: ServerCommand,
+    },
     /// Package a build output into a distributable artifact.
     Package {
         /// Target to package.
@@ -329,6 +334,40 @@ pub(crate) enum SiteCommand {
         no_open: bool,
     },
     /// List custom and content routes.
+    Routes {
+        /// Project directory; defaults to the current working directory.
+        #[arg(long, default_value = ".")]
+        project_dir: PathBuf,
+    },
+}
+
+#[derive(Subcommand, Debug)]
+pub(crate) enum ServerCommand {
+    /// Check that the server app renders all declared routes.
+    Check {
+        /// Project directory; defaults to the current working directory.
+        #[arg(long, default_value = ".")]
+        project_dir: PathBuf,
+        /// Build in release mode.
+        #[arg(long)]
+        release: bool,
+    },
+    /// Serve the server-rendered app locally.
+    Serve {
+        /// Project directory; defaults to the current working directory.
+        #[arg(long, default_value = ".")]
+        project_dir: PathBuf,
+        /// Host for the local server.
+        #[arg(long, default_value = "127.0.0.1")]
+        host: String,
+        /// Port for the local server.
+        #[arg(long, default_value_t = 8124)]
+        port: u16,
+        /// Build in release mode before serving.
+        #[arg(long)]
+        release: bool,
+    },
+    /// List server routes and their rendering modes.
     Routes {
         /// Project directory; defaults to the current working directory.
         #[arg(long, default_value = ".")]

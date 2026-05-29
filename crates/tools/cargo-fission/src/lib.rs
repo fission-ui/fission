@@ -7,7 +7,7 @@ mod cli;
 #[cfg(test)]
 use fission_command_core::{read_project_config, Target};
 
-use cli::{Cli, Command, SiteCommand};
+use cli::{Cli, Command, ServerCommand, SiteCommand};
 
 pub fn run<I, S>(args: I) -> Result<()>
 where
@@ -105,6 +105,19 @@ where
                 no_open,
             } => fission_command_site::serve(&project_dir, release, host, port, !no_open),
             SiteCommand::Routes { project_dir } => fission_command_site::routes(&project_dir),
+        },
+        Command::Server { command } => match command {
+            ServerCommand::Check {
+                project_dir,
+                release,
+            } => fission_command_server::check(&project_dir, release),
+            ServerCommand::Serve {
+                project_dir,
+                host,
+                port,
+                release,
+            } => fission_command_server::serve(&project_dir, release, host, port),
+            ServerCommand::Routes { project_dir } => fission_command_server::routes(&project_dir),
         },
         Command::Package {
             target,

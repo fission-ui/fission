@@ -101,6 +101,8 @@ pub mod shell {
         any(target_os = "android", target_os = "ios")
     ))]
     pub use fission_shell_mobile::*;
+    #[cfg(feature = "server")]
+    pub use fission_shell_server::*;
     #[cfg(feature = "site")]
     pub use fission_shell_site::*;
     #[cfg(feature = "terminal-shell")]
@@ -116,6 +118,12 @@ pub mod shell {
 #[cfg(feature = "site")]
 pub mod site {
     pub use fission_shell_site::*;
+}
+
+/// Server-side web shell APIs.
+#[cfg(feature = "server")]
+pub mod server {
+    pub use fission_shell_server::*;
 }
 
 /// Terminal shell APIs.
@@ -525,6 +533,8 @@ pub mod prelude {
         UnsupportedNotificationHost, UnsupportedPasskeyHost, UnsupportedVolumeHost,
         UnsupportedWifiHost, VolumeHost, WifiHost,
     };
+    #[cfg(feature = "server")]
+    pub use fission_shell_server::*;
     #[cfg(feature = "site")]
     pub use fission_shell_site::*;
     #[cfg(feature = "terminal-shell")]

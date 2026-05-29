@@ -24,6 +24,7 @@ platform-shells = [
     "web",
 ]
 site = ["dep:fission-shell-site"]
+server = ["dep:fission-shell-server"]
 terminal-shell = ["dep:fission-shell-terminal"]
 terminal-widget = ["fission-widgets/terminal"]
 test-driver = ["dep:fission-test-driver"]
@@ -50,6 +51,7 @@ fission-charts = { path = "../fission-charts", version = "0.2.0", optional = tru
 fission-render = { path = "../../rendering/fission-render", version = "0.2.0" }
 fission-diagnostics = { path = "../../tools/fission-diagnostics", version = "0.2.0" }
 fission-shell-site = { path = "../../shell/fission-shell-site", version = "0.2.0", optional = true }
+fission-shell-server = { path = "../../shell/fission-shell-server", version = "0.2.0", optional = true }
 fission-shell-terminal = { path = "../../shell/fission-shell-terminal", version = "0.2.0", optional = true }
 fission-test-driver = { path = "../../tools/fission-test-driver", version = "0.2.0", optional = true }
 serde = { version = "1.0", features = ["derive"] }

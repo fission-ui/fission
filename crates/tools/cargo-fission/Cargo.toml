@@ -28,5 +28,6 @@ fission-command-core = { path = "../fission-command-core", version = "0.2.0" }
 fission-command-package = { path = "../fission-command-package", version = "0.2.0" }
 fission-command-release = { path = "../fission-command-release", version = "0.2.0" }
 fission-command-run = { path = "../fission-command-run", version = "0.2.0" }
+fission-command-server = { path = "../fission-command-server", version = "0.2.0" }
 fission-command-site = { path = "../fission-command-site", version = "0.2.0" }
 fission-command-ui = { path = "../fission-command-ui", version = "0.2.0" }
