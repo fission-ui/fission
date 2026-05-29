@@ -12,6 +12,6 @@ pub use widgets::{
     Container, FocusScope, GestureDetector, Grid, GridItem, HttpHeader, Icon, Image,
     ImageAlignment, ImageCachePolicy, ImageErrorBehavior, ImageLoadingBehavior, ImageRequest,
     ImageSource, LayoutBuilder, LazyColumn, Overlay, Positioned, Radio, RichText, RichTextRun, Row,
-    SafeArea, Scroll, Slider, Spacer, Switch, Text, TextContent, TextFontStyle, TextInput,
-    TextRunStyle, Video, ZStack,
+    SafeArea, Scroll, SemanticsRegion, Slider, Spacer, Switch, Text, TextContent, TextFontStyle,
+    TextInput, TextRunStyle, Video, ZStack,
 };

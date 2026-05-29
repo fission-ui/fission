@@ -26,6 +26,7 @@ pub struct HtmlRenderOptions {
     pub search_script_href: Option<String>,
     pub server_action_post_path: Option<String>,
     pub server_action_tokens: BTreeMap<(NodeId, u128), String>,
+    pub browser_action_bindings: bool,
     pub structured_data: Vec<String>,
     pub head_start_html: Vec<String>,
     pub head_end_html: Vec<String>,
@@ -52,6 +53,7 @@ impl Default for HtmlRenderOptions {
             search_script_href: None,
             server_action_post_path: None,
             server_action_tokens: BTreeMap::new(),
+            browser_action_bindings: false,
             structured_data: Vec::new(),
             head_start_html: Vec::new(),
             head_end_html: Vec::new(),
@@ -99,7 +101,10 @@ pub fn render_ir_to_html_with_styles(
     options: &HtmlRenderOptions,
     styles: &mut StyleRegistry,
 ) -> Result<RenderedHtml> {
-    validate_static_ir(ir, options.server_action_post_path.is_some())?;
+    validate_static_ir(
+        ir,
+        options.server_action_post_path.is_some() || options.browser_action_bindings,
+    )?;
     let root = ir
         .root
         .ok_or_else(|| anyhow!("site render failed: Core IR has no root node"))?;
@@ -477,6 +482,16 @@ fn stable_hash(bytes: &[u8]) -> u64 {
         hash = hash.wrapping_mul(0x100000001b3);
     }
     hash
+}
+
+fn hex_encode(bytes: &[u8]) -> String {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    let mut out = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        out.push(HEX[(byte >> 4) as usize] as char);
+        out.push(HEX[(byte & 0x0f) as usize] as char);
+    }
+    out
 }
 
 fn validate_static_ir(ir: &CoreIR, allow_server_actions: bool) -> Result<()> {
@@ -938,6 +953,9 @@ impl HtmlRenderer<'_> {
         if let Some(html) = self.render_server_action_semantics(node, semantics)? {
             return Ok(html);
         }
+        if let Some(html) = self.render_browser_action_semantics(node, semantics)? {
+            return Ok(html);
+        }
         let tag = match semantics.role {
             Role::Button => "button",
             Role::Image => "figure",
@@ -1016,6 +1034,49 @@ impl HtmlRenderer<'_> {
             escape_attr(action_path),
             node.id,
             escape_attr(token),
+        )))
+    }
+
+    fn render_browser_action_semantics(
+        &mut self,
+        node: &CoreNode,
+        semantics: &fission_ir::Semantics,
+    ) -> Result<Option<String>> {
+        if !self.options.browser_action_bindings {
+            return Ok(None);
+        }
+        let Some(action) = semantics
+            .actions
+            .entries
+            .iter()
+            .find(|entry| entry.trigger == ActionTrigger::Default)
+        else {
+            return Ok(None);
+        };
+        let Some(payload) = action.payload_data.as_ref() else {
+            return Ok(None);
+        };
+        let children = self.render_children(&node.children, &HashSet::new())?;
+        let mut attrs = String::new();
+        if let Some(label) = &semantics.label {
+            attrs.push_str(&format!(" aria-label=\"{}\"", escape_attr(label)));
+        }
+        if let Some(identifier) = &semantics.identifier {
+            attrs.push_str(&format!(
+                " data-fission-semantics=\"{}\"",
+                escape_attr(identifier)
+            ));
+        }
+        attrs.push_str(" role=\"button\"");
+        attrs.push_str(&format!(
+            " data-fission-browser-action=\"true\" data-fission-action-id=\"{}\" data-fission-action-target=\"{}\" data-fission-action-payload=\"{}\"",
+            action.action_id,
+            node.id.as_u128(),
+            hex_encode(payload)
+        ));
+        Ok(Some(format!(
+            "<button class=\"fission-site-node fission-site-semantics fission-browser-action\" type=\"button\"{attrs} data-fission-node=\"{}\">{children}</button>",
+            node.id
         )))
     }
 
@@ -1914,5 +1975,48 @@ mod tests {
         assert!(rendered.html.contains("action=\"/__fission/action\""));
         assert!(rendered.html.contains("name=\"token\""));
         assert!(rendered.html.contains("signed-token"));
+    }
+
+    #[test]
+    fn browser_action_options_render_client_binding_attributes() {
+        let root = NodeId::explicit("browser-action");
+        let mut semantics = Semantics {
+            role: Role::Button,
+            ..Default::default()
+        };
+        semantics.actions = ActionSet {
+            entries: vec![ActionEntry {
+                trigger: fission_ir::semantics::ActionTrigger::Default,
+                action_id: 9,
+                payload_data: Some(vec![0xde, 0xad]),
+            }],
+        };
+        let mut ir = CoreIR::new();
+        ir.nodes.insert(
+            root,
+            CoreNode {
+                id: root,
+                op: Op::Semantics(semantics),
+                composite: Default::default(),
+                children: Vec::new(),
+                parent: None,
+                hash: 0,
+            },
+        );
+        ir.set_root(root);
+        let options = HtmlRenderOptions {
+            browser_action_bindings: true,
+            ..Default::default()
+        };
+
+        let rendered = render_ir_to_html(&ir, &options).unwrap();
+
+        assert!(rendered
+            .html
+            .contains("data-fission-browser-action=\"true\""));
+        assert!(rendered.html.contains("data-fission-action-id=\"9\""));
+        assert!(rendered
+            .html
+            .contains("data-fission-action-payload=\"dead\""));
     }
 }

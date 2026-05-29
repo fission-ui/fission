@@ -112,6 +112,7 @@
   function applyBridgeOutput(bridge,output){
     normalizeMessages(output).forEach(function(message){applyMessage(bridge,message);});
     normalizeBindings(output).forEach(function(binding){bindEvent(bridge,binding);});
+    bindFissionBrowserActions(bridge);
   }
 
   function applyMessage(bridge,message){
@@ -161,10 +162,23 @@
       case'set_checked_by_semantics': if(el&&'checked'in el)el.checked=!!op.checked; break;
       case'focus_by_semantics': if(el&&typeof el.focus==='function')el.focus(); break;
       case'blur_by_semantics': if(el&&typeof el.blur==='function')el.blur(); break;
+      case'replace_children_html_by_semantics': if(el&&typeof op.html==='string'){el.innerHTML=op.html;bindFissionBrowserActions(bridge);} break;
+      case'set_stylesheet': setStylesheet(op.id,op.css); break;
       case'push_history': if(safeUrl(op.url))window.history.pushState({},'',op.url); break;
       case'replace_history': if(safeUrl(op.url))window.history.replaceState({},'',op.url); break;
       case'announce': announce(op.text,op.politeness); break;
     }
+  }
+
+  function setStylesheet(id,css){
+    if(typeof id!=='string'||!/^[A-Za-z0-9_\-:.]+$/.test(id)||typeof css!=='string')return;
+    var style=document.getElementById(id);
+    if(!style){
+      style=document.createElement('style');
+      style.id=id;
+      document.head.appendChild(style);
+    }
+    style.textContent=css;
   }
 
   function bindEvent(bridge,binding){
@@ -197,6 +211,40 @@
         }
       });
     }
+  }
+
+  function bindFissionBrowserActions(bridge){
+    document.querySelectorAll('[data-fission-browser-action="true"]').forEach(function(el){
+      if(el.__fissionBrowserActionBound)return;
+      el.__fissionBrowserActionBound=true;
+      var handler=function(domEvent){
+        domEvent.preventDefault();
+        var payload={
+          type:'event',
+          artifact:{kind:bridge.kind,id:bridge.id},
+          binding:{
+            semantics:el.getAttribute('data-fission-semantics')||null,
+            event:'click',
+            message:{
+              fission_browser_action:true,
+              action_id:el.getAttribute('data-fission-action-id')||'',
+              target_node:el.getAttribute('data-fission-action-target')||'',
+              payload_hex:el.getAttribute('data-fission-action-payload')||''
+            }
+          },
+          value:null,
+          checked:null,
+          sequence:++bridge.sequence
+        };
+        try{dispatchBridgeEvent(bridge,payload);}catch(error){setTextBySemantics(bridge.statusSemantics,bridge.kind+' failed: '+error.message);}
+      };
+      el.addEventListener('click',handler);
+      el.addEventListener('keydown',function(domEvent){
+        if(domEvent.key==='Enter'||domEvent.key===' '){
+          handler(domEvent);
+        }
+      });
+    });
   }
 
   function announce(text,politeness){
@@ -349,7 +397,8 @@ self.onmessage=function(event){
       bridgeInstances.push(bridge);
       callBridge(bridge,bridge.entryExport,bridgeBootPayload(config,kind));
       if(kind==='island'){
-        var mount=document.getElementById(config.mount_id)||bySemantics(statusSemantics);
+        setTextBySemantics(statusSemantics,'Island bridge ready');
+        var mount=document.getElementById(config.mount_id)||bySemantics(config.mount_id)||bySemantics(statusSemantics);
         if(mount)mount.setAttribute('data-fission-island-loaded','true');
       }
       return bridge;

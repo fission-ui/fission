@@ -5,6 +5,7 @@
 //! the HTML renderer. This crate does not provide an HTML-first page model or a
 //! replacement router.
 
+mod browser_island;
 mod build;
 mod document;
 mod front_matter;
@@ -12,6 +13,7 @@ mod html;
 mod search;
 mod site;
 
+pub use browser_island::{run_browser_island, BrowserIslandApp};
 pub use build::{
     build_content_site, build_site, check_content_site, check_site, list_content_routes,
     list_site_routes, site_base_css, site_enhancement_js, SiteBuildOptions, SiteBuildReport,

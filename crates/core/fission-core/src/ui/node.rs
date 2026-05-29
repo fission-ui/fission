@@ -3,7 +3,8 @@ use super::traits::{Lower, LowerDyn};
 use super::widgets::{
     ActionScope, Align, Button, Checkbox, Clip, Column, Composite, Container, FocusScope,
     GestureDetector, Grid, GridItem, Icon, Image, LazyColumn, Overlay, Positioned, Radio, RichText,
-    Row, SafeArea, Scroll, Slider, Spacer, Switch, Text, TextInput, Transform, Video, ZStack,
+    Row, SafeArea, Scroll, SemanticsRegion, Slider, Spacer, Switch, Text, TextInput, Transform,
+    Video, ZStack,
 };
 use crate::lowering::LoweringContext;
 use fission_ir::{NodeId, Op, StructuralOp};
@@ -24,6 +25,7 @@ pub enum Node {
     Button(Button),
     TextInput(TextInput),
     Scroll(Scroll),
+    SemanticsRegion(SemanticsRegion),
     Image(Image),
     Video(Video),
     ZStack(ZStack),
@@ -60,6 +62,7 @@ impl Node {
             Node::Button(w) => w.lower(cx),
             Node::TextInput(w) => w.lower(cx),
             Node::Scroll(w) => w.lower(cx),
+            Node::SemanticsRegion(w) => w.lower(cx),
             Node::Image(w) => w.lower(cx),
             Node::Video(w) => w.lower(cx),
             Node::ZStack(w) => w.lower(cx),
@@ -182,6 +185,11 @@ impl From<TextInput> for Node {
 impl From<Scroll> for Node {
     fn from(w: Scroll) -> Self {
         Node::Scroll(w)
+    }
+}
+impl From<SemanticsRegion> for Node {
+    fn from(w: SemanticsRegion) -> Self {
+        Node::SemanticsRegion(w)
     }
 }
 impl From<Image> for Node {

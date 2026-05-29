@@ -192,6 +192,14 @@ pub enum DomOp {
         semantics: String,
         text: String,
     },
+    ReplaceChildrenHtmlBySemantics {
+        semantics: String,
+        html: String,
+    },
+    SetStylesheet {
+        id: String,
+        css: String,
+    },
     SetAttr {
         node: u64,
         name: String,
@@ -362,8 +370,83 @@ impl DomOp {
                 }
             }
             Self::Announce { .. } => Ok(()),
+            Self::SetStylesheet { id, css } => validate_stylesheet(id, css),
+            Self::ReplaceChildrenHtmlBySemantics { semantics, html } => {
+                validate_semantics(policy, semantics)?;
+                validate_renderer_html(html)
+            }
         }
     }
+}
+
+fn validate_renderer_html(html: &str) -> Result<(), WorkerProtocolError> {
+    if html
+        .bytes()
+        .any(|byte| byte < 0x20 && !matches!(byte, b'\t' | b'\n' | b'\r'))
+    {
+        return Err(WorkerProtocolError::new(
+            "worker replacement HTML contains control characters",
+        ));
+    }
+    let lower = html.to_ascii_lowercase();
+    if lower.contains("<script")
+        || lower.contains("javascript:")
+        || lower.contains("vbscript:")
+        || lower.contains("data:text/html")
+        || contains_inline_event_attr(&lower)
+    {
+        return Err(WorkerProtocolError::new(
+            "worker replacement HTML contains executable markup",
+        ));
+    }
+    Ok(())
+}
+
+fn contains_inline_event_attr(lower_html: &str) -> bool {
+    let bytes = lower_html.as_bytes();
+    let mut index = 0;
+    while index + 3 < bytes.len() {
+        let previous = bytes[index];
+        if matches!(previous, b' ' | b'\t' | b'\n' | b'\r')
+            && bytes[index + 1] == b'o'
+            && bytes[index + 2] == b'n'
+        {
+            let mut cursor = index + 3;
+            while cursor < bytes.len() && bytes[cursor].is_ascii_alphanumeric() {
+                cursor += 1;
+            }
+            while cursor < bytes.len() && matches!(bytes[cursor], b' ' | b'\t' | b'\n' | b'\r') {
+                cursor += 1;
+            }
+            if cursor < bytes.len() && bytes[cursor] == b'=' {
+                return true;
+            }
+        }
+        index += 1;
+    }
+    false
+}
+
+fn validate_stylesheet(id: &str, css: &str) -> Result<(), WorkerProtocolError> {
+    if id.is_empty()
+        || id.len() > 160
+        || !id
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b':' | b'.'))
+    {
+        return Err(WorkerProtocolError::new(format!(
+            "worker stylesheet id `{id}` is not allowed"
+        )));
+    }
+    if css
+        .bytes()
+        .any(|byte| byte < 0x20 && !matches!(byte, b'\t' | b'\n' | b'\r'))
+    {
+        return Err(WorkerProtocolError::new(
+            "worker stylesheet CSS contains control characters",
+        ));
+    }
+    Ok(())
 }
 
 fn validate_node(policy: &WorkerDomPolicy, node: u64) -> Result<(), WorkerProtocolError> {
@@ -648,6 +731,14 @@ mod tests {
                     semantics: "cart-count".into(),
                     text: "1 item".into(),
                 },
+                DomOp::SetStylesheet {
+                    id: "cart-island".into(),
+                    css: ".cart{color:red}".into(),
+                },
+                DomOp::ReplaceChildrenHtmlBySemantics {
+                    semantics: "cart-count".into(),
+                    html: r#"<div class="cart">1 item</div>"#.into(),
+                },
             ],
         };
         assert!(valid.validate(&policy).is_ok());
@@ -712,6 +803,26 @@ mod tests {
             }],
         };
         assert!(off_semantics.validate(&policy).is_err());
+
+        let unsafe_style_id = DomBatch {
+            sequence: 8,
+            transaction_id: None,
+            ops: vec![DomOp::SetStylesheet {
+                id: "bad id".into(),
+                css: String::new(),
+            }],
+        };
+        assert!(unsafe_style_id.validate(&policy).is_err());
+
+        let unsafe_replacement_html = DomBatch {
+            sequence: 9,
+            transaction_id: None,
+            ops: vec![DomOp::ReplaceChildrenHtmlBySemantics {
+                semantics: "cart-count".into(),
+                html: r#"<img src="/x" onerror="alert(1)">"#.into(),
+            }],
+        };
+        assert!(unsafe_replacement_html.validate(&policy).is_err());
     }
 
     #[test]
