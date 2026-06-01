@@ -47,9 +47,18 @@ struct Counter {
     count: i32,
 }
 
+#[fission_action]
+struct Decrement;
+
+#[fission_action]
+struct Increment;
+
 impl From<Counter> for Widget {
     fn from(counter: Counter) -> Widget {
+        let ctx = fission::build::ctx();
         let count = counter.count();
+        let decrement = ctx.bind(Decrement, count.update(|value| *value -= 1));
+        let increment = ctx.bind(Increment, count.update(|value| *value += 1));
 
         Center::new(
             Column {
@@ -58,8 +67,8 @@ impl From<Counter> for Widget {
                     Text::body(format!("Count: {}", count.get())),
                     Row {
                         children: widgets![
-                            Button::new("Decrement", count.update(|value| *value -= 1)),
-                            Button::primary("Increment", count.update(|value| *value += 1)),
+                            Button::new("Decrement", decrement),
+                            Button::primary("Increment", increment),
                         ],
                         ..Default::default()
                     },
@@ -620,9 +629,18 @@ struct Counter {
     count: i32,
 }
 
+#[fission_action]
+struct Decrement;
+
+#[fission_action]
+struct Increment;
+
 impl From<Counter> for Widget {
     fn from(counter: Counter) -> Widget {
+        let ctx = fission::build::ctx();
         let count = counter.count();
+        let decrement = ctx.bind(Decrement, count.update(|value| *value -= 1));
+        let increment = ctx.bind(Increment, count.update(|value| *value += 1));
 
         Center::new(
             Column {
@@ -631,8 +649,8 @@ impl From<Counter> for Widget {
                     Text::body(format!("Count: {}", count.get())),
                     Row {
                         children: widgets![
-                            Button::new("Decrement", count.update(|value| *value -= 1)),
-                            Button::primary("Increment", count.update(|value| *value += 1)),
+                            Button::new("Decrement", decrement),
+                            Button::primary("Increment", increment),
                         ],
                         spacing: 12,
                         ..Default::default()
@@ -837,29 +855,49 @@ StateField<String>
 ```
 
 The exact type name is public, but users normally rely on inference.
+`StateField::get` reads the current retained value.
+`StateField::update` and related methods produce reducer handlers for `ctx.bind`.
+They do not produce button actions directly.
 
 ### 10.4 Reading and updating local state
 
-State fields support reading and action-producing updates:
+State fields support reading and reducer-producing update handlers.
+Interactive widgets still receive action descriptors produced by `ctx.bind`.
+They do not receive local state update closures directly.
 
 ```rust
+#[fission_action]
+struct QueryChanged(String);
+
 let query = search.query();
+let ctx = fission::build::ctx();
+let query_changed = ctx.bind(
+    QueryChanged(String::new()),
+    query.set_from_action(|action: QueryChanged| action.0),
+);
 
 TextField::new()
     .placeholder(search.placeholder)
     .value(query.get())
-    .on_change(query.set())
+    .on_change(query_changed)
 ```
 
 For manual updates:
 
 ```rust
-Button::new("Clear", query.update(|value| value.clear()))
+#[fission_action]
+struct ClearQuery;
+
+let ctx = fission::build::ctx();
+let clear = ctx.bind(ClearQuery, query.update(|value| value.clear()));
+
+Button::new("Clear", clear)
 ```
 
-The update is represented as an action descriptor understood by the runtime.
+The value returned by `ctx.bind` is represented as an action descriptor understood by the runtime.
 The widget tree does not store arbitrary closures.
-If a closure appears in the authoring syntax, the macro/runtime must lower it into a registered deterministic local-state update during the active build pass, just as reducer binding does for global state.
+If a closure appears in the authoring syntax, it appears as the reducer/handler argument to `ctx.bind`.
+It must be registered during the active build pass and must not be stored in the widget tree.
 
 ### 10.5 Local state identity
 
@@ -1104,6 +1142,14 @@ Authoring code can request handles:
 let (ctx, view) = fission::build::current::<GlobalState>();
 ```
 
+Components that only need action binding, local state updates, resources, or other build services can request the context handle without naming global state:
+
+```rust
+let ctx = fission::build::ctx();
+```
+
+This is the expected form for local-only components such as the minimal counter.
+
 The return values are handles, not references:
 
 ```rust
@@ -1226,13 +1272,21 @@ Local state updates use the same underlying action descriptor mechanism.
 The difference is that the target is a retained local widget state field rather than `GlobalState`.
 
 ```rust
-let count = counter.count();
+#[fission_action]
+struct Increment;
 
-Button::new("Increment", count.update(|value| *value += 1))
+let ctx = fission::build::ctx();
+let count = counter.count();
+let increment = ctx.bind(Increment, count.update(|value| *value += 1));
+
+Button::new("Increment", increment)
 ```
 
-The closure shown in authoring syntax must not be stored in the `Widget` tree.
-It is registered during build and represented in the tree by a stable local-state update descriptor.
+The closure shown in authoring syntax is the reducer/handler argument to `ctx.bind`.
+It must not be stored in the `Widget` tree.
+It is registered during build and represented in the tree by the returned action descriptor.
+For local state bindings, the binding identity must include the local state target reference.
+Two mounted instances of the same component may bind the same action type, such as `Increment`, but dispatch must update only the local state for the widget instance that produced the action descriptor.
 
 ### 13.3 No closures in the widget tree
 
@@ -1312,7 +1366,7 @@ Local widget state is retained by the runtime, not by the transient struct.
 | State kind | Owner | Lifetime | Mutation path | Examples |
 | --- | --- | --- | --- | --- |
 | Props | Parent component | One conversion/build | Parent passes new value | title, product, callback descriptor |
-| LocalWidgetState | Runtime retained widget store | Mounted widget identity | local state update descriptor | query text, selected tab, expanded row |
+| LocalWidgetState | Runtime retained widget store | Mounted widget identity | `ctx.bind` + local state field reducer | query text, selected tab, expanded row |
 | GlobalState | App instance | App/session lifetime | typed action + reducer | cart, user, document, settings |
 | Service/job state | Service/job runtime | Service/job lifetime | service/job protocol | sync, downloads, background work |
 | Persistent state | Storage/backend | External lifetime | explicit storage/service API | database rows, session tokens |
@@ -1534,10 +1588,13 @@ New:
 ```rust
 impl From<Counter> for Widget {
     fn from(counter: Counter) -> Widget {
+        let ctx = fission::build::ctx();
+        let increment = ctx.bind(Increment, reduce!(increment));
+
         Column {
             children: widgets![
                 Text::new("Counter"),
-                Button::new("Increment", counter.increment),
+                Button::new("Increment", increment),
             ],
             ..Default::default()
         }
