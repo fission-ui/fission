@@ -598,26 +598,18 @@ This is acceptable because it modifies properties of the current widget rather t
 
 This example is the canonical minimal app for the new API.
 It intentionally uses local widget state, no global app state, and visible tree composition.
+It does not introduce a separate root component because the counter itself is the whole app.
+Platform/window metadata such as title, icon, size, splash screen, and close behavior belongs on the app/shell configuration or environment sync path, not in the normal widget tree.
 
 ```rust
 use fission::prelude::*;
 
 fn main() -> fission::Result<()> {
-    DesktopApp::new(App).run()
-}
-
-struct App;
-
-impl From<App> for Widget {
-    fn from(_: App) -> Widget {
-        Window::new(
-            Counter {
-                title: "Counter".to_owned(),
-            },
-        )
-        .title("Counter")
-        .into()
-    }
+    DesktopApp::new(Counter {
+        title: "Counter".to_owned(),
+    })
+    .title("Counter")
+    .run()
 }
 
 #[fission_component]
@@ -663,6 +655,8 @@ This app demonstrates the required ergonomics:
 - no `Widget<S>` trait;
 - no `render()` convention;
 - no `.child().child()`;
+- no unnecessary root `App` wrapper;
+- app/window metadata is configured on `DesktopApp`, not represented as UI widgets;
 - no global state for a purely local counter;
 - retained local widget state through `#[local_state]`;
 - standard Rust `From<T> for Widget` conversion.
@@ -693,16 +687,23 @@ Examples:
 Small apps do not need global state:
 
 ```rust
-DesktopApp::new(App).run()
+DesktopApp::new(Counter {
+    title: "Counter".to_owned(),
+})
+.run()
 ```
 
 Apps that need app-wide state provide it explicitly:
 
 ```rust
-DesktopApp::new(App)
+DesktopApp::new(AppRoot)
     .with_global_state(GlobalState::default())
     .run()
 ```
+
+An `AppRoot` component is optional.
+Use one only when the app needs top-level routing, providers, shell layout, or other real composition.
+Do not add an empty root wrapper to simple apps.
 
 ### 9.3 Accessing global state
 
