@@ -23,10 +23,13 @@ struct MyPanel {
 impl From<MyPanel> for Widget {
     fn from(panel: MyPanel) -> Widget {
         Card::new(
-            Column::new(widgets![
-                Text::headline(panel.title),
-                Text::body("Hello from Fission"),
-            ]),
+            Column {
+                children: widgets![
+                    Text::headline(panel.title),
+                    Text::body("Hello from Fission"),
+                ],
+                ..Default::default()
+            },
         )
         .into()
     }
@@ -49,14 +52,20 @@ impl From<Counter> for Widget {
         let count = counter.count();
 
         Center::new(
-            Column::new(widgets![
-                Text::headline(counter.title),
-                Text::body(format!("Count: {}", count.get())),
-                Row::new(widgets![
-                    Button::new("Decrement", count.update(|value| *value -= 1)),
-                    Button::primary("Increment", count.update(|value| *value += 1)),
-                ]),
-            ]),
+            Column {
+                children: widgets![
+                    Text::headline(counter.title),
+                    Text::body(format!("Count: {}", count.get())),
+                    Row {
+                        children: widgets![
+                            Button::new("Decrement", count.update(|value| *value -= 1)),
+                            Button::primary("Increment", count.update(|value| *value += 1)),
+                        ],
+                        ..Default::default()
+                    },
+                ],
+                ..Default::default()
+            },
         )
         .into()
     }
@@ -102,7 +111,7 @@ The target developer experience is:
 
 - write plain Rust structs for custom UI components;
 - convert those structs into `Widget` with `impl From<T> for Widget`;
-- compose trees directly with constructors and `widgets![...]`;
+- compose trees directly with public struct fields, constructors where useful, and `widgets![...]`;
 - use `#[local_state]` only for retained widget-local state;
 - use `GlobalState` explicitly for app/domain state;
 - use scoped build handles only when a component needs global state, actions, services, environment, or platform context.
@@ -189,22 +198,34 @@ Column::new()
 It hides hierarchy in a long chain and becomes difficult to read in real apps.
 It also creates two ways to construct the same widget.
 
-The new API uses constructors for structural children:
+The new API keeps structure visible with public fields where they are stable, and constructors only where they improve correctness or hide internal representation details:
 
 ```rust
-Column::new(widgets![
-    Text::new("A"),
-    Text::new("B"),
-    Row::new(widgets![
-        Button::new("Save", save),
-    ]),
-])
+Column {
+    children: widgets![
+        Text::new("A"),
+        Text::new("B"),
+        Row {
+            children: widgets![
+                Button::new("Save", save),
+            ],
+            ..Default::default()
+        },
+    ],
+    ..Default::default()
+}
 ```
 
-Optional configuration can still use method chaining because it does not obscure tree shape:
+Optional configuration can be set with public fields or method chaining, depending on the widget.
+Method chaining is acceptable for non-structural configuration because it does not obscure tree shape:
 
 ```rust
-Column::new(widgets![...])
+(
+    Column {
+        children: widgets![...],
+        ..Default::default()
+    }
+)
     .spacing(16)
     .cross_axis_alignment(CrossAxisAlignment::Center)
 ```
@@ -221,6 +242,7 @@ The v2 authoring API must:
 - remove the public `Widget<S>` trait;
 - avoid generic app-state parameters on ordinary built-in widgets;
 - use standard `From<T> for Widget` for custom components;
+- keep child fields ergonomic with `Vec<Widget>`;
 - support retained local widget state with explicit syntax;
 - preserve typed access to global app state and reducers;
 - support scoped provider-style values and build context access;
@@ -234,6 +256,7 @@ Examples in docs and in the repository must:
 - show struct-based components;
 - show `impl From<Component> for Widget`;
 - use `widgets![...]` for child lists;
+- allow dynamic child lists with normal `.map(...).collect::<Vec<Widget>>()`;
 - avoid `.child().child()`;
 - avoid `Node`;
 - avoid `AnyWidget`;
@@ -389,10 +412,13 @@ struct Header {
 
 impl From<Header> for Widget {
     fn from(header: Header) -> Widget {
-        Row::new(widgets![
-            Text::headline(header.title),
-            Spacer::new(),
-        ])
+        Row {
+            children: widgets![
+                Text::headline(header.title),
+                Spacer::new(),
+            ],
+            ..Default::default()
+        }
         .into()
     }
 }
@@ -437,119 +463,106 @@ impl Container {
 }
 ```
 
-Widgets with multiple children accept `WidgetList`.
-`WidgetList` is an opaque child collection produced by APIs that preserve structural child scopes:
+Widgets with multiple children expose plain `Vec<Widget>` child fields or accept `Vec<Widget>` in constructors:
 
 ```rust
 impl Column {
-    pub fn new(children: WidgetList) -> Self;
+    pub fn new(children: Vec<Widget>) -> Self;
 }
 
 impl Row {
-    pub fn new(children: WidgetList) -> Self;
+    pub fn new(children: Vec<Widget>) -> Self;
 }
 ```
 
-The underlying stored child type is always `Widget`:
+The stored child type is always `Widget`:
 
 ```rust
 pub struct Column {
-    children: Vec<Widget>,
-    spacing: Length,
-    alignment: CrossAxisAlignment,
+    pub children: Vec<Widget>,
+    pub spacing: Length,
+    pub alignment: CrossAxisAlignment,
 }
 ```
 
-`Vec<Widget>` is not the public constructor parameter for multi-child widgets.
-Using `WidgetList` prevents children from being preconverted outside the structural scope needed by local retained state.
+This is the clean public API.
+Fission must not make common dynamic UI harder by requiring an opaque list wrapper.
 
 ### 7.6 The `widgets![...]` macro
 
-The `widgets![...]` macro constructs a `WidgetList` while allowing heterogeneous child expressions:
+The `widgets![...]` macro constructs a `Vec<Widget>` while allowing heterogeneous child expressions without repeated `.into()` calls:
 
 ```rust
-Column::new(widgets![
-    Text::headline("Inbox"),
-    SearchBox::new(),
-    MessageList::new(messages),
-])
+Column {
+    children: widgets![
+        Text::headline("Inbox"),
+        SearchBox::new(),
+        MessageList::new(messages),
+    ],
+    ..Default::default()
+}
 ```
 
 The macro expands conceptually to:
 
 ```rust
-let mut list = WidgetList::new();
-list.push_scoped(0, || Text::headline("Inbox").into());
-list.push_scoped(1, || SearchBox::new().into());
-list.push_scoped(2, || MessageList::new(messages).into());
-list
+vec![
+    Text::headline("Inbox").into(),
+    SearchBox::new().into(),
+    MessageList::new(messages).into(),
+]
 ```
 
 It must preserve source order exactly.
 It must not perform runtime type inspection.
 It must not evaluate child expressions more than once.
-It must convert each child inside a deterministic child scope so local widget state and provider lookup receive stable structural identity:
+It is ergonomic sugar, not a special correctness mechanism.
+
+Dynamic lists use normal Rust iterators:
 
 ```rust
-let mut list = WidgetList::new();
-list.push_scoped(0, || {
-    Text::headline("Inbox").into()
-});
-list.push_scoped(1, || {
-    SearchBox::new().into()
-});
-list.push_scoped(2, || {
-    MessageList::new(messages).into()
-});
-list
-```
-
-The helper names above are conceptual.
-The mandatory behavior is that each child expression is converted under a distinct, deterministic structural path segment.
-
-Dynamic lists use a scoped list constructor rather than collecting preconverted `Widget` values:
-
-```rust
-WidgetList::from_iter(products.iter(), |product| {
-    ProductRow::new(product)
-})
-```
-
-`WidgetList::from_iter` enters a deterministic child index scope for each item before converting it.
-For reorderable lists, each item component must still provide a stable key.
-
-### 7.6.1 Constructor child conversion
-
-Single-child constructors also convert their child inside a stable slot scope:
-
-```rust
-impl Center {
-    pub fn new(child: impl Into<Widget>) -> Self {
-        Self {
-            child: fission::build::enter_slot("child", || child.into()),
-        }
-    }
+Column {
+    children: products
+        .iter()
+        .map(|product| {
+            ProductRow::new(product)
+                .key(product.id)
+                .into()
+        })
+        .collect(),
+    ..Default::default()
 }
 ```
 
-Multi-slot widgets use stable slot names:
+Keys are what preserve local retained widget state across reorder/filter/insert/remove operations.
+Unkeyed dynamic children are valid, but their local state follows structural position.
 
-```rust
-SplitPane::new(
-    left_panel,
-    right_panel,
-)
+### 7.6.1 Why `Vec<Widget>` works with retained local state
+
+Retained local state does not require child expressions to be converted under a special list scope.
+That would make normal Rust collection patterns awkward and would break common UI code that computes children from data.
+
+Instead, local state is resolved by the runtime from the mounted widget tree:
+
+```text
+component type identity
++ explicit key/id when present
++ otherwise structural path
++ local state field identity
 ```
 
-conceptually converts as:
+This is why plain `Vec<Widget>` is sufficient.
+The vector preserves child order.
+The mounted tree supplies structural position.
+Explicit keys supply stable identity for dynamic/reorderable children.
 
-```rust
-left: enter_slot("left", || left_panel.into()),
-right: enter_slot("right", || right_panel.into()),
-```
+The consequence is deliberate:
 
-This slot-scoping rule is required for retained local widget state.
-It is not an optional implementation detail.
+- static child vectors work without keys;
+- `.map(...).collect::<Vec<Widget>>()` is valid and expected;
+- keyed dynamic children retain their local state across insert/remove/reorder;
+- unkeyed dynamic children retain by position;
+- `widgets![...]` exists only to remove repetitive `.into()` calls.
 
 ### 7.7 No repeated child appending API
 
@@ -567,7 +580,12 @@ If an internal builder is needed for generated code, it must not be public, docu
 Method chaining is allowed for non-structural configuration:
 
 ```rust
-Column::new(widgets![...])
+(
+    Column {
+        children: widgets![...],
+        ..Default::default()
+    }
+)
     .spacing(12)
     .cross_axis_alignment(CrossAxisAlignment::Center)
 ```
@@ -579,7 +597,7 @@ This is acceptable because it modifies properties of the current widget rather t
 ## 8. Complete Minimal Counter App
 
 This example is the canonical minimal app for the new API.
-It intentionally uses local widget state, no global app state, and constructor-based tree composition.
+It intentionally uses local widget state, no global app state, and visible tree composition.
 
 ```rust
 use fission::prelude::*;
@@ -615,18 +633,24 @@ impl From<Counter> for Widget {
         let count = counter.count();
 
         Center::new(
-            Column::new(widgets![
-                Text::headline(counter.title),
-                Text::body(format!("Count: {}", count.get())),
-                Row::new(widgets![
-                    Button::new("Decrement", count.update(|value| *value -= 1)),
-                    Button::primary("Increment", count.update(|value| *value += 1)),
-                ])
-                .spacing(12),
-            ])
-            .spacing(16)
-            .main_axis_alignment(MainAxisAlignment::Center)
-            .cross_axis_alignment(CrossAxisAlignment::Center),
+            Column {
+                children: widgets![
+                    Text::headline(counter.title),
+                    Text::body(format!("Count: {}", count.get())),
+                    Row {
+                        children: widgets![
+                            Button::new("Decrement", count.update(|value| *value -= 1)),
+                            Button::primary("Increment", count.update(|value| *value += 1)),
+                        ],
+                        spacing: 12,
+                        ..Default::default()
+                    },
+                ],
+                spacing: 16,
+                main_axis_alignment: MainAxisAlignment::Center,
+                cross_axis_alignment: CrossAxisAlignment::Center,
+                ..Default::default()
+            },
         )
         .into()
     }
@@ -838,19 +862,30 @@ If a closure appears in the authoring syntax, the macro/runtime must lower it in
 
 ### 10.5 Local state identity
 
-Local state identity is derived from:
+Local state identity is resolved during mount/reconciliation from:
 
 ```text
-current structural conversion path
-+ component type identity
-+ optional user key
+component type identity
++ explicit key/id when present
++ otherwise structural path
 + local state field identity
 ```
 
 The component type identity must be stable for the compiled crate version.
 The field identity must be derived from the defining type and field name, not from source line number.
-The structural conversion path is maintained by Fission while child expressions are converted into `Widget`.
-For example, `widgets![...]` enters child index scopes before converting each child, and single-child constructors enter a child slot scope before converting their child.
+
+A local state accessor does not require the final structural path to be known at the exact moment the component is converted into `Widget`.
+Instead, the accessor creates a typed local state field reference that carries:
+
+```text
+component type identity
++ optional explicit key/id
++ local state field identity
+```
+
+The runtime resolves that reference against the mounted widget tree.
+If the component has an explicit key/id, that key participates in identity.
+If no key/id is present, the runtime uses the component's structural position in the tree.
 
 ### 10.6 Keys
 
@@ -985,16 +1020,19 @@ impl From<Counter> for Widget {
 The macro may generate private helper methods and private state types.
 It must not introduce an alternative public component lifecycle method.
 
-### 11.5 Scope entry
+### 11.5 Identity reference creation
 
-The framework must know where a component is being converted so that local state IDs are scoped correctly.
-This does not require annotating the `From` impl.
-Instead, Fission maintains a structural conversion path while child slots are converted:
+The framework must know which component type and local field a local state accessor refers to.
+It does not need the final structural tree path at the moment the accessor is called.
+That path is resolved later during mount/reconciliation.
 
-- `widgets![...]` enters a numbered child scope for each expression before calling `.into()`;
-- single-child constructors enter the appropriate child slot scope before converting the child;
-- multi-slot widgets use stable slot names or slot indexes defined by the widget type;
-- state accessors generated by `#[fission_component]` combine the current conversion path with the component type identity, optional key, and field identity.
+State accessors generated by `#[fission_component]` create typed local state field references from:
+
+- component type identity;
+- optional explicit key/id on the component;
+- local state field identity.
+
+The mounted tree supplies the structural path when no explicit key/id is present.
 
 The public requirement is that this compiles and behaves correctly with only the struct macro:
 
@@ -1156,8 +1194,9 @@ Descendants can read the nearest provider value:
 let theme = fission::build::read::<Theme>();
 ```
 
-Provider child conversion must be deferred until the provider scope is active.
-This means providers store children as `C: Into<Widget>`, not as preconverted `Widget`, when the provided value is required during child conversion.
+Provider child conversion must be deferred until the provider scope is active when descendants need that provider during conversion.
+This means provider widgets store children as `C: Into<Widget>` rather than preconverted `Widget` for provider-sensitive slots.
+Plain layout widgets still store `Vec<Widget>` children.
 
 ---
 
@@ -1354,16 +1393,19 @@ impl From<ProductCard> for Widget {
         );
 
         Card::new(
-            Column::new(widgets![
-                Image::network(card.product.image_url),
-                Text::headline(card.product.name),
-                Text::body(card.product.description),
-                Button::primary(
-                    if in_cart { "Added" } else { "Add to cart" },
-                    add,
-                )
-                .enabled(!in_cart),
-            ]),
+            Column {
+                children: widgets![
+                    Image::network(card.product.image_url),
+                    Text::headline(card.product.name),
+                    Text::body(card.product.description),
+                    Button::primary(
+                        if in_cart { "Added" } else { "Add to cart" },
+                        add,
+                    )
+                    .enabled(!in_cart),
+                ],
+                ..Default::default()
+            },
         )
         .into()
     }
@@ -1436,7 +1478,7 @@ Rejected.
 
 ### 18.7 Keep repeated `.child()` builders
 
-Repeated child append chains are hard to read in complex trees and provide no meaningful capability that constructor-based composition lacks.
+Repeated child append chains are hard to read in complex trees and provide no meaningful capability that direct tree composition lacks.
 They also encourage examples that obscure hierarchy.
 
 Rejected as public API.
@@ -1491,10 +1533,13 @@ New:
 ```rust
 impl From<Counter> for Widget {
     fn from(counter: Counter) -> Widget {
-        Column::new(widgets![
-            Text::new("Counter"),
-            Button::new("Increment", counter.increment),
-        ])
+        Column {
+            children: widgets![
+                Text::new("Counter"),
+                Button::new("Increment", counter.increment),
+            ],
+            ..Default::default()
+        }
         .into()
     }
 }
@@ -1634,8 +1679,8 @@ Recommended order:
 1. Rename the current authoring tree carrier from `Node` to `Widget` internally and publicly.
 2. Remove or privatize the current `Widget<S>` trait.
 3. Convert built-in widgets to store `Widget` in child slots.
-4. Replace public child append APIs with constructor-based child APIs.
-5. Add `widgets![...]`, `WidgetList`, and scoped dynamic-list construction.
+4. Replace public child append APIs with `Vec<Widget>` child fields and constructors only where useful.
+5. Add `widgets![...]` as ergonomic `Vec<Widget>` construction.
 6. Add scoped build context entry/current APIs with handles.
 7. Add `GlobalState` naming and shell startup support.
 8. Add generated global-state read views.
@@ -1671,7 +1716,7 @@ The refactor is complete only when all of the following are true:
 - `rg "build_node|into_node|from_node|AnyWidget|IntoWidget" crates examples documentation` finds no public authoring API usage;
 - every built-in widget child slot stores `Widget`, not `Node` or an erased wrapper;
 - all examples use `impl From<T> for Widget` for custom components;
-- all multi-child examples use constructor children and `widgets![...]`;
+- all multi-child examples use `Vec<Widget>` child fields or `Vec<Widget>` constructors with `widgets![...]` where it improves readability;
 - no public `.child()` appending API remains;
 - local widget state survives rebuilds and keyed reorder tests;
 - global state actions/reducers continue to work;
