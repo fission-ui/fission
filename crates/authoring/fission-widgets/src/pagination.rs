@@ -25,107 +25,109 @@ impl std::fmt::Debug for Pagination {
 }
 
 impl<S: fission_core::AppState> Widget<S> for Pagination {
-    fn build(&self, _ctx: &mut BuildCtx<S>, view: &View<S>) -> Node {
-        let theme = &view.env.theme.components.pagination;
-        let tokens = &view.env.theme.tokens;
-        let mut children = Vec::new();
+    fn build(&self, _ctx: &mut BuildCtx<S>, view: &View<S>) -> impl fission_core::IntoWidget<S> {
+        fission_core::AnyWidget::from_node({
+            let theme = &view.env.theme.components.pagination;
+            let tokens = &view.env.theme.tokens;
+            let mut children = Vec::new();
 
-        let callback = |page: usize| self.on_change.as_ref().map(|f| f(page));
+            let callback = |page: usize| self.on_change.as_ref().map(|f| f(page));
 
-        // ... (Prev button) ...
-        children.push(
-            Button {
-                variant: ButtonVariant::Outline,
-                child: Some(Box::new(Text::new("<").into_node())),
-                on_press: if self.current_page > 1 {
-                    callback(self.current_page - 1)
-                } else {
-                    None
-                },
-                disabled: self.current_page <= 1,
-                width: Some(40.0),
-                height: Some(40.0),
-                padding: Some([0.0; 4]),
-                ..Default::default()
+            // ... (Prev button) ...
+            children.push(
+                Button {
+                    variant: ButtonVariant::Outline,
+                    child: Some(Box::new(Text::new("<").into_node())),
+                    on_press: if self.current_page > 1 {
+                        callback(self.current_page - 1)
+                    } else {
+                        None
+                    },
+                    disabled: self.current_page <= 1,
+                    width: Some(40.0),
+                    height: Some(40.0),
+                    padding: Some([0.0; 4]),
+                    ..Default::default()
+                }
+                .into_node(),
+            );
+
+            // ... (Pages logic) ...
+            let start = (self.current_page as isize - 2).max(1) as usize;
+            let end = (start + 4).min(self.total_pages);
+            let start = (end as isize - 4).max(1) as usize;
+
+            if start > 1 {
+                children.push(page_btn(
+                    1,
+                    self.current_page == 1,
+                    callback(1),
+                    theme,
+                    tokens,
+                ));
+                if start > 2 {
+                    children.push(
+                        Text::new("...")
+                            .size(12.0)
+                            .color(tokens.colors.text_secondary)
+                            .into_node(),
+                    );
+                }
             }
-            .into_node(),
-        );
 
-        // ... (Pages logic) ...
-        let start = (self.current_page as isize - 2).max(1) as usize;
-        let end = (start + 4).min(self.total_pages);
-        let start = (end as isize - 4).max(1) as usize;
-
-        if start > 1 {
-            children.push(page_btn(
-                1,
-                self.current_page == 1,
-                callback(1),
-                theme,
-                tokens,
-            ));
-            if start > 2 {
-                children.push(
-                    Text::new("...")
-                        .size(12.0)
-                        .color(tokens.colors.text_secondary)
-                        .into_node(),
-                );
+            for i in start..=end {
+                children.push(page_btn(
+                    i,
+                    self.current_page == i,
+                    callback(i),
+                    theme,
+                    tokens,
+                ));
             }
-        }
 
-        for i in start..=end {
-            children.push(page_btn(
-                i,
-                self.current_page == i,
-                callback(i),
-                theme,
-                tokens,
-            ));
-        }
-
-        if end < self.total_pages {
-            if end < self.total_pages - 1 {
-                children.push(
-                    Text::new("...")
-                        .size(12.0)
-                        .color(tokens.colors.text_secondary)
-                        .into_node(),
-                );
+            if end < self.total_pages {
+                if end < self.total_pages - 1 {
+                    children.push(
+                        Text::new("...")
+                            .size(12.0)
+                            .color(tokens.colors.text_secondary)
+                            .into_node(),
+                    );
+                }
+                children.push(page_btn(
+                    self.total_pages,
+                    self.current_page == self.total_pages,
+                    callback(self.total_pages),
+                    theme,
+                    tokens,
+                ));
             }
-            children.push(page_btn(
-                self.total_pages,
-                self.current_page == self.total_pages,
-                callback(self.total_pages),
-                theme,
-                tokens,
-            ));
-        }
 
-        // ... (Next button) ...
-        children.push(
-            Button {
-                variant: ButtonVariant::Outline,
-                child: Some(Box::new(Text::new(">").into_node())),
-                on_press: if self.current_page < self.total_pages {
-                    callback(self.current_page + 1)
-                } else {
-                    None
-                },
-                disabled: self.current_page >= self.total_pages,
-                width: Some(40.0),
-                height: Some(40.0),
-                padding: Some([0.0; 4]),
-                ..Default::default()
+            // ... (Next button) ...
+            children.push(
+                Button {
+                    variant: ButtonVariant::Outline,
+                    child: Some(Box::new(Text::new(">").into_node())),
+                    on_press: if self.current_page < self.total_pages {
+                        callback(self.current_page + 1)
+                    } else {
+                        None
+                    },
+                    disabled: self.current_page >= self.total_pages,
+                    width: Some(40.0),
+                    height: Some(40.0),
+                    padding: Some([0.0; 4]),
+                    ..Default::default()
+                }
+                .into_node(),
+            );
+
+            HStack {
+                spacing: Some(theme.spacing.max(6.0)),
+                children,
             }
-            .into_node(),
-        );
-
-        HStack {
-            spacing: Some(theme.spacing.max(6.0)),
-            children,
-        }
-        .into_node()
+            .into_node()
+        })
     }
 }
 

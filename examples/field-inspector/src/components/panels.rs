@@ -13,11 +13,12 @@ impl Widget<FieldInspectorState> for VerifyPanel {
         &self,
         ctx: &mut BuildCtx<FieldInspectorState>,
         view: &View<FieldInspectorState>,
-    ) -> Node {
-        let order = view.state.selected_order();
-        let scan_barcode = with_reducer!(ctx, VerifyWithBarcode, on_verify_with_barcode);
-        let scan_nfc = with_reducer!(ctx, VerifyWithNfc, on_verify_with_nfc);
-        panel_card(
+    ) -> impl fission::IntoWidget<FieldInspectorState> {
+        fission::AnyWidget::from_node({
+            let order = view.state.selected_order();
+            let scan_barcode = with_reducer!(ctx, VerifyWithBarcode, on_verify_with_barcode);
+            let scan_nfc = with_reducer!(ctx, VerifyWithNfc, on_verify_with_nfc);
+            panel_card(
             view,
             Column {
                 gap: Some(16.0),
@@ -46,6 +47,7 @@ impl Widget<FieldInspectorState> for VerifyPanel {
                 ..Default::default()
             }.into_node(),
         )
+        })
     }
 }
 
@@ -56,67 +58,68 @@ impl Widget<FieldInspectorState> for EvidencePanel {
         &self,
         ctx: &mut BuildCtx<FieldInspectorState>,
         view: &View<FieldInspectorState>,
-    ) -> Node {
-        let capture = with_reducer!(ctx, CaptureEvidencePhoto, on_capture_evidence_photo);
-        let torch = with_reducer!(ctx, ToggleTorch, on_toggle_torch);
-        let record = with_reducer!(ctx, RecordVoiceNote, on_record_voice_note);
-        let controls = Column {
-            gap: Some(12.0),
-            children: vec![
-                action_button("Capture photo", capture, ButtonVariant::Primary),
-                action_button(
-                    if view.state.torch_on {
-                        "Turn torch off"
-                    } else {
-                        "Turn torch on"
-                    },
-                    torch,
-                    ButtonVariant::SecondaryGray,
-                ),
-                action_button("Record voice note", record, ButtonVariant::SecondaryColor),
-                metric(
-                    view,
-                    "Camera",
-                    view.state
-                        .camera_availability
-                        .as_ref()
-                        .map(|a| format!("{} device(s)", a.devices.len()))
-                        .unwrap_or_else(|| "Not checked".into()),
-                ),
-                metric(
-                    view,
-                    "Microphone",
-                    view.state
-                        .microphone_availability
-                        .as_ref()
-                        .map(|a| format!("{} input(s)", a.devices.len()))
-                        .unwrap_or_else(|| "Not checked".into()),
-                ),
-            ],
-            ..Default::default()
-        }
-        .into_node();
-        let capture_layout = if is_compact(view) {
-            Column {
-                gap: Some(14.0),
-                children: vec![controls, evidence_photo(view)],
-                ..Default::default()
-            }
-            .into_node()
-        } else {
-            Grid {
-                columns: vec![ir_op::GridTrack::Fr(1.1), ir_op::GridTrack::Fr(0.9)],
-                column_gap: Some(14.0),
-                row_gap: Some(14.0),
+    ) -> impl fission::IntoWidget<FieldInspectorState> {
+        fission::AnyWidget::from_node({
+            let capture = with_reducer!(ctx, CaptureEvidencePhoto, on_capture_evidence_photo);
+            let torch = with_reducer!(ctx, ToggleTorch, on_toggle_torch);
+            let record = with_reducer!(ctx, RecordVoiceNote, on_record_voice_note);
+            let controls = Column {
+                gap: Some(12.0),
                 children: vec![
-                    GridItem::new(evidence_photo(view)).cell(1, 1).into_node(),
-                    GridItem::new(controls).cell(1, 2).into_node(),
+                    action_button("Capture photo", capture, ButtonVariant::Primary),
+                    action_button(
+                        if view.state.torch_on {
+                            "Turn torch off"
+                        } else {
+                            "Turn torch on"
+                        },
+                        torch,
+                        ButtonVariant::SecondaryGray,
+                    ),
+                    action_button("Record voice note", record, ButtonVariant::SecondaryColor),
+                    metric(
+                        view,
+                        "Camera",
+                        view.state
+                            .camera_availability
+                            .as_ref()
+                            .map(|a| format!("{} device(s)", a.devices.len()))
+                            .unwrap_or_else(|| "Not checked".into()),
+                    ),
+                    metric(
+                        view,
+                        "Microphone",
+                        view.state
+                            .microphone_availability
+                            .as_ref()
+                            .map(|a| format!("{} input(s)", a.devices.len()))
+                            .unwrap_or_else(|| "Not checked".into()),
+                    ),
                 ],
                 ..Default::default()
             }
-            .into_node()
-        };
-        panel_card(
+            .into_node();
+            let capture_layout = if is_compact(view) {
+                Column {
+                    gap: Some(14.0),
+                    children: vec![controls, evidence_photo(view)],
+                    ..Default::default()
+                }
+                .into_node()
+            } else {
+                Grid {
+                    columns: vec![ir_op::GridTrack::Fr(1.1), ir_op::GridTrack::Fr(0.9)],
+                    column_gap: Some(14.0),
+                    row_gap: Some(14.0),
+                    children: vec![
+                        GridItem::new(evidence_photo(view)).cell(1, 1).into_node(),
+                        GridItem::new(controls).cell(1, 2).into_node(),
+                    ],
+                    ..Default::default()
+                }
+                .into_node()
+            };
+            panel_card(
             view,
             Column {
                 gap: Some(16.0),
@@ -127,6 +130,7 @@ impl Widget<FieldInspectorState> for EvidencePanel {
                 ..Default::default()
             }.into_node(),
         )
+        })
     }
 }
 
@@ -137,32 +141,32 @@ impl Widget<FieldInspectorState> for SensorsPanel {
         &self,
         ctx: &mut BuildCtx<FieldInspectorState>,
         view: &View<FieldInspectorState>,
-    ) -> Node {
-        let scan = with_reducer!(ctx, ScanSensors, on_scan_sensors);
-        let read = with_reducer!(ctx, ReadSensor, on_read_sensor);
-        let connect =
-            view.state.bluetooth_devices.first().map(|device| {
+    ) -> impl fission::IntoWidget<FieldInspectorState> {
+        fission::AnyWidget::from_node({
+            let scan = with_reducer!(ctx, ScanSensors, on_scan_sensors);
+            let read = with_reducer!(ctx, ReadSensor, on_read_sensor);
+            let connect = view.state.bluetooth_devices.first().map(|device| {
                 with_reducer!(ctx, ConnectSensor(device.id.clone()), on_connect_sensor)
             });
-        let mut actions = vec![action_button(
-            "Scan nearby devices",
-            scan,
-            ButtonVariant::Primary,
-        )];
-        if let Some(action) = connect {
+            let mut actions = vec![action_button(
+                "Scan nearby devices",
+                scan,
+                ButtonVariant::Primary,
+            )];
+            if let Some(action) = connect {
+                actions.push(action_button(
+                    "Connect bridge",
+                    action,
+                    ButtonVariant::SecondaryColor,
+                ));
+            }
             actions.push(action_button(
-                "Connect bridge",
-                action,
-                ButtonVariant::SecondaryColor,
+                "Read telemetry",
+                read,
+                ButtonVariant::SecondaryGray,
             ));
-        }
-        actions.push(action_button(
-            "Read telemetry",
-            read,
-            ButtonVariant::SecondaryGray,
-        ));
 
-        panel_card(
+            panel_card(
             view,
             Column {
                 gap: Some(16.0),
@@ -183,6 +187,7 @@ impl Widget<FieldInspectorState> for SensorsPanel {
                 ..Default::default()
             }.into_node(),
         )
+        })
     }
 }
 
@@ -193,11 +198,12 @@ impl Widget<FieldInspectorState> for SecurityPanel {
         &self,
         ctx: &mut BuildCtx<FieldInspectorState>,
         view: &View<FieldInspectorState>,
-    ) -> Node {
-        let unlock = with_reducer!(ctx, SecureUnlock, on_secure_unlock);
-        let register = with_reducer!(ctx, RegisterPasskey, on_register_passkey);
-        let auth = with_reducer!(ctx, AuthenticatePasskey, on_authenticate_passkey);
-        panel_card(
+    ) -> impl fission::IntoWidget<FieldInspectorState> {
+        fission::AnyWidget::from_node({
+            let unlock = with_reducer!(ctx, SecureUnlock, on_secure_unlock);
+            let register = with_reducer!(ctx, RegisterPasskey, on_register_passkey);
+            let auth = with_reducer!(ctx, AuthenticatePasskey, on_authenticate_passkey);
+            panel_card(
             view,
             Column {
                 gap: Some(16.0),
@@ -226,6 +232,7 @@ impl Widget<FieldInspectorState> for SecurityPanel {
                 ..Default::default()
             }.into_node(),
         )
+        })
     }
 }
 
@@ -236,31 +243,32 @@ impl Widget<FieldInspectorState> for ReviewPanel {
         &self,
         ctx: &mut BuildCtx<FieldInspectorState>,
         view: &View<FieldInspectorState>,
-    ) -> Node {
-        let copy = with_reducer!(ctx, CopyReportSummary, on_copy_report_summary);
-        let reminder = with_reducer!(ctx, ScheduleReminder, on_schedule_reminder);
-        let vol_down = with_reducer!(
-            ctx,
-            AdjustAlertVolume(VolumeAdjustDirection::Down),
-            on_adjust_alert_volume
-        );
-        let vol_up = with_reducer!(
-            ctx,
-            AdjustAlertVolume(VolumeAdjustDirection::Up),
-            on_adjust_alert_volume
-        );
-        let submit = with_reducer!(ctx, SubmitReport, on_submit_report);
-        let deep_link = ctx.bind(
-            DeepLinkReceived {
-                link: DeepLink::new(format!(
-                    "field-inspector://work-orders/{}",
-                    view.state.selected_order().id
-                ))
-                .source(DeepLinkSource::CustomScheme),
-            },
-            reduce_with!(on_deep_link_received),
-        );
-        panel_card(
+    ) -> impl fission::IntoWidget<FieldInspectorState> {
+        fission::AnyWidget::from_node({
+            let copy = with_reducer!(ctx, CopyReportSummary, on_copy_report_summary);
+            let reminder = with_reducer!(ctx, ScheduleReminder, on_schedule_reminder);
+            let vol_down = with_reducer!(
+                ctx,
+                AdjustAlertVolume(VolumeAdjustDirection::Down),
+                on_adjust_alert_volume
+            );
+            let vol_up = with_reducer!(
+                ctx,
+                AdjustAlertVolume(VolumeAdjustDirection::Up),
+                on_adjust_alert_volume
+            );
+            let submit = with_reducer!(ctx, SubmitReport, on_submit_report);
+            let deep_link = ctx.bind(
+                DeepLinkReceived {
+                    link: DeepLink::new(format!(
+                        "field-inspector://work-orders/{}",
+                        view.state.selected_order().id
+                    ))
+                    .source(DeepLinkSource::CustomScheme),
+                },
+                reduce_with!(on_deep_link_received),
+            );
+            panel_card(
             view,
             Column {
                 gap: Some(16.0),
@@ -280,11 +288,12 @@ impl Widget<FieldInspectorState> for ReviewPanel {
                         ],
                         ..Default::default()
                     }.into_node(),
-                    ActivityLog.build(ctx, view),
+                    ActivityLog.build_node(ctx, view),
                 ],
                 ..Default::default()
             }.into_node(),
         )
+        })
     }
 }
 

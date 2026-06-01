@@ -7,9 +7,10 @@ use fission::widgets::{VStack, Spacer};
 pub struct ContextMenu;
 
 impl Widget<EditorState> for ContextMenu {
-    fn build(&self, ctx: &mut BuildCtx<EditorState>, view: &View<EditorState>) -> Node {
+    fn build(&self, ctx: &mut BuildCtx<EditorState>, view: &View<EditorState>) -> impl fission::IntoWidget<EditorState>  {
+        fission::AnyWidget::from_node({
         if !view.state.context_menu_visible {
-            return Spacer { height: Some(0.0), ..Default::default() }.into_node();
+            return fission::AnyWidget::from_node(Spacer { height: Some(0.0), ..Default::default() }.into_node());
         }
 
         let bg = Color { r: 45, g: 45, b: 46, a: 255 };
@@ -231,5 +232,7 @@ impl Widget<EditorState> for ContextMenu {
         ctx.register_portal_with_layer(PortalLayer::Flyout, Some(WidgetNodeId::explicit("context_menu")), positioned_root);
 
         Spacer { height: Some(0.0), ..Default::default() }.into_node()
+    
+        })
     }
 }

@@ -17,37 +17,43 @@ impl AppState for WebViewEmbedState {}
 pub struct WebViewEmbedApp;
 
 impl Widget<WebViewEmbedState> for WebViewEmbedApp {
-    fn build(&self, ctx: &mut BuildCtx<WebViewEmbedState>, view: &View<WebViewEmbedState>) -> Node {
-        let tokens = &view.env.theme.tokens.colors;
-        Container::new(
-            Column {
-                gap: Some(16.0),
-                children: vec![
-                    Text::new("WebView embed").size(28.0).into_node(),
-                    Text::new("A bounded host-backed web surface.")
-                        .size(14.0)
-                        .color(tokens.text_secondary)
+    fn build(
+        &self,
+        ctx: &mut BuildCtx<WebViewEmbedState>,
+        view: &View<WebViewEmbedState>,
+    ) -> impl fission::IntoWidget<WebViewEmbedState> {
+        fission::AnyWidget::from_node({
+            let tokens = &view.env.theme.tokens.colors;
+            Container::new(
+                Column {
+                    gap: Some(16.0),
+                    children: vec![
+                        Text::new("WebView embed").size(28.0).into_node(),
+                        Text::new("A bounded host-backed web surface.")
+                            .size(14.0)
+                            .color(tokens.text_secondary)
+                            .into_node(),
+                        Container::new(
+                            WebView {
+                                id: WidgetNodeId::explicit("embed-webview.demo"),
+                                url: WEBVIEW_DEMO_URL.into(),
+                                user_agent: None,
+                                width: Some(480.0),
+                                height: Some(270.0),
+                            }
+                            .build_node(ctx, view),
+                        )
+                        .width(480.0)
+                        .height(270.0)
+                        .border(tokens.border, 1.0)
                         .into_node(),
-                    Container::new(
-                        WebView {
-                            id: WidgetNodeId::explicit("embed-webview.demo"),
-                            url: WEBVIEW_DEMO_URL.into(),
-                            user_agent: None,
-                            width: Some(480.0),
-                            height: Some(270.0),
-                        }
-                        .build(ctx, view),
-                    )
-                    .width(480.0)
-                    .height(270.0)
-                    .border(tokens.border, 1.0)
-                    .into_node(),
-                ],
-                ..Default::default()
-            }
-            .into_node(),
-        )
-        .padding_all(32.0)
-        .into_node()
+                    ],
+                    ..Default::default()
+                }
+                .into_node(),
+            )
+            .padding_all(32.0)
+            .into_node()
+        })
     }
 }

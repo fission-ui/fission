@@ -8,44 +8,50 @@ pub struct CardGrid {
 }
 
 impl Widget<StoreState> for CardGrid {
-    fn build(&self, ctx: &mut BuildCtx<StoreState>, _view: &View<StoreState>) -> Node {
-        let Some(catalog) = self.snapshot.data() else {
-            return loading_or_error(&self.snapshot);
-        };
-        let mut children = Vec::new();
-        for (index, summary) in catalog.cards.iter().enumerate() {
-            let Some(card) = crate::data::card_by_slug(&summary.slug) else {
-                continue;
+    fn build(
+        &self,
+        ctx: &mut BuildCtx<StoreState>,
+        _view: &View<StoreState>,
+    ) -> impl fission::IntoWidget<StoreState> {
+        fission::AnyWidget::from_node({
+            let Some(catalog) = self.snapshot.data() else {
+                return fission::AnyWidget::from_node(loading_or_error(&self.snapshot));
             };
-            let row = (index / 3 + 1) as i16;
-            let col = (index % 3 + 1) as i16;
-            children.push(
-                GridItem::new(card_tile(ctx, card))
-                    .cell(row, col)
+            let mut children = Vec::new();
+            for (index, summary) in catalog.cards.iter().enumerate() {
+                let Some(card) = crate::data::card_by_slug(&summary.slug) else {
+                    continue;
+                };
+                let row = (index / 3 + 1) as i16;
+                let col = (index % 3 + 1) as i16;
+                children.push(
+                    GridItem::new(card_tile(ctx, card))
+                        .cell(row, col)
+                        .into_node(),
+                );
+            }
+            Column {
+                gap: Some(18.0),
+                children: vec![
+                    section_title(),
+                    Grid {
+                        columns: vec![
+                            ir_op::GridTrack::Fr(1.0),
+                            ir_op::GridTrack::Fr(1.0),
+                            ir_op::GridTrack::Fr(1.0),
+                        ],
+                        rows: vec![ir_op::GridTrack::Auto, ir_op::GridTrack::Auto],
+                        column_gap: Some(18.0),
+                        row_gap: Some(18.0),
+                        children,
+                        ..Default::default()
+                    }
                     .into_node(),
-            );
-        }
-        Column {
-            gap: Some(18.0),
-            children: vec![
-                section_title(),
-                Grid {
-                    columns: vec![
-                        ir_op::GridTrack::Fr(1.0),
-                        ir_op::GridTrack::Fr(1.0),
-                        ir_op::GridTrack::Fr(1.0),
-                    ],
-                    rows: vec![ir_op::GridTrack::Auto, ir_op::GridTrack::Auto],
-                    column_gap: Some(18.0),
-                    row_gap: Some(18.0),
-                    children,
-                    ..Default::default()
-                }
-                .into_node(),
-            ],
-            ..Default::default()
-        }
-        .into_node()
+                ],
+                ..Default::default()
+            }
+            .into_node()
+        })
     }
 }
 

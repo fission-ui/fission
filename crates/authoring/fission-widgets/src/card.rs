@@ -26,39 +26,41 @@ impl Default for Card {
 }
 
 impl<S: fission_core::AppState> Widget<S> for Card {
-    fn build(&self, _ctx: &mut BuildCtx<S>, view: &View<S>) -> Node {
-        let theme = &view.env.theme.components.card;
-        let style = theme.resolve(self.pattern, self.interactive);
-        let tokens = &view.env.theme.tokens;
-        let default_shadow = fission_core::op::BoxShadow {
-            color: fission_core::op::Color {
-                r: 0,
-                g: 0,
-                b: 0,
-                a: 20,
-            },
-            blur_radius: 2.0,
-            offset: (0.0, 1.0),
-        };
+    fn build(&self, _ctx: &mut BuildCtx<S>, view: &View<S>) -> impl fission_core::IntoWidget<S> {
+        fission_core::AnyWidget::from_node({
+            let theme = &view.env.theme.components.card;
+            let style = theme.resolve(self.pattern, self.interactive);
+            let tokens = &view.env.theme.tokens;
+            let default_shadow = fission_core::op::BoxShadow {
+                color: fission_core::op::Color {
+                    r: 0,
+                    g: 0,
+                    b: 0,
+                    a: 20,
+                },
+                blur_radius: 2.0,
+                offset: (0.0, 1.0),
+            };
 
-        let mut card = Container::new(*self.child.clone())
-            .bg_fill(
-                style
-                    .background
-                    .clone()
-                    .unwrap_or(Fill::Solid(tokens.colors.surface)),
-            )
-            .border_radius(style.radius.unwrap_or(theme.radius))
-            .shadows(style.outer_shadows())
-            .padding(style.padding_box(theme.padding, theme.padding));
-        if let Some(border) = style.border {
-            if let Fill::Solid(color) = border.fill {
-                card = card.border(color, border.width);
+            let mut card = Container::new(*self.child.clone())
+                .bg_fill(
+                    style
+                        .background
+                        .clone()
+                        .unwrap_or(Fill::Solid(tokens.colors.surface)),
+                )
+                .border_radius(style.radius.unwrap_or(theme.radius))
+                .shadows(style.outer_shadows())
+                .padding(style.padding_box(theme.padding, theme.padding));
+            if let Some(border) = style.border {
+                if let Fill::Solid(color) = border.fill {
+                    card = card.border(color, border.width);
+                }
             }
-        }
-        if style.shadows.is_empty() {
-            card = card.shadow(tokens.elevations.level1.unwrap_or(default_shadow));
-        }
-        card.into_node()
+            if style.shadows.is_empty() {
+                card = card.shadow(tokens.elevations.level1.unwrap_or(default_shadow));
+            }
+            card.into_node()
+        })
     }
 }

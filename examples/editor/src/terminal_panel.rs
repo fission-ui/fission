@@ -40,31 +40,39 @@ const MUTED: Color = Color {
 };
 
 impl Widget<EditorState> for TerminalPanel {
-    fn build(&self, ctx: &mut BuildCtx<EditorState>, view: &View<EditorState>) -> Node {
-        let is_terminal = view.state.bottom_panel_tab == BottomPanelTab::Terminal;
-        let is_problems = view.state.bottom_panel_tab == BottomPanelTab::Problems;
-        let set_terminal = ctx.bind(
-            crate::model::SetBottomPanelTab(BottomPanelTab::Terminal),
-            reduce_with!(
-                (|s: &mut EditorState, a: crate::model::SetBottomPanelTab, _| {
-                    s.bottom_panel_tab = a.0;
-                    if a.0 == BottomPanelTab::Terminal {
-                        s.ensure_terminal_session();
-                    }
-                })
-            ),
-        );
-        let set_problems = ctx.bind(
-            crate::model::SetBottomPanelTab(BottomPanelTab::Problems),
-            reduce_with!(
-                (|s: &mut EditorState, a: crate::model::SetBottomPanelTab, _| {
-                    s.bottom_panel_tab = a.0;
-                })
-            ),
-        );
+    fn build(
+        &self,
+        ctx: &mut BuildCtx<EditorState>,
+        view: &View<EditorState>,
+    ) -> impl fission::IntoWidget<EditorState> {
+        fission::AnyWidget::from_node({
+            let is_terminal = view.state.bottom_panel_tab == BottomPanelTab::Terminal;
+            let is_problems = view.state.bottom_panel_tab == BottomPanelTab::Problems;
+            let set_terminal = ctx.bind(
+                crate::model::SetBottomPanelTab(BottomPanelTab::Terminal),
+                reduce_with!(
+                    (|s: &mut EditorState, a: crate::model::SetBottomPanelTab, _| {
+                        s.bottom_panel_tab = a.0;
+                        if a.0 == BottomPanelTab::Terminal {
+                            s.ensure_terminal_session();
+                        }
+                    })
+                ),
+            );
+            let set_problems = ctx.bind(
+                crate::model::SetBottomPanelTab(BottomPanelTab::Problems),
+                reduce_with!(
+                    (|s: &mut EditorState, a: crate::model::SetBottomPanelTab, _| {
+                        s.bottom_panel_tab = a.0;
+                    })
+                ),
+            );
 
-        let tab =
-            |label: &str, active: bool, action: fission::core::ActionEnvelope, id: &str| -> Node {
+            let tab = |label: &str,
+                       active: bool,
+                       action: fission::core::ActionEnvelope,
+                       id: &str|
+             -> Node {
                 Button {
                     id: Some(NodeId::explicit(id)),
                     variant: ButtonVariant::Ghost,
@@ -104,114 +112,115 @@ impl Widget<EditorState> for TerminalPanel {
                 .into_node()
             };
 
-        let title = view
-            .state
-            .terminal_session
-            .as_ref()
-            .map(|session| format_terminal_title(&session.title()))
-            .filter(|title| !title.trim().is_empty())
-            .unwrap_or_else(|| "Terminal".into());
+            let title = view
+                .state
+                .terminal_session
+                .as_ref()
+                .map(|session| format_terminal_title(&session.title()))
+                .filter(|title| !title.trim().is_empty())
+                .unwrap_or_else(|| "Terminal".into());
 
-        let header = Container::new(
-            HStack {
-                spacing: Some(0.0),
-                children: vec![
-                    tab(
-                        "TERMINAL",
-                        is_terminal,
-                        set_terminal,
-                        "editor_terminal_tab_button",
-                    ),
-                    tab(
-                        "PROBLEMS",
-                        is_problems,
-                        set_problems,
-                        "editor_problems_tab_button",
-                    ),
-                    Spacer {
-                        flex_grow: 1.0,
-                        ..Default::default()
-                    }
-                    .into_node(),
-                    Container::new(Text::new(title).size(11.0).color(MUTED).into_node())
-                        .padding_all(8.0)
+            let header = Container::new(
+                HStack {
+                    spacing: Some(0.0),
+                    children: vec![
+                        tab(
+                            "TERMINAL",
+                            is_terminal,
+                            set_terminal,
+                            "editor_terminal_tab_button",
+                        ),
+                        tab(
+                            "PROBLEMS",
+                            is_problems,
+                            set_problems,
+                            "editor_problems_tab_button",
+                        ),
+                        Spacer {
+                            flex_grow: 1.0,
+                            ..Default::default()
+                        }
                         .into_node(),
-                ],
-            }
-            .into_node(),
-        )
-        .bg(HEADER_BG)
-        .height(28.0)
-        .border(BORDER, 1.0)
-        .flex_shrink(0.0)
-        .into_node();
-
-        let sidebar_width = view
-            .state
-            .sidebar_width
-            .min((view.viewport_size().width - 160.0).clamp(180.0, 360.0));
-        let panel_width = (view.viewport_size().width
-            - 48.0
-            - if view.state.sidebar_visible {
-                sidebar_width + 1.0
-            } else {
-                0.0
-            })
-        .max(280.0);
-        let terminal_height = (view
-            .state
-            .terminal_height
-            .min((view.viewport_size().height * 0.33).max(96.0))
-            - 28.0)
-            .max(72.0);
-
-        let content = if is_terminal {
-            if let Some(session) = view.state.terminal_session.clone() {
-                TerminalView::new(session, panel_width, terminal_height)
-                    .font_size(13.0)
-                    .line_height(18.0)
-                    .padding(10.0, 8.0)
-                    .build(ctx, view)
-            } else {
-                Container::new(
-                    Text::new("Terminal session unavailable")
-                        .size(13.0)
-                        .color(MUTED)
-                        .into_node(),
-                )
-                .padding_all(12.0)
-                .bg(BG)
-                .flex_grow(1.0)
-                .into_node()
-            }
-        } else {
-            crate::diagnostics_panel::DiagnosticsPanel.build(ctx, view)
-        };
-        let content = Container::new(content)
-            .id(NodeId::explicit(if is_terminal {
-                "editor_terminal_tab_content"
-            } else {
-                "editor_problems_tab_content"
-            }))
-            .flex_grow(1.0)
+                        Container::new(Text::new(title).size(11.0).color(MUTED).into_node())
+                            .padding_all(8.0)
+                            .into_node(),
+                    ],
+                }
+                .into_node(),
+            )
+            .bg(HEADER_BG)
+            .height(28.0)
+            .border(BORDER, 1.0)
+            .flex_shrink(0.0)
             .into_node();
 
-        Container::new(
-            fission::core::ui::Column {
-                children: vec![header, content],
-                flex_grow: 1.0,
-                ..Default::default()
-            }
-            .into_node(),
-        )
-        .height(
-            view.state
+            let sidebar_width = view
+                .state
+                .sidebar_width
+                .min((view.viewport_size().width - 160.0).clamp(180.0, 360.0));
+            let panel_width = (view.viewport_size().width
+                - 48.0
+                - if view.state.sidebar_visible {
+                    sidebar_width + 1.0
+                } else {
+                    0.0
+                })
+            .max(280.0);
+            let terminal_height = (view
+                .state
                 .terminal_height
-                .min((view.viewport_size().height * 0.33).max(96.0)),
-        )
-        .bg(BG)
-        .flex_shrink(0.0)
-        .into_node()
+                .min((view.viewport_size().height * 0.33).max(96.0))
+                - 28.0)
+                .max(72.0);
+
+            let content = if is_terminal {
+                if let Some(session) = view.state.terminal_session.clone() {
+                    TerminalView::new(session, panel_width, terminal_height)
+                        .font_size(13.0)
+                        .line_height(18.0)
+                        .padding(10.0, 8.0)
+                        .build_node(ctx, view)
+                } else {
+                    Container::new(
+                        Text::new("Terminal session unavailable")
+                            .size(13.0)
+                            .color(MUTED)
+                            .into_node(),
+                    )
+                    .padding_all(12.0)
+                    .bg(BG)
+                    .flex_grow(1.0)
+                    .into_node()
+                }
+            } else {
+                crate::diagnostics_panel::DiagnosticsPanel.build_node(ctx, view)
+            };
+            let content = Container::new(content)
+                .id(NodeId::explicit(if is_terminal {
+                    "editor_terminal_tab_content"
+                } else {
+                    "editor_problems_tab_content"
+                }))
+                .flex_grow(1.0)
+                .into_node();
+
+            Container::new(
+                fission::core::ui::Column {
+                    children: vec![header, content],
+                    flex_grow: 1.0,
+                    ..Default::default()
+                }
+                .into_node(),
+            )
+            .height(
+                view.state
+                    .terminal_height
+                    .min((view.viewport_size().height * 0.33).max(96.0)),
+            )
+            .bg(BG)
+            .flex_shrink(0.0)
+            .into_node()
+        })
     }
 }
 

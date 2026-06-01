@@ -63,13 +63,13 @@ impl VStack {
 }
 
 impl<S: fission_core::AppState> Widget<S> for HStack {
-    fn build(&self, _ctx: &mut BuildCtx<S>, _view: &View<S>) -> Node {
-        self.clone().into_node()
+    fn build(&self, _ctx: &mut BuildCtx<S>, _view: &View<S>) -> impl fission_core::IntoWidget<S> {
+        fission_core::AnyWidget::from_node(self.clone().into_node())
     }
 }
 
 impl<S: fission_core::AppState> Widget<S> for VStack {
-    fn build(&self, _ctx: &mut BuildCtx<S>, _view: &View<S>) -> Node {
-        self.clone().into_node()
+    fn build(&self, _ctx: &mut BuildCtx<S>, _view: &View<S>) -> impl fission_core::IntoWidget<S> {
+        fission_core::AnyWidget::from_node(self.clone().into_node())
     }
 }

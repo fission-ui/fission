@@ -79,89 +79,95 @@ fn line_color(trimmed: &str) -> Color {
 }
 
 impl Widget<EditorState> for Minimap {
-    fn build(&self, _ctx: &mut BuildCtx<EditorState>, view: &View<EditorState>) -> Node {
-        // If there is no active buffer we collapse to nothing.
-        let Some((_tab, buffer)) = view.state.active_buffer() else {
-            return Spacer::default().into_node();
-        };
+    fn build(
+        &self,
+        _ctx: &mut BuildCtx<EditorState>,
+        view: &View<EditorState>,
+    ) -> impl fission::IntoWidget<EditorState> {
+        fission::AnyWidget::from_node({
+            // If there is no active buffer we collapse to nothing.
+            let Some((_tab, buffer)) = view.state.active_buffer() else {
+                return fission::AnyWidget::from_node(Spacer::default().into_node());
+            };
 
-        let content_str = buffer.content();
-        let lines: Vec<&str> = content_str.lines().collect();
-        let line_count = lines.len();
-        if line_count == 0 {
-            return Spacer::default().into_node();
-        }
-
-        // Scale factor: if the file is long we shrink each bar so everything
-        // fits within MAX_HEIGHT.
-        let scale = if line_count as f32 * BAR_HEIGHT > MAX_HEIGHT {
-            MAX_HEIGHT / line_count as f32
-        } else {
-            BAR_HEIGHT
-        };
-
-        // The cursor line determines which region is "visible".  We highlight
-        // a window of lines centred on the cursor.
-        let visible_window = 40_usize; // roughly how many editor lines fit on screen
-        let cursor = buffer.cursor_line;
-        let vis_start = cursor.saturating_sub(visible_window / 2);
-        let vis_end = (cursor + visible_window / 2).min(line_count);
-
-        // Sample every Nth line to cap widget count at ~MAX_MINIMAP_BARS.
-        // For files shorter than the limit every line is shown.
-        const MAX_MINIMAP_BARS: usize = 50;
-        let step = if line_count > MAX_MINIMAP_BARS {
-            line_count / MAX_MINIMAP_BARS
-        } else {
-            1
-        };
-        let bar_count = (line_count + step - 1) / step;
-
-        let mut bars: Vec<Node> = Vec::with_capacity(bar_count);
-        for (i, line) in lines.iter().enumerate() {
-            if step > 1 && i % step != 0 {
-                continue;
+            let content_str = buffer.content();
+            let lines: Vec<&str> = content_str.lines().collect();
+            let line_count = lines.len();
+            if line_count == 0 {
+                return fission::AnyWidget::from_node(Spacer::default().into_node());
             }
-            let trimmed = line.trim();
-            let color = line_color(trimmed);
 
-            // Width proportional to the trimmed length (capped to fit inside
-            // the minimap column).
-            let width = (trimmed.len() as f32 * 0.5).clamp(2.0, 50.0);
-
-            let in_viewport = i >= vis_start && i < vis_end;
-
-            let bar = Container::new(Spacer::default().into_node())
-                .width(width)
-                .height(scale)
-                .bg(color)
-                .into_node();
-
-            if in_viewport {
-                // Wrap in a container with the semi-transparent viewport
-                // overlay so the visible region stands out.
-                bars.push(
-                    Container::new(bar)
-                        .height(scale)
-                        .bg(VIEWPORT_OVERLAY)
-                        .into_node(),
-                );
+            // Scale factor: if the file is long we shrink each bar so everything
+            // fits within MAX_HEIGHT.
+            let scale = if line_count as f32 * BAR_HEIGHT > MAX_HEIGHT {
+                MAX_HEIGHT / line_count as f32
             } else {
-                bars.push(bar);
-            }
-        }
+                BAR_HEIGHT
+            };
 
-        Container::new(
-            VStack {
-                spacing: Some(0.0),
-                children: bars,
+            // The cursor line determines which region is "visible".  We highlight
+            // a window of lines centred on the cursor.
+            let visible_window = 40_usize; // roughly how many editor lines fit on screen
+            let cursor = buffer.cursor_line;
+            let vis_start = cursor.saturating_sub(visible_window / 2);
+            let vis_end = (cursor + visible_window / 2).min(line_count);
+
+            // Sample every Nth line to cap widget count at ~MAX_MINIMAP_BARS.
+            // For files shorter than the limit every line is shown.
+            const MAX_MINIMAP_BARS: usize = 50;
+            let step = if line_count > MAX_MINIMAP_BARS {
+                line_count / MAX_MINIMAP_BARS
+            } else {
+                1
+            };
+            let bar_count = (line_count + step - 1) / step;
+
+            let mut bars: Vec<Node> = Vec::with_capacity(bar_count);
+            for (i, line) in lines.iter().enumerate() {
+                if step > 1 && i % step != 0 {
+                    continue;
+                }
+                let trimmed = line.trim();
+                let color = line_color(trimmed);
+
+                // Width proportional to the trimmed length (capped to fit inside
+                // the minimap column).
+                let width = (trimmed.len() as f32 * 0.5).clamp(2.0, 50.0);
+
+                let in_viewport = i >= vis_start && i < vis_end;
+
+                let bar = Container::new(Spacer::default().into_node())
+                    .width(width)
+                    .height(scale)
+                    .bg(color)
+                    .into_node();
+
+                if in_viewport {
+                    // Wrap in a container with the semi-transparent viewport
+                    // overlay so the visible region stands out.
+                    bars.push(
+                        Container::new(bar)
+                            .height(scale)
+                            .bg(VIEWPORT_OVERLAY)
+                            .into_node(),
+                    );
+                } else {
+                    bars.push(bar);
+                }
             }
-            .into_node(),
-        )
-        .width(MINIMAP_WIDTH)
-        .bg(MINIMAP_BG)
-        .padding_all(4.0)
-        .flex_shrink(0.0)
-        .into_node()
+
+            Container::new(
+                VStack {
+                    spacing: Some(0.0),
+                    children: bars,
+                }
+                .into_node(),
+            )
+            .width(MINIMAP_WIDTH)
+            .bg(MINIMAP_BG)
+            .padding_all(4.0)
+            .flex_shrink(0.0)
+            .into_node()
+        })
     }
 }

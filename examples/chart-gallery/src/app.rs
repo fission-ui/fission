@@ -16,44 +16,55 @@ use fission::core::{reduce_with, with_reducer, ActionEnvelope, ActionId, BuildCt
 pub(crate) struct GalleryApp;
 
 impl Widget<GalleryState> for GalleryApp {
-    fn build(&self, ctx: &mut BuildCtx<GalleryState>, view: &View<GalleryState>) -> Node {
-        let viewport_width = view.viewport_size().width.max(0.0);
+    fn build(
+        &self,
+        ctx: &mut BuildCtx<GalleryState>,
+        view: &View<GalleryState>,
+    ) -> impl fission::IntoWidget<GalleryState> {
+        fission::AnyWidget::from_node({
+            let viewport_width = view.viewport_size().width.max(0.0);
 
-        if let Ok(slug) = std::env::var("FISSION_CHART_DOC_SLUG") {
-            return build_doc_capture_view(ctx, view, &slug, viewport_width);
-        }
+            if let Ok(slug) = std::env::var("FISSION_CHART_DOC_SLUG") {
+                return fission::AnyWidget::from_node(build_doc_capture_view(
+                    ctx,
+                    view,
+                    &slug,
+                    viewport_width,
+                ));
+            }
 
-        let sidebar_width = (viewport_width * 0.22).clamp(180.0, 260.0);
-        let select_chart_id = with_reducer!(ctx, SelectChart(0, 0), select_chart).id;
-        let toggle_smooth = with_reducer!(ctx, ToggleSmooth(false), toggle_smooth);
-        let update_scale = with_reducer!(ctx, UpdateScale(0.0), update_scale);
-        let toggle_theme = with_reducer!(ctx, ToggleDarkTheme(false), toggle_dark_theme);
-        let toggle_interactions =
-            with_reducer!(ctx, ToggleInteractions(false), toggle_interactions);
-        let toggle_animations = with_reducer!(ctx, ToggleAnimations(false), toggle_animations);
-        let toggle_markers = with_reducer!(ctx, ToggleMarkers(false), toggle_markers);
-        ctx.register::<ChartInteractionEvent, _>(reduce_with!(record_chart_interaction));
+            let sidebar_width = (viewport_width * 0.22).clamp(180.0, 260.0);
+            let select_chart_id = with_reducer!(ctx, SelectChart(0, 0), select_chart).id;
+            let toggle_smooth = with_reducer!(ctx, ToggleSmooth(false), toggle_smooth);
+            let update_scale = with_reducer!(ctx, UpdateScale(0.0), update_scale);
+            let toggle_theme = with_reducer!(ctx, ToggleDarkTheme(false), toggle_dark_theme);
+            let toggle_interactions =
+                with_reducer!(ctx, ToggleInteractions(false), toggle_interactions);
+            let toggle_animations = with_reducer!(ctx, ToggleAnimations(false), toggle_animations);
+            let toggle_markers = with_reducer!(ctx, ToggleMarkers(false), toggle_markers);
+            ctx.register::<ChartInteractionEvent, _>(reduce_with!(record_chart_interaction));
 
-        let sidebar = build_sidebar(view, select_chart_id, sidebar_width);
-        let content_width = (viewport_width - sidebar_width - 64.0).max(360.0);
-        let chart_node = build_selected_chart(ctx, view, content_width, view.state.data_scale);
-        let controls = build_controls(
-            view,
-            toggle_smooth,
-            update_scale,
-            toggle_theme,
-            toggle_interactions,
-            toggle_animations,
-            toggle_markers,
-        );
-        let content = build_content(view, chart_node, controls);
+            let sidebar = build_sidebar(view, select_chart_id, sidebar_width);
+            let content_width = (viewport_width - sidebar_width - 64.0).max(360.0);
+            let chart_node = build_selected_chart(ctx, view, content_width, view.state.data_scale);
+            let controls = build_controls(
+                view,
+                toggle_smooth,
+                update_scale,
+                toggle_theme,
+                toggle_interactions,
+                toggle_animations,
+                toggle_markers,
+            );
+            let content = build_content(view, chart_node, controls);
 
-        Row {
-            children: vec![sidebar, content],
-            flex_grow: 1.0,
-            ..Default::default()
-        }
-        .into_node()
+            Row {
+                children: vec![sidebar, content],
+                flex_grow: 1.0,
+                ..Default::default()
+            }
+            .into_node()
+        })
     }
 }
 

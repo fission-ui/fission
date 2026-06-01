@@ -12,14 +12,16 @@ pub struct Dropzone {
 }
 
 impl<S: fission_core::AppState> Widget<S> for Dropzone {
-    fn build(&self, _ctx: &mut BuildCtx<S>, _view: &View<S>) -> Node {
-        GestureDetector {
-            child: self.child.clone(),
-            on_drop: self.on_drop.clone(),
-            on_drag_enter: self.on_drag_enter.clone(),
-            on_drag_leave: self.on_drag_leave.clone(),
-            ..Default::default()
-        }
-        .into_node()
+    fn build(&self, _ctx: &mut BuildCtx<S>, _view: &View<S>) -> impl fission_core::IntoWidget<S> {
+        fission_core::AnyWidget::from_node({
+            GestureDetector {
+                child: self.child.clone(),
+                on_drop: self.on_drop.clone(),
+                on_drag_enter: self.on_drag_enter.clone(),
+                on_drag_leave: self.on_drag_leave.clone(),
+                ..Default::default()
+            }
+            .into_node()
+        })
     }
 }

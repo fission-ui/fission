@@ -1,4 +1,4 @@
-use fission_core::ui::{Container, Image, Node, Text, TextContent};
+use fission_core::ui::{Container, Image, Text, TextContent};
 use fission_core::{BuildCtx, View, Widget};
 use serde::{Deserialize, Serialize};
 
@@ -21,50 +21,52 @@ pub struct Avatar {
 }
 
 impl<S: fission_core::AppState> Widget<S> for Avatar {
-    fn build(&self, _ctx: &mut BuildCtx<S>, view: &View<S>) -> Node {
-        let tokens = &view.env.theme.tokens;
-        let size = self.size.unwrap_or(40.0);
-        let radius = size / 2.0;
+    fn build(&self, _ctx: &mut BuildCtx<S>, view: &View<S>) -> impl fission_core::IntoWidget<S> {
+        fission_core::AnyWidget::from_node({
+            let tokens = &view.env.theme.tokens;
+            let size = self.size.unwrap_or(40.0);
+            let radius = size / 2.0;
 
-        let content = if let Some(src) = &self.src {
-            let image = if src.starts_with("https://") || src.starts_with("http://") {
-                Image::network(src.clone())
+            let content = if let Some(src) = &self.src {
+                let image = if src.starts_with("https://") || src.starts_with("http://") {
+                    Image::network(src.clone())
+                } else {
+                    Image::asset(src.clone())
+                };
+                image
+                    .size(size, size)
+                    .fit(fission_core::op::ImageFit::Cover)
+                    .into()
             } else {
-                Image::asset(src.clone())
+                let initials = self
+                    .name
+                    .as_deref()
+                    .map(|n| {
+                        n.split_whitespace()
+                            .take(2)
+                            .map(|s| s.chars().next().unwrap_or(' '))
+                            .collect::<String>()
+                            .to_uppercase()
+                    })
+                    .unwrap_or("?".into());
+
+                fission_core::ui::Align::new(
+                    Text {
+                        content: TextContent::Literal(initials),
+                        font_size: Some(size * 0.4),
+                        color: Some(tokens.colors.on_primary),
+                        ..Default::default()
+                    }
+                    .into(),
+                )
+                .into_node()
             };
-            image
+
+            Container::new(content)
                 .size(size, size)
-                .fit(fission_core::op::ImageFit::Cover)
-                .into()
-        } else {
-            let initials = self
-                .name
-                .as_deref()
-                .map(|n| {
-                    n.split_whitespace()
-                        .take(2)
-                        .map(|s| s.chars().next().unwrap_or(' '))
-                        .collect::<String>()
-                        .to_uppercase()
-                })
-                .unwrap_or("?".into());
-
-            fission_core::ui::Align::new(
-                Text {
-                    content: TextContent::Literal(initials),
-                    font_size: Some(size * 0.4),
-                    color: Some(tokens.colors.on_primary),
-                    ..Default::default()
-                }
-                .into(),
-            )
-            .into_node()
-        };
-
-        Container::new(content)
-            .size(size, size)
-            .bg(tokens.colors.primary)
-            .border_radius(radius)
-            .into_node()
+                .bg(tokens.colors.primary)
+                .border_radius(radius)
+                .into_node()
+        })
     }
 }

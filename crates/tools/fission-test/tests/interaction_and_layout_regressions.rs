@@ -1,4 +1,4 @@
-use fission_core::ui::{Container, Node, Text};
+use fission_core::ui::{Container, Text};
 use fission_core::{reduce_with, AppState, BuildCtx, ReducerContext, View, Widget};
 use fission_test::TestHarness;
 use fission_widgets::{NumberInput, SplitDirection, SplitView};
@@ -28,17 +28,27 @@ fn ignore_increment(
 fn test_stepper_button_layout() {
     struct StepperTest;
     impl Widget<State> for StepperTest {
-        fn build(&self, ctx: &mut BuildCtx<State>, _view: &View<State>) -> Node {
-            Container::new(
-                NumberInput {
-                    value: 9.0,
-                    on_increment: Some(ctx.bind(IncrementAction, reduce_with!(ignore_increment))),
-                    on_decrement: Some(ctx.bind(IncrementAction, reduce_with!(ignore_increment))),
-                    ..Default::default()
-                }
-                .build(ctx, _view),
-            )
-            .into_node()
+        fn build(
+            &self,
+            ctx: &mut BuildCtx<State>,
+            _view: &View<State>,
+        ) -> impl fission_core::IntoWidget<State> {
+            fission_core::AnyWidget::from_node({
+                Container::new(
+                    NumberInput {
+                        value: 9.0,
+                        on_increment: Some(
+                            ctx.bind(IncrementAction, reduce_with!(ignore_increment)),
+                        ),
+                        on_decrement: Some(
+                            ctx.bind(IncrementAction, reduce_with!(ignore_increment)),
+                        ),
+                        ..Default::default()
+                    }
+                    .build_node(ctx, _view),
+                )
+                .into_node()
+            })
         }
     }
 
@@ -74,32 +84,40 @@ fn test_stepper_button_layout() {
 fn test_email_list_width() {
     struct InboxLayout;
     impl Widget<State> for InboxLayout {
-        fn build(&self, _ctx: &mut BuildCtx<State>, _view: &View<State>) -> Node {
-            SplitView {
-                id: fission_core::WidgetNodeId::explicit("split"),
-                direction: SplitDirection::Horizontal,
-                first: Box::new(
-                    Container::new(Text::new("Sidebar").into_node())
-                        .width(200.0)
-                        .into_node(),
-                ),
-                second: Box::new(
-                    SplitView {
-                        id: fission_core::WidgetNodeId::explicit("split_inner"),
-                        direction: fission_widgets::SplitDirection::Horizontal,
-                        first: Box::new(Container::new(Text::new("List").into_node()).into_node()),
-                        second: Box::new(
-                            Container::new(Text::new("Detail").into_node()).into_node(),
-                        ),
-                        split_ratio: 0.3,
-                        on_resize: None,
-                    }
-                    .build(_ctx, _view),
-                ),
-                split_ratio: 0.2,
-                on_resize: None,
-            }
-            .build(_ctx, _view)
+        fn build(
+            &self,
+            _ctx: &mut BuildCtx<State>,
+            _view: &View<State>,
+        ) -> impl fission_core::IntoWidget<State> {
+            fission_core::AnyWidget::from_node({
+                SplitView {
+                    id: fission_core::WidgetNodeId::explicit("split"),
+                    direction: SplitDirection::Horizontal,
+                    first: Box::new(
+                        Container::new(Text::new("Sidebar").into_node())
+                            .width(200.0)
+                            .into_node(),
+                    ),
+                    second: Box::new(
+                        SplitView {
+                            id: fission_core::WidgetNodeId::explicit("split_inner"),
+                            direction: fission_widgets::SplitDirection::Horizontal,
+                            first: Box::new(
+                                Container::new(Text::new("List").into_node()).into_node(),
+                            ),
+                            second: Box::new(
+                                Container::new(Text::new("Detail").into_node()).into_node(),
+                            ),
+                            split_ratio: 0.3,
+                            on_resize: None,
+                        }
+                        .build_node(_ctx, _view),
+                    ),
+                    split_ratio: 0.2,
+                    on_resize: None,
+                }
+                .build_node(_ctx, _view)
+            })
         }
     }
 
@@ -141,24 +159,30 @@ fn test_modal_backdrop_dismiss() {
 
     struct ModalTest;
     impl Widget<State> for ModalTest {
-        fn build(&self, ctx: &mut BuildCtx<State>, view: &View<State>) -> Node {
-            Modal {
-                id: fission_core::WidgetNodeId::explicit("test_modal"),
-                title: "Test".into(),
-                content: Box::new(Text::new("Content").into_node()),
-                is_open: true,
-                on_dismiss: Some(ctx.bind(
-                    DismissAction,
-                    reduce_with!(
-                        (|s: &mut State, _, _| {
-                            s.modal_open = false;
-                        })
-                    ),
-                )),
-                actions: vec![],
-                width: Some(300.0),
-            }
-            .build(ctx, view)
+        fn build(
+            &self,
+            ctx: &mut BuildCtx<State>,
+            view: &View<State>,
+        ) -> impl fission_core::IntoWidget<State> {
+            fission_core::AnyWidget::from_node({
+                Modal {
+                    id: fission_core::WidgetNodeId::explicit("test_modal"),
+                    title: "Test".into(),
+                    content: Box::new(Text::new("Content").into_node()),
+                    is_open: true,
+                    on_dismiss: Some(ctx.bind(
+                        DismissAction,
+                        reduce_with!(
+                            (|s: &mut State, _, _| {
+                                s.modal_open = false;
+                            })
+                        ),
+                    )),
+                    actions: vec![],
+                    width: Some(300.0),
+                }
+                .build_node(ctx, view)
+            })
         }
     }
 
@@ -202,24 +226,30 @@ fn test_modal_close_button_dismiss() {
 
     struct ModalTest;
     impl Widget<State> for ModalTest {
-        fn build(&self, ctx: &mut BuildCtx<State>, view: &View<State>) -> Node {
-            Modal {
-                id: fission_core::WidgetNodeId::explicit("test_modal"),
-                title: "Test".into(),
-                content: Box::new(Text::new("Content").into_node()),
-                is_open: true,
-                on_dismiss: Some(ctx.bind(
-                    DismissAction,
-                    reduce_with!(
-                        (|s: &mut State, _, _| {
-                            s.modal_open = false;
-                        })
-                    ),
-                )),
-                actions: vec![],
-                width: Some(300.0),
-            }
-            .build(ctx, view)
+        fn build(
+            &self,
+            ctx: &mut BuildCtx<State>,
+            view: &View<State>,
+        ) -> impl fission_core::IntoWidget<State> {
+            fission_core::AnyWidget::from_node({
+                Modal {
+                    id: fission_core::WidgetNodeId::explicit("test_modal"),
+                    title: "Test".into(),
+                    content: Box::new(Text::new("Content").into_node()),
+                    is_open: true,
+                    on_dismiss: Some(ctx.bind(
+                        DismissAction,
+                        reduce_with!(
+                            (|s: &mut State, _, _| {
+                                s.modal_open = false;
+                            })
+                        ),
+                    )),
+                    actions: vec![],
+                    width: Some(300.0),
+                }
+                .build_node(ctx, view)
+            })
         }
     }
 

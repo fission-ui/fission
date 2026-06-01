@@ -18,146 +18,148 @@ impl Widget<FieldInspectorState> for OverviewPanel {
         &self,
         ctx: &mut BuildCtx<FieldInspectorState>,
         view: &View<FieldInspectorState>,
-    ) -> Node {
-        let order = view.state.selected_order();
-        let start = with_reducer!(ctx, StartInspection, on_start_inspection);
-        let weather_ok = with_reducer!(ctx, WeatherLoaded, on_weather_loaded);
-        let weather_err = with_reducer!(ctx, WeatherFailed, on_weather_failed);
-        let request = view.state.weather_request();
-        let snapshot = view.state.weather.clone();
-        let weather = FutureBuilder::new(
-            ResourceKey::new("field-inspector.weather"),
-            WEATHER_JOB,
-            request.clone(),
-            snapshot,
-            |ctx, view, snapshot| weather_card(ctx, view, snapshot),
-        )
-        .deps(request)
-        .on_ok(weather_ok)
-        .on_err(weather_err)
-        .build(ctx, view);
+    ) -> impl fission::IntoWidget<FieldInspectorState> {
+        fission::AnyWidget::from_node({
+            let order = view.state.selected_order();
+            let start = with_reducer!(ctx, StartInspection, on_start_inspection);
+            let weather_ok = with_reducer!(ctx, WeatherLoaded, on_weather_loaded);
+            let weather_err = with_reducer!(ctx, WeatherFailed, on_weather_failed);
+            let request = view.state.weather_request();
+            let snapshot = view.state.weather.clone();
+            let weather = FutureBuilder::new(
+                ResourceKey::new("field-inspector.weather"),
+                WEATHER_JOB,
+                request.clone(),
+                snapshot,
+                |ctx, view, snapshot| weather_card(ctx, view, snapshot),
+            )
+            .deps(request)
+            .on_ok(weather_ok)
+            .on_err(weather_err)
+            .build_node(ctx, view);
 
-        let (complete, total) = view.state.checklist_progress();
-        let heading = Column {
-            gap: Some(7.0),
-            flex_grow: 1.0,
-            align_items: ir_op::AlignItems::Start,
-            children: vec![
-                status_pill(view, order.priority, CapabilityState::Warning),
-                title_text(
-                    view,
-                    order.title,
-                    if is_compact(view) { 24.0 } else { 30.0 },
-                ),
-                body_text(view, order.summary),
-            ],
-            ..Default::default()
-        }
-        .into_node();
-        let start_button = action_button(
-            if view.state.started {
-                "Refresh checks"
-            } else {
-                "Start inspection"
-            },
-            start,
-            ButtonVariant::Primary,
-        );
-        let heading_block = if is_compact(view) {
-            Column {
-                gap: Some(12.0),
-                children: vec![heading],
-                ..Default::default()
-            }
-            .into_node()
-        } else {
-            Row {
-                gap: Some(12.0),
-                children: vec![heading, start_button],
+            let (complete, total) = view.state.checklist_progress();
+            let heading = Column {
+                gap: Some(7.0),
+                flex_grow: 1.0,
                 align_items: ir_op::AlignItems::Start,
-                ..Default::default()
-            }
-            .into_node()
-        };
-
-        let asset_image_width = usable_width(view, if is_compact(view) { 96.0 } else { 0.0 })
-            .min(if is_compact(view) { 420.0 } else { 210.0 });
-        let asset_image_height = if is_compact(view) {
-            asset_image_width * 0.68
-        } else {
-            142.0
-        };
-        let asset_media = Image::network(order.asset.photo_url)
-            .size(asset_image_width, asset_image_height)
-            .fit(ir_op::ImageFit::Cover)
-            .semantic_label(order.asset.name)
-            .into_node();
-        let asset_details = Column {
-            gap: Some(6.0),
-            flex_grow: 1.0,
-            children: vec![
-                Text::new(order.asset.name)
-                    .size(18.0)
-                    .weight(900)
-                    .into_node(),
-                muted_text(view, order.asset.kind),
-                body_text(
-                    view,
-                    format!(
-                        "Expected barcode {} and NFC {}",
-                        order.asset.expected_barcode, order.asset.expected_nfc_uri
-                    ),
-                ),
-            ],
-            ..Default::default()
-        }
-        .into_node();
-        let asset_block = if is_compact(view) {
-            Column {
-                gap: Some(12.0),
-                children: vec![asset_media, asset_details],
-                align_items: ir_op::AlignItems::Start,
-                ..Default::default()
-            }
-            .into_node()
-        } else {
-            Row {
-                gap: Some(14.0),
-                children: vec![asset_media, asset_details],
-                align_items: ir_op::AlignItems::Start,
-                ..Default::default()
-            }
-            .into_node()
-        };
-
-        let hero = panel_card(
-            view,
-            Column {
-                gap: Some(18.0),
                 children: vec![
-                    heading_block,
-                    responsive_grid(
+                    status_pill(view, order.priority, CapabilityState::Warning),
+                    title_text(
                         view,
-                        vec![
-                            metric(view, "Site", order.site),
-                            metric(view, "Asset", order.asset.id),
-                            metric(view, "Checklist", format!("{complete}/{total}")),
-                        ],
-                        3,
+                        order.title,
+                        if is_compact(view) { 24.0 } else { 30.0 },
                     ),
-                    soft_panel(view, asset_block),
+                    body_text(view, order.summary),
                 ],
                 ..Default::default()
             }
-            .into_node(),
-        );
+            .into_node();
+            let start_button = action_button(
+                if view.state.started {
+                    "Refresh checks"
+                } else {
+                    "Start inspection"
+                },
+                start,
+                ButtonVariant::Primary,
+            );
+            let heading_block = if is_compact(view) {
+                Column {
+                    gap: Some(12.0),
+                    children: vec![heading],
+                    ..Default::default()
+                }
+                .into_node()
+            } else {
+                Row {
+                    gap: Some(12.0),
+                    children: vec![heading, start_button],
+                    align_items: ir_op::AlignItems::Start,
+                    ..Default::default()
+                }
+                .into_node()
+            };
 
-        Column {
-            gap: Some(18.0),
-            children: vec![hero, weather, CapabilityOverview.build(ctx, view)],
-            ..Default::default()
-        }
-        .into_node()
+            let asset_image_width = usable_width(view, if is_compact(view) { 96.0 } else { 0.0 })
+                .min(if is_compact(view) { 420.0 } else { 210.0 });
+            let asset_image_height = if is_compact(view) {
+                asset_image_width * 0.68
+            } else {
+                142.0
+            };
+            let asset_media = Image::network(order.asset.photo_url)
+                .size(asset_image_width, asset_image_height)
+                .fit(ir_op::ImageFit::Cover)
+                .semantic_label(order.asset.name)
+                .into_node();
+            let asset_details = Column {
+                gap: Some(6.0),
+                flex_grow: 1.0,
+                children: vec![
+                    Text::new(order.asset.name)
+                        .size(18.0)
+                        .weight(900)
+                        .into_node(),
+                    muted_text(view, order.asset.kind),
+                    body_text(
+                        view,
+                        format!(
+                            "Expected barcode {} and NFC {}",
+                            order.asset.expected_barcode, order.asset.expected_nfc_uri
+                        ),
+                    ),
+                ],
+                ..Default::default()
+            }
+            .into_node();
+            let asset_block = if is_compact(view) {
+                Column {
+                    gap: Some(12.0),
+                    children: vec![asset_media, asset_details],
+                    align_items: ir_op::AlignItems::Start,
+                    ..Default::default()
+                }
+                .into_node()
+            } else {
+                Row {
+                    gap: Some(14.0),
+                    children: vec![asset_media, asset_details],
+                    align_items: ir_op::AlignItems::Start,
+                    ..Default::default()
+                }
+                .into_node()
+            };
+
+            let hero = panel_card(
+                view,
+                Column {
+                    gap: Some(18.0),
+                    children: vec![
+                        heading_block,
+                        responsive_grid(
+                            view,
+                            vec![
+                                metric(view, "Site", order.site),
+                                metric(view, "Asset", order.asset.id),
+                                metric(view, "Checklist", format!("{complete}/{total}")),
+                            ],
+                            3,
+                        ),
+                        soft_panel(view, asset_block),
+                    ],
+                    ..Default::default()
+                }
+                .into_node(),
+            );
+
+            Column {
+                gap: Some(18.0),
+                children: vec![hero, weather, CapabilityOverview.build_node(ctx, view)],
+                ..Default::default()
+            }
+            .into_node()
+        })
     }
 }
 
@@ -186,7 +188,7 @@ fn weather_card(
         Row {
             gap: Some(12.0),
             children: vec![
-                CircularProgress::default().build(ctx, view),
+                CircularProgress::default().build_node(ctx, view),
                 body_text(view, "Loading live site weather from Open-Meteo..."),
             ],
             ..Default::default()

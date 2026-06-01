@@ -1,5 +1,5 @@
 use fission_core::op::Color;
-use fission_core::ui::{Checkbox, Column, Container, Node, Row, Text, TextInput, ZStack};
+use fission_core::ui::{Checkbox, Column, Container, Row, Text, TextInput, ZStack};
 use fission_core::{AppState, BuildCtx, View, Widget};
 use fission_test::TestHarness;
 
@@ -14,44 +14,50 @@ fn test_modal_layout_cramping() {
 
     struct ContactsModal;
     impl Widget<State> for ContactsModal {
-        fn build(&self, _ctx: &mut BuildCtx<State>, _view: &View<State>) -> Node {
-            Container::new(
-                Column::default()
-                    .children(vec![
-                        // Header
-                        Row::default()
-                            .children(vec![
-                                Container::new(Checkbox::default().into_node())
-                                    .width(40.0)
-                                    .into_node(),
-                                Container::new(Text::new("Name").into_node())
-                                    .width(150.0)
-                                    .into_node(),
-                                Container::new(Text::new("Email").into_node())
-                                    .width(250.0)
-                                    .into_node(),
-                            ])
-                            .into_node(),
-                        // Item
-                        Row::default()
-                            .children(vec![
-                                Container::new(Checkbox::default().into_node())
-                                    .width(40.0)
-                                    .into_node(),
-                                Container::new(Text::new("Alice").into_node())
-                                    .width(150.0)
-                                    .into_node(),
-                                Container::new(Text::new("alice@example.com").into_node())
-                                    .width(250.0)
-                                    .into_node(),
-                            ])
-                            .into_node(),
-                    ])
-                    .into_node(),
-            )
-            .width(400.0)
-            .padding_all(16.0)
-            .into_node()
+        fn build(
+            &self,
+            _ctx: &mut BuildCtx<State>,
+            _view: &View<State>,
+        ) -> impl fission_core::IntoWidget<State> {
+            fission_core::AnyWidget::from_node({
+                Container::new(
+                    Column::default()
+                        .children(vec![
+                            // Header
+                            Row::default()
+                                .children(vec![
+                                    Container::new(Checkbox::default().into_node())
+                                        .width(40.0)
+                                        .into_node(),
+                                    Container::new(Text::new("Name").into_node())
+                                        .width(150.0)
+                                        .into_node(),
+                                    Container::new(Text::new("Email").into_node())
+                                        .width(250.0)
+                                        .into_node(),
+                                ])
+                                .into_node(),
+                            // Item
+                            Row::default()
+                                .children(vec![
+                                    Container::new(Checkbox::default().into_node())
+                                        .width(40.0)
+                                        .into_node(),
+                                    Container::new(Text::new("Alice").into_node())
+                                        .width(150.0)
+                                        .into_node(),
+                                    Container::new(Text::new("alice@example.com").into_node())
+                                        .width(250.0)
+                                        .into_node(),
+                                ])
+                                .into_node(),
+                        ])
+                        .into_node(),
+                )
+                .width(400.0)
+                .padding_all(16.0)
+                .into_node()
+            })
         }
     }
 
@@ -126,30 +132,36 @@ fn test_compose_form_spacing() {
 
     struct ComposeForm;
     impl Widget<State> for ComposeForm {
-        fn build(&self, _ctx: &mut BuildCtx<State>, _view: &View<State>) -> Node {
-            Container::new(
-                Column::default()
-                    .gap(Some(16.0))
-                    .children(vec![
-                        // Row 1: To
-                        Row::default()
-                            .children(vec![
-                                Text::new("To").width(50.0).into_node(),
-                                TextInput::default().value("Alice").into_node(),
-                            ])
-                            .into_node(),
-                        // Row 2: Subject
-                        Row::default()
-                            .children(vec![
-                                Text::new("Subject").width(50.0).into_node(),
-                                TextInput::default().value("Hello").into_node(),
-                            ])
-                            .into_node(),
-                    ])
-                    .into_node(),
-            )
-            .width(400.0)
-            .into_node()
+        fn build(
+            &self,
+            _ctx: &mut BuildCtx<State>,
+            _view: &View<State>,
+        ) -> impl fission_core::IntoWidget<State> {
+            fission_core::AnyWidget::from_node({
+                Container::new(
+                    Column::default()
+                        .gap(Some(16.0))
+                        .children(vec![
+                            // Row 1: To
+                            Row::default()
+                                .children(vec![
+                                    Text::new("To").width(50.0).into_node(),
+                                    TextInput::default().value("Alice").into_node(),
+                                ])
+                                .into_node(),
+                            // Row 2: Subject
+                            Row::default()
+                                .children(vec![
+                                    Text::new("Subject").width(50.0).into_node(),
+                                    TextInput::default().value("Hello").into_node(),
+                                ])
+                                .into_node(),
+                        ])
+                        .into_node(),
+                )
+                .width(400.0)
+                .into_node()
+            })
         }
     }
 
@@ -190,68 +202,74 @@ fn test_multi_modal_stacking() {
 
     struct MultiModal;
     impl Widget<State> for MultiModal {
-        fn build(&self, _ctx: &mut BuildCtx<State>, _view: &View<State>) -> Node {
-            // Simulate manually stacking overlays as the App would do
-            ZStack::default()
-                .children(vec![
-                    // App Content
-                    Container::new(Text::new("App Content").into_node())
+        fn build(
+            &self,
+            _ctx: &mut BuildCtx<State>,
+            _view: &View<State>,
+        ) -> impl fission_core::IntoWidget<State> {
+            fission_core::AnyWidget::from_node({
+                // Simulate manually stacking overlays as the App would do
+                ZStack::default()
+                    .children(vec![
+                        // App Content
+                        Container::new(Text::new("App Content").into_node())
+                            .bg(Color {
+                                r: 255,
+                                g: 255,
+                                b: 255,
+                                a: 255,
+                            })
+                            .into_node(),
+                        // Modal 1 (Contacts)
+                        Container::new(
+                            Container::new(Text::new("Modal 1").into_node())
+                                .width(300.0)
+                                .height(300.0)
+                                .bg(Color {
+                                    r: 200,
+                                    g: 200,
+                                    b: 200,
+                                    a: 255,
+                                })
+                                .into_node(),
+                        )
+                        // Backdrop 1
                         .bg(Color {
-                            r: 255,
-                            g: 255,
-                            b: 255,
-                            a: 255,
+                            r: 0,
+                            g: 0,
+                            b: 0,
+                            a: 128,
+                        })
+                        .into_node(), // Implicitly stretches to fill due to ZStack behavior?
+                        // No, usually requires AbsoluteFill.
+                        // Container lowers to Box.
+                        // We should use Overlay logic or AbsoluteFill.
+                        // But here checking if ZStack renders in order.
+
+                        // Modal 2 (Settings)
+                        Container::new(
+                            Container::new(Text::new("Modal 2").into_node())
+                                .width(200.0)
+                                .height(200.0)
+                                .bg(Color {
+                                    r: 220,
+                                    g: 220,
+                                    b: 220,
+                                    a: 255,
+                                })
+                                .into_node(),
+                        )
+                        // Backdrop 2
+                        .bg(Color {
+                            r: 0,
+                            g: 0,
+                            b: 0,
+                            a: 128,
                         })
                         .into_node(),
-                    // Modal 1 (Contacts)
-                    Container::new(
-                        Container::new(Text::new("Modal 1").into_node())
-                            .width(300.0)
-                            .height(300.0)
-                            .bg(Color {
-                                r: 200,
-                                g: 200,
-                                b: 200,
-                                a: 255,
-                            })
-                            .into_node(),
-                    )
-                    // Backdrop 1
-                    .bg(Color {
-                        r: 0,
-                        g: 0,
-                        b: 0,
-                        a: 128,
-                    })
-                    .into_node(), // Implicitly stretches to fill due to ZStack behavior?
-                    // No, usually requires AbsoluteFill.
-                    // Container lowers to Box.
-                    // We should use Overlay logic or AbsoluteFill.
-                    // But here checking if ZStack renders in order.
-
-                    // Modal 2 (Settings)
-                    Container::new(
-                        Container::new(Text::new("Modal 2").into_node())
-                            .width(200.0)
-                            .height(200.0)
-                            .bg(Color {
-                                r: 220,
-                                g: 220,
-                                b: 220,
-                                a: 255,
-                            })
-                            .into_node(),
-                    )
-                    // Backdrop 2
-                    .bg(Color {
-                        r: 0,
-                        g: 0,
-                        b: 0,
-                        a: 128,
-                    })
-                    .into_node(),
-                ])
-                .into_node()
+                    ])
+                    .into_node()
+            })
         }
     }
 

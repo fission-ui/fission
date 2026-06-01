@@ -10,24 +10,30 @@ use fission::prelude::*;
 pub struct DoctorScreen;
 
 impl Widget<UiState> for DoctorScreen {
-    fn build(&self, ctx: &mut BuildCtx<UiState>, view: &View<UiState>) -> Node {
-        let palette = UiPalette::for_mode(view.state.theme_mode);
-        let doctor_all = with_reducer!(ctx, RequestCommand(UiCommand::DoctorAll), request_command);
-        let strict = with_reducer!(ctx, ToggleStrict, toggle_strict);
-        let selected_target = view.state.selected_target;
-        let selected_check = selected_target.map(|target| {
-            let action = with_reducer!(
-                ctx,
-                RequestCommand(UiCommand::DoctorTarget(target)),
-                request_command
-            );
-            ActionButton::new(format!("Check {}", target_label(target)), action)
-                .tone(ButtonTone::Primary)
-                .width(24.0)
-                .build(ctx, view)
-        });
+    fn build(
+        &self,
+        ctx: &mut BuildCtx<UiState>,
+        view: &View<UiState>,
+    ) -> impl fission::IntoWidget<UiState> {
+        fission::AnyWidget::from_node({
+            let palette = UiPalette::for_mode(view.state.theme_mode);
+            let doctor_all =
+                with_reducer!(ctx, RequestCommand(UiCommand::DoctorAll), request_command);
+            let strict = with_reducer!(ctx, ToggleStrict, toggle_strict);
+            let selected_target = view.state.selected_target;
+            let selected_check = selected_target.map(|target| {
+                let action = with_reducer!(
+                    ctx,
+                    RequestCommand(UiCommand::DoctorTarget(target)),
+                    request_command
+                );
+                ActionButton::new(format!("Check {}", target_label(target)), action)
+                    .tone(ButtonTone::Primary)
+                    .width(24.0)
+                    .build_node(ctx, view)
+            });
 
-        Column {
+            Column {
             gap: Some(1.0),
             children: vec![
                 title_block(
@@ -37,23 +43,24 @@ impl Widget<UiState> for DoctorScreen {
                     palette.muted,
                 ),
                 KeyValueRow::new("Project", view.state.project_dir.display().to_string())
-                    .build(ctx, view),
-                TogglePill::new("Strict exit status", view.state.strict, strict).build(ctx, view),
+                    .build_node(ctx, view),
+                TogglePill::new("Strict exit status", view.state.strict, strict).build_node(ctx, view),
                 ActionButton::new("Check all configured tooling", doctor_all)
                     .tone(ButtonTone::Primary)
                     .width(32.0)
-                    .build(ctx, view),
+                    .build_node(ctx, view),
                 Text::new("Select one platform when you want a narrower check.")
                     .color(palette.muted)
                     .into_node(),
                 TargetPicker {
                     configured_only: false,
                 }
-                .build(ctx, view),
+                .build_node(ctx, view),
                 selected_check.unwrap_or_else(|| Text::new("Select a target first.").into_node()),
             ],
             ..Default::default()
         }
         .into_node()
+        })
     }
 }

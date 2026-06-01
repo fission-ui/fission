@@ -1,6 +1,6 @@
 use fission_core::ui::{Column, Container, Scroll, Text, TextInput};
 use fission_core::{
-    AppState, BuildCtx, FlexDirection, InputEvent, LayoutPoint, Node, PointerEvent, View, Widget,
+    AppState, BuildCtx, FlexDirection, InputEvent, LayoutPoint, PointerEvent, View, Widget,
 };
 use fission_ir::op::{Color, Fill, LayoutOp, PaintOp};
 use fission_shell_terminal::{verify_terminal_ir, TerminalApp};
@@ -12,64 +12,82 @@ impl AppState for State {}
 struct HelloApp;
 
 impl Widget<State> for HelloApp {
-    fn build(&self, _ctx: &mut BuildCtx<State>, _view: &View<State>) -> Node {
-        Container::new(Text::new("Hello terminal").color(Color::BLACK).into_node())
-            .width(24.0)
-            .height(3.0)
-            .padding([1.0, 1.0, 1.0, 1.0])
-            .bg(Color::WHITE)
-            .border(Color::BLACK, 1.0)
-            .into_node()
+    fn build(
+        &self,
+        _ctx: &mut BuildCtx<State>,
+        _view: &View<State>,
+    ) -> impl fission_core::IntoWidget<State> {
+        fission_core::AnyWidget::from_node({
+            Container::new(Text::new("Hello terminal").color(Color::BLACK).into_node())
+                .width(24.0)
+                .height(3.0)
+                .padding([1.0, 1.0, 1.0, 1.0])
+                .bg(Color::WHITE)
+                .border(Color::BLACK, 1.0)
+                .into_node()
+        })
     }
 }
 
 struct ScrollApp;
 
 impl Widget<State> for ScrollApp {
-    fn build(&self, _ctx: &mut BuildCtx<State>, _view: &View<State>) -> Node {
-        let children = (0..12)
-            .map(|idx| {
-                Text::new(format!("line-{idx:02}"))
-                    .color(Color::BLACK)
-                    .into_node()
-            })
-            .collect();
-        Scroll {
-            id: Some(fission_ir::NodeId::explicit("terminal_scroll")),
-            direction: FlexDirection::Column,
-            width: Some(18.0),
-            height: Some(8.0),
-            show_scrollbar: true,
-            child: Some(Box::new(
-                Column {
-                    gap: Some(0.0),
-                    children,
-                    ..Default::default()
-                }
-                .into_node(),
-            )),
-            ..Default::default()
-        }
-        .into_node()
+    fn build(
+        &self,
+        _ctx: &mut BuildCtx<State>,
+        _view: &View<State>,
+    ) -> impl fission_core::IntoWidget<State> {
+        fission_core::AnyWidget::from_node({
+            let children = (0..12)
+                .map(|idx| {
+                    Text::new(format!("line-{idx:02}"))
+                        .color(Color::BLACK)
+                        .into_node()
+                })
+                .collect();
+            Scroll {
+                id: Some(fission_ir::NodeId::explicit("terminal_scroll")),
+                direction: FlexDirection::Column,
+                width: Some(18.0),
+                height: Some(8.0),
+                show_scrollbar: true,
+                child: Some(Box::new(
+                    Column {
+                        gap: Some(0.0),
+                        children,
+                        ..Default::default()
+                    }
+                    .into_node(),
+                )),
+                ..Default::default()
+            }
+            .into_node()
+        })
     }
 }
 
 struct TextInputApp;
 
 impl Widget<State> for TextInputApp {
-    fn build(&self, _ctx: &mut BuildCtx<State>, _view: &View<State>) -> Node {
-        TextInput {
-            id: Some(fission_ir::NodeId::explicit("terminal_text_input")),
-            value: "abc".to_string(),
-            width: Some(12.0),
-            height: Some(3.0),
-            text_color: Some(Color::BLACK),
-            background_fill: Some(Fill::Solid(Color::WHITE)),
-            border_color: Some(Color::BLACK),
-            focus_border_color: Some(Color::BLACK),
-            ..Default::default()
-        }
-        .into_node()
+    fn build(
+        &self,
+        _ctx: &mut BuildCtx<State>,
+        _view: &View<State>,
+    ) -> impl fission_core::IntoWidget<State> {
+        fission_core::AnyWidget::from_node({
+            TextInput {
+                id: Some(fission_ir::NodeId::explicit("terminal_text_input")),
+                value: "abc".to_string(),
+                width: Some(12.0),
+                height: Some(3.0),
+                text_color: Some(Color::BLACK),
+                background_fill: Some(Fill::Solid(Color::WHITE)),
+                border_color: Some(Color::BLACK),
+                focus_border_color: Some(Color::BLACK),
+                ..Default::default()
+            }
+            .into_node()
+        })
     }
 }
 

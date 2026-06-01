@@ -7,9 +7,10 @@ use fission::widgets::{HStack, Spacer};
 pub struct FindReplaceBar;
 
 impl Widget<EditorState> for FindReplaceBar {
-    fn build(&self, ctx: &mut BuildCtx<EditorState>, view: &View<EditorState>) -> Node {
+    fn build(&self, ctx: &mut BuildCtx<EditorState>, view: &View<EditorState>) -> impl fission::IntoWidget<EditorState>  {
+        fission::AnyWidget::from_node({
         if !view.state.show_find_replace {
-            return Spacer { height: Some(0.0), ..Default::default() }.into_node();
+            return fission::AnyWidget::from_node(Spacer { height: Some(0.0), ..Default::default() }.into_node());
         }
 
         let bg = Color { r: 37, g: 37, b: 38, a: 255 };
@@ -153,5 +154,7 @@ impl Widget<EditorState> for FindReplaceBar {
         .border(Color { r: 48, g: 48, b: 49, a: 255 }, 1.0)
         .flex_shrink(0.0)
         .into_node()
+    
+        })
     }
 }

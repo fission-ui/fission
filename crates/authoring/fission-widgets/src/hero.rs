@@ -19,14 +19,16 @@ pub struct Hero {
 }
 
 impl<S: fission_core::AppState> Widget<S> for Hero {
-    fn build(&self, _ctx: &mut BuildCtx<S>, _view: &View<S>) -> Node {
-        Node::Custom(fission_core::ui::CustomNode {
-            debug_tag: format!("Hero({})", self.tag),
-            lowerer: Some(std::sync::Arc::new(HeroLowerer {
-                tag: self.tag.clone(),
-                child: *self.child.clone(),
-            })),
-            render_object: None,
+    fn build(&self, _ctx: &mut BuildCtx<S>, _view: &View<S>) -> impl fission_core::IntoWidget<S> {
+        fission_core::AnyWidget::from_node({
+            Node::Custom(fission_core::ui::CustomNode {
+                debug_tag: format!("Hero({})", self.tag),
+                lowerer: Some(std::sync::Arc::new(HeroLowerer {
+                    tag: self.tag.clone(),
+                    child: *self.child.clone(),
+                })),
+                render_object: None,
+            })
         })
     }
 }

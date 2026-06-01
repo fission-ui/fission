@@ -39,37 +39,45 @@ fn test_email_list_overlap_regression() {
 
     struct EmailRow;
     impl Widget<State> for EmailRow {
-        fn build(&self, _ctx: &mut BuildCtx<State>, _view: &View<State>) -> Node {
-            Container::new(
-                Row::default()
-                    .children(vec![
-                        // Text Column
-                        Container::new(
-                            Column::default()
-                                .children(vec![
-                                    // Hero Subject
-                                    Node::Custom(fission_core::ui::CustomNode {
-                                        debug_tag: "Hero".into(),
-                                        lowerer: Some(std::sync::Arc::new(MockHero {
-                                            child: Text::new("Subject 10 Subject 10 Subject 10")
+        fn build(
+            &self,
+            _ctx: &mut BuildCtx<State>,
+            _view: &View<State>,
+        ) -> impl fission_core::IntoWidget<State> {
+            fission_core::AnyWidget::from_node({
+                Container::new(
+                    Row::default()
+                        .children(vec![
+                            // Text Column
+                            Container::new(
+                                Column::default()
+                                    .children(vec![
+                                        // Hero Subject
+                                        Node::Custom(fission_core::ui::CustomNode {
+                                            debug_tag: "Hero".into(),
+                                            lowerer: Some(std::sync::Arc::new(MockHero {
+                                                child: Text::new(
+                                                    "Subject 10 Subject 10 Subject 10",
+                                                )
                                                 .min_width(0.0) // Ensure it can shrink
                                                 .into_node(),
-                                        })),
-                                        render_object: None,
-                                    }),
-                                    // Preview
-                                    Text::new("Short preview...").min_width(0.0).into_node(),
-                                ])
-                                .into_node(),
-                        )
-                        .min_width(0.0)
-                        .flex_grow(1.0)
+                                            })),
+                                            render_object: None,
+                                        }),
+                                        // Preview
+                                        Text::new("Short preview...").min_width(0.0).into_node(),
+                                    ])
+                                    .into_node(),
+                            )
+                            .min_width(0.0)
+                            .flex_grow(1.0)
+                            .into_node(),
+                        ])
                         .into_node(),
-                    ])
-                    .into_node(),
-            )
-            .width(100.0) // Constrain width
-            .into_node()
+                )
+                .width(100.0) // Constrain width
+                .into_node()
+            })
         }
     }
 

@@ -422,9 +422,9 @@ pub struct WebRegistration {
 /// # Example
 ///
 /// ```rust,ignore
-/// fn build(&self, ctx: &mut BuildCtx<S>, view: &View<S>) -> Node {
+/// fn build(&self, ctx: &mut BuildCtx<S>, view: &View<S>) -> impl IntoWidget<S> {
 ///     let on_press = ctx.bind(MyAction { .. }, reduce_with!(handler));
-///     Button { on_press: Some(on_press), ..Default::default() }.into_node()
+///     Button { on_press: Some(on_press), ..Default::default() }
 /// }
 /// ```
 pub struct BuildCtx<S: AppState> {

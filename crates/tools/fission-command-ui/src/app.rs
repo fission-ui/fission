@@ -7,17 +7,23 @@ use fission::prelude::*;
 pub struct CliUiApp;
 
 impl Widget<UiState> for CliUiApp {
-    fn build(&self, ctx: &mut BuildCtx<UiState>, view: &View<UiState>) -> Node {
-        let content = ActiveScreen.build(ctx, view);
-        let shell = AppShell { content }.build(ctx, view);
-        if view.state.pending_dialog.is_none() {
-            return shell;
-        }
-        Overlay {
-            content: Box::new(shell),
-            overlay: Box::new(ConfirmationDialog.build(ctx, view)),
-            ..Default::default()
-        }
-        .into_node()
+    fn build(
+        &self,
+        ctx: &mut BuildCtx<UiState>,
+        view: &View<UiState>,
+    ) -> impl fission::IntoWidget<UiState> {
+        fission::AnyWidget::from_node({
+            let content = ActiveScreen.build_node(ctx, view);
+            let shell = AppShell { content }.build_node(ctx, view);
+            if view.state.pending_dialog.is_none() {
+                return fission::AnyWidget::from_node(shell);
+            }
+            Overlay {
+                content: Box::new(shell),
+                overlay: Box::new(ConfirmationDialog.build_node(ctx, view)),
+                ..Default::default()
+            }
+            .into_node()
+        })
     }
 }

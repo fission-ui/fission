@@ -186,18 +186,20 @@ where
     J: JobSpec,
     J::Request: Clone,
 {
-    fn build(&self, ctx: &mut BuildCtx<S>, view: &View<S>) -> Node {
-        let mut resource = JobResource::new(self.key.clone(), self.job, self.request.clone());
-        resource.policy = self.policy;
-        resource.deps = self.deps.clone();
-        if let Some(action) = &self.on_ok {
-            resource = resource.on_ok(action.clone());
-        }
-        if let Some(action) = &self.on_err {
-            resource = resource.on_err(action.clone());
-        }
-        ctx.resources.job(resource);
+    fn build(&self, ctx: &mut BuildCtx<S>, view: &View<S>) -> impl fission_core::IntoWidget<S> {
+        fission_core::AnyWidget::from_node({
+            let mut resource = JobResource::new(self.key.clone(), self.job, self.request.clone());
+            resource.policy = self.policy;
+            resource.deps = self.deps.clone();
+            if let Some(action) = &self.on_ok {
+                resource = resource.on_ok(action.clone());
+            }
+            if let Some(action) = &self.on_err {
+                resource = resource.on_err(action.clone());
+            }
+            ctx.resources.job(resource);
 
-        (self.builder)(ctx, view, &self.snapshot)
+            (self.builder)(ctx, view, &self.snapshot)
+        })
     }
 }

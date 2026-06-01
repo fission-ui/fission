@@ -1,4 +1,4 @@
-use fission_core::ui::{Container, Node};
+use fission_core::ui::Container;
 use fission_core::{BuildCtx, View, Widget};
 use serde::{Deserialize, Serialize};
 
@@ -26,31 +26,33 @@ pub struct Divider {
 }
 
 impl<S: fission_core::AppState> Widget<S> for Divider {
-    fn build(&self, _ctx: &mut BuildCtx<S>, view: &View<S>) -> Node {
-        let tokens = &view.env.theme.tokens;
+    fn build(&self, _ctx: &mut BuildCtx<S>, view: &View<S>) -> impl fission_core::IntoWidget<S> {
+        fission_core::AnyWidget::from_node({
+            let tokens = &view.env.theme.tokens;
 
-        let (w, h) = match self.orientation {
-            Orientation::Horizontal => (f32::NAN, 1.0), // Auto width
-            Orientation::Vertical => (1.0, f32::NAN),   // Auto height
-        };
+            let (w, h) = match self.orientation {
+                Orientation::Horizontal => (f32::NAN, 1.0), // Auto width
+                Orientation::Vertical => (1.0, f32::NAN),   // Auto height
+            };
 
-        let mut c = Container::new(fission_core::ui::Row::default().into()) // Empty
-            .bg(tokens.colors.border);
+            let mut c = Container::new(fission_core::ui::Row::default().into()) // Empty
+                .bg(tokens.colors.border);
 
-        if w.is_nan() {
-            // Container width default is Auto (None)
-        } else {
-            c = c.width(w);
-        }
+            if w.is_nan() {
+                // Container width default is Auto (None)
+            } else {
+                c = c.width(w);
+            }
 
-        if h.is_nan() {
-            // Container height default is Auto (None)
-        } else {
-            c = c.height(h);
-        }
+            if h.is_nan() {
+                // Container height default is Auto (None)
+            } else {
+                c = c.height(h);
+            }
 
-        c = c.flex_grow(1.0);
+            c = c.flex_grow(1.0);
 
-        c.into_node()
+            c.into_node()
+        })
     }
 }

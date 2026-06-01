@@ -1,4 +1,4 @@
-use fission_core::ui::{Column, Container, Node, Row, Text};
+use fission_core::ui::{Column, Container, Row, Text};
 use fission_core::{AppState, BuildCtx, View, Widget};
 use fission_test::TestHarness;
 
@@ -16,33 +16,39 @@ fn text_wrap_increases_layout_height() {
 
     struct Root;
     impl Widget<State> for Root {
-        fn build(&self, _ctx: &mut BuildCtx<State>, _view: &View<State>) -> Node {
-            let long = "This is a very long subject line that should wrap into multiple lines";
-            Container::new(
-                Row::default()
-                    .children(vec![
-                        Container::new(
-                            fission_core::ui::widgets::spacer::Spacer::default().into_node(),
-                        )
-                        .width(40.0)
-                        .height(40.0)
+        fn build(
+            &self,
+            _ctx: &mut BuildCtx<State>,
+            _view: &View<State>,
+        ) -> impl fission_core::IntoWidget<State> {
+            fission_core::AnyWidget::from_node({
+                let long = "This is a very long subject line that should wrap into multiple lines";
+                Container::new(
+                    Row::default()
+                        .children(vec![
+                            Container::new(
+                                fission_core::ui::widgets::spacer::Spacer::default().into_node(),
+                            )
+                            .width(40.0)
+                            .height(40.0)
+                            .into_node(),
+                            Container::new(
+                                Column::default()
+                                    .children(vec![
+                                        Text::new(long).max_width(120.0).into_node(),
+                                        Text::new("Preview").into_node(),
+                                    ])
+                                    .into_node(),
+                            )
+                            .flex_grow(1.0)
+                            .into_node(),
+                            Text::new("10:00 AM").into_node(),
+                        ])
                         .into_node(),
-                        Container::new(
-                            Column::default()
-                                .children(vec![
-                                    Text::new(long).max_width(120.0).into_node(),
-                                    Text::new("Preview").into_node(),
-                                ])
-                                .into_node(),
-                        )
-                        .flex_grow(1.0)
-                        .into_node(),
-                        Text::new("10:00 AM").into_node(),
-                    ])
-                    .into_node(),
-            )
-            .width(160.0)
-            .into_node()
+                )
+                .width(160.0)
+                .into_node()
+            })
         }
     }
 

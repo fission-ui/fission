@@ -67,56 +67,62 @@ impl TextMeasurer for MockMeasurer {
 
 struct Root;
 impl fission_core::view::Widget<AppState> for Root {
-    fn build(&self, ctx: &mut BuildCtx<AppState>, view: &View<AppState>) -> Node {
-        use fission_core::ui::{Column, Row};
-        let mut children: Vec<Node> = vec![
-            Checkbox {
-                checked: view.state.checked,
-                on_toggle: Some(ctx.bind(Toggle, reduce_with!(on_toggle))),
-                label: Some("check".into()),
-                ..Default::default()
-            }
-            .into(),
-            TextInput {
-                value: view.state.text.clone(),
-                placeholder: Some("type".into()),
-                on_change: Some(ctx.bind(UpdateText("".into()), reduce_with!(on_update))),
-                width: Some(200.0),
-                height: Some(40.0),
-                ..Default::default()
-            }
-            .into(),
-        ];
-        if view.state.show_portal {
-            use fission_core::ui::{Overlay, ZStack};
-            let overlay = Overlay {
-                id: None,
-                content: Box::new(Node::Row(Row::default())),
-                overlay: Box::new(Node::ZStack(ZStack {
-                    id: None,
-                    children: vec![
-                        // Nested portal to test recursion
-                        Portal {
-                            child: Node::Row(Row::default()),
-                        }
-                        .build(ctx, view),
-                    ],
+    fn build(
+        &self,
+        ctx: &mut BuildCtx<AppState>,
+        view: &View<AppState>,
+    ) -> impl fission_core::IntoWidget<AppState> {
+        fission_core::AnyWidget::from_node({
+            use fission_core::ui::{Column, Row};
+            let mut children: Vec<Node> = vec![
+                Checkbox {
+                    checked: view.state.checked,
+                    on_toggle: Some(ctx.bind(Toggle, reduce_with!(on_toggle))),
+                    label: Some("check".into()),
                     ..Default::default()
-                })),
-            };
-            children.push(
-                Portal {
-                    child: Node::Overlay(overlay),
                 }
-                .build(ctx, view),
-            );
-        }
-        // Add more nodes to ensure structure
-        children.push(Node::Row(Row::default()));
+                .into(),
+                TextInput {
+                    value: view.state.text.clone(),
+                    placeholder: Some("type".into()),
+                    on_change: Some(ctx.bind(UpdateText("".into()), reduce_with!(on_update))),
+                    width: Some(200.0),
+                    height: Some(40.0),
+                    ..Default::default()
+                }
+                .into(),
+            ];
+            if view.state.show_portal {
+                use fission_core::ui::{Overlay, ZStack};
+                let overlay = Overlay {
+                    id: None,
+                    content: Box::new(Node::Row(Row::default())),
+                    overlay: Box::new(Node::ZStack(ZStack {
+                        id: None,
+                        children: vec![
+                            // Nested portal to test recursion
+                            Portal {
+                                child: Node::Row(Row::default()),
+                            }
+                            .build_node(ctx, view),
+                        ],
+                        ..Default::default()
+                    })),
+                };
+                children.push(
+                    Portal {
+                        child: Node::Overlay(overlay),
+                    }
+                    .build_node(ctx, view),
+                );
+            }
+            // Add more nodes to ensure structure
+            children.push(Node::Row(Row::default()));
 
-        Node::Column(Column {
-            children,
-            ..Default::default()
+            Node::Column(Column {
+                children,
+                ..Default::default()
+            })
         })
     }
 }

@@ -86,83 +86,88 @@ fn set_theme_mode(state: &mut TodoState, mode: DesignMode) {
 struct TodoApp;
 
 impl Widget<TodoState> for TodoApp {
-    fn build(&self, ctx: &mut BuildCtx<TodoState>, view: &View<TodoState>) -> Node {
-        let colors = &view.env.theme.tokens.colors;
-        let spacing = &view.env.theme.tokens.spacing;
-        let done_count = view.state.items.iter().filter(|item| item.done).count();
-        let add = with_reducer!(ctx, AddTodo, add_todo);
-        let update_draft = with_reducer!(ctx, UpdateDraft(String::new()), update_draft);
-        let clear_done = with_reducer!(ctx, ClearDone, clear_done);
-        let light = with_reducer!(ctx, SetThemeMode(DesignMode::Light), set_theme_mode);
-        let dark = with_reducer!(ctx, SetThemeMode(DesignMode::Dark), set_theme_mode);
+    fn build(
+        &self,
+        ctx: &mut BuildCtx<TodoState>,
+        view: &View<TodoState>,
+    ) -> impl fission::IntoWidget<TodoState> {
+        fission::AnyWidget::from_node({
+            let colors = &view.env.theme.tokens.colors;
+            let spacing = &view.env.theme.tokens.spacing;
+            let done_count = view.state.items.iter().filter(|item| item.done).count();
+            let add = with_reducer!(ctx, AddTodo, add_todo);
+            let update_draft = with_reducer!(ctx, UpdateDraft(String::new()), update_draft);
+            let clear_done = with_reducer!(ctx, ClearDone, clear_done);
+            let light = with_reducer!(ctx, SetThemeMode(DesignMode::Light), set_theme_mode);
+            let dark = with_reducer!(ctx, SetThemeMode(DesignMode::Dark), set_theme_mode);
 
-        let mut todo_rows = Vec::new();
-        for item in &view.state.items {
-            let toggle = with_reducer!(ctx, ToggleTodo(item.id), toggle_todo);
-            todo_rows.push(
-                Container::new(
-                    Row {
-                        gap: Some(12.0),
-                        children: vec![
-                            Checkbox {
-                                checked: item.done,
-                                on_toggle: Some(toggle),
-                                ..Default::default()
-                            }
-                            .into_node(),
-                            Text::new(item.title.clone())
-                                .size(16.0)
-                                .color(if item.done {
-                                    colors.text_secondary
-                                } else {
-                                    colors.text_primary
-                                })
+            let mut todo_rows = Vec::new();
+            for item in &view.state.items {
+                let toggle = with_reducer!(ctx, ToggleTodo(item.id), toggle_todo);
+                todo_rows.push(
+                    Container::new(
+                        Row {
+                            gap: Some(12.0),
+                            children: vec![
+                                Checkbox {
+                                    checked: item.done,
+                                    on_toggle: Some(toggle),
+                                    ..Default::default()
+                                }
                                 .into_node(),
-                        ],
+                                Text::new(item.title.clone())
+                                    .size(16.0)
+                                    .color(if item.done {
+                                        colors.text_secondary
+                                    } else {
+                                        colors.text_primary
+                                    })
+                                    .into_node(),
+                            ],
+                            ..Default::default()
+                        }
+                        .into_node(),
+                    )
+                    .padding([16.0, 16.0, 12.0, 12.0])
+                    .border(colors.border, 1.0)
+                    .border_radius(view.env.theme.tokens.radii.medium)
+                    .into_node(),
+                );
+            }
+
+            let theme_toggle = Row {
+                gap: Some(8.0),
+                children: vec![
+                    Button {
+                        variant: if view.state.theme_mode == DesignMode::Light {
+                            ButtonVariant::Primary
+                        } else {
+                            ButtonVariant::SecondaryGray
+                        },
+                        size: ComponentSize::Sm,
+                        child: Some(Box::new(Text::new("Light").into_node())),
+                        on_press: Some(light),
                         ..Default::default()
                     }
                     .into_node(),
-                )
-                .padding([16.0, 16.0, 12.0, 12.0])
-                .border(colors.border, 1.0)
-                .border_radius(view.env.theme.tokens.radii.medium)
-                .into_node(),
-            );
-        }
+                    Button {
+                        variant: if view.state.theme_mode == DesignMode::Dark {
+                            ButtonVariant::Primary
+                        } else {
+                            ButtonVariant::SecondaryGray
+                        },
+                        size: ComponentSize::Sm,
+                        child: Some(Box::new(Text::new("Dark").into_node())),
+                        on_press: Some(dark),
+                        ..Default::default()
+                    }
+                    .into_node(),
+                ],
+                ..Default::default()
+            }
+            .into_node();
 
-        let theme_toggle = Row {
-            gap: Some(8.0),
-            children: vec![
-                Button {
-                    variant: if view.state.theme_mode == DesignMode::Light {
-                        ButtonVariant::Primary
-                    } else {
-                        ButtonVariant::SecondaryGray
-                    },
-                    size: ComponentSize::Sm,
-                    child: Some(Box::new(Text::new("Light").into_node())),
-                    on_press: Some(light),
-                    ..Default::default()
-                }
-                .into_node(),
-                Button {
-                    variant: if view.state.theme_mode == DesignMode::Dark {
-                        ButtonVariant::Primary
-                    } else {
-                        ButtonVariant::SecondaryGray
-                    },
-                    size: ComponentSize::Sm,
-                    child: Some(Box::new(Text::new("Dark").into_node())),
-                    on_press: Some(dark),
-                    ..Default::default()
-                }
-                .into_node(),
-            ],
-            ..Default::default()
-        }
-        .into_node();
-
-        let content = Card {
+            let content = Card {
             pattern: CardPattern::Raised,
             child: Box::new(
                 Column {
@@ -191,7 +196,7 @@ impl Widget<TodoState> for TodoApp {
                                     tone: BadgeTone::Success,
                                     ..Default::default()
                                 }
-                                .build(ctx, view),
+                                .build_node(ctx, view),
                             ],
                             ..Default::default()
                         }
@@ -240,12 +245,13 @@ impl Widget<TodoState> for TodoApp {
             ),
             ..Default::default()
         }
-        .build(ctx, view);
+        .build_node(ctx, view);
 
-        Container::new(content)
-            .bg(colors.background)
-            .padding_all(spacing.xl)
-            .into_node()
+            Container::new(content)
+                .bg(colors.background)
+                .padding_all(spacing.xl)
+                .into_node()
+        })
     }
 }
 

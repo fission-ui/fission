@@ -27,8 +27,8 @@
 //! let layout = VStack {
 //!     spacing: Some(8.0),
 //!     children: vec![
-//!         Badge { text: "New".into(), ..Default::default() }.build(&mut ctx, &view),
-//!         Card { child: Box::new(content) }.build(&mut ctx, &view),
+//!         Badge { text: "New".into(), ..Default::default() }.build_node(&mut ctx, &view),
+//!         Card { child: Box::new(content) }.build_node(&mut ctx, &view),
 //!     ],
 //! }.into_node();
 //! ```
@@ -401,9 +401,11 @@ pub struct Portal {
 }
 
 impl<S: fission_core::AppState> Widget<S> for Portal {
-    fn build(&self, ctx: &mut BuildCtx<S>, _view: &View<S>) -> Node {
-        ctx.register_portal(self.child.clone());
-        // Return invisible spacer
-        Node::Spacer(fission_core::ui::widgets::spacer::Spacer::default())
+    fn build(&self, ctx: &mut BuildCtx<S>, _view: &View<S>) -> impl fission_core::IntoWidget<S> {
+        fission_core::AnyWidget::from_node({
+            ctx.register_portal(self.child.clone());
+            // Return invisible spacer
+            Node::Spacer(fission_core::ui::widgets::spacer::Spacer::default())
+        })
     }
 }

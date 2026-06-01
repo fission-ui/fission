@@ -23,7 +23,7 @@ use serde::{Deserialize, Serialize};
 ///     loop_playback: false,
 ///     ..Default::default()
 /// }
-/// .build(ctx, view);
+/// .build_node(ctx, view);
 /// ```
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct Video {

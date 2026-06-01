@@ -10,14 +10,16 @@ pub struct AspectRatio {
 }
 
 impl<S: fission_core::AppState> Widget<S> for AspectRatio {
-    fn build(&self, _ctx: &mut BuildCtx<S>, _view: &View<S>) -> Node {
-        Node::Custom(fission_core::ui::CustomNode {
-            debug_tag: "AspectRatio".into(),
-            lowerer: Some(std::sync::Arc::new(AspectRatioLowerer {
-                ratio: self.ratio,
-                child: *self.child.clone(),
-            })),
-            render_object: None,
+    fn build(&self, _ctx: &mut BuildCtx<S>, _view: &View<S>) -> impl fission_core::IntoWidget<S> {
+        fission_core::AnyWidget::from_node({
+            Node::Custom(fission_core::ui::CustomNode {
+                debug_tag: "AspectRatio".into(),
+                lowerer: Some(std::sync::Arc::new(AspectRatioLowerer {
+                    ratio: self.ratio,
+                    child: *self.child.clone(),
+                })),
+                render_object: None,
+            })
         })
     }
 }

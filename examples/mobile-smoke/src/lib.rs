@@ -18,85 +18,91 @@ fn on_increment(state: &mut SmokeState) {
 struct MobileSmokeApp;
 
 impl Widget<SmokeState> for MobileSmokeApp {
-    fn build(&self, ctx: &mut BuildCtx<SmokeState>, view: &View<SmokeState>) -> Node {
-        let increment = with_reducer!(ctx, Increment, on_increment);
-        let viewport = view.viewport_size();
-        let content_width = (viewport.width - 48.0).clamp(240.0, 420.0);
-        let background = Color {
-            r: 20,
-            g: 23,
-            b: 31,
-            a: 255,
-        };
-        let body = Color {
-            r: 184,
-            g: 194,
-            b: 209,
-            a: 255,
-        };
-        let accent = Color {
-            r: 145,
-            g: 224,
-            b: 196,
-            a: 255,
-        };
+    fn build(
+        &self,
+        ctx: &mut BuildCtx<SmokeState>,
+        view: &View<SmokeState>,
+    ) -> impl fission::IntoWidget<SmokeState> {
+        fission::AnyWidget::from_node({
+            let increment = with_reducer!(ctx, Increment, on_increment);
+            let viewport = view.viewport_size();
+            let content_width = (viewport.width - 48.0).clamp(240.0, 420.0);
+            let background = Color {
+                r: 20,
+                g: 23,
+                b: 31,
+                a: 255,
+            };
+            let body = Color {
+                r: 184,
+                g: 194,
+                b: 209,
+                a: 255,
+            };
+            let accent = Color {
+                r: 145,
+                g: 224,
+                b: 196,
+                a: 255,
+            };
 
-        let content = Container::new(
-            Column {
-                gap: Some(16.0),
-                children: vec![
-                    Text::new("Mobile smoke")
-                        .size(24.0)
-                        .color(Color::WHITE)
-                        .max_width(content_width)
+            let content = Container::new(
+                Column {
+                    gap: Some(16.0),
+                    children: vec![
+                        Text::new("Mobile smoke")
+                            .size(24.0)
+                            .color(Color::WHITE)
+                            .max_width(content_width)
+                            .into_node(),
+                        Text::new("Fission shell on mobile targets.")
+                            .size(16.0)
+                            .color(body)
+                            .max_width(content_width)
+                            .into_node(),
+                        Text::new(format!("Taps: {}", view.state.taps))
+                            .size(22.0)
+                            .color(accent)
+                            .into_node(),
+                        Button {
+                            width: Some(content_width),
+                            on_press: Some(increment),
+                            child: Some(Box::new(
+                                Text::new("Tap")
+                                    .width((content_width - 96.0).max(120.0))
+                                    .into_node(),
+                            )),
+                            ..Default::default()
+                        }
                         .into_node(),
-                    Text::new("Fission shell on mobile targets.")
-                        .size(16.0)
-                        .color(body)
-                        .max_width(content_width)
-                        .into_node(),
-                    Text::new(format!("Taps: {}", view.state.taps))
-                        .size(22.0)
-                        .color(accent)
-                        .into_node(),
-                    Button {
-                        width: Some(content_width),
-                        on_press: Some(increment),
-                        child: Some(Box::new(
-                            Text::new("Tap")
-                                .width((content_width - 96.0).max(120.0))
-                                .into_node(),
-                        )),
-                        ..Default::default()
-                    }
-                    .into_node(),
-                ],
-                ..Default::default()
-            }
-            .into_node(),
-        )
-        .width(content_width)
-        .into_node();
+                    ],
+                    ..Default::default()
+                }
+                .into_node(),
+            )
+            .width(content_width)
+            .into_node();
 
-        Container::new(
-            Column {
-                gap: Some(0.0),
-                children: vec![
-                    content,
-                    Spacer {
-                        flex_grow: 1.0,
-                        ..Default::default()
-                    }
-                    .into_node(),
-                ],
-                ..Default::default()
-            }
-            .into_node(),
-        )
-        .height(viewport.height.max(1.0))
-        .padding_all(24.0)
-        .bg(background)
-        .into_node()
+            Container::new(
+                Column {
+                    gap: Some(0.0),
+                    children: vec![
+                        content,
+                        Spacer {
+                            flex_grow: 1.0,
+                            ..Default::default()
+                        }
+                        .into_node(),
+                    ],
+                    ..Default::default()
+                }
+                .into_node(),
+            )
+            .height(viewport.height.max(1.0))
+            .padding_all(24.0)
+            .bg(background)
+            .into_node()
+        })
     }
 }
 

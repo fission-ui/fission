@@ -28,38 +28,42 @@ impl Default for Transition {
 }
 
 impl<S: fission_core::AppState> Widget<S> for Transition {
-    fn build(&self, ctx: &mut BuildCtx<S>, _view: &View<S>) -> Node {
-        ctx.request_animation_for(
-            self.id,
-            AnimationRequest {
-                property: self.property.clone(),
-                from: AnimationStartValue::Current, // Always animate from current visual state
-                to: self.value,
-                duration_ms: self.duration,
-                delay_ms: self.delay,
-                repeat: false,
-                frame_interval_ms: None,
-                easing: Default::default(),
-            },
-        );
+    fn build(&self, ctx: &mut BuildCtx<S>, _view: &View<S>) -> impl fission_core::IntoWidget<S> {
+        fission_core::AnyWidget::from_node({
+            ctx.request_animation_for(
+                self.id,
+                AnimationRequest {
+                    property: self.property.clone(),
+                    from: AnimationStartValue::Current, // Always animate from current visual state
+                    to: self.value,
+                    duration_ms: self.duration,
+                    delay_ms: self.delay,
+                    repeat: false,
+                    frame_interval_ms: None,
+                    easing: Default::default(),
+                },
+            );
 
-        let composite = Composite::new(*self.child.clone()).repaint_boundary(true);
+            let composite = Composite::new(*self.child.clone()).repaint_boundary(true);
 
-        match self.property {
-            AnimationPropertyId::Opacity => {
-                composite.animated_opacity(self.id, self.value).into_node()
+            match self.property {
+                AnimationPropertyId::Opacity => {
+                    composite.animated_opacity(self.id, self.value).into_node()
+                }
+                AnimationPropertyId::TranslateX => composite
+                    .animated_translate_x(self.id, self.value)
+                    .into_node(),
+                AnimationPropertyId::TranslateY => composite
+                    .animated_translate_y(self.id, self.value)
+                    .into_node(),
+                AnimationPropertyId::Scale => {
+                    composite.animated_scale(self.id, self.value).into_node()
+                }
+                AnimationPropertyId::Rotation => {
+                    composite.animated_rotation(self.id, self.value).into_node()
+                }
+                AnimationPropertyId::Custom(_) => *self.child.clone(),
             }
-            AnimationPropertyId::TranslateX => composite
-                .animated_translate_x(self.id, self.value)
-                .into_node(),
-            AnimationPropertyId::TranslateY => composite
-                .animated_translate_y(self.id, self.value)
-                .into_node(),
-            AnimationPropertyId::Scale => composite.animated_scale(self.id, self.value).into_node(),
-            AnimationPropertyId::Rotation => {
-                composite.animated_rotation(self.id, self.value).into_node()
-            }
-            AnimationPropertyId::Custom(_) => *self.child.clone(),
-        }
+        })
     }
 }

@@ -68,43 +68,49 @@ impl TextMeasurer for MockMeasurer {
 
 struct Root;
 impl fission_core::view::Widget<AppState> for Root {
-    fn build(&self, ctx: &mut BuildCtx<AppState>, view: &View<AppState>) -> Node {
-        use fission_core::ui::Column;
-        let mut children: Vec<Node> = vec![
-            Checkbox {
-                checked: view.state.checked,
-                on_toggle: Some(ctx.bind(Toggle, reduce_with!(on_toggle))),
-                label: Some("check".into()),
-                ..Default::default()
-            }
-            .into(),
-            TextInput {
-                value: view.state.text.clone(),
-                placeholder: Some("type".into()),
-                on_change: Some(ctx.bind(UpdateText("".into()), reduce_with!(on_update))),
-                width: Some(200.0),
-                height: Some(40.0),
-                ..Default::default()
-            }
-            .into(),
-        ];
-        if view.state.show_portal {
-            use fission_core::ui::{Overlay, Row as UIRow, ZStack};
-            let overlay = Overlay {
-                id: None,
-                content: Box::new(Node::Row(UIRow::default())),
-                overlay: Box::new(Node::ZStack(ZStack::default())),
-            };
-            children.push(
-                Portal {
-                    child: Node::Overlay(overlay),
+    fn build(
+        &self,
+        ctx: &mut BuildCtx<AppState>,
+        view: &View<AppState>,
+    ) -> impl fission_core::IntoWidget<AppState> {
+        fission_core::AnyWidget::from_node({
+            use fission_core::ui::Column;
+            let mut children: Vec<Node> = vec![
+                Checkbox {
+                    checked: view.state.checked,
+                    on_toggle: Some(ctx.bind(Toggle, reduce_with!(on_toggle))),
+                    label: Some("check".into()),
+                    ..Default::default()
                 }
-                .build(ctx, view),
-            );
-        }
-        Node::Column(Column {
-            children,
-            ..Default::default()
+                .into(),
+                TextInput {
+                    value: view.state.text.clone(),
+                    placeholder: Some("type".into()),
+                    on_change: Some(ctx.bind(UpdateText("".into()), reduce_with!(on_update))),
+                    width: Some(200.0),
+                    height: Some(40.0),
+                    ..Default::default()
+                }
+                .into(),
+            ];
+            if view.state.show_portal {
+                use fission_core::ui::{Overlay, Row as UIRow, ZStack};
+                let overlay = Overlay {
+                    id: None,
+                    content: Box::new(Node::Row(UIRow::default())),
+                    overlay: Box::new(Node::ZStack(ZStack::default())),
+                };
+                children.push(
+                    Portal {
+                        child: Node::Overlay(overlay),
+                    }
+                    .build_node(ctx, view),
+                );
+            }
+            Node::Column(Column {
+                children,
+                ..Default::default()
+            })
         })
     }
 }

@@ -7,9 +7,10 @@ use fission::widgets::{HStack, Spacer};
 pub struct Breadcrumb;
 
 impl Widget<EditorState> for Breadcrumb {
-    fn build(&self, _ctx: &mut BuildCtx<EditorState>, view: &View<EditorState>) -> Node {
+    fn build(&self, _ctx: &mut BuildCtx<EditorState>, view: &View<EditorState>) -> impl fission::IntoWidget<EditorState>  {
+        fission::AnyWidget::from_node({
         let Some((tab, _buf)) = view.state.active_buffer() else {
-            return Spacer { height: Some(0.0), ..Default::default() }.into_node();
+            return fission::AnyWidget::from_node(Spacer { height: Some(0.0), ..Default::default() }.into_node());
         };
 
         let dim = Color { r: 140, g: 140, b: 140, a: 255 };
@@ -50,5 +51,7 @@ impl Widget<EditorState> for Breadcrumb {
         .padding_all(4.0)
         .flex_shrink(0.0)
         .into_node()
+    
+        })
     }
 }

@@ -5,7 +5,7 @@ use fission_core::{
     reduce_with, AppState, BuildCtx, InputEvent, OpenUrlRequest, PointerButton, PointerEvent,
     ReducerContext, View, Widget, OPEN_URL,
 };
-use fission_widgets::{Button, ButtonVariant, Container, Node, Text};
+use fission_widgets::{Button, ButtonVariant, Container, Text};
 
 #[derive(Debug, Default)]
 struct TestState;
@@ -27,21 +27,27 @@ fn on_open_link(_state: &mut TestState, action: OpenLink, ctx: &mut ReducerConte
 struct Root;
 
 impl Widget<TestState> for Root {
-    fn build(&self, _ctx: &mut BuildCtx<TestState>, _view: &View<TestState>) -> Node {
-        Container::new(
-            Button {
-                child: Some(Box::new(Text::new("Open").into_node())),
-                on_press: Some(ActionEnvelope::from(OpenLink("https://example.com".into()))),
-                variant: ButtonVariant::Filled,
-                width: Some(200.0),
-                height: Some(40.0),
-                ..Default::default()
-            }
-            .into_node(),
-        )
-        .width(300.0)
-        .height(100.0)
-        .into_node()
+    fn build(
+        &self,
+        _ctx: &mut BuildCtx<TestState>,
+        _view: &View<TestState>,
+    ) -> impl fission_core::IntoWidget<TestState> {
+        fission_core::AnyWidget::from_node({
+            Container::new(
+                Button {
+                    child: Some(Box::new(Text::new("Open").into_node())),
+                    on_press: Some(ActionEnvelope::from(OpenLink("https://example.com".into()))),
+                    variant: ButtonVariant::Filled,
+                    width: Some(200.0),
+                    height: Some(40.0),
+                    ..Default::default()
+                }
+                .into_node(),
+            )
+            .width(300.0)
+            .height(100.0)
+            .into_node()
+        })
     }
 }
 

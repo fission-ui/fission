@@ -1,5 +1,5 @@
 use fission_core::op::Color;
-use fission_core::ui::{Composite, Container, Node};
+use fission_core::ui::{Composite, Container};
 use fission_core::{
     AnimationPropertyId, AnimationRequest, AnimationStartValue, BuildCtx, View, Widget,
     WidgetNodeId,
@@ -31,43 +31,45 @@ pub struct Skeleton {
 }
 
 impl<S: fission_core::AppState> Widget<S> for Skeleton {
-    fn build(&self, ctx: &mut BuildCtx<S>, view: &View<S>) -> Node {
-        let tokens = &view.env.theme.tokens;
+    fn build(&self, ctx: &mut BuildCtx<S>, view: &View<S>) -> impl fission_core::IntoWidget<S> {
+        fission_core::AnyWidget::from_node({
+            let tokens = &view.env.theme.tokens;
 
-        let base = Container::new(fission_core::ui::widgets::Spacer::default().into_node())
-            .width(self.width.unwrap_or(100.0))
-            .height(self.height.unwrap_or(20.0))
-            .bg(Color {
-                r: 200,
-                g: 200,
-                b: 200,
-                a: (0.8 * 255.0) as u8,
-            })
-            .border_radius(if self.circle {
-                9999.0
+            let base = Container::new(fission_core::ui::widgets::Spacer::default().into_node())
+                .width(self.width.unwrap_or(100.0))
+                .height(self.height.unwrap_or(20.0))
+                .bg(Color {
+                    r: 200,
+                    g: 200,
+                    b: 200,
+                    a: (0.8 * 255.0) as u8,
+                })
+                .border_radius(if self.circle {
+                    9999.0
+                } else {
+                    tokens.radii.small
+                })
+                .into_node();
+            let boundary = Composite::new(base).repaint_boundary(true).into_node();
+
+            if self.animated {
+                ctx.anim_for(self.id).request(AnimationRequest {
+                    property: AnimationPropertyId::Opacity,
+                    from: AnimationStartValue::Explicit(0.4),
+                    to: 0.8,
+                    duration_ms: 800,
+                    repeat: true,
+                    delay_ms: 0,
+                    frame_interval_ms: Some(LOW_PRIORITY_REPEAT_FRAME_MS),
+                    easing: Default::default(),
+                });
+                Composite::new(boundary)
+                    .animated_opacity(self.id, 0.4)
+                    .into_node()
             } else {
-                tokens.radii.small
-            })
-            .into_node();
-        let boundary = Composite::new(base).repaint_boundary(true).into_node();
-
-        if self.animated {
-            ctx.anim_for(self.id).request(AnimationRequest {
-                property: AnimationPropertyId::Opacity,
-                from: AnimationStartValue::Explicit(0.4),
-                to: 0.8,
-                duration_ms: 800,
-                repeat: true,
-                delay_ms: 0,
-                frame_interval_ms: Some(LOW_PRIORITY_REPEAT_FRAME_MS),
-                easing: Default::default(),
-            });
-            Composite::new(boundary)
-                .animated_opacity(self.id, 0.4)
-                .into_node()
-        } else {
-            boundary
-        }
+                boundary
+            }
+        })
     }
 }
 

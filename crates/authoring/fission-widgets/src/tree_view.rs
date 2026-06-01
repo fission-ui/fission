@@ -23,17 +23,19 @@ pub struct TreeView {
 }
 
 impl<S: fission_core::AppState> Widget<S> for TreeView {
-    fn build(&self, ctx: &mut BuildCtx<S>, view: &View<S>) -> Node {
-        let mut nodes = Vec::new();
-        for item in &self.items {
-            self.build_recursive(item, 0, &mut nodes, ctx, view);
-        }
+    fn build(&self, ctx: &mut BuildCtx<S>, view: &View<S>) -> impl fission_core::IntoWidget<S> {
+        fission_core::AnyWidget::from_node({
+            let mut nodes = Vec::new();
+            for item in &self.items {
+                self.build_recursive(item, 0, &mut nodes, ctx, view);
+            }
 
-        VStack {
-            spacing: Some(0.0),
-            children: nodes,
-        }
-        .build(ctx, view)
+            VStack {
+                spacing: Some(0.0),
+                children: nodes,
+            }
+            .build_node(ctx, view)
+        })
     }
 }
 

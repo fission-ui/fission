@@ -36,41 +36,43 @@ impl Default for CircularProgress {
 }
 
 impl<S: fission_core::AppState> Widget<S> for CircularProgress {
-    fn build(&self, ctx: &mut BuildCtx<S>, view: &View<S>) -> Node {
-        let tokens = &view.env.theme.tokens;
-        let color = self.color.unwrap_or(tokens.colors.primary);
-        let track_color = self.track_color.unwrap_or(tokens.colors.border);
+    fn build(&self, ctx: &mut BuildCtx<S>, view: &View<S>) -> impl fission_core::IntoWidget<S> {
+        fission_core::AnyWidget::from_node({
+            let tokens = &view.env.theme.tokens;
+            let color = self.color.unwrap_or(tokens.colors.primary);
+            let track_color = self.track_color.unwrap_or(tokens.colors.border);
 
-        let node = Node::Custom(fission_core::ui::CustomNode {
-            debug_tag: "CircularProgress".into(),
-            lowerer: Some(std::sync::Arc::new(CircularProgressLowerer {
-                value: self.value,
-                size: self.size,
-                color,
-                track_color,
-                thickness: self.thickness,
-            })),
-            render_object: None,
-        });
-
-        if self.value.is_none() && self.animated {
-            ctx.anim_for(self.id).request(AnimationRequest {
-                property: AnimationPropertyId::Rotation,
-                from: AnimationStartValue::Explicit(0.0),
-                to: PI * 2.0,
-                duration_ms: SPIN_DURATION_MS,
-                repeat: true,
-                delay_ms: 0,
-                frame_interval_ms: None,
-                easing: EasingFunction::Linear,
+            let node = Node::Custom(fission_core::ui::CustomNode {
+                debug_tag: "CircularProgress".into(),
+                lowerer: Some(std::sync::Arc::new(CircularProgressLowerer {
+                    value: self.value,
+                    size: self.size,
+                    color,
+                    track_color,
+                    thickness: self.thickness,
+                })),
+                render_object: None,
             });
-            Composite::new(node)
-                .repaint_boundary(true)
-                .animated_rotation(self.id, 0.0)
-                .into_node()
-        } else {
-            node
-        }
+
+            if self.value.is_none() && self.animated {
+                ctx.anim_for(self.id).request(AnimationRequest {
+                    property: AnimationPropertyId::Rotation,
+                    from: AnimationStartValue::Explicit(0.0),
+                    to: PI * 2.0,
+                    duration_ms: SPIN_DURATION_MS,
+                    repeat: true,
+                    delay_ms: 0,
+                    frame_interval_ms: None,
+                    easing: EasingFunction::Linear,
+                });
+                Composite::new(node)
+                    .repaint_boundary(true)
+                    .animated_rotation(self.id, 0.0)
+                    .into_node()
+            } else {
+                node
+            }
+        })
     }
 }
 

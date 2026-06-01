@@ -9,9 +9,10 @@ use fission::widgets::Spacer;
 pub struct HoverTooltip;
 
 impl Widget<EditorState> for HoverTooltip {
-    fn build(&self, ctx: &mut BuildCtx<EditorState>, view: &View<EditorState>) -> Node {
+    fn build(&self, ctx: &mut BuildCtx<EditorState>, view: &View<EditorState>) -> impl fission::IntoWidget<EditorState>  {
+        fission::AnyWidget::from_node({
         if !view.state.show_hover || view.state.hover_info.is_none() {
-            return Spacer { height: Some(0.0), ..Default::default() }.into_node();
+            return fission::AnyWidget::from_node(Spacer { height: Some(0.0), ..Default::default() }.into_node());
         }
 
         let info = view.state.hover_info.as_ref().unwrap();
@@ -105,5 +106,7 @@ impl Widget<EditorState> for HoverTooltip {
         );
 
         Spacer { height: Some(0.0), ..Default::default() }.into_node()
+    
+        })
     }
 }

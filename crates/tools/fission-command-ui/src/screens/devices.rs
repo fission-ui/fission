@@ -10,10 +10,15 @@ use fission::prelude::*;
 pub struct DevicesScreen;
 
 impl Widget<UiState> for DevicesScreen {
-    fn build(&self, ctx: &mut BuildCtx<UiState>, view: &View<UiState>) -> Node {
-        let palette = UiPalette::for_mode(view.state.theme_mode);
-        let refresh = with_reducer!(ctx, RequestCommand(UiCommand::Refresh), request_command);
-        Column {
+    fn build(
+        &self,
+        ctx: &mut BuildCtx<UiState>,
+        view: &View<UiState>,
+    ) -> impl fission::IntoWidget<UiState> {
+        fission::AnyWidget::from_node({
+            let palette = UiPalette::for_mode(view.state.theme_mode);
+            let refresh = with_reducer!(ctx, RequestCommand(UiCommand::Refresh), request_command);
+            Column {
             gap: Some(1.0),
             children: vec![
                 title_block(
@@ -26,12 +31,12 @@ impl Widget<UiState> for DevicesScreen {
                     gap: Some(2.0),
                     children: vec![
                         KeyValueRow::new("Selected target", view.state.selected_target_label())
-                            .build(ctx, view),
+                            .build_node(ctx, view),
                         KeyValueRow::new("Selected device", view.state.selected_device_label())
-                            .build(ctx, view),
+                            .build_node(ctx, view),
                         ActionButton::new("Refresh devices", refresh)
                             .tone(ButtonTone::Primary)
-                            .build(ctx, view),
+                            .build_node(ctx, view),
                     ],
                     ..Default::default()
                 }
@@ -41,10 +46,11 @@ impl Widget<UiState> for DevicesScreen {
                     selectable: true,
                     max_rows: 12,
                 }
-                .build(ctx, view),
+                .build_node(ctx, view),
             ],
             ..Default::default()
         }
         .into_node()
+        })
     }
 }

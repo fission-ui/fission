@@ -10,26 +10,32 @@ impl fission_core::action::AppState for AppState {}
 
 struct OrderRow;
 impl Widget<AppState> for OrderRow {
-    fn build(&self, _ctx: &mut BuildCtx<AppState>, _view: &View<AppState>) -> Node {
-        Node::Row(Row {
-            children: vec![
-                Text {
-                    content: TextContent::Literal("A".into()),
-                    ..Default::default()
-                }
-                .into(),
-                Text {
-                    content: TextContent::Literal("B".into()),
-                    ..Default::default()
-                }
-                .into(),
-                Text {
-                    content: TextContent::Literal("C".into()),
-                    ..Default::default()
-                }
-                .into(),
-            ],
-            ..Default::default()
+    fn build(
+        &self,
+        _ctx: &mut BuildCtx<AppState>,
+        _view: &View<AppState>,
+    ) -> impl fission_core::IntoWidget<AppState> {
+        fission_core::AnyWidget::from_node({
+            Node::Row(Row {
+                children: vec![
+                    Text {
+                        content: TextContent::Literal("A".into()),
+                        ..Default::default()
+                    }
+                    .into(),
+                    Text {
+                        content: TextContent::Literal("B".into()),
+                        ..Default::default()
+                    }
+                    .into(),
+                    Text {
+                        content: TextContent::Literal("C".into()),
+                        ..Default::default()
+                    }
+                    .into(),
+                ],
+                ..Default::default()
+            })
         })
     }
 }

@@ -90,7 +90,7 @@ impl GalleryBuildExt for Chart {
             gallery_chart_width(content_width),
             gallery_chart_height(),
         )
-        .build(ctx, view)
+        .build_node(ctx, view)
     }
 }
 
@@ -103,7 +103,7 @@ impl GalleryBuildExt for Scene3D {
     ) -> Node {
         self.width(gallery_chart_width(content_width))
             .height(gallery_chart_height())
-            .build(ctx, _view)
+            .build_node(ctx, _view)
     }
 }
 

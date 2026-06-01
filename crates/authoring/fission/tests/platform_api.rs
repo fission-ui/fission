@@ -24,8 +24,12 @@ fn on_notification_response(state: &mut PlatformApiState, action: NotificationRe
 struct PlatformApiApp;
 
 impl Widget<PlatformApiState> for PlatformApiApp {
-    fn build(&self, _ctx: &mut BuildCtx<PlatformApiState>, _view: &View<PlatformApiState>) -> Node {
-        Text::new("platform api").into_node()
+    fn build(
+        &self,
+        _ctx: &mut BuildCtx<PlatformApiState>,
+        _view: &View<PlatformApiState>,
+    ) -> impl fission_core::IntoWidget<PlatformApiState> {
+        fission_core::AnyWidget::from_node(Text::new("platform api").into_node())
     }
 }
 

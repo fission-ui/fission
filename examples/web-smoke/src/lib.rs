@@ -1,7 +1,7 @@
 pub mod app;
 
 use anyhow::Result;
-use app::{CounterApp, CounterState};
+use app::CounterApp;
 use fission::prelude::*;
 
 #[cfg(target_os = "android")]

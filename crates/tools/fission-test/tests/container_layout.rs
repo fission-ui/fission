@@ -1,6 +1,6 @@
 use fission_core::op::Color;
 use fission_core::ui::Container;
-use fission_core::{AppState, BuildCtx, Node, View, Widget};
+use fission_core::{AppState, BuildCtx, View, Widget};
 use fission_test::TestHarness;
 
 #[derive(Debug, Default, Clone)]
@@ -23,25 +23,31 @@ fn test_container_background_fills_border_box() {
         _h: f32,
     }
     impl Widget<State> for Root {
-        fn build(&self, _ctx: &mut BuildCtx<State>, _view: &View<State>) -> Node {
-            // Use Align to prevent stretching the test container
-            fission_core::ui::widgets::align::Align::new(
-                Container::new(
-                    // Content: Large box
+        fn build(
+            &self,
+            _ctx: &mut BuildCtx<State>,
+            _view: &View<State>,
+        ) -> impl fission_core::IntoWidget<State> {
+            fission_core::AnyWidget::from_node({
+                // Use Align to prevent stretching the test container
+                fission_core::ui::widgets::align::Align::new(
                     Container::new(
-                        fission_core::ui::widgets::spacer::Spacer::default().into_node(),
+                        // Content: Large box
+                        Container::new(
+                            fission_core::ui::widgets::spacer::Spacer::default().into_node(),
+                        )
+                        .width(200.0)
+                        .height(200.0)
+                        .bg(Color::BLUE)
+                        .into_node(),
                     )
-                    .width(200.0)
-                    .height(200.0)
-                    .bg(Color::BLUE)
+                    // Auto size
+                    .padding_all(self.p)
+                    .bg(Color::RED) // The background
                     .into_node(),
                 )
-                // Auto size
-                .padding_all(self.p)
-                .bg(Color::RED) // The background
-                .into_node(),
-            )
-            .into_node()
+                .into_node()
+            })
         }
     }
 

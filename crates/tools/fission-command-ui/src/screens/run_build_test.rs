@@ -22,8 +22,13 @@ pub struct BuildScreen;
 pub struct TestScreen;
 
 impl Widget<UiState> for RunScreen {
-    fn build(&self, ctx: &mut BuildCtx<UiState>, view: &View<UiState>) -> Node {
-        ExecutionScreen {
+    fn build(
+        &self,
+        ctx: &mut BuildCtx<UiState>,
+        view: &View<UiState>,
+    ) -> impl fission::IntoWidget<UiState> {
+        fission::AnyWidget::from_node({
+            ExecutionScreen {
             title: "Run",
             description: "Launch the selected target on the selected device and attach output unless detach is enabled.",
             command: UiCommand::RunSelected,
@@ -34,41 +39,54 @@ impl Widget<UiState> for RunScreen {
             show_no_open: true,
             show_headless: true,
         }
-        .build(ctx, view)
+        .build_node(ctx, view)
+        })
     }
 }
 
 impl Widget<UiState> for BuildScreen {
-    fn build(&self, ctx: &mut BuildCtx<UiState>, view: &View<UiState>) -> Node {
-        ExecutionScreen {
-            title: "Build",
-            description: "Build the selected target without launching it.",
-            command: UiCommand::BuildSelected,
-            primary_label: "Build selected target",
-            show_devices: false,
-            show_host_port: false,
-            show_detach: false,
-            show_no_open: false,
-            show_headless: false,
-        }
-        .build(ctx, view)
+    fn build(
+        &self,
+        ctx: &mut BuildCtx<UiState>,
+        view: &View<UiState>,
+    ) -> impl fission::IntoWidget<UiState> {
+        fission::AnyWidget::from_node({
+            ExecutionScreen {
+                title: "Build",
+                description: "Build the selected target without launching it.",
+                command: UiCommand::BuildSelected,
+                primary_label: "Build selected target",
+                show_devices: false,
+                show_host_port: false,
+                show_detach: false,
+                show_no_open: false,
+                show_headless: false,
+            }
+            .build_node(ctx, view)
+        })
     }
 }
 
 impl Widget<UiState> for TestScreen {
-    fn build(&self, ctx: &mut BuildCtx<UiState>, view: &View<UiState>) -> Node {
-        ExecutionScreen {
-            title: "Test",
-            description: "Run the generated smoke test for the selected target.",
-            command: UiCommand::TestSelected,
-            primary_label: "Test selected target",
-            show_devices: false,
-            show_host_port: false,
-            show_detach: false,
-            show_no_open: false,
-            show_headless: true,
-        }
-        .build(ctx, view)
+    fn build(
+        &self,
+        ctx: &mut BuildCtx<UiState>,
+        view: &View<UiState>,
+    ) -> impl fission::IntoWidget<UiState> {
+        fission::AnyWidget::from_node({
+            ExecutionScreen {
+                title: "Test",
+                description: "Run the generated smoke test for the selected target.",
+                command: UiCommand::TestSelected,
+                primary_label: "Test selected target",
+                show_devices: false,
+                show_host_port: false,
+                show_detach: false,
+                show_no_open: false,
+                show_headless: true,
+            }
+            .build_node(ctx, view)
+        })
     }
 }
 
@@ -86,59 +104,67 @@ struct ExecutionScreen {
 }
 
 impl Widget<UiState> for ExecutionScreen {
-    fn build(&self, ctx: &mut BuildCtx<UiState>, view: &View<UiState>) -> Node {
-        let palette = UiPalette::for_mode(view.state.theme_mode);
-        let action = with_reducer!(ctx, RequestCommand(self.command.clone()), request_command);
-        let mut sections = vec![
-            title_block(self.title, self.description, palette.accent, palette.muted),
-            Row {
-                gap: Some(2.0),
-                children: vec![
-                    KeyValueRow::new("Target", view.state.selected_target_label()).build(ctx, view),
-                    KeyValueRow::new("Device", view.state.selected_device_label()).build(ctx, view),
-                ],
+    fn build(
+        &self,
+        ctx: &mut BuildCtx<UiState>,
+        view: &View<UiState>,
+    ) -> impl fission::IntoWidget<UiState> {
+        fission::AnyWidget::from_node({
+            let palette = UiPalette::for_mode(view.state.theme_mode);
+            let action = with_reducer!(ctx, RequestCommand(self.command.clone()), request_command);
+            let mut sections = vec![
+                title_block(self.title, self.description, palette.accent, palette.muted),
+                Row {
+                    gap: Some(2.0),
+                    children: vec![
+                        KeyValueRow::new("Target", view.state.selected_target_label())
+                            .build_node(ctx, view),
+                        KeyValueRow::new("Device", view.state.selected_device_label())
+                            .build_node(ctx, view),
+                    ],
+                    ..Default::default()
+                }
+                .into_node(),
+                TargetPicker {
+                    configured_only: true,
+                }
+                .build_node(ctx, view),
+            ];
+
+            if self.show_devices {
+                sections.push(
+                    Text::new("Runnable devices")
+                        .color(palette.accent)
+                        .into_node(),
+                );
+                sections.push(
+                    DeviceTable {
+                        devices: current_target_devices(view),
+                        selectable: true,
+                        max_rows: 7,
+                    }
+                    .build_node(ctx, view),
+                );
+            }
+
+            if self.show_host_port {
+                sections.push(network_fields(ctx, view));
+            }
+            sections.push(option_toggles(self, ctx, view));
+            sections.push(
+                ActionButton::new(self.primary_label, action)
+                    .tone(ButtonTone::Primary)
+                    .width(26.0)
+                    .build_node(ctx, view),
+            );
+
+            Column {
+                gap: Some(1.0),
+                children: sections,
                 ..Default::default()
             }
-            .into_node(),
-            TargetPicker {
-                configured_only: true,
-            }
-            .build(ctx, view),
-        ];
-
-        if self.show_devices {
-            sections.push(
-                Text::new("Runnable devices")
-                    .color(palette.accent)
-                    .into_node(),
-            );
-            sections.push(
-                DeviceTable {
-                    devices: current_target_devices(view),
-                    selectable: true,
-                    max_rows: 7,
-                }
-                .build(ctx, view),
-            );
-        }
-
-        if self.show_host_port {
-            sections.push(network_fields(ctx, view));
-        }
-        sections.push(option_toggles(self, ctx, view));
-        sections.push(
-            ActionButton::new(self.primary_label, action)
-                .tone(ButtonTone::Primary)
-                .width(26.0)
-                .build(ctx, view),
-        );
-
-        Column {
-            gap: Some(1.0),
-            children: sections,
-            ..Default::default()
-        }
-        .into_node()
+            .into_node()
+        })
     }
 }
 
@@ -156,7 +182,7 @@ fn network_fields(ctx: &mut BuildCtx<UiState>, view: &View<UiState>) -> Node {
                 host,
             )
             .width(24.0)
-            .build(ctx, view),
+            .build_node(ctx, view),
             FormTextField::new(
                 "cli_ui_run_port",
                 "Port",
@@ -165,7 +191,7 @@ fn network_fields(ctx: &mut BuildCtx<UiState>, view: &View<UiState>) -> Node {
                 port,
             )
             .width(12.0)
-            .build(ctx, view),
+            .build_node(ctx, view),
         ],
         ..Default::default()
     }
@@ -187,19 +213,20 @@ fn option_toggles(
 ) -> Node {
     let mut toggles = Vec::new();
     let release = with_reducer!(ctx, ToggleRelease, toggle_release);
-    toggles.push(TogglePill::new("Release", view.state.release, release).build(ctx, view));
+    toggles.push(TogglePill::new("Release", view.state.release, release).build_node(ctx, view));
 
     if screen.show_detach {
         let detach = with_reducer!(ctx, ToggleDetach, toggle_detach);
-        toggles.push(TogglePill::new("Detach", view.state.detach, detach).build(ctx, view));
+        toggles.push(TogglePill::new("Detach", view.state.detach, detach).build_node(ctx, view));
     }
     if screen.show_no_open {
         let no_open = with_reducer!(ctx, ToggleNoOpen, toggle_no_open);
-        toggles.push(TogglePill::new("No open", view.state.no_open, no_open).build(ctx, view));
+        toggles.push(TogglePill::new("No open", view.state.no_open, no_open).build_node(ctx, view));
     }
     if screen.show_headless {
         let headless = with_reducer!(ctx, ToggleHeadless, toggle_headless);
-        toggles.push(TogglePill::new("Headless", view.state.headless, headless).build(ctx, view));
+        toggles
+            .push(TogglePill::new("Headless", view.state.headless, headless).build_node(ctx, view));
     }
 
     Row {

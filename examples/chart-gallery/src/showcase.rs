@@ -370,7 +370,7 @@ fn chart_card(
                 }
                 .into_node(),
                 configure_chart(chart, view, (width - 32.0).max(260.0), chart_height)
-                    .build(ctx, view),
+                    .build_node(ctx, view),
             ],
             gap: Some(12.0),
             ..Default::default()

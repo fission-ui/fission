@@ -44,23 +44,25 @@ impl MarkdownViewer {
 }
 
 impl<S: fission_core::AppState> Widget<S> for MarkdownViewer {
-    fn build(&self, _ctx: &mut BuildCtx<S>, view: &View<S>) -> Node {
-        let parser = Parser::with_extensions(
-            parser::Options::default(),
-            parser::gfm(parser::GfmOptions::default()),
-        );
-        let mut reader = BasicReader::new(&self.markdown);
-        let (arena, document_ref) = parser.parse(&mut reader);
-        let renderer = MarkdownRenderer::new(&self.markdown, &arena, view);
+    fn build(&self, _ctx: &mut BuildCtx<S>, view: &View<S>) -> impl fission_core::IntoWidget<S> {
+        fission_core::AnyWidget::from_node({
+            let parser = Parser::with_extensions(
+                parser::Options::default(),
+                parser::gfm(parser::GfmOptions::default()),
+            );
+            let mut reader = BasicReader::new(&self.markdown);
+            let (arena, document_ref) = parser.parse(&mut reader);
+            let renderer = MarkdownRenderer::new(&self.markdown, &arena, view);
 
-        Scroll {
-            child: Some(Box::new(renderer.document(document_ref))),
-            direction: FlexDirection::Column,
-            show_scrollbar: self.show_scrollbar,
-            flex_grow: 1.0,
-            ..Default::default()
-        }
-        .into_node()
+            Scroll {
+                child: Some(Box::new(renderer.document(document_ref))),
+                direction: FlexDirection::Column,
+                show_scrollbar: self.show_scrollbar,
+                flex_grow: 1.0,
+                ..Default::default()
+            }
+            .into_node()
+        })
     }
 }
 

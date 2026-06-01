@@ -1,5 +1,5 @@
 use anyhow::Result;
-use fission_core::ui::{Node, Text, TextContent};
+use fission_core::ui::{Text, TextContent};
 use fission_core::{BuildCtx, View, Widget};
 use fission_test::TestHarness;
 use fission_widgets::LazyColumn;
@@ -11,24 +11,30 @@ impl fission_core::action::AppState for AppState {}
 
 struct Root;
 impl Widget<AppState> for Root {
-    fn build(&self, _ctx: &mut BuildCtx<AppState>, _view: &View<AppState>) -> Node {
-        let mut children = Vec::new();
-        for i in 0..10 {
-            children.push(
-                Text {
-                    content: TextContent::Literal(format!("Item {}", i)),
-                    ..Default::default()
-                }
-                .into(),
-            );
-        }
+    fn build(
+        &self,
+        _ctx: &mut BuildCtx<AppState>,
+        _view: &View<AppState>,
+    ) -> impl fission_core::IntoWidget<AppState> {
+        fission_core::AnyWidget::from_node({
+            let mut children = Vec::new();
+            for i in 0..10 {
+                children.push(
+                    Text {
+                        content: TextContent::Literal(format!("Item {}", i)),
+                        ..Default::default()
+                    }
+                    .into(),
+                );
+            }
 
-        LazyColumn {
-            id: None,
-            children: Arc::new(children),
-            item_height: 20.0,
-        }
-        .into()
+            LazyColumn {
+                id: None,
+                children: Arc::new(children),
+                item_height: 20.0,
+            }
+            .into()
+        })
     }
 }
 

@@ -7,88 +7,97 @@ use fission::prelude::*;
 pub(crate) struct DocsFooter;
 
 impl Widget<DocsState> for DocsFooter {
-    fn build(&self, ctx: &mut BuildCtx<DocsState>, view: &View<DocsState>) -> Node {
-        let tokens = &view.env.theme.tokens;
-        Container::new(
-            Column {
-                children: vec![
-                    Row {
-                        children: vec![
-                            FooterColumn::new(
-                                "Setup",
-                                &[
-                                    ("Quickstart", "/docs/learn/quickstart/"),
-                                    ("Add targets", "/docs/cookbook/add-platform-targets/"),
-                                    ("Project structure", "/docs/guides/app-structure/"),
-                                ],
-                            )
-                            .build(ctx, view),
-                            FooterColumn::new(
-                                "Learn",
-                                &[
-                                    ("Overview", "/docs/learn/overview/"),
-                                    ("Runtime model", "/docs/learn/runtime-model/"),
-                                    ("Widgets", "/docs/guides/layout-and-widgets/"),
-                                    ("Design systems", "/docs/guides/design-system/"),
-                                    ("Charts", "/docs/charts/overview/"),
-                                ],
-                            )
-                            .build(ctx, view),
-                            FooterColumn::new(
-                                "Build",
-                                &[
-                                    (
-                                        "Platform shells",
-                                        "/docs/guides/platform-shells-cli-and-testing/",
-                                    ),
-                                    ("Terminal UI", "/docs/guides/terminal-user-interfaces/"),
-                                    ("Static sites", "/docs/guides/static-sites/"),
-                                    ("Packaging", "/docs/build-and-package/overview/"),
-                                ],
-                            )
-                            .build(ctx, view),
-                            FooterColumn::new(
-                                "Test",
-                                &[
-                                    ("Testing lifecycle", "/docs/test-and-debug/overview/"),
-                                    ("Diagnostics", "/docs/guides/testing-and-diagnostics/"),
-                                    ("Live UI test", "/docs/cookbook/write-a-live-ui-test/"),
-                                ],
-                            )
-                            .build(ctx, view),
-                            FooterColumn::new(
-                                "Publish",
-                                &[
-                                    ("Release overview", "/docs/release-and-distribute/overview/"),
-                                    (
-                                        "Lifecycle details",
-                                        "/docs/release-and-distribute/post-build-lifecycle/",
-                                    ),
-                                    ("CLI reference", "/reference/cli/overview/"),
-                                    ("Examples", "/docs/learn/examples-and-targets/"),
-                                ],
-                            )
-                            .build(ctx, view),
-                        ],
-                        gap: Some(tokens.spacing.xxl),
-                        wrap: FlexWrap::Wrap,
-                        align_items: AlignItems::Start,
-                        justify_content: JustifyContent::Center,
-                        ..Default::default()
-                    }
-                    .into_node(),
-                    footer_identity(ctx, view),
-                ],
-                gap: Some(tokens.spacing.xxl),
-                align_items: AlignItems::Center,
-                ..Default::default()
-            }
-            .into_node(),
-        )
-        .padding_all(tokens.spacing.xxxxl)
-        .bg_fill(Fill::Solid(tokens.colors.background))
-        .border(tokens.colors.border, 1.0)
-        .into_node()
+    fn build(
+        &self,
+        ctx: &mut BuildCtx<DocsState>,
+        view: &View<DocsState>,
+    ) -> impl fission::IntoWidget<DocsState> {
+        fission::AnyWidget::from_node({
+            let tokens = &view.env.theme.tokens;
+            Container::new(
+                Column {
+                    children: vec![
+                        Row {
+                            children: vec![
+                                FooterColumn::new(
+                                    "Setup",
+                                    &[
+                                        ("Quickstart", "/docs/learn/quickstart/"),
+                                        ("Add targets", "/docs/cookbook/add-platform-targets/"),
+                                        ("Project structure", "/docs/guides/app-structure/"),
+                                    ],
+                                )
+                                .build_node(ctx, view),
+                                FooterColumn::new(
+                                    "Learn",
+                                    &[
+                                        ("Overview", "/docs/learn/overview/"),
+                                        ("Runtime model", "/docs/learn/runtime-model/"),
+                                        ("Widgets", "/docs/guides/layout-and-widgets/"),
+                                        ("Design systems", "/docs/guides/design-system/"),
+                                        ("Charts", "/docs/charts/overview/"),
+                                    ],
+                                )
+                                .build_node(ctx, view),
+                                FooterColumn::new(
+                                    "Build",
+                                    &[
+                                        (
+                                            "Platform shells",
+                                            "/docs/guides/platform-shells-cli-and-testing/",
+                                        ),
+                                        ("Terminal UI", "/docs/guides/terminal-user-interfaces/"),
+                                        ("Static sites", "/docs/guides/static-sites/"),
+                                        ("Packaging", "/docs/build-and-package/overview/"),
+                                    ],
+                                )
+                                .build_node(ctx, view),
+                                FooterColumn::new(
+                                    "Test",
+                                    &[
+                                        ("Testing lifecycle", "/docs/test-and-debug/overview/"),
+                                        ("Diagnostics", "/docs/guides/testing-and-diagnostics/"),
+                                        ("Live UI test", "/docs/cookbook/write-a-live-ui-test/"),
+                                    ],
+                                )
+                                .build_node(ctx, view),
+                                FooterColumn::new(
+                                    "Publish",
+                                    &[
+                                        (
+                                            "Release overview",
+                                            "/docs/release-and-distribute/overview/",
+                                        ),
+                                        (
+                                            "Lifecycle details",
+                                            "/docs/release-and-distribute/post-build-lifecycle/",
+                                        ),
+                                        ("CLI reference", "/reference/cli/overview/"),
+                                        ("Examples", "/docs/learn/examples-and-targets/"),
+                                    ],
+                                )
+                                .build_node(ctx, view),
+                            ],
+                            gap: Some(tokens.spacing.xxl),
+                            wrap: FlexWrap::Wrap,
+                            align_items: AlignItems::Start,
+                            justify_content: JustifyContent::Center,
+                            ..Default::default()
+                        }
+                        .into_node(),
+                        footer_identity(ctx, view),
+                    ],
+                    gap: Some(tokens.spacing.xxl),
+                    align_items: AlignItems::Center,
+                    ..Default::default()
+                }
+                .into_node(),
+            )
+            .padding_all(tokens.spacing.xxxxl)
+            .bg_fill(Fill::Solid(tokens.colors.background))
+            .border(tokens.colors.border, 1.0)
+            .into_node()
+        })
     }
 }
 
@@ -138,10 +147,10 @@ fn footer_identity(ctx: &mut BuildCtx<DocsState>, view: &View<DocsState>) -> Nod
                 Row {
                     children: vec![
                         FooterLink::new("GitHub", "https://github.com/worka-ai/fission")
-                            .build(ctx, view),
-                        FooterLink::new("Quickstart", "/docs/learn/quickstart/").build(ctx, view),
+                            .build_node(ctx, view),
+                        FooterLink::new("Quickstart", "/docs/learn/quickstart/").build_node(ctx, view),
                         FooterLink::new("Reference", "/reference/overview/overview/")
-                            .build(ctx, view),
+                            .build_node(ctx, view),
                     ],
                     gap: Some(tokens.spacing.m),
                     wrap: FlexWrap::Wrap,
@@ -179,31 +188,37 @@ impl FooterColumn {
 }
 
 impl Widget<DocsState> for FooterColumn {
-    fn build(&self, ctx: &mut BuildCtx<DocsState>, view: &View<DocsState>) -> Node {
-        let tokens = &view.env.theme.tokens;
-        Container::new(
-            Column {
-                children: std::iter::once(
-                    Text::new(self.title)
-                        .size(tokens.typography.font_size_sm)
-                        .weight(tokens.typography.font_weight_bold)
-                        .color(tokens.colors.heading)
-                        .into_node(),
-                )
-                .chain(
-                    self.links
-                        .iter()
-                        .map(|(label, href)| FooterLink::new(label, href).build(ctx, view)),
-                )
-                .collect(),
-                gap: Some(tokens.spacing.s),
-                ..Default::default()
-            }
-            .into_node(),
-        )
-        .width(tokens.spacing.xxxxl * 1.75)
-        .flex_shrink(1.0)
-        .into_node()
+    fn build(
+        &self,
+        ctx: &mut BuildCtx<DocsState>,
+        view: &View<DocsState>,
+    ) -> impl fission::IntoWidget<DocsState> {
+        fission::AnyWidget::from_node({
+            let tokens = &view.env.theme.tokens;
+            Container::new(
+                Column {
+                    children: std::iter::once(
+                        Text::new(self.title)
+                            .size(tokens.typography.font_size_sm)
+                            .weight(tokens.typography.font_weight_bold)
+                            .color(tokens.colors.heading)
+                            .into_node(),
+                    )
+                    .chain(
+                        self.links.iter().map(|(label, href)| {
+                            FooterLink::new(label, href).build_node(ctx, view)
+                        }),
+                    )
+                    .collect(),
+                    gap: Some(tokens.spacing.s),
+                    ..Default::default()
+                }
+                .into_node(),
+            )
+            .width(tokens.spacing.xxxxl * 1.75)
+            .flex_shrink(1.0)
+            .into_node()
+        })
     }
 }
 
@@ -220,18 +235,25 @@ impl FooterLink {
 }
 
 impl Widget<DocsState> for FooterLink {
-    fn build(&self, _ctx: &mut BuildCtx<DocsState>, view: &View<DocsState>) -> Node {
-        let tokens = &view.env.theme.tokens;
-        let identifier = if self.href.starts_with("http://") || self.href.starts_with("https://") {
-            format!("markdown-link:{}", self.href)
-        } else {
-            format!("site-route:{}", self.href)
-        };
-        Text::new(self.label)
-            .size(tokens.typography.font_size_sm)
-            .weight(tokens.typography.font_weight_medium)
-            .color(tokens.colors.text_secondary)
-            .semantics_identifier(identifier)
-            .into_node()
+    fn build(
+        &self,
+        _ctx: &mut BuildCtx<DocsState>,
+        view: &View<DocsState>,
+    ) -> impl fission::IntoWidget<DocsState> {
+        fission::AnyWidget::from_node({
+            let tokens = &view.env.theme.tokens;
+            let identifier =
+                if self.href.starts_with("http://") || self.href.starts_with("https://") {
+                    format!("markdown-link:{}", self.href)
+                } else {
+                    format!("site-route:{}", self.href)
+                };
+            Text::new(self.label)
+                .size(tokens.typography.font_size_sm)
+                .weight(tokens.typography.font_weight_medium)
+                .color(tokens.colors.text_secondary)
+                .semantics_identifier(identifier)
+                .into_node()
+        })
     }
 }

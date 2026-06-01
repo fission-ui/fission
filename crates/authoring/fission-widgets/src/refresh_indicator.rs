@@ -180,63 +180,65 @@ impl RefreshIndicator {
 }
 
 impl<S: AppState> Widget<S> for RefreshIndicator {
-    fn build(&self, ctx: &mut BuildCtx<S>, view: &View<S>) -> Node {
-        let tokens = &view.env.theme.tokens;
-        let pull_offset = self.child_offset();
-        let indicator_top = self.edge_offset + pull_offset * 0.5;
+    fn build(&self, ctx: &mut BuildCtx<S>, view: &View<S>) -> impl fission_core::IntoWidget<S> {
+        fission_core::AnyWidget::from_node({
+            let tokens = &view.env.theme.tokens;
+            let pull_offset = self.child_offset();
+            let indicator_top = self.edge_offset + pull_offset * 0.5;
 
-        let child = if pull_offset > 0.0 {
-            Composite::new(*self.child.clone())
-                .translate_y(pull_offset)
-                .into_node()
-        } else {
-            *self.child.clone()
-        };
-        let mut children = vec![child];
-        if self.is_indicator_visible() {
-            let progress = CircularProgress {
-                id: self.progress_id(),
-                value: self.indicator_progress(),
-                size: self.indicator_size,
-                color: Some(self.color.unwrap_or(tokens.colors.primary)),
-                track_color: Some(self.track_color.unwrap_or(tokens.colors.border)),
-                thickness: self.stroke_width,
-                animated: true,
-            }
-            .build(ctx, view);
-
-            let indicator = Container::new(progress)
-                .size(self.indicator_size + 16.0, self.indicator_size + 16.0)
-                .bg(self.background_color.unwrap_or(tokens.colors.surface))
-                .border(tokens.colors.border, 1.0)
-                .border_radius((self.indicator_size + 16.0) * 0.5)
-                .padding_all(8.0)
-                .into_node();
-
-            children.push(
-                Positioned {
-                    top: Some(indicator_top),
-                    left: Some(0.0),
-                    right: Some(0.0),
-                    height: Some(self.indicator_size + 16.0),
-                    child: Some(Box::new(Align::new(indicator).into_node())),
-                    ..Default::default()
-                }
-                .into_node(),
-            );
-        }
-
-        GestureDetector {
-            child: Box::new(ZStack { id: None, children }.into_node()),
-            on_drag_start: self.on_pull_start.clone(),
-            on_drag_update: self.on_pull_update.clone(),
-            on_drag_end: if self.status == RefreshIndicatorStatus::Armed {
-                self.on_refresh.clone()
+            let child = if pull_offset > 0.0 {
+                Composite::new(*self.child.clone())
+                    .translate_y(pull_offset)
+                    .into_node()
             } else {
-                self.on_pull_cancel.clone()
-            },
-            ..Default::default()
-        }
-        .into_node()
+                *self.child.clone()
+            };
+            let mut children = vec![child];
+            if self.is_indicator_visible() {
+                let progress = CircularProgress {
+                    id: self.progress_id(),
+                    value: self.indicator_progress(),
+                    size: self.indicator_size,
+                    color: Some(self.color.unwrap_or(tokens.colors.primary)),
+                    track_color: Some(self.track_color.unwrap_or(tokens.colors.border)),
+                    thickness: self.stroke_width,
+                    animated: true,
+                }
+                .build_node(ctx, view);
+
+                let indicator = Container::new(progress)
+                    .size(self.indicator_size + 16.0, self.indicator_size + 16.0)
+                    .bg(self.background_color.unwrap_or(tokens.colors.surface))
+                    .border(tokens.colors.border, 1.0)
+                    .border_radius((self.indicator_size + 16.0) * 0.5)
+                    .padding_all(8.0)
+                    .into_node();
+
+                children.push(
+                    Positioned {
+                        top: Some(indicator_top),
+                        left: Some(0.0),
+                        right: Some(0.0),
+                        height: Some(self.indicator_size + 16.0),
+                        child: Some(Box::new(Align::new(indicator).into_node())),
+                        ..Default::default()
+                    }
+                    .into_node(),
+                );
+            }
+
+            GestureDetector {
+                child: Box::new(ZStack { id: None, children }.into_node()),
+                on_drag_start: self.on_pull_start.clone(),
+                on_drag_update: self.on_pull_update.clone(),
+                on_drag_end: if self.status == RefreshIndicatorStatus::Armed {
+                    self.on_refresh.clone()
+                } else {
+                    self.on_pull_cancel.clone()
+                },
+                ..Default::default()
+            }
+            .into_node()
+        })
     }
 }

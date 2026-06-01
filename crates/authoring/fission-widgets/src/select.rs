@@ -1,6 +1,6 @@
 use crate::stack::HStack;
 use crate::{flyout, Icon, Menu, MenuItem};
-use fission_core::ui::{Button, ButtonContentAlign, ButtonVariant, Node, Text};
+use fission_core::ui::{Button, ButtonContentAlign, ButtonVariant, Text};
 use fission_core::{ActionEnvelope, BuildCtx, NodeId, View, Widget, WidgetNodeId};
 use fission_icons::material;
 use serde::{Deserialize, Serialize};
@@ -61,75 +61,77 @@ impl Default for Select {
 }
 
 impl<S: fission_core::AppState> Widget<S> for Select {
-    fn build(&self, ctx: &mut BuildCtx<S>, view: &View<S>) -> Node {
-        let tokens = &view.env.theme.tokens;
-        let anchor_id = NodeId::derived(self.id.as_u128(), &[]);
+    fn build(&self, ctx: &mut BuildCtx<S>, view: &View<S>) -> impl fission_core::IntoWidget<S> {
+        fission_core::AnyWidget::from_node({
+            let tokens = &view.env.theme.tokens;
+            let anchor_id = NodeId::derived(self.id.as_u128(), &[]);
 
-        let display_label = self.selected_label.as_deref().unwrap_or(&self.placeholder);
-        let label_color = if self.selected_label.is_some() {
-            tokens.colors.text_primary
-        } else {
-            tokens.colors.text_secondary
-        };
+            let display_label = self.selected_label.as_deref().unwrap_or(&self.placeholder);
+            let label_color = if self.selected_label.is_some() {
+                tokens.colors.text_primary
+            } else {
+                tokens.colors.text_secondary
+            };
 
-        // Trigger Button content
-        let trigger_content = HStack {
-            spacing: Some(8.0),
-            children: vec![
-                Text::new(display_label.to_string())
-                    .color(label_color)
+            // Trigger Button content
+            let trigger_content = HStack {
+                spacing: Some(8.0),
+                children: vec![
+                    Text::new(display_label.to_string())
+                        .color(label_color)
+                        .into_node(),
+                    // Spacer to push chevron to the right
+                    fission_core::ui::widgets::spacer::Spacer {
+                        flex_grow: 1.0,
+                        ..Default::default()
+                    }
                     .into_node(),
-                // Spacer to push chevron to the right
-                fission_core::ui::widgets::spacer::Spacer {
-                    flex_grow: 1.0,
-                    ..Default::default()
-                }
-                .into_node(),
-                Icon::svg(material::navigation::expand_more::regular())
-                    .size(20.0)
-                    .color(tokens.colors.text_secondary)
-                    .into_node(),
-            ],
-        }
-        .into_node();
-
-        let trigger = Button {
-            id: Some(anchor_id),
-            variant: ButtonVariant::Outline,
-            content_align: ButtonContentAlign::Start,
-            child: Some(Box::new(trigger_content)),
-            on_press: self.on_toggle.clone(),
-            width: self.width,
-            ..Default::default()
-        }
-        .into();
-
-        if self.is_open {
-            let menu_items = self
-                .items
-                .iter()
-                .map(|item| MenuItem {
-                    label: item.label.clone(),
-                    icon: item.icon.clone(),
-                    on_select: Some(item.on_select.clone()),
-                })
-                .collect();
-
-            let menu = Menu {
-                items: menu_items,
-                width: self.width,
-                max_height: Some(300.0),
+                    Icon::svg(material::navigation::expand_more::regular())
+                        .size(20.0)
+                        .color(tokens.colors.text_secondary)
+                        .into_node(),
+                ],
             }
-            .build(ctx, view);
+            .into_node();
 
-            let flyout_node = flyout(anchor_id, menu);
-            ctx.register_portal_with_layer(
-                fission_core::PortalLayer::Flyout,
-                Some(self.id),
-                flyout_node,
-            );
-        }
+            let trigger = Button {
+                id: Some(anchor_id),
+                variant: ButtonVariant::Outline,
+                content_align: ButtonContentAlign::Start,
+                child: Some(Box::new(trigger_content)),
+                on_press: self.on_toggle.clone(),
+                width: self.width,
+                ..Default::default()
+            }
+            .into();
 
-        trigger
+            if self.is_open {
+                let menu_items = self
+                    .items
+                    .iter()
+                    .map(|item| MenuItem {
+                        label: item.label.clone(),
+                        icon: item.icon.clone(),
+                        on_select: Some(item.on_select.clone()),
+                    })
+                    .collect();
+
+                let menu = Menu {
+                    items: menu_items,
+                    width: self.width,
+                    max_height: Some(300.0),
+                }
+                .build_node(ctx, view);
+
+                let flyout_node = flyout(anchor_id, menu);
+                ctx.register_portal_with_layer(
+                    fission_core::PortalLayer::Flyout,
+                    Some(self.id),
+                    flyout_node,
+                );
+            }
+
+            trigger
+        })
     }
 }

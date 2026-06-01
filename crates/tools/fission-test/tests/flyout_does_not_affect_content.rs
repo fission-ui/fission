@@ -50,55 +50,61 @@ impl TextMeasurer for MockMeasurer {
 
 struct Root;
 impl Widget<AppState> for Root {
-    fn build(&self, ctx: &mut BuildCtx<AppState>, view: &View<AppState>) -> Node {
-        Grid {
-            columns: vec![
-                GridTrack::Points(220.0),
-                GridTrack::Points(380.0),
-                GridTrack::Fr(1.0),
-            ],
-            rows: vec![GridTrack::Fr(1.0)],
-            children: vec![GridItem::new(
-                VStack {
-                    spacing: Some(0.0),
-                    children: vec![HStack {
-                        spacing: Some(8.0),
-                        children: vec![
-                            TextInput {
-                                width: Some(200.0),
-                                ..Default::default()
-                            }
-                            .into(),
-                            MenuButton {
-                                id: WidgetNodeId::explicit("test_menu"),
-                                label: "Filter".into(),
-                                is_open: view.state.open,
-                                on_toggle: None,
-                                items: vec![
-                                    MenuItem {
-                                        label: "All".into(),
-                                        icon: None,
-                                        on_select: None,
-                                    },
-                                    MenuItem {
-                                        label: "Unread".into(),
-                                        icon: None,
-                                        on_select: None,
-                                    },
-                                ],
-                            }
-                            .build(ctx, view),
-                        ],
+    fn build(
+        &self,
+        ctx: &mut BuildCtx<AppState>,
+        view: &View<AppState>,
+    ) -> impl fission_core::IntoWidget<AppState> {
+        fission_core::AnyWidget::from_node({
+            Grid {
+                columns: vec![
+                    GridTrack::Points(220.0),
+                    GridTrack::Points(380.0),
+                    GridTrack::Fr(1.0),
+                ],
+                rows: vec![GridTrack::Fr(1.0)],
+                children: vec![GridItem::new(
+                    VStack {
+                        spacing: Some(0.0),
+                        children: vec![HStack {
+                            spacing: Some(8.0),
+                            children: vec![
+                                TextInput {
+                                    width: Some(200.0),
+                                    ..Default::default()
+                                }
+                                .into(),
+                                MenuButton {
+                                    id: WidgetNodeId::explicit("test_menu"),
+                                    label: "Filter".into(),
+                                    is_open: view.state.open,
+                                    on_toggle: None,
+                                    items: vec![
+                                        MenuItem {
+                                            label: "All".into(),
+                                            icon: None,
+                                            on_select: None,
+                                        },
+                                        MenuItem {
+                                            label: "Unread".into(),
+                                            icon: None,
+                                            on_select: None,
+                                        },
+                                    ],
+                                }
+                                .build_node(ctx, view),
+                            ],
+                        }
+                        .build_node(ctx, view)],
                     }
-                    .build(ctx, view)],
-                }
-                .build(ctx, view),
-            )
-            .cell(1, 2)
-            .into()],
-            ..Default::default()
-        }
-        .into()
+                    .build_node(ctx, view),
+                )
+                .cell(1, 2)
+                .into()],
+                ..Default::default()
+            }
+            .into()
+        })
     }
 }
 

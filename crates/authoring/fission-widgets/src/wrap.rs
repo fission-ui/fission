@@ -31,22 +31,24 @@ impl Default for Wrap {
 }
 
 impl<S: fission_core::AppState> Widget<S> for Wrap {
-    fn build(&self, _ctx: &mut BuildCtx<S>, _view: &View<S>) -> Node {
-        match self.direction {
-            FlexDirection::Row => fission_core::ui::Row {
-                children: self.children.clone(),
-                wrap: FlexWrap::Wrap,
-                gap: self.spacing,
-                ..Default::default()
+    fn build(&self, _ctx: &mut BuildCtx<S>, _view: &View<S>) -> impl fission_core::IntoWidget<S> {
+        fission_core::AnyWidget::from_node({
+            match self.direction {
+                FlexDirection::Row => fission_core::ui::Row {
+                    children: self.children.clone(),
+                    wrap: FlexWrap::Wrap,
+                    gap: self.spacing,
+                    ..Default::default()
+                }
+                .into_node(),
+                FlexDirection::Column => fission_core::ui::Column {
+                    children: self.children.clone(),
+                    wrap: FlexWrap::Wrap,
+                    gap: self.spacing,
+                    ..Default::default()
+                }
+                .into_node(),
             }
-            .into_node(),
-            FlexDirection::Column => fission_core::ui::Column {
-                children: self.children.clone(),
-                wrap: FlexWrap::Wrap,
-                gap: self.spacing,
-                ..Default::default()
-            }
-            .into_node(),
-        }
+        })
     }
 }

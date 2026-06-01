@@ -68,20 +68,26 @@ fn video_embed_registers_runtime_state_and_draws_surface() {
 
 struct WebApp;
 impl Widget<EmbedState> for WebApp {
-    fn build(&self, ctx: &mut BuildCtx<EmbedState>, view: &View<EmbedState>) -> Node {
-        Container::new(
-            WebView {
-                id: WidgetNodeId::explicit("test.web"),
-                url: "https://example.test/docs".into(),
-                user_agent: Some("FissionTest/1".into()),
-                width: Some(320.0),
-                height: Some(180.0),
-            }
-            .build(ctx, view),
-        )
-        .width(320.0)
-        .height(180.0)
-        .into_node()
+    fn build(
+        &self,
+        ctx: &mut BuildCtx<EmbedState>,
+        view: &View<EmbedState>,
+    ) -> impl fission_core::IntoWidget<EmbedState> {
+        fission_core::AnyWidget::from_node({
+            Container::new(
+                WebView {
+                    id: WidgetNodeId::explicit("test.web"),
+                    url: "https://example.test/docs".into(),
+                    user_agent: Some("FissionTest/1".into()),
+                    width: Some(320.0),
+                    height: Some(180.0),
+                }
+                .build_node(ctx, view),
+            )
+            .width(320.0)
+            .height(180.0)
+            .into_node()
+        })
     }
 }
 
@@ -117,11 +123,17 @@ fn webview_embed_registers_runtime_state_and_draws_surface() {
 
 struct CustomEmbedApp;
 impl Widget<EmbedState> for CustomEmbedApp {
-    fn build(&self, _ctx: &mut BuildCtx<EmbedState>, _view: &View<EmbedState>) -> Node {
-        Node::Custom(CustomNode {
-            debug_tag: "TestCustomEmbed".into(),
-            lowerer: Some(Arc::new(CustomEmbedLowerer)),
-            render_object: None,
+    fn build(
+        &self,
+        _ctx: &mut BuildCtx<EmbedState>,
+        _view: &View<EmbedState>,
+    ) -> impl fission_core::IntoWidget<EmbedState> {
+        fission_core::AnyWidget::from_node({
+            Node::Custom(CustomNode {
+                debug_tag: "TestCustomEmbed".into(),
+                lowerer: Some(Arc::new(CustomEmbedLowerer)),
+                render_object: None,
+            })
         })
     }
 }

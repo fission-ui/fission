@@ -53,19 +53,25 @@ pub(crate) struct DocumentationPage<'a> {
 }
 
 impl<'a> Widget<SitePageState> for DocumentationPage<'a> {
-    fn build(&self, ctx: &mut BuildCtx<SitePageState>, view: &View<SitePageState>) -> Node {
-        let tokens = &view.env.theme.tokens;
-        Container::new(
-            Column {
-                children: vec![self.header(tokens), self.document_grid(ctx, view)],
-                flex_grow: 1.0,
-                ..Default::default()
-            }
-            .into_node(),
-        )
-        .min_height(tokens.spacing.xxxxl * 9.0)
-        .bg_fill(Fill::Solid(tokens.colors.background))
-        .into_node()
+    fn build(
+        &self,
+        ctx: &mut BuildCtx<SitePageState>,
+        view: &View<SitePageState>,
+    ) -> impl fission_core::IntoWidget<SitePageState> {
+        fission_core::AnyWidget::from_node({
+            let tokens = &view.env.theme.tokens;
+            Container::new(
+                Column {
+                    children: vec![self.header(tokens), self.document_grid(ctx, view)],
+                    flex_grow: 1.0,
+                    ..Default::default()
+                }
+                .into_node(),
+            )
+            .min_height(tokens.spacing.xxxxl * 9.0)
+            .bg_fill(Fill::Solid(tokens.colors.background))
+            .into_node()
+        })
     }
 }
 
@@ -299,7 +305,7 @@ impl DocumentationPage<'_> {
             markdown: self.route.body.clone(),
             show_scrollbar: false,
         };
-        children.push(markdown.build(ctx, view));
+        children.push(markdown.build_node(ctx, view));
 
         Column {
             children: vec![Container::new(

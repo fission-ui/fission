@@ -2576,7 +2576,7 @@ fn build_deep_node(
             } else {
                 scene
             };
-            scene.build(ctx, view)
+            scene.build_node(ctx, view)
         }
         None => {
             let mut chart = chart_for_kind(meta.kind, meta.title, meta.seed, s);
@@ -2594,7 +2594,7 @@ fn build_deep_node(
                     height.unwrap_or(520.0),
                 );
             }
-            chart.build(ctx, view)
+            chart.build_node(ctx, view)
         }
     }
 }

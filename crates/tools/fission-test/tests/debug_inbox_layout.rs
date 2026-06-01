@@ -1,5 +1,5 @@
 use anyhow::Result;
-use fission_core::ui::{Button, Grid, GridItem, Node, Text, TextContent, TextInput};
+use fission_core::ui::{Button, Grid, GridItem, Text, TextContent, TextInput};
 use fission_core::{op::GridTrack, BuildCtx, NodeId, View, Widget, WidgetNodeId};
 use fission_test::TestHarness;
 use fission_widgets::{HStack, VStack};
@@ -10,59 +10,65 @@ impl fission_core::action::AppState for AppState {}
 
 struct HeaderRepro;
 impl Widget<AppState> for HeaderRepro {
-    fn build(&self, ctx: &mut BuildCtx<AppState>, view: &View<AppState>) -> Node {
-        Grid {
-            columns: vec![
-                GridTrack::Points(220.0),
-                GridTrack::Points(380.0),
-                GridTrack::Fr(1.0),
-            ],
-            rows: vec![GridTrack::Fr(1.0)],
-            children: vec![
-                // Col 2 Content
-                GridItem::new(
-                    VStack {
-                        spacing: Some(0.0),
-                        children: vec![
-                            // Header
-                            HStack {
-                                spacing: Some(8.0),
-                                children: vec![
-                                    TextInput {
-                                        width: Some(200.0),
-                                        ..Default::default()
-                                    }
-                                    .into(),
-                                    // Popover logic simulated
-                                    // Anchor button
-                                    Button {
-                                        id: Some(NodeId::derived(
-                                            WidgetNodeId::explicit("filter_btn").as_u128(),
-                                            &[],
-                                        )),
-                                        child: Some(Box::new(
-                                            Text {
-                                                content: TextContent::Literal("Filter".into()),
-                                                ..Default::default()
-                                            }
-                                            .into(),
-                                        )),
-                                        ..Default::default()
-                                    }
-                                    .into(),
-                                ],
-                            }
-                            .build(ctx, view),
-                        ],
-                    }
-                    .build(ctx, view),
-                )
-                .cell(1, 2)
-                .into(),
-            ],
-            ..Default::default()
-        }
-        .into()
+    fn build(
+        &self,
+        ctx: &mut BuildCtx<AppState>,
+        view: &View<AppState>,
+    ) -> impl fission_core::IntoWidget<AppState> {
+        fission_core::AnyWidget::from_node({
+            Grid {
+                columns: vec![
+                    GridTrack::Points(220.0),
+                    GridTrack::Points(380.0),
+                    GridTrack::Fr(1.0),
+                ],
+                rows: vec![GridTrack::Fr(1.0)],
+                children: vec![
+                    // Col 2 Content
+                    GridItem::new(
+                        VStack {
+                            spacing: Some(0.0),
+                            children: vec![
+                                // Header
+                                HStack {
+                                    spacing: Some(8.0),
+                                    children: vec![
+                                        TextInput {
+                                            width: Some(200.0),
+                                            ..Default::default()
+                                        }
+                                        .into(),
+                                        // Popover logic simulated
+                                        // Anchor button
+                                        Button {
+                                            id: Some(NodeId::derived(
+                                                WidgetNodeId::explicit("filter_btn").as_u128(),
+                                                &[],
+                                            )),
+                                            child: Some(Box::new(
+                                                Text {
+                                                    content: TextContent::Literal("Filter".into()),
+                                                    ..Default::default()
+                                                }
+                                                .into(),
+                                            )),
+                                            ..Default::default()
+                                        }
+                                        .into(),
+                                    ],
+                                }
+                                .build_node(ctx, view),
+                            ],
+                        }
+                        .build_node(ctx, view),
+                    )
+                    .cell(1, 2)
+                    .into(),
+                ],
+                ..Default::default()
+            }
+            .into()
+        })
     }
 }
 

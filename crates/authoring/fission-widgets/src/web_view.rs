@@ -14,22 +14,24 @@ pub struct WebView {
 }
 
 impl<S: fission_core::AppState> Widget<S> for WebView {
-    fn build(&self, ctx: &mut BuildCtx<S>, _view: &View<S>) -> Node {
-        ctx.register_web_view(fission_core::registry::WebRegistration {
-            node_id: self.id,
-            url: self.url.clone(),
-            user_agent: self.user_agent.clone(),
-        });
-
-        Node::Custom(CustomNode {
-            debug_tag: "WebView".into(),
-            lowerer: Some(std::sync::Arc::new(WebViewLowerer {
-                id: self.id,
+    fn build(&self, ctx: &mut BuildCtx<S>, _view: &View<S>) -> impl fission_core::IntoWidget<S> {
+        fission_core::AnyWidget::from_node({
+            ctx.register_web_view(fission_core::registry::WebRegistration {
+                node_id: self.id,
                 url: self.url.clone(),
-                width: self.width,
-                height: self.height,
-            })),
-            render_object: None,
+                user_agent: self.user_agent.clone(),
+            });
+
+            Node::Custom(CustomNode {
+                debug_tag: "WebView".into(),
+                lowerer: Some(std::sync::Arc::new(WebViewLowerer {
+                    id: self.id,
+                    url: self.url.clone(),
+                    width: self.width,
+                    height: self.height,
+                })),
+                render_object: None,
+            })
         })
     }
 }

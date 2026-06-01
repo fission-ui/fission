@@ -42,33 +42,39 @@ impl ActionButton {
 }
 
 impl Widget<UiState> for ActionButton {
-    fn build(&self, _ctx: &mut BuildCtx<UiState>, view: &View<UiState>) -> Node {
-        let palette = UiPalette::for_mode(view.state.theme_mode);
-        let (background, text) = match self.tone {
-            ButtonTone::Primary => (palette.accent, palette.accent_text),
-            ButtonTone::Neutral => (palette.subtle, palette.text),
-            ButtonTone::Success => (palette.success, palette.accent_text),
-            ButtonTone::Warning => (palette.warning, palette.accent_text),
-        };
-        let marker = match self.tone {
-            ButtonTone::Primary => ">",
-            ButtonTone::Neutral => "-",
-            ButtonTone::Success => "+",
-            ButtonTone::Warning => "!",
-        };
-        let label = format!("[{marker} {}]", self.label);
-        let density = UiDensity::new(view.state.compact_mode);
-        Button {
-            on_press: Some(self.action.clone()),
-            width: self.width,
-            height: Some(density.control_height()),
-            padding: Some(density.control_padding()),
-            background_fill: Some(Fill::Solid(background)),
-            text_color: Some(text),
-            child: Some(Box::new(Text::new(label).color(text).into_node())),
-            ..Default::default()
-        }
-        .into_node()
+    fn build(
+        &self,
+        _ctx: &mut BuildCtx<UiState>,
+        view: &View<UiState>,
+    ) -> impl fission::IntoWidget<UiState> {
+        fission::AnyWidget::from_node({
+            let palette = UiPalette::for_mode(view.state.theme_mode);
+            let (background, text) = match self.tone {
+                ButtonTone::Primary => (palette.accent, palette.accent_text),
+                ButtonTone::Neutral => (palette.subtle, palette.text),
+                ButtonTone::Success => (palette.success, palette.accent_text),
+                ButtonTone::Warning => (palette.warning, palette.accent_text),
+            };
+            let marker = match self.tone {
+                ButtonTone::Primary => ">",
+                ButtonTone::Neutral => "-",
+                ButtonTone::Success => "+",
+                ButtonTone::Warning => "!",
+            };
+            let label = format!("[{marker} {}]", self.label);
+            let density = UiDensity::new(view.state.compact_mode);
+            Button {
+                on_press: Some(self.action.clone()),
+                width: self.width,
+                height: Some(density.control_height()),
+                padding: Some(density.control_padding()),
+                background_fill: Some(Fill::Solid(background)),
+                text_color: Some(text),
+                child: Some(Box::new(Text::new(label).color(text).into_node())),
+                ..Default::default()
+            }
+            .into_node()
+        })
     }
 }
 
@@ -90,20 +96,26 @@ impl TogglePill {
 }
 
 impl Widget<UiState> for TogglePill {
-    fn build(&self, ctx: &mut BuildCtx<UiState>, view: &View<UiState>) -> Node {
-        let label = if self.enabled {
-            format!("[x] {}", self.label)
-        } else {
-            format!("[ ] {}", self.label)
-        };
-        let tone = if self.enabled {
-            ButtonTone::Primary
-        } else {
-            ButtonTone::Neutral
-        };
-        ActionButton::new(label, self.action.clone())
-            .tone(tone)
-            .build(ctx, view)
+    fn build(
+        &self,
+        ctx: &mut BuildCtx<UiState>,
+        view: &View<UiState>,
+    ) -> impl fission::IntoWidget<UiState> {
+        fission::AnyWidget::from_node({
+            let label = if self.enabled {
+                format!("[x] {}", self.label)
+            } else {
+                format!("[ ] {}", self.label)
+            };
+            let tone = if self.enabled {
+                ButtonTone::Primary
+            } else {
+                ButtonTone::Neutral
+            };
+            ActionButton::new(label, self.action.clone())
+                .tone(tone)
+                .build_node(ctx, view)
+        })
     }
 }
 
@@ -142,27 +154,33 @@ impl FormTextField {
 }
 
 impl Widget<UiState> for FormTextField {
-    fn build(&self, _ctx: &mut BuildCtx<UiState>, view: &View<UiState>) -> Node {
-        let palette = UiPalette::for_mode(view.state.theme_mode);
-        let density = UiDensity::new(view.state.compact_mode);
-        TextInput {
-            id: Some(NodeId::explicit(self.id)),
-            value: self.value.clone(),
-            label: Some(self.label.clone().into()),
-            placeholder: Some(self.placeholder.clone().into()),
-            on_change: Some(self.action.clone()),
-            width: Some(self.width),
-            height: Some(density.text_input_height()),
-            padding: Some(density.text_input_padding()),
-            background_fill: Some(Fill::Solid(palette.surface)),
-            border_color: Some(palette.border),
-            focus_border_color: Some(palette.accent),
-            text_color: Some(palette.text),
-            placeholder_color: Some(palette.muted),
-            label_color: Some(palette.muted),
-            helper_color: Some(palette.muted),
-            ..Default::default()
-        }
-        .into_node()
+    fn build(
+        &self,
+        _ctx: &mut BuildCtx<UiState>,
+        view: &View<UiState>,
+    ) -> impl fission::IntoWidget<UiState> {
+        fission::AnyWidget::from_node({
+            let palette = UiPalette::for_mode(view.state.theme_mode);
+            let density = UiDensity::new(view.state.compact_mode);
+            TextInput {
+                id: Some(NodeId::explicit(self.id)),
+                value: self.value.clone(),
+                label: Some(self.label.clone().into()),
+                placeholder: Some(self.placeholder.clone().into()),
+                on_change: Some(self.action.clone()),
+                width: Some(self.width),
+                height: Some(density.text_input_height()),
+                padding: Some(density.text_input_padding()),
+                background_fill: Some(Fill::Solid(palette.surface)),
+                border_color: Some(palette.border),
+                focus_border_color: Some(palette.accent),
+                text_color: Some(palette.text),
+                placeholder_color: Some(palette.muted),
+                label_color: Some(palette.muted),
+                helper_color: Some(palette.muted),
+                ..Default::default()
+            }
+            .into_node()
+        })
     }
 }

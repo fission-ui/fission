@@ -7,20 +7,26 @@ pub struct StoreShell {
 }
 
 impl Widget<StoreState> for StoreShell {
-    fn build(&self, _ctx: &mut BuildCtx<StoreState>, view: &View<StoreState>) -> Node {
-        let viewport = view.viewport_size();
-        Container::new(
-            Column {
-                gap: Some(26.0),
-                children: vec![nav(view), self.child.clone(), footer(view)],
-                ..Default::default()
-            }
-            .into_node(),
-        )
-        .min_height(viewport.height.max(900.0))
-        .padding([36.0, 36.0, 24.0, 36.0])
-        .bg(color(12, 18, 32))
-        .into_node()
+    fn build(
+        &self,
+        _ctx: &mut BuildCtx<StoreState>,
+        view: &View<StoreState>,
+    ) -> impl fission::IntoWidget<StoreState> {
+        fission::AnyWidget::from_node({
+            let viewport = view.viewport_size();
+            Container::new(
+                Column {
+                    gap: Some(26.0),
+                    children: vec![nav(view), self.child.clone(), footer(view)],
+                    ..Default::default()
+                }
+                .into_node(),
+            )
+            .min_height(viewport.height.max(900.0))
+            .padding([36.0, 36.0, 24.0, 36.0])
+            .bg(color(12, 18, 32))
+            .into_node()
+        })
     }
 }
 

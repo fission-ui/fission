@@ -23,23 +23,29 @@ impl KeyValueRow {
 }
 
 impl Widget<UiState> for KeyValueRow {
-    fn build(&self, _ctx: &mut BuildCtx<UiState>, view: &View<UiState>) -> Node {
-        let palette = UiPalette::for_mode(view.state.theme_mode);
-        Row {
-            gap: Some(1.0),
-            align_items: AlignItems::Center,
-            children: vec![
-                Text::new(format!("{}:", self.label))
-                    .color(palette.muted)
-                    .width(16.0)
-                    .into_node(),
-                Text::new(self.value.clone())
-                    .color(palette.text)
-                    .into_node(),
-            ],
-            ..Default::default()
-        }
-        .into_node()
+    fn build(
+        &self,
+        _ctx: &mut BuildCtx<UiState>,
+        view: &View<UiState>,
+    ) -> impl fission::IntoWidget<UiState> {
+        fission::AnyWidget::from_node({
+            let palette = UiPalette::for_mode(view.state.theme_mode);
+            Row {
+                gap: Some(1.0),
+                align_items: AlignItems::Center,
+                children: vec![
+                    Text::new(format!("{}:", self.label))
+                        .color(palette.muted)
+                        .width(16.0)
+                        .into_node(),
+                    Text::new(self.value.clone())
+                        .color(palette.text)
+                        .into_node(),
+                ],
+                ..Default::default()
+            }
+            .into_node()
+        })
     }
 }
 
@@ -49,24 +55,30 @@ pub struct TargetPicker {
 }
 
 impl Widget<UiState> for TargetPicker {
-    fn build(&self, ctx: &mut BuildCtx<UiState>, view: &View<UiState>) -> Node {
-        let targets = if self.configured_only && !view.state.targets.is_empty() {
-            view.state.targets.clone()
-        } else {
-            all_targets().to_vec()
-        };
-        let mut rows = vec![Text::new("Target")
-            .color(UiPalette::for_mode(view.state.theme_mode).accent)
-            .into_node()];
-        for target in targets {
-            rows.push(target_button(target, ctx, view));
-        }
-        Column {
-            gap: Some(if view.state.compact_mode { 0.0 } else { 1.0 }),
-            children: rows,
-            ..Default::default()
-        }
-        .into_node()
+    fn build(
+        &self,
+        ctx: &mut BuildCtx<UiState>,
+        view: &View<UiState>,
+    ) -> impl fission::IntoWidget<UiState> {
+        fission::AnyWidget::from_node({
+            let targets = if self.configured_only && !view.state.targets.is_empty() {
+                view.state.targets.clone()
+            } else {
+                all_targets().to_vec()
+            };
+            let mut rows = vec![Text::new("Target")
+                .color(UiPalette::for_mode(view.state.theme_mode).accent)
+                .into_node()];
+            for target in targets {
+                rows.push(target_button(target, ctx, view));
+            }
+            Column {
+                gap: Some(if view.state.compact_mode { 0.0 } else { 1.0 }),
+                children: rows,
+                ..Default::default()
+            }
+            .into_node()
+        })
     }
 }
 
@@ -80,7 +92,7 @@ fn target_button(target: Target, ctx: &mut BuildCtx<UiState>, view: &View<UiStat
             ButtonTone::Neutral
         })
         .width(18.0)
-        .build(ctx, view)
+        .build_node(ctx, view)
 }
 
 #[derive(Clone)]
@@ -91,44 +103,50 @@ pub struct DeviceTable {
 }
 
 impl Widget<UiState> for DeviceTable {
-    fn build(&self, ctx: &mut BuildCtx<UiState>, view: &View<UiState>) -> Node {
-        let palette = UiPalette::for_mode(view.state.theme_mode);
-        let mut rows = vec![Row {
-            gap: Some(1.0),
-            children: vec![
-                Text::new("target")
-                    .color(palette.muted)
-                    .width(10.0)
-                    .into_node(),
-                Text::new("kind")
-                    .color(palette.muted)
-                    .width(15.0)
-                    .into_node(),
-                Text::new("status")
-                    .color(palette.muted)
-                    .width(12.0)
-                    .into_node(),
-                Text::new("name").color(palette.muted).into_node(),
-            ],
-            ..Default::default()
-        }
-        .into_node()];
-        for device in self.devices.iter().take(self.max_rows) {
-            rows.push(device_row(device, self.selectable, ctx, view));
-        }
-        if self.devices.is_empty() {
-            rows.push(
-                Text::new("No devices detected.")
-                    .color(palette.warning)
-                    .into_node(),
-            );
-        }
-        Column {
-            gap: Some(if view.state.compact_mode { 0.0 } else { 1.0 }),
-            children: rows,
-            ..Default::default()
-        }
-        .into_node()
+    fn build(
+        &self,
+        ctx: &mut BuildCtx<UiState>,
+        view: &View<UiState>,
+    ) -> impl fission::IntoWidget<UiState> {
+        fission::AnyWidget::from_node({
+            let palette = UiPalette::for_mode(view.state.theme_mode);
+            let mut rows = vec![Row {
+                gap: Some(1.0),
+                children: vec![
+                    Text::new("target")
+                        .color(palette.muted)
+                        .width(10.0)
+                        .into_node(),
+                    Text::new("kind")
+                        .color(palette.muted)
+                        .width(15.0)
+                        .into_node(),
+                    Text::new("status")
+                        .color(palette.muted)
+                        .width(12.0)
+                        .into_node(),
+                    Text::new("name").color(palette.muted).into_node(),
+                ],
+                ..Default::default()
+            }
+            .into_node()];
+            for device in self.devices.iter().take(self.max_rows) {
+                rows.push(device_row(device, self.selectable, ctx, view));
+            }
+            if self.devices.is_empty() {
+                rows.push(
+                    Text::new("No devices detected.")
+                        .color(palette.warning)
+                        .into_node(),
+                );
+            }
+            Column {
+                gap: Some(if view.state.compact_mode { 0.0 } else { 1.0 }),
+                children: rows,
+                ..Default::default()
+            }
+            .into_node()
+        })
     }
 }
 

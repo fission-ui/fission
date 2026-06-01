@@ -1,5 +1,5 @@
 use fission_core::op::Fill;
-use fission_core::ui::{Container, GridItem, Node};
+use fission_core::ui::{Container, GridItem};
 use fission_core::{BuildCtx, View, Widget};
 use serde::{Deserialize, Serialize};
 
@@ -17,63 +17,66 @@ pub struct ProgressBar {
 }
 
 impl<S: fission_core::AppState> Widget<S> for ProgressBar {
-    fn build(&self, _ctx: &mut BuildCtx<S>, view: &View<S>) -> Node {
-        let theme = &view.env.theme.components.progress;
+    fn build(&self, _ctx: &mut BuildCtx<S>, view: &View<S>) -> impl fission_core::IntoWidget<S> {
+        fission_core::AnyWidget::from_node({
+            let theme = &view.env.theme.components.progress;
 
-        let height = theme.track_style.height.unwrap_or(theme.height);
-        let radius = theme.track_style.radius.unwrap_or(theme.radius);
-        let track =
-            Container::new(fission_core::ui::widgets::spacer::Spacer::default().into_node())
-                .height(height)
-                .bg_fill(
-                    theme
-                        .track_style
-                        .background
-                        .clone()
-                        .unwrap_or(Fill::Solid(theme.track_color)),
-                )
-                .border_radius(radius)
-                .into_node();
+            let height = theme.track_style.height.unwrap_or(theme.height);
+            let radius = theme.track_style.radius.unwrap_or(theme.radius);
+            let track =
+                Container::new(fission_core::ui::widgets::spacer::Spacer::default().into_node())
+                    .height(height)
+                    .bg_fill(
+                        theme
+                            .track_style
+                            .background
+                            .clone()
+                            .unwrap_or(Fill::Solid(theme.track_color)),
+                    )
+                    .border_radius(radius)
+                    .into_node();
 
-        let progress_pct = (self.value * 100.0).clamp(0.0, 100.0);
+            let progress_pct = (self.value * 100.0).clamp(0.0, 100.0);
 
-        let bar = Container::new(fission_core::ui::widgets::spacer::Spacer::default().into_node())
-            .height(theme.fill_style.height.unwrap_or(height))
-            .bg_fill(
-                theme
-                    .fill_style
-                    .background
-                    .clone()
-                    .unwrap_or(Fill::Solid(theme.bar_color)),
-            )
-            .border_radius(theme.fill_style.radius.unwrap_or(radius))
+            let bar =
+                Container::new(fission_core::ui::widgets::spacer::Spacer::default().into_node())
+                    .height(theme.fill_style.height.unwrap_or(height))
+                    .bg_fill(
+                        theme
+                            .fill_style
+                            .background
+                            .clone()
+                            .unwrap_or(Fill::Solid(theme.bar_color)),
+                    )
+                    .border_radius(theme.fill_style.radius.unwrap_or(radius))
+                    .into_node();
+
+            let bar_grid = fission_core::ui::Grid {
+                columns: vec![
+                    fission_ir::op::GridTrack::Percent(progress_pct),
+                    fission_ir::op::GridTrack::Fr(1.0),
+                ],
+                rows: vec![fission_ir::op::GridTrack::Points(height)],
+                children: vec![GridItem {
+                    col_start: fission_ir::op::GridPlacement::Line(1),
+                    child: Box::new(bar),
+                    ..Default::default()
+                }
+                .into_node()],
+                ..Default::default()
+            }
             .into_node();
 
-        let bar_grid = fission_core::ui::Grid {
-            columns: vec![
-                fission_ir::op::GridTrack::Percent(progress_pct),
-                fission_ir::op::GridTrack::Fr(1.0),
-            ],
-            rows: vec![fission_ir::op::GridTrack::Points(height)],
-            children: vec![GridItem {
-                col_start: fission_ir::op::GridPlacement::Line(1),
-                child: Box::new(bar),
-                ..Default::default()
-            }
-            .into_node()],
-            ..Default::default()
-        }
-        .into_node();
-
-        Container::new(
-            fission_core::ui::ZStack {
-                children: vec![track, bar_grid],
-                ..Default::default()
-            }
-            .into_node(),
-        )
-        .height(height)
-        .flex_grow(1.0)
-        .into_node()
+            Container::new(
+                fission_core::ui::ZStack {
+                    children: vec![track, bar_grid],
+                    ..Default::default()
+                }
+                .into_node(),
+            )
+            .height(height)
+            .flex_grow(1.0)
+            .into_node()
+        })
     }
 }

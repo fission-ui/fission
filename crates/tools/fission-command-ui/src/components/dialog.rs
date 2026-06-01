@@ -9,47 +9,53 @@ use fission::prelude::*;
 pub struct ConfirmationDialog;
 
 impl Widget<UiState> for ConfirmationDialog {
-    fn build(&self, ctx: &mut BuildCtx<UiState>, view: &View<UiState>) -> Node {
-        let palette = UiPalette::for_mode(view.state.theme_mode);
-        let Some(dialog) = &view.state.pending_dialog else {
-            return Spacer::default().into_node();
-        };
-        let (title, message, confirm_label, tone) = match dialog {
-            UiDialog::Command { title, message, .. } => {
-                (title.as_str(), message.as_str(), "Run", ButtonTone::Primary)
-            }
-            UiDialog::Exit { title, message } => (
-                title.as_str(),
-                message.as_str(),
-                "Exit",
-                ButtonTone::Warning,
-            ),
-        };
-        let confirm = with_reducer!(ctx, ConfirmDialog, confirm_dialog);
-        let cancel = with_reducer!(ctx, CancelDialog, cancel_dialog);
+    fn build(
+        &self,
+        ctx: &mut BuildCtx<UiState>,
+        view: &View<UiState>,
+    ) -> impl fission::IntoWidget<UiState> {
+        fission::AnyWidget::from_node({
+            let palette = UiPalette::for_mode(view.state.theme_mode);
+            let Some(dialog) = &view.state.pending_dialog else {
+                return fission::AnyWidget::from_node(Spacer::default().into_node());
+            };
+            let (title, message, confirm_label, tone) = match dialog {
+                UiDialog::Command { title, message, .. } => {
+                    (title.as_str(), message.as_str(), "Run", ButtonTone::Primary)
+                }
+                UiDialog::Exit { title, message } => (
+                    title.as_str(),
+                    message.as_str(),
+                    "Exit",
+                    ButtonTone::Warning,
+                ),
+            };
+            let confirm = with_reducer!(ctx, ConfirmDialog, confirm_dialog);
+            let cancel = with_reducer!(ctx, CancelDialog, cancel_dialog);
 
-        Container::new(
-            Row {
-                align_items: AlignItems::Center,
-                justify_content: JustifyContent::Center,
-                children: vec![dialog_card(
-                    title,
-                    message,
-                    confirm_label,
-                    tone,
-                    confirm,
-                    cancel,
-                    ctx,
-                    view,
-                )],
-                ..Default::default()
-            }
-            .into_node(),
-        )
-        .width(view.env.viewport_size.width)
-        .height(view.env.viewport_size.height)
-        .bg(palette.background)
-        .into_node()
+            Container::new(
+                Row {
+                    align_items: AlignItems::Center,
+                    justify_content: JustifyContent::Center,
+                    children: vec![dialog_card(
+                        title,
+                        message,
+                        confirm_label,
+                        tone,
+                        confirm,
+                        cancel,
+                        ctx,
+                        view,
+                    )],
+                    ..Default::default()
+                }
+                .into_node(),
+            )
+            .width(view.env.viewport_size.width)
+            .height(view.env.viewport_size.height)
+            .bg(palette.background)
+            .into_node()
+        })
     }
 }
 
@@ -79,11 +85,11 @@ fn dialog_card(
                         ActionButton::new(confirm_label, confirm)
                             .tone(tone)
                             .width(14.0)
-                            .build(ctx, view),
+                            .build_node(ctx, view),
                         ActionButton::new("Cancel", cancel)
                             .tone(ButtonTone::Neutral)
                             .width(14.0)
-                            .build(ctx, view),
+                            .build_node(ctx, view),
                     ],
                     ..Default::default()
                 }

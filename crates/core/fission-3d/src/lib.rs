@@ -70,27 +70,29 @@ impl Scene3D {
 }
 
 impl<S: fission_core::AppState> Widget<S> for Scene3D {
-    fn build(&self, _ctx: &mut BuildCtx<S>, _view: &View<S>) -> Node {
-        let mut container = Container::new(Node::Custom(CustomNode {
-            debug_tag: "fission_3d::Scene3D".into(),
-            lowerer: Some(std::sync::Arc::new(Scene3DLowerer {
-                scene: self.clone(),
-            })),
-            render_object: None,
-        }));
-        if let Some(w) = self.width {
-            container = container.width(w);
-        } else {
-            container = container.flex_grow(1.0);
-        }
-        if let Some(h) = self.height {
-            container = container.height(h);
-        } else {
-            if self.width.is_none() {
+    fn build(&self, _ctx: &mut BuildCtx<S>, _view: &View<S>) -> impl fission_core::IntoWidget<S> {
+        fission_core::AnyWidget::from_node({
+            let mut container = Container::new(Node::Custom(CustomNode {
+                debug_tag: "fission_3d::Scene3D".into(),
+                lowerer: Some(std::sync::Arc::new(Scene3DLowerer {
+                    scene: self.clone(),
+                })),
+                render_object: None,
+            }));
+            if let Some(w) = self.width {
+                container = container.width(w);
+            } else {
                 container = container.flex_grow(1.0);
             }
-        }
-        container.into_node()
+            if let Some(h) = self.height {
+                container = container.height(h);
+            } else {
+                if self.width.is_none() {
+                    container = container.flex_grow(1.0);
+                }
+            }
+            container.into_node()
+        })
     }
 }
 

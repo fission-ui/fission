@@ -29,8 +29,8 @@ impl<S: AppState> Builder<S> {
 }
 
 impl<S: AppState> Widget<S> for Builder<S> {
-    fn build(&self, ctx: &mut BuildCtx<S>, view: &View<S>) -> Node {
-        (self.builder)(ctx, view)
+    fn build(&self, ctx: &mut BuildCtx<S>, view: &View<S>) -> impl crate::IntoWidget<S> {
+        crate::AnyWidget::from_node((self.builder)(ctx, view))
     }
 }
 
@@ -89,33 +89,35 @@ impl<S: AppState> LayoutBuilder<S> {
 }
 
 impl<S: AppState> Widget<S> for LayoutBuilder<S> {
-    fn build(&self, ctx: &mut BuildCtx<S>, view: &View<S>) -> Node {
-        let viewport = view
-            .layout
-            .map(|layout| layout.viewport_size)
-            .unwrap_or_else(|| view.viewport_size());
-        let mut max_w = viewport.width;
-        let mut max_h = viewport.height;
-        if !max_w.is_finite() || max_w <= 0.0 {
-            max_w = f32::INFINITY;
-        }
-        if !max_h.is_finite() || max_h <= 0.0 {
-            max_h = f32::INFINITY;
-        }
-        let fallback = BoxConstraints::loose(max_w, max_h);
-        let constraints = self
-            .id
-            .and_then(|id| view.get_constraints(id))
-            .unwrap_or(fallback);
-        let child = (self.builder)(ctx, view, constraints);
-        if let Some(id) = self.id {
-            Container::new(child)
-                .id(NodeId::from(id))
-                .flex_grow(self.flex_grow)
-                .flex_shrink(self.flex_shrink)
-                .into_node()
-        } else {
-            child
-        }
+    fn build(&self, ctx: &mut BuildCtx<S>, view: &View<S>) -> impl crate::IntoWidget<S> {
+        crate::AnyWidget::from_node({
+            let viewport = view
+                .layout
+                .map(|layout| layout.viewport_size)
+                .unwrap_or_else(|| view.viewport_size());
+            let mut max_w = viewport.width;
+            let mut max_h = viewport.height;
+            if !max_w.is_finite() || max_w <= 0.0 {
+                max_w = f32::INFINITY;
+            }
+            if !max_h.is_finite() || max_h <= 0.0 {
+                max_h = f32::INFINITY;
+            }
+            let fallback = BoxConstraints::loose(max_w, max_h);
+            let constraints = self
+                .id
+                .and_then(|id| view.get_constraints(id))
+                .unwrap_or(fallback);
+            let child = (self.builder)(ctx, view, constraints);
+            if let Some(id) = self.id {
+                Container::new(child)
+                    .id(NodeId::from(id))
+                    .flex_grow(self.flex_grow)
+                    .flex_shrink(self.flex_shrink)
+                    .into_node()
+            } else {
+                child
+            }
+        })
     }
 }

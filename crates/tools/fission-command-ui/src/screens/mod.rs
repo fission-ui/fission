@@ -26,20 +26,26 @@ pub use site::SiteScreen;
 pub struct ActiveScreen;
 
 impl Widget<UiState> for ActiveScreen {
-    fn build(&self, ctx: &mut BuildCtx<UiState>, view: &View<UiState>) -> Node {
-        match view.state.route {
-            UiRoute::Dashboard => DashboardScreen.build(ctx, view),
-            UiRoute::Project => ProjectScreen.build(ctx, view),
-            UiRoute::Doctor => DoctorScreen.build(ctx, view),
-            UiRoute::Devices => DevicesScreen.build(ctx, view),
-            UiRoute::Run => RunScreen.build(ctx, view),
-            UiRoute::Build => BuildScreen.build(ctx, view),
-            UiRoute::Test => TestScreen.build(ctx, view),
-            UiRoute::Site => SiteScreen.build(ctx, view),
-            UiRoute::Logs => LogsScreen.build(ctx, view),
-            UiRoute::Settings => SettingsScreen.build(ctx, view),
-            UiRoute::Help => HelpScreen.build(ctx, view),
-        }
+    fn build(
+        &self,
+        ctx: &mut BuildCtx<UiState>,
+        view: &View<UiState>,
+    ) -> impl fission::IntoWidget<UiState> {
+        fission::AnyWidget::from_node({
+            match view.state.route {
+                UiRoute::Dashboard => DashboardScreen.build_node(ctx, view),
+                UiRoute::Project => ProjectScreen.build_node(ctx, view),
+                UiRoute::Doctor => DoctorScreen.build_node(ctx, view),
+                UiRoute::Devices => DevicesScreen.build_node(ctx, view),
+                UiRoute::Run => RunScreen.build_node(ctx, view),
+                UiRoute::Build => BuildScreen.build_node(ctx, view),
+                UiRoute::Test => TestScreen.build_node(ctx, view),
+                UiRoute::Site => SiteScreen.build_node(ctx, view),
+                UiRoute::Logs => LogsScreen.build_node(ctx, view),
+                UiRoute::Settings => SettingsScreen.build_node(ctx, view),
+                UiRoute::Help => HelpScreen.build_node(ctx, view),
+            }
+        })
     }
 }
 

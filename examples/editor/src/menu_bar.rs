@@ -7,7 +7,8 @@ use fission::widgets::{HStack, VStack, Spacer};
 pub struct MenuBar;
 
 impl Widget<EditorState> for MenuBar {
-    fn build(&self, ctx: &mut BuildCtx<EditorState>, view: &View<EditorState>) -> Node {
+    fn build(&self, ctx: &mut BuildCtx<EditorState>, view: &View<EditorState>) -> impl fission::IntoWidget<EditorState>  {
+        fission::AnyWidget::from_node({
         let bg = Color { r: 51, g: 51, b: 51, a: 255 };
         let text_color = Color { r: 204, g: 204, b: 204, a: 255 };
         let active_bg = Color { r: 70, g: 70, b: 70, a: 255 };
@@ -68,6 +69,8 @@ impl Widget<EditorState> for MenuBar {
         }
 
         bar
+    
+        })
     }
 }
 

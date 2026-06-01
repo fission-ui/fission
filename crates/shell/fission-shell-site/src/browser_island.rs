@@ -271,7 +271,7 @@ fn hex_value(byte: u8) -> Option<u8> {
 mod tests {
     use super::*;
     use fission_core::op::Color;
-    use fission_core::{reduce_with, Action, Button, Node, ReducerContext, Text};
+    use fission_core::{reduce_with, Action, Button, ReducerContext, Text};
 
     #[derive(Debug, Default, Clone)]
     struct CounterState {
@@ -299,18 +299,24 @@ mod tests {
     struct CounterIsland;
 
     impl Widget<CounterState> for CounterIsland {
-        fn build(&self, ctx: &mut BuildCtx<CounterState>, view: &View<CounterState>) -> Node {
-            let action = ctx.bind(Increment, reduce_with!(increment));
-            Button {
-                child: Some(Box::new(
-                    Text::new(format!("{} clicks", view.state.count))
-                        .color(Color::BLACK)
-                        .into_node(),
-                )),
-                on_press: Some(action),
-                ..Default::default()
-            }
-            .into_node()
+        fn build(
+            &self,
+            ctx: &mut BuildCtx<CounterState>,
+            view: &View<CounterState>,
+        ) -> impl fission_core::IntoWidget<CounterState> {
+            fission_core::AnyWidget::from_node({
+                let action = ctx.bind(Increment, reduce_with!(increment));
+                Button {
+                    child: Some(Box::new(
+                        Text::new(format!("{} clicks", view.state.count))
+                            .color(Color::BLACK)
+                            .into_node(),
+                    )),
+                    on_press: Some(action),
+                    ..Default::default()
+                }
+                .into_node()
+            })
         }
     }
 

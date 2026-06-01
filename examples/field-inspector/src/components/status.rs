@@ -11,65 +11,67 @@ impl Widget<FieldInspectorState> for CapabilityOverview {
         &self,
         _ctx: &mut BuildCtx<FieldInspectorState>,
         view: &View<FieldInspectorState>,
-    ) -> Node {
-        let lines = view.state.capability_lines();
-        let complete = lines
-            .iter()
-            .filter(|line| {
-                matches!(
-                    line.state,
-                    CapabilityState::Complete | CapabilityState::Ready
-                )
-            })
-            .count();
-        panel_card(
-            view,
-            Column {
-                gap: Some(14.0),
-                children: vec![
-                    Row {
-                        gap: Some(12.0),
-                        children: vec![
-                            Column {
-                                gap: Some(4.0),
-                                flex_grow: 1.0,
-                                children: vec![
-                                    title_text(view, "Capability readiness", 22.0),
-                                    muted_text(
-                                        view,
-                                        format!(
-                                            "{} of {} host surfaces have responded",
-                                            complete,
-                                            lines.len()
+    ) -> impl fission::IntoWidget<FieldInspectorState> {
+        fission::AnyWidget::from_node({
+            let lines = view.state.capability_lines();
+            let complete = lines
+                .iter()
+                .filter(|line| {
+                    matches!(
+                        line.state,
+                        CapabilityState::Complete | CapabilityState::Ready
+                    )
+                })
+                .count();
+            panel_card(
+                view,
+                Column {
+                    gap: Some(14.0),
+                    children: vec![
+                        Row {
+                            gap: Some(12.0),
+                            children: vec![
+                                Column {
+                                    gap: Some(4.0),
+                                    flex_grow: 1.0,
+                                    children: vec![
+                                        title_text(view, "Capability readiness", 22.0),
+                                        muted_text(
+                                            view,
+                                            format!(
+                                                "{} of {} host surfaces have responded",
+                                                complete,
+                                                lines.len()
+                                            ),
                                         ),
-                                    ),
-                                ],
-                                ..Default::default()
-                            }
-                            .into_node(),
-                            status_pill(
-                                view,
-                                if view.state.started {
-                                    "Live"
-                                } else {
-                                    "Not started"
-                                },
-                                if view.state.started {
-                                    CapabilityState::Ready
-                                } else {
-                                    CapabilityState::Idle
-                                },
-                            ),
-                        ],
-                        ..Default::default()
-                    }
-                    .into_node(),
-                    capability_grid(view, lines),
-                ],
-                ..Default::default()
-            }
-            .into_node(),
-        )
+                                    ],
+                                    ..Default::default()
+                                }
+                                .into_node(),
+                                status_pill(
+                                    view,
+                                    if view.state.started {
+                                        "Live"
+                                    } else {
+                                        "Not started"
+                                    },
+                                    if view.state.started {
+                                        CapabilityState::Ready
+                                    } else {
+                                        CapabilityState::Idle
+                                    },
+                                ),
+                            ],
+                            ..Default::default()
+                        }
+                        .into_node(),
+                        capability_grid(view, lines),
+                    ],
+                    ..Default::default()
+                }
+                .into_node(),
+            )
+        })
     }
 }
 
@@ -141,59 +143,61 @@ impl Widget<FieldInspectorState> for ActivityLog {
         &self,
         _ctx: &mut BuildCtx<FieldInspectorState>,
         view: &View<FieldInspectorState>,
-    ) -> Node {
-        let rows: Vec<Node> = if view.state.logs.is_empty() {
-            vec![body_text(
-                view,
-                "Run the inspection to see capability requests and host results here.",
-            )]
-        } else {
-            view.state
-                .logs
-                .iter()
-                .map(|log| {
-                    Row {
-                        gap: Some(10.0),
-                        align_items: ir_op::AlignItems::Start,
-                        children: vec![
-                            status_pill(view, log.state.label(), log.state),
-                            Column {
-                                gap: Some(3.0),
-                                flex_grow: 1.0,
-                                children: vec![
-                                    Text::new(log.title.clone())
-                                        .size(14.0)
-                                        .weight(800)
-                                        .into_node(),
-                                    muted_text(view, log.detail.clone()),
-                                ],
-                                ..Default::default()
-                            }
-                            .into_node(),
-                        ],
-                        ..Default::default()
-                    }
-                    .into_node()
-                })
-                .collect()
-        };
+    ) -> impl fission::IntoWidget<FieldInspectorState> {
+        fission::AnyWidget::from_node({
+            let rows: Vec<Node> = if view.state.logs.is_empty() {
+                vec![body_text(
+                    view,
+                    "Run the inspection to see capability requests and host results here.",
+                )]
+            } else {
+                view.state
+                    .logs
+                    .iter()
+                    .map(|log| {
+                        Row {
+                            gap: Some(10.0),
+                            align_items: ir_op::AlignItems::Start,
+                            children: vec![
+                                status_pill(view, log.state.label(), log.state),
+                                Column {
+                                    gap: Some(3.0),
+                                    flex_grow: 1.0,
+                                    children: vec![
+                                        Text::new(log.title.clone())
+                                            .size(14.0)
+                                            .weight(800)
+                                            .into_node(),
+                                        muted_text(view, log.detail.clone()),
+                                    ],
+                                    ..Default::default()
+                                }
+                                .into_node(),
+                            ],
+                            ..Default::default()
+                        }
+                        .into_node()
+                    })
+                    .collect()
+            };
 
-        panel_card(
-            view,
-            Column {
-                gap: Some(12.0),
-                children: vec![
-                    title_text(view, "Capability activity", 20.0),
-                    Column {
-                        gap: Some(10.0),
-                        children: rows,
-                        ..Default::default()
-                    }
-                    .into_node(),
-                ],
-                ..Default::default()
-            }
-            .into_node(),
-        )
+            panel_card(
+                view,
+                Column {
+                    gap: Some(12.0),
+                    children: vec![
+                        title_text(view, "Capability activity", 20.0),
+                        Column {
+                            gap: Some(10.0),
+                            children: rows,
+                            ..Default::default()
+                        }
+                        .into_node(),
+                    ],
+                    ..Default::default()
+                }
+                .into_node(),
+            )
+        })
     }
 }

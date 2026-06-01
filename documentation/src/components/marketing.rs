@@ -312,45 +312,51 @@ impl MarketingPageKind {
 }
 
 impl Widget<DocsState> for ProductMarketingPage {
-    fn build(&self, ctx: &mut BuildCtx<DocsState>, view: &View<DocsState>) -> Node {
-        let tokens = &view.env.theme.tokens;
-        let copy = self.kind.copy();
-        Container::new(
-            Column {
-                children: vec![
-                    HomePageNav.build(ctx, view),
-                    Row {
-                        children: vec![Container::new(semantic_column(
-                            "site-product-page",
-                            vec![
-                                marketing_hero(ctx, view, self.kind, copy),
-                                product_nav_strip(ctx, view),
-                                feature_showcase(view, copy),
-                                workflow_showcase(view, copy),
-                                proof_band(ctx, view, copy),
-                            ],
-                            Some(tokens.spacing.xxxl),
-                            AlignItems::Stretch,
-                        ))
-                        .max_width(content_width(tokens))
-                        .flex_grow(1.0)
-                        .flex_shrink(1.0)
-                        .padding([0.0, 0.0, tokens.spacing.xxl, tokens.spacing.xxxxl])
-                        .into_node()],
-                        justify_content: JustifyContent::Center,
-                        ..Default::default()
-                    }
-                    .into_node(),
-                ],
-                gap: Some(0.0),
-                flex_grow: 1.0,
-                ..Default::default()
-            }
-            .into_node(),
-        )
-        .min_height(tokens.spacing.xxxxl * 9.0)
-        .bg_fill(page_fill(tokens))
-        .into_node()
+    fn build(
+        &self,
+        ctx: &mut BuildCtx<DocsState>,
+        view: &View<DocsState>,
+    ) -> impl fission::IntoWidget<DocsState> {
+        fission::AnyWidget::from_node({
+            let tokens = &view.env.theme.tokens;
+            let copy = self.kind.copy();
+            Container::new(
+                Column {
+                    children: vec![
+                        HomePageNav.build_node(ctx, view),
+                        Row {
+                            children: vec![Container::new(semantic_column(
+                                "site-product-page",
+                                vec![
+                                    marketing_hero(ctx, view, self.kind, copy),
+                                    product_nav_strip(ctx, view),
+                                    feature_showcase(view, copy),
+                                    workflow_showcase(view, copy),
+                                    proof_band(ctx, view, copy),
+                                ],
+                                Some(tokens.spacing.xxxl),
+                                AlignItems::Stretch,
+                            ))
+                            .max_width(content_width(tokens))
+                            .flex_grow(1.0)
+                            .flex_shrink(1.0)
+                            .padding([0.0, 0.0, tokens.spacing.xxl, tokens.spacing.xxxxl])
+                            .into_node()],
+                            justify_content: JustifyContent::Center,
+                            ..Default::default()
+                        }
+                        .into_node(),
+                    ],
+                    gap: Some(0.0),
+                    flex_grow: 1.0,
+                    ..Default::default()
+                }
+                .into_node(),
+            )
+            .min_height(tokens.spacing.xxxxl * 9.0)
+            .bg_fill(page_fill(tokens))
+            .into_node()
+        })
     }
 }
 
@@ -367,7 +373,7 @@ fn marketing_hero(
             Container::new(
                 Column {
                     children: vec![
-                        Pill::new(copy.eyebrow).build(ctx, view),
+                        Pill::new(copy.eyebrow).build_node(ctx, view),
                         Text::new(copy.title)
                             .size(tokens.typography.display_md_size)
                             .family(tokens.typography.font_family_serif.clone())
@@ -396,9 +402,9 @@ fn marketing_hero(
                             "site-product-hero-ctas",
                             vec![
                                 Cta::new(copy.primary_label, copy.primary_href, true)
-                                    .build(ctx, view),
+                                    .build_node(ctx, view),
                                 Cta::new(copy.secondary_label, copy.secondary_href, false)
-                                    .build(ctx, view),
+                                    .build_node(ctx, view),
                             ],
                             Some(tokens.spacing.m),
                             FlexWrap::Wrap,
@@ -472,7 +478,7 @@ fn strip_link(
     href: &'static str,
 ) -> Node {
     let tokens = &view.env.theme.tokens;
-    Container::new(NavLink::new(label, href).build(ctx, view))
+    Container::new(NavLink::new(label, href).build_node(ctx, view))
         .padding([
             tokens.spacing.m,
             tokens.spacing.m,
@@ -702,7 +708,7 @@ fn proof_band(ctx: &mut BuildCtx<DocsState>, view: &View<DocsState>, copy: PageC
                 ..Default::default()
             }
             .into_node(),
-            Cta::new("Open documentation", "/docs/intro/", true).build(ctx, view),
+            Cta::new("Open documentation", "/docs/intro/", true).build_node(ctx, view),
         ],
         Some(tokens.spacing.xl),
         FlexWrap::Wrap,

@@ -6,21 +6,27 @@ use fission::prelude::*;
 pub struct Hero;
 
 impl Widget<StoreState> for Hero {
-    fn build(&self, _ctx: &mut BuildCtx<StoreState>, _view: &View<StoreState>) -> Node {
-        Container::new(
-            Row {
-                gap: Some(34.0),
-                align_items: ir_op::AlignItems::Stretch,
-                children: vec![copy(), spotlight()],
-                ..Default::default()
-            }
-            .into_node(),
-        )
-        .padding_all(34.0)
-        .border(color(59, 130, 246).with_alpha(80), 1.0)
-        .border_radius(32.0)
-        .bg(color(17, 24, 39))
-        .into_node()
+    fn build(
+        &self,
+        _ctx: &mut BuildCtx<StoreState>,
+        _view: &View<StoreState>,
+    ) -> impl fission::IntoWidget<StoreState> {
+        fission::AnyWidget::from_node({
+            Container::new(
+                Row {
+                    gap: Some(34.0),
+                    align_items: ir_op::AlignItems::Stretch,
+                    children: vec![copy(), spotlight()],
+                    ..Default::default()
+                }
+                .into_node(),
+            )
+            .padding_all(34.0)
+            .border(color(59, 130, 246).with_alpha(80), 1.0)
+            .border_radius(32.0)
+            .bg(color(17, 24, 39))
+            .into_node()
+        })
     }
 }
 

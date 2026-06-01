@@ -23,16 +23,22 @@ impl RoutedHomePage {
 }
 
 impl Widget<DocsState> for RoutedHomePage {
-    fn build(&self, ctx: &mut BuildCtx<DocsState>, view: &View<DocsState>) -> Node {
-        Router {
-            current_path: self.current_path.clone(),
-            routes: vec![Route {
-                path: "/".to_string(),
-                builder: Arc::new(|ctx, view, _params| HomePage.build(ctx, view)),
-            }],
-            not_found: None,
-        }
-        .build(ctx, view)
+    fn build(
+        &self,
+        ctx: &mut BuildCtx<DocsState>,
+        view: &View<DocsState>,
+    ) -> impl fission::IntoWidget<DocsState> {
+        fission::AnyWidget::from_node({
+            Router {
+                current_path: self.current_path.clone(),
+                routes: vec![Route {
+                    path: "/".to_string(),
+                    builder: Arc::new(|ctx, view, _params| HomePage.build_node(ctx, view)),
+                }],
+                not_found: None,
+            }
+            .build_node(ctx, view)
+        })
     }
 }
 
@@ -40,48 +46,54 @@ impl Widget<DocsState> for RoutedHomePage {
 struct HomePage;
 
 impl Widget<DocsState> for HomePage {
-    fn build(&self, ctx: &mut BuildCtx<DocsState>, view: &View<DocsState>) -> Node {
-        let tokens = &view.env.theme.tokens;
-        Container::new(
-            Column {
-                children: vec![
-                    HomePageNav.build(ctx, view),
-                    Row {
-                        children: vec![Container::new(
-                            Column {
-                                children: vec![
-                                    HomePageHero.build(ctx, view),
-                                    ProofStrip.build(ctx, view),
-                                    LifecycleSection.build(ctx, view),
-                                    ArchitectureSection.build(ctx, view),
-                                    ChartsSection.build(ctx, view),
-                                    ModelSection.build(ctx, view),
-                                    TargetsSection.build(ctx, view),
-                                    ExamplesSection.build(ctx, view),
-                                    FinalCta.build(ctx, view),
-                                ],
-                                gap: Some(tokens.spacing.xxxl),
-                                align_items: AlignItems::Center,
-                                ..Default::default()
-                            }
-                            .into_node(),
-                        )
-                        .width(content_width(tokens))
-                        .padding([0.0, 0.0, tokens.spacing.xxl, tokens.spacing.xxxxl])
-                        .into_node()],
-                        justify_content: JustifyContent::Center,
-                        ..Default::default()
-                    }
-                    .into_node(),
-                ],
-                gap: Some(0.0),
-                flex_grow: 1.0,
-                ..Default::default()
-            }
-            .into_node(),
-        )
-        .min_height(tokens.spacing.xxxxl * 9.0)
-        .bg_fill(page_fill(tokens))
-        .into_node()
+    fn build(
+        &self,
+        ctx: &mut BuildCtx<DocsState>,
+        view: &View<DocsState>,
+    ) -> impl fission::IntoWidget<DocsState> {
+        fission::AnyWidget::from_node({
+            let tokens = &view.env.theme.tokens;
+            Container::new(
+                Column {
+                    children: vec![
+                        HomePageNav.build_node(ctx, view),
+                        Row {
+                            children: vec![Container::new(
+                                Column {
+                                    children: vec![
+                                        HomePageHero.build_node(ctx, view),
+                                        ProofStrip.build_node(ctx, view),
+                                        LifecycleSection.build_node(ctx, view),
+                                        ArchitectureSection.build_node(ctx, view),
+                                        ChartsSection.build_node(ctx, view),
+                                        ModelSection.build_node(ctx, view),
+                                        TargetsSection.build_node(ctx, view),
+                                        ExamplesSection.build_node(ctx, view),
+                                        FinalCta.build_node(ctx, view),
+                                    ],
+                                    gap: Some(tokens.spacing.xxxl),
+                                    align_items: AlignItems::Center,
+                                    ..Default::default()
+                                }
+                                .into_node(),
+                            )
+                            .width(content_width(tokens))
+                            .padding([0.0, 0.0, tokens.spacing.xxl, tokens.spacing.xxxxl])
+                            .into_node()],
+                            justify_content: JustifyContent::Center,
+                            ..Default::default()
+                        }
+                        .into_node(),
+                    ],
+                    gap: Some(0.0),
+                    flex_grow: 1.0,
+                    ..Default::default()
+                }
+                .into_node(),
+            )
+            .min_height(tokens.spacing.xxxxl * 9.0)
+            .bg_fill(page_fill(tokens))
+            .into_node()
+        })
     }
 }

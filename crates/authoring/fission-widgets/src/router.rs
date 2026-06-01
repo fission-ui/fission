@@ -19,18 +19,20 @@ pub struct Router<S: fission_core::AppState> {
 }
 
 impl<S: fission_core::AppState> Widget<S> for Router<S> {
-    fn build(&self, ctx: &mut BuildCtx<S>, view: &View<S>) -> Node {
-        for route in &self.routes {
-            if let Some(params) = match_route(&route.path, &self.current_path) {
-                return (route.builder)(ctx, view, &params);
+    fn build(&self, ctx: &mut BuildCtx<S>, view: &View<S>) -> impl fission_core::IntoWidget<S> {
+        fission_core::AnyWidget::from_node({
+            for route in &self.routes {
+                if let Some(params) = match_route(&route.path, &self.current_path) {
+                    return fission_core::AnyWidget::from_node((route.builder)(ctx, view, &params));
+                }
             }
-        }
 
-        if let Some(not_found) = &self.not_found {
-            return (not_found)(ctx, view, &HashMap::new());
-        }
+            if let Some(not_found) = &self.not_found {
+                return fission_core::AnyWidget::from_node((not_found)(ctx, view, &HashMap::new()));
+            }
 
-        fission_core::ui::Text::new(format!("404: {}", self.current_path)).into_node()
+            fission_core::ui::Text::new(format!("404: {}", self.current_path)).into_node()
+        })
     }
 }
 

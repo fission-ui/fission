@@ -21,62 +21,64 @@ impl Widget<FieldInspectorState> for FieldInspectorApp {
         &self,
         ctx: &mut BuildCtx<FieldInspectorState>,
         view: &View<FieldInspectorState>,
-    ) -> Node {
-        let viewport = view.viewport_size();
-        let wide = viewport.width >= 1100.0;
-        let padding = page_padding(view);
-        let content = if wide {
-            Row {
-                gap: Some(18.0),
-                align_items: ir_op::AlignItems::Stretch,
-                children: vec![
-                    Container::new(WorkOrderRail.build(ctx, view))
-                        .width(330.0)
-                        .into_node(),
-                    Container::new(main_column(ctx, view))
-                        .flex_grow(1.0)
-                        .into_node(),
+    ) -> impl fission::IntoWidget<FieldInspectorState> {
+        fission::AnyWidget::from_node({
+            let viewport = view.viewport_size();
+            let wide = viewport.width >= 1100.0;
+            let padding = page_padding(view);
+            let content = if wide {
+                Row {
+                    gap: Some(18.0),
+                    align_items: ir_op::AlignItems::Stretch,
+                    children: vec![
+                        Container::new(WorkOrderRail.build_node(ctx, view))
+                            .width(330.0)
+                            .into_node(),
+                        Container::new(main_column(ctx, view))
+                            .flex_grow(1.0)
+                            .into_node(),
+                    ],
+                    ..Default::default()
+                }
+                .into_node()
+            } else {
+                Column {
+                    gap: Some(18.0),
+                    children: vec![main_column(ctx, view), WorkOrderRail.build_node(ctx, view)],
+                    ..Default::default()
+                }
+                .into_node()
+            };
+
+            let scroll = Scroll {
+                child: Some(Box::new(content)),
+                direction: FlexDirection::Column,
+                show_scrollbar: true,
+                flex_grow: 1.0,
+                ..Default::default()
+            }
+            .into_node();
+
+            Container::new(
+                SafeArea {
+                    child: Box::new(scroll),
+                    ..Default::default()
+                }
+                .into_node(),
+            )
+            .height(viewport.height.max(1.0))
+            .padding_all(padding)
+            .bg_fill(Fill::LinearGradient {
+                start: (0.0, 0.0),
+                end: (1.0, 1.0),
+                stops: vec![
+                    (0.0, color(239, 246, 255)),
+                    (0.45, color(248, 250, 252)),
+                    (1.0, color(236, 253, 245)),
                 ],
-                ..Default::default()
-            }
+            })
             .into_node()
-        } else {
-            Column {
-                gap: Some(18.0),
-                children: vec![main_column(ctx, view), WorkOrderRail.build(ctx, view)],
-                ..Default::default()
-            }
-            .into_node()
-        };
-
-        let scroll = Scroll {
-            child: Some(Box::new(content)),
-            direction: FlexDirection::Column,
-            show_scrollbar: true,
-            flex_grow: 1.0,
-            ..Default::default()
-        }
-        .into_node();
-
-        Container::new(
-            SafeArea {
-                child: Box::new(scroll),
-                ..Default::default()
-            }
-            .into_node(),
-        )
-        .height(viewport.height.max(1.0))
-        .padding_all(padding)
-        .bg_fill(Fill::LinearGradient {
-            start: (0.0, 0.0),
-            end: (1.0, 1.0),
-            stops: vec![
-                (0.0, color(239, 246, 255)),
-                (0.45, color(248, 250, 252)),
-                (1.0, color(236, 253, 245)),
-            ],
         })
-        .into_node()
     }
 }
 
@@ -254,17 +256,17 @@ fn panel_tabs(ctx: &mut BuildCtx<FieldInspectorState>, view: &View<FieldInspecto
             selected_index,
             on_change: Some(Arc::new(move |index| actions[index].clone())),
         }
-        .build(ctx, view),
+        .build_node(ctx, view),
     )
 }
 
 fn active_panel(ctx: &mut BuildCtx<FieldInspectorState>, view: &View<FieldInspectorState>) -> Node {
     match view.state.panel {
-        InspectorPanel::Overview => OverviewPanel.build(ctx, view),
-        InspectorPanel::Verify => VerifyPanel.build(ctx, view),
-        InspectorPanel::Evidence => EvidencePanel.build(ctx, view),
-        InspectorPanel::Sensors => SensorsPanel.build(ctx, view),
-        InspectorPanel::Security => SecurityPanel.build(ctx, view),
-        InspectorPanel::Review => ReviewPanel.build(ctx, view),
+        InspectorPanel::Overview => OverviewPanel.build_node(ctx, view),
+        InspectorPanel::Verify => VerifyPanel.build_node(ctx, view),
+        InspectorPanel::Evidence => EvidencePanel.build_node(ctx, view),
+        InspectorPanel::Sensors => SensorsPanel.build_node(ctx, view),
+        InspectorPanel::Security => SecurityPanel.build_node(ctx, view),
+        InspectorPanel::Review => ReviewPanel.build_node(ctx, view),
     }
 }

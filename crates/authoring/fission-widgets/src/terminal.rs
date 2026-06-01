@@ -173,29 +173,31 @@ impl TerminalView {
 }
 
 impl<S: AppState> Widget<S> for TerminalView {
-    fn build(&self, _ctx: &mut BuildCtx<S>, _view: &View<S>) -> Node {
-        self.session.resize_for_viewport(
-            self.viewport_width,
-            self.viewport_height,
-            self.font_size,
-            self.line_height,
-        );
-        let render_node = Arc::new(TerminalRenderNode::new(
-            self.session.clone(),
-            self.session.snapshot(),
-            self.viewport_width,
-            self.viewport_height,
-            self.font_size,
-            self.line_height,
-            self.padding_x,
-            self.padding_y,
-        ));
-        let lowerer: Arc<dyn LowerDyn> = render_node.clone();
-        let render_object: Arc<dyn CustomRenderObject> = render_node;
-        Node::Custom(CustomNode {
-            debug_tag: format!("TerminalView({})", self.session.id()),
-            lowerer: Some(lowerer),
-            render_object: Some(render_object),
+    fn build(&self, _ctx: &mut BuildCtx<S>, _view: &View<S>) -> impl fission_core::IntoWidget<S> {
+        fission_core::AnyWidget::from_node({
+            self.session.resize_for_viewport(
+                self.viewport_width,
+                self.viewport_height,
+                self.font_size,
+                self.line_height,
+            );
+            let render_node = Arc::new(TerminalRenderNode::new(
+                self.session.clone(),
+                self.session.snapshot(),
+                self.viewport_width,
+                self.viewport_height,
+                self.font_size,
+                self.line_height,
+                self.padding_x,
+                self.padding_y,
+            ));
+            let lowerer: Arc<dyn LowerDyn> = render_node.clone();
+            let render_object: Arc<dyn CustomRenderObject> = render_node;
+            Node::Custom(CustomNode {
+                debug_tag: format!("TerminalView({})", self.session.id()),
+                lowerer: Some(lowerer),
+                render_object: Some(render_object),
+            })
         })
     }
 }

@@ -1,5 +1,5 @@
 use anyhow::Result;
-use fission_core::ui::{Node, TextInput};
+use fission_core::ui::TextInput;
 use fission_core::{InputEvent, LayoutPoint, View, Widget};
 use fission_ir::Role;
 use fission_test::{detect_ir_cycle, TestHarness};
@@ -19,15 +19,17 @@ fn text_input_focus_has_no_ir_cycles() -> Result<()> {
             &self,
             _ctx: &mut fission_core::BuildCtx<AppState>,
             _view: &View<AppState>,
-        ) -> Node {
-            TextInput {
-                value: String::new(),
-                placeholder: Some("type".into()),
-                width: Some(200.0),
-                height: Some(40.0),
-                ..Default::default()
-            }
-            .into()
+        ) -> impl fission_core::IntoWidget<AppState> {
+            fission_core::AnyWidget::from_node({
+                TextInput {
+                    value: String::new(),
+                    placeholder: Some("type".into()),
+                    width: Some(200.0),
+                    height: Some(40.0),
+                    ..Default::default()
+                }
+                .into()
+            })
         }
     }
 
@@ -88,14 +90,16 @@ fn checkbox_toggle_has_no_ir_cycles() -> Result<()> {
             &self,
             ctx: &mut BuildCtx<AppState>,
             view: &View<AppState>,
-        ) -> fission_core::ui::Node {
-            Checkbox {
-                checked: view.state.checked,
-                on_toggle: Some(fission_core::with_reducer!(ctx, Toggle, on_toggle)),
-                label: Some("check".into()),
-                ..Default::default()
-            }
-            .into()
+        ) -> impl fission_core::IntoWidget<AppState> {
+            fission_core::AnyWidget::from_node(
+                Checkbox {
+                    checked: view.state.checked,
+                    on_toggle: Some(fission_core::with_reducer!(ctx, Toggle, on_toggle)),
+                    label: Some("check".into()),
+                    ..Default::default()
+                }
+                .into(),
+            )
         }
     }
 

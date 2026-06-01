@@ -12,65 +12,67 @@ impl Widget<ProductBrowserState> for CategoryRail {
         &self,
         ctx: &mut BuildCtx<ProductBrowserState>,
         view: &View<ProductBrowserState>,
-    ) -> Node {
-        let tokens = &view.env.theme.tokens;
-        let mut children = vec![
-            Text::new("Categories")
-                .size(16.0)
-                .weight(700)
-                .color(tokens.colors.text_primary)
-                .into_node(),
-            category_button(ctx, view, "All products".to_string(), None),
-        ];
+    ) -> impl fission::IntoWidget<ProductBrowserState> {
+        fission::AnyWidget::from_node({
+            let tokens = &view.env.theme.tokens;
+            let mut children = vec![
+                Text::new("Categories")
+                    .size(16.0)
+                    .weight(700)
+                    .color(tokens.colors.text_primary)
+                    .into_node(),
+                category_button(ctx, view, "All products".to_string(), None),
+            ];
 
-        match self.snapshot.connection_state {
-            AsyncConnectionState::Waiting => children.push(
-                Text::new("Loading categories...")
-                    .size(13.0)
-                    .color(tokens.colors.text_secondary)
-                    .into_node(),
-            ),
-            _ if self.snapshot.has_error() => children.push(
-                Text::new("Categories unavailable")
-                    .size(13.0)
-                    .color(tokens.colors.text_secondary)
-                    .into_node(),
-            ),
-            _ => {
-                if let Some(categories) = self.snapshot.data() {
-                    children.extend(categories.iter().map(|category| {
-                        category_button(
-                            ctx,
-                            view,
-                            category.name.clone(),
-                            Some(category.slug.clone()),
-                        )
-                    }));
+            match self.snapshot.connection_state {
+                AsyncConnectionState::Waiting => children.push(
+                    Text::new("Loading categories...")
+                        .size(13.0)
+                        .color(tokens.colors.text_secondary)
+                        .into_node(),
+                ),
+                _ if self.snapshot.has_error() => children.push(
+                    Text::new("Categories unavailable")
+                        .size(13.0)
+                        .color(tokens.colors.text_secondary)
+                        .into_node(),
+                ),
+                _ => {
+                    if let Some(categories) = self.snapshot.data() {
+                        children.extend(categories.iter().map(|category| {
+                            category_button(
+                                ctx,
+                                view,
+                                category.name.clone(),
+                                Some(category.slug.clone()),
+                            )
+                        }));
+                    }
                 }
             }
-        }
 
-        Container::new(
-            Scroll {
-                child: Some(Box::new(
-                    Column {
-                        gap: Some(8.0),
-                        children,
-                        ..Default::default()
-                    }
-                    .into_node(),
-                )),
-                flex_grow: 1.0,
-                ..Default::default()
-            }
-            .into_node(),
-        )
-        .width(220.0)
-        .padding_all(16.0)
-        .bg(tokens.colors.surface)
-        .border(tokens.colors.border, 1.0)
-        .border_radius(22.0)
-        .into_node()
+            Container::new(
+                Scroll {
+                    child: Some(Box::new(
+                        Column {
+                            gap: Some(8.0),
+                            children,
+                            ..Default::default()
+                        }
+                        .into_node(),
+                    )),
+                    flex_grow: 1.0,
+                    ..Default::default()
+                }
+                .into_node(),
+            )
+            .width(220.0)
+            .padding_all(16.0)
+            .bg(tokens.colors.surface)
+            .border(tokens.colors.border, 1.0)
+            .border_radius(22.0)
+            .into_node()
+        })
     }
 }
 

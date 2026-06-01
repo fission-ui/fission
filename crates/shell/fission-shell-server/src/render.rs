@@ -1131,7 +1131,7 @@ mod tests {
     };
     use fission_core::ui::{Button, Text};
     use fission_core::{
-        Action, ActionId, AppState, BuildCtx, Handler, JobRef, JobResource, JobSpec, Node,
+        Action, ActionId, AppState, BuildCtx, Handler, JobRef, JobResource, JobSpec,
         ReducerContext, ResourceKey, View, Widget,
     };
     use serde::{Deserialize, Serialize};
@@ -1149,8 +1149,12 @@ mod tests {
     struct TestPage(&'static str);
 
     impl Widget<TestState> for TestPage {
-        fn build(&self, _ctx: &mut BuildCtx<TestState>, _view: &View<TestState>) -> Node {
-            Text::new(self.0).into_node()
+        fn build(
+            &self,
+            _ctx: &mut BuildCtx<TestState>,
+            _view: &View<TestState>,
+        ) -> impl fission_core::IntoWidget<TestState> {
+            fission_core::AnyWidget::from_node(Text::new(self.0).into_node())
         }
     }
 
@@ -1158,13 +1162,19 @@ mod tests {
     struct TestActionPage;
 
     impl Widget<TestState> for TestActionPage {
-        fn build(&self, _ctx: &mut BuildCtx<TestState>, _view: &View<TestState>) -> Node {
-            Button {
-                child: Some(Box::new(Text::new("Run action").into_node())),
-                on_press: Some(ActionEnvelope::from(TestAction)),
-                ..Default::default()
-            }
-            .into_node()
+        fn build(
+            &self,
+            _ctx: &mut BuildCtx<TestState>,
+            _view: &View<TestState>,
+        ) -> impl fission_core::IntoWidget<TestState> {
+            fission_core::AnyWidget::from_node({
+                Button {
+                    child: Some(Box::new(Text::new("Run action").into_node())),
+                    on_press: Some(ActionEnvelope::from(TestAction)),
+                    ..Default::default()
+                }
+                .into_node()
+            })
         }
     }
 
@@ -1732,13 +1742,19 @@ same_site = "none"
     struct MissingJobPage;
 
     impl Widget<TestState> for MissingJobPage {
-        fn build(&self, ctx: &mut BuildCtx<TestState>, _view: &View<TestState>) -> Node {
-            ctx.resources.job(JobResource::new(
-                ResourceKey::new("missing-job"),
-                MISSING_JOB,
-                MissingJobRequest,
-            ));
-            Text::new("Missing job").into_node()
+        fn build(
+            &self,
+            ctx: &mut BuildCtx<TestState>,
+            _view: &View<TestState>,
+        ) -> impl fission_core::IntoWidget<TestState> {
+            fission_core::AnyWidget::from_node({
+                ctx.resources.job(JobResource::new(
+                    ResourceKey::new("missing-job"),
+                    MISSING_JOB,
+                    MissingJobRequest,
+                ));
+                Text::new("Missing job").into_node()
+            })
         }
     }
 
@@ -1803,20 +1819,26 @@ same_site = "none"
     struct LoopPage;
 
     impl Widget<LoopState> for LoopPage {
-        fn build(&self, ctx: &mut BuildCtx<LoopState>, view: &View<LoopState>) -> Node {
-            let on_ok = ctx.bind(LoopLoaded, on_loop_loaded as Handler<LoopState, LoopLoaded>);
-            ctx.resources.job(
-                JobResource::new(
-                    ResourceKey::new("loop-job"),
-                    LOOP_JOB,
-                    LoopJobRequest {
-                        count: view.state.count,
-                    },
-                )
-                .deps(view.state.count)
-                .on_ok(on_ok),
-            );
-            Text::new(format!("loop {}", view.state.count)).into_node()
+        fn build(
+            &self,
+            ctx: &mut BuildCtx<LoopState>,
+            view: &View<LoopState>,
+        ) -> impl fission_core::IntoWidget<LoopState> {
+            fission_core::AnyWidget::from_node({
+                let on_ok = ctx.bind(LoopLoaded, on_loop_loaded as Handler<LoopState, LoopLoaded>);
+                ctx.resources.job(
+                    JobResource::new(
+                        ResourceKey::new("loop-job"),
+                        LOOP_JOB,
+                        LoopJobRequest {
+                            count: view.state.count,
+                        },
+                    )
+                    .deps(view.state.count)
+                    .on_ok(on_ok),
+                );
+                Text::new(format!("loop {}", view.state.count)).into_node()
+            })
         }
     }
 

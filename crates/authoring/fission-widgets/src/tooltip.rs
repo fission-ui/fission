@@ -24,48 +24,50 @@ pub struct Tooltip {
 }
 
 impl<S: fission_core::AppState> Widget<S> for Tooltip {
-    fn build(&self, ctx: &mut BuildCtx<S>, view: &View<S>) -> Node {
-        let theme = &view.env.theme.components.tooltip;
+    fn build(&self, ctx: &mut BuildCtx<S>, view: &View<S>) -> impl fission_core::IntoWidget<S> {
+        fission_core::AnyWidget::from_node({
+            let theme = &view.env.theme.components.tooltip;
 
-        let trigger_id = fission_ir::NodeId::derived(self.id.as_u128(), &[]);
-        let is_hovered = view.runtime.interaction.is_hovered(trigger_id);
-        let show_tooltip = self.is_visible || is_hovered;
+            let trigger_id = fission_ir::NodeId::derived(self.id.as_u128(), &[]);
+            let is_hovered = view.runtime.interaction.is_hovered(trigger_id);
+            let show_tooltip = self.is_visible || is_hovered;
 
-        let trigger = Container::new(*self.child.clone())
-            .id(trigger_id)
-            .into_node();
+            let trigger = Container::new(*self.child.clone())
+                .id(trigger_id)
+                .into_node();
 
-        if show_tooltip {
-            let style = &theme.style;
-            let tooltip_card = Container::new(
-                Text::new(self.text.clone())
-                    .size(style.font_size.unwrap_or(theme.font_size))
-                    .color(style.text_color.unwrap_or(theme.text_color))
-                    .max_width(style.max_width.unwrap_or(theme.max_width))
-                    .into_node(),
-            )
-            .bg_fill(
-                style
-                    .background
-                    .clone()
-                    .unwrap_or(fission_core::op::Fill::Solid(theme.bg_color)),
-            )
-            .padding(style.padding_box(theme.padding_x, theme.padding_y))
-            .border_radius(style.radius.unwrap_or(theme.radius))
-            .shadows(style.outer_shadows())
-            .into_node();
+            if show_tooltip {
+                let style = &theme.style;
+                let tooltip_card = Container::new(
+                    Text::new(self.text.clone())
+                        .size(style.font_size.unwrap_or(theme.font_size))
+                        .color(style.text_color.unwrap_or(theme.text_color))
+                        .max_width(style.max_width.unwrap_or(theme.max_width))
+                        .into_node(),
+                )
+                .bg_fill(
+                    style
+                        .background
+                        .clone()
+                        .unwrap_or(fission_core::op::Fill::Solid(theme.bg_color)),
+                )
+                .padding(style.padding_box(theme.padding_x, theme.padding_y))
+                .border_radius(style.radius.unwrap_or(theme.radius))
+                .shadows(style.outer_shadows())
+                .into_node();
 
-            let flyout_node = crate::flyout(
-                fission_ir::NodeId::derived(self.id.as_u128(), &[]),
-                tooltip_card,
-            );
-            ctx.register_portal_with_layer(
-                fission_core::PortalLayer::Flyout,
-                Some(self.id),
-                flyout_node,
-            );
-        }
+                let flyout_node = crate::flyout(
+                    fission_ir::NodeId::derived(self.id.as_u128(), &[]),
+                    tooltip_card,
+                );
+                ctx.register_portal_with_layer(
+                    fission_core::PortalLayer::Flyout,
+                    Some(self.id),
+                    flyout_node,
+                );
+            }
 
-        trigger
+            trigger
+        })
     }
 }

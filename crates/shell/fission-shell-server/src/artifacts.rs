@@ -407,7 +407,7 @@ mod tests {
         FissionServerApp, ProgressiveWorker, ServerRenderPolicy, WasmIsland, WebRouteMode,
     };
     use fission_core::ui::Text;
-    use fission_core::{AppState, BuildCtx, Node, View, Widget};
+    use fission_core::{AppState, BuildCtx, View, Widget};
 
     #[derive(Debug, Default)]
     struct State;
@@ -416,8 +416,12 @@ mod tests {
     #[derive(Clone)]
     struct Page;
     impl Widget<State> for Page {
-        fn build(&self, _ctx: &mut BuildCtx<State>, _view: &View<State>) -> Node {
-            Text::new("artifact page").into_node()
+        fn build(
+            &self,
+            _ctx: &mut BuildCtx<State>,
+            _view: &View<State>,
+        ) -> impl fission_core::IntoWidget<State> {
+            fission_core::AnyWidget::from_node(Text::new("artifact page").into_node())
         }
     }
 

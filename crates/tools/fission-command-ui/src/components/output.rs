@@ -13,74 +13,80 @@ pub struct OutputPanel {
 }
 
 impl Widget<UiState> for OutputPanel {
-    fn build(&self, ctx: &mut BuildCtx<UiState>, view: &View<UiState>) -> Node {
-        let palette = UiPalette::for_mode(view.state.theme_mode);
-        let density = UiDensity::new(view.state.compact_mode);
-        let log_height = density.output_log_height(self.height);
-        let log_width = (self.width - 4.0).max(10.0);
-        let active = view.state.active_command_session();
-        let (title, status, output, scroll_id) = match active {
-            Some(session) => (
-                session.record.title.clone(),
-                session.record.status,
-                log_scrollback(session, view, log_height),
-                log_scroll_node_id(session.id),
-            ),
-            None => (
-                "Output".to_string(),
-                CommandStatus::Ready,
-                ScrollbackView {
-                    total_lines: 1,
-                    visible_text:
-                        "Choose a workflow, confirm the command, and review results here."
-                            .to_string(),
-                    start_line: 0,
-                    visible_lines: 1,
-                },
-                NodeId::explicit("cli_ui_log_scrollback_empty"),
-            ),
-        };
-        let status_color = match status {
-            CommandStatus::Ready => palette.muted,
-            CommandStatus::Running => palette.warning,
-            CommandStatus::Ok => palette.success,
-            CommandStatus::Failed => palette.error,
-        };
-        Container::new(
-            Column {
-                gap: Some(0.0),
-                children: vec![
-                    Row {
-                        gap: Some(2.0),
-                        children: vec![
-                            Text::new(title).color(palette.text).into_node(),
-                            Text::new(status.label()).color(status_color).into_node(),
-                        ],
-                        ..Default::default()
-                    }
-                    .into_node(),
-                    command_tabs(ctx, view, self.width - 4.0),
-                    Scroll {
-                        id: Some(scroll_id),
-                        direction: FlexDirection::Column,
-                        width: Some(log_width),
-                        height: Some(log_height),
-                        show_scrollbar: true,
-                        child: Some(Box::new(scrollback_content(output, palette.muted))),
-                        ..Default::default()
-                    }
-                    .into_node(),
-                ],
-                ..Default::default()
-            }
-            .into_node(),
-        )
-        .width(self.width)
-        .height(self.height)
-        .padding(density.sidebar_padding())
-        .bg(palette.raised)
-        .border(palette.border, 1.0)
-        .into_node()
+    fn build(
+        &self,
+        ctx: &mut BuildCtx<UiState>,
+        view: &View<UiState>,
+    ) -> impl fission::IntoWidget<UiState> {
+        fission::AnyWidget::from_node({
+            let palette = UiPalette::for_mode(view.state.theme_mode);
+            let density = UiDensity::new(view.state.compact_mode);
+            let log_height = density.output_log_height(self.height);
+            let log_width = (self.width - 4.0).max(10.0);
+            let active = view.state.active_command_session();
+            let (title, status, output, scroll_id) = match active {
+                Some(session) => (
+                    session.record.title.clone(),
+                    session.record.status,
+                    log_scrollback(session, view, log_height),
+                    log_scroll_node_id(session.id),
+                ),
+                None => (
+                    "Output".to_string(),
+                    CommandStatus::Ready,
+                    ScrollbackView {
+                        total_lines: 1,
+                        visible_text:
+                            "Choose a workflow, confirm the command, and review results here."
+                                .to_string(),
+                        start_line: 0,
+                        visible_lines: 1,
+                    },
+                    NodeId::explicit("cli_ui_log_scrollback_empty"),
+                ),
+            };
+            let status_color = match status {
+                CommandStatus::Ready => palette.muted,
+                CommandStatus::Running => palette.warning,
+                CommandStatus::Ok => palette.success,
+                CommandStatus::Failed => palette.error,
+            };
+            Container::new(
+                Column {
+                    gap: Some(0.0),
+                    children: vec![
+                        Row {
+                            gap: Some(2.0),
+                            children: vec![
+                                Text::new(title).color(palette.text).into_node(),
+                                Text::new(status.label()).color(status_color).into_node(),
+                            ],
+                            ..Default::default()
+                        }
+                        .into_node(),
+                        command_tabs(ctx, view, self.width - 4.0),
+                        Scroll {
+                            id: Some(scroll_id),
+                            direction: FlexDirection::Column,
+                            width: Some(log_width),
+                            height: Some(log_height),
+                            show_scrollbar: true,
+                            child: Some(Box::new(scrollback_content(output, palette.muted))),
+                            ..Default::default()
+                        }
+                        .into_node(),
+                    ],
+                    ..Default::default()
+                }
+                .into_node(),
+            )
+            .width(self.width)
+            .height(self.height)
+            .padding(density.sidebar_padding())
+            .bg(palette.raised)
+            .border(palette.border, 1.0)
+            .into_node()
+        })
     }
 }
 

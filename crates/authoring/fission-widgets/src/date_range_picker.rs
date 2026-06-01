@@ -1,7 +1,7 @@
 use crate::date_picker::DatePicker;
 use crate::stack::HStack;
 use chrono::NaiveDate;
-use fission_core::ui::{Node, Text};
+use fission_core::ui::Text;
 use fission_core::{ActionEnvelope, BuildCtx, View, Widget, WidgetNodeId};
 use std::sync::Arc;
 
@@ -30,43 +30,45 @@ impl std::fmt::Debug for DateRangePicker {
 }
 
 impl<S: fission_core::AppState> Widget<S> for DateRangePicker {
-    fn build(&self, _ctx: &mut BuildCtx<S>, view: &View<S>) -> Node {
-        let cb = self.on_change.clone();
-        let s = self.start;
-        let e = self.end;
+    fn build(&self, _ctx: &mut BuildCtx<S>, view: &View<S>) -> impl fission_core::IntoWidget<S> {
+        fission_core::AnyWidget::from_node({
+            let cb = self.on_change.clone();
+            let s = self.start;
+            let e = self.end;
 
-        HStack {
-            spacing: Some(8.0),
-            children: vec![
-                DatePicker {
-                    id: self.id_start,
-                    value: self.start,
-                    is_open: self.is_start_open,
-                    width: None,
-                    on_change: cb.clone().map(|f| {
-                        Arc::new(move |d| f(Some(d), e))
-                            as Arc<dyn Fn(NaiveDate) -> ActionEnvelope + Send + Sync>
-                    }),
-                    on_toggle: self.on_toggle_start.clone(),
-                    on_close: self.on_close_start.clone(),
-                }
-                .build(_ctx, view),
-                Text::new("-").into_node(),
-                DatePicker {
-                    id: self.id_end,
-                    value: self.end,
-                    is_open: self.is_end_open,
-                    width: None,
-                    on_change: cb.map(|f| {
-                        Arc::new(move |d| f(s, Some(d)))
-                            as Arc<dyn Fn(NaiveDate) -> ActionEnvelope + Send + Sync>
-                    }),
-                    on_toggle: self.on_toggle_end.clone(),
-                    on_close: self.on_close_end.clone(),
-                }
-                .build(_ctx, view),
-            ],
-        }
-        .into_node()
+            HStack {
+                spacing: Some(8.0),
+                children: vec![
+                    DatePicker {
+                        id: self.id_start,
+                        value: self.start,
+                        is_open: self.is_start_open,
+                        width: None,
+                        on_change: cb.clone().map(|f| {
+                            Arc::new(move |d| f(Some(d), e))
+                                as Arc<dyn Fn(NaiveDate) -> ActionEnvelope + Send + Sync>
+                        }),
+                        on_toggle: self.on_toggle_start.clone(),
+                        on_close: self.on_close_start.clone(),
+                    }
+                    .build_node(_ctx, view),
+                    Text::new("-").into_node(),
+                    DatePicker {
+                        id: self.id_end,
+                        value: self.end,
+                        is_open: self.is_end_open,
+                        width: None,
+                        on_change: cb.map(|f| {
+                            Arc::new(move |d| f(s, Some(d)))
+                                as Arc<dyn Fn(NaiveDate) -> ActionEnvelope + Send + Sync>
+                        }),
+                        on_toggle: self.on_toggle_end.clone(),
+                        on_close: self.on_close_end.clone(),
+                    }
+                    .build_node(_ctx, view),
+                ],
+            }
+            .into_node()
+        })
     }
 }

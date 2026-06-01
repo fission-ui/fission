@@ -12,30 +12,36 @@ use fission::prelude::*;
 pub struct SettingsScreen;
 
 impl Widget<UiState> for SettingsScreen {
-    fn build(&self, ctx: &mut BuildCtx<UiState>, view: &View<UiState>) -> Node {
-        let palette = UiPalette::for_mode(view.state.theme_mode);
-        let set_limit_input = with_reducer!(
-            ctx,
-            SetScrollbackLimitInput(String::new()),
-            set_scrollback_limit_input
-        );
-        let compact = with_reducer!(ctx, ToggleCompactMode, toggle_compact_mode);
-        let presets = [10_000usize, 100_000, 500_000, 1_000_000]
-            .into_iter()
-            .map(|limit| {
-                let action = with_reducer!(ctx, SetScrollbackLimit(limit), set_scrollback_limit);
-                ActionButton::new(format_scrollback_limit(limit), action)
-                    .tone(if view.state.scrollback_limit == limit {
-                        ButtonTone::Primary
-                    } else {
-                        ButtonTone::Neutral
-                    })
-                    .width(16.0)
-                    .build(ctx, view)
-            })
-            .collect::<Vec<_>>();
+    fn build(
+        &self,
+        ctx: &mut BuildCtx<UiState>,
+        view: &View<UiState>,
+    ) -> impl fission::IntoWidget<UiState> {
+        fission::AnyWidget::from_node({
+            let palette = UiPalette::for_mode(view.state.theme_mode);
+            let set_limit_input = with_reducer!(
+                ctx,
+                SetScrollbackLimitInput(String::new()),
+                set_scrollback_limit_input
+            );
+            let compact = with_reducer!(ctx, ToggleCompactMode, toggle_compact_mode);
+            let presets = [10_000usize, 100_000, 500_000, 1_000_000]
+                .into_iter()
+                .map(|limit| {
+                    let action =
+                        with_reducer!(ctx, SetScrollbackLimit(limit), set_scrollback_limit);
+                    ActionButton::new(format_scrollback_limit(limit), action)
+                        .tone(if view.state.scrollback_limit == limit {
+                            ButtonTone::Primary
+                        } else {
+                            ButtonTone::Neutral
+                        })
+                        .width(16.0)
+                        .build_node(ctx, view)
+                })
+                .collect::<Vec<_>>();
 
-        Column {
+            Column {
             gap: Some(1.0),
             children: vec![
                 title_block(
@@ -52,7 +58,7 @@ impl Widget<UiState> for SettingsScreen {
                         "Comfortable".to_string()
                     },
                 )
-                .build(ctx, view),
+                .build_node(ctx, view),
                 ActionButton::new(
                     if view.state.compact_mode {
                         "Use comfortable spacing"
@@ -63,12 +69,12 @@ impl Widget<UiState> for SettingsScreen {
                 )
                 .tone(ButtonTone::Neutral)
                 .width(28.0)
-                .build(ctx, view),
+                .build_node(ctx, view),
                 KeyValueRow::new(
                     "Scrollback",
                     format!("{} lines", view.state.scrollback_limit),
                 )
-                .build(ctx, view),
+                .build_node(ctx, view),
                 FormTextField::new(
                     "cli_ui_scrollback_limit",
                     "Scrollback lines",
@@ -77,7 +83,7 @@ impl Widget<UiState> for SettingsScreen {
                     set_limit_input,
                 )
                 .width(28.0)
-                .build(ctx, view),
+                .build_node(ctx, view),
                 Row {
                     gap: Some(1.0),
                     children: presets,
@@ -93,6 +99,7 @@ impl Widget<UiState> for SettingsScreen {
             ..Default::default()
         }
         .into_node()
+        })
     }
 }
 

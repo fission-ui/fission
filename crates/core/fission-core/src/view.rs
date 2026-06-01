@@ -286,26 +286,16 @@ pub trait Widget<S: AppState> {
     /// Build this widget directly into Fission's internal node representation.
     ///
     /// Framework internals use this when lowering the root widget or composing
-    /// legacy node-backed widgets. Application code should call `build` and
-    /// return widgets, not nodes.
+    /// widgets into child slots that still lower through the internal node
+    /// tree. Application code should call `build` and return widgets.
     #[doc(hidden)]
     fn build_node(&self, ctx: &mut BuildCtx<S>, view: &View<S>) -> Node {
         self.build(ctx, view).into_widget().build_node(ctx, view)
     }
 }
 
-impl<S: AppState> Widget<S> for Node {
-    fn build(&self, _ctx: &mut BuildCtx<S>, _view: &View<S>) -> Node {
-        self.clone()
-    }
-
-    fn build_node(&self, _ctx: &mut BuildCtx<S>, _view: &View<S>) -> Node {
-        self.clone()
-    }
-}
-
 impl<S: AppState> Widget<S> for AnyWidget<S> {
-    fn build(&self, _ctx: &mut BuildCtx<S>, _view: &View<S>) -> AnyWidget<S> {
+    fn build(&self, _ctx: &mut BuildCtx<S>, _view: &View<S>) -> impl IntoWidget<S> {
         self.clone()
     }
 
@@ -317,8 +307,8 @@ impl<S: AppState> Widget<S> for AnyWidget<S> {
 macro_rules! impl_widget_for_primitive {
     ($t:ty, $v:ident) => {
         impl<S: AppState> Widget<S> for $t {
-            fn build(&self, _ctx: &mut BuildCtx<S>, _view: &View<S>) -> Node {
-                Node::$v(self.clone())
+            fn build(&self, _ctx: &mut BuildCtx<S>, _view: &View<S>) -> impl crate::IntoWidget<S> {
+                crate::AnyWidget::from_node(Node::$v(self.clone()))
             }
         }
     };
@@ -346,7 +336,7 @@ impl_widget_for_primitive!(Slider, Slider);
 impl_widget_for_primitive!(LazyColumn, LazyColumn);
 
 impl<S: AppState> Widget<S> for Video {
-    fn build(&self, ctx: &mut BuildCtx<S>, _view: &View<S>) -> Node {
+    fn build(&self, ctx: &mut BuildCtx<S>, _view: &View<S>) -> impl crate::IntoWidget<S> {
         let mut video = self.clone();
         let id = video
             .id
@@ -360,6 +350,6 @@ impl<S: AppState> Widget<S> for Video {
             loop_playback: video.loop_playback,
         });
 
-        Node::Video(video)
+        crate::AnyWidget::from_node(Node::Video(video))
     }
 }
