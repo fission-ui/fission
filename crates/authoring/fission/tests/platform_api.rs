@@ -21,6 +21,7 @@ fn on_notification_response(state: &mut PlatformApiState, action: NotificationRe
     state.last_notification = Some(action.response.notification_id.0);
 }
 
+#[derive(Clone)]
 struct PlatformApiApp;
 
 impl Widget<PlatformApiState> for PlatformApiApp {
@@ -29,7 +30,7 @@ impl Widget<PlatformApiState> for PlatformApiApp {
         _ctx: &mut BuildCtx<PlatformApiState>,
         _view: &View<PlatformApiState>,
     ) -> impl fission_core::IntoWidget<PlatformApiState> {
-        fission_core::AnyWidget::from_node(Text::new("platform api").into_node())
+        fission_core::view::internal_node_widget(Text::new("platform api").into_node())
     }
 }
 

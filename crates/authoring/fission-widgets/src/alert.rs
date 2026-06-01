@@ -23,7 +23,7 @@ pub struct Alert {
 
 impl<S: fission_core::AppState> Widget<S> for Alert {
     fn build(&self, _ctx: &mut BuildCtx<S>, view: &View<S>) -> impl fission_core::IntoWidget<S> {
-        fission_core::AnyWidget::from_node({
+        fission_core::view::internal_node_widget({
             let theme = &view.env.theme.components.alert;
             let tokens = &view.env.theme.tokens;
 
@@ -55,13 +55,13 @@ impl<S: fission_core::AppState> Widget<S> for Alert {
                 ),
             };
 
-            Container::new(
-                Row {
+            Container::<fission_core::ui::Node>::lowered(
+                Row::<fission_core::ui::Node> {
                     gap: Some(12.0),
                     align_items: fission_ir::op::AlignItems::Center,
                     children: vec![
                         Icon::svg(icon).size(24.0).color(color).into_node(),
-                        Container::new(
+                        Container::<fission_core::ui::Node>::lowered(
                             VStack {
                                 spacing: Some(2.0),
                                 children: vec![

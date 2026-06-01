@@ -29,6 +29,6 @@ fn test_timeline_structure() {
         ],
     };
 
-    let node = timeline.build_node(&mut ctx, &view);
+    let node = fission_core::view::lower_widget_to_node(&timeline, &mut ctx, &view);
     assert!(matches!(node, Node::Column(_)));
 }

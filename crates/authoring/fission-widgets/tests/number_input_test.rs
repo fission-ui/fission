@@ -25,7 +25,7 @@ fn test_number_input_structure() {
         ..Default::default()
     };
 
-    let node = input.build_node(&mut ctx, &view);
+    let node = fission_core::view::lower_widget_to_node(&input, &mut ctx, &view);
 
     match node {
         Node::Container(container) => {

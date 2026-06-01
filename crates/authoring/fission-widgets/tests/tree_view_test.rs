@@ -46,7 +46,7 @@ fn test_tree_view_structure() {
         selected_id: None,
     };
 
-    let node = tree.build_node(&mut ctx, &view);
+    let node = fission_core::view::lower_widget_to_node(&tree, &mut ctx, &view);
 
     // Should return VStack (Column)
     if let Node::Column(col) = node {

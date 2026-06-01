@@ -28,7 +28,7 @@ pub struct Badge {
 
 impl<S: fission_core::AppState> Widget<S> for Badge {
     fn build(&self, _ctx: &mut BuildCtx<S>, view: &View<S>) -> impl fission_core::IntoWidget<S> {
-        fission_core::AnyWidget::from_node({
+        fission_core::view::internal_node_widget({
             let theme = &view.env.theme.components.badge;
             let tokens = &view.env.theme.tokens;
             let style = theme.resolve(self.tone, self.size);
@@ -44,7 +44,7 @@ impl<S: fission_core::AppState> Widget<S> for Badge {
             let padding_y = style.padding_y.unwrap_or(2.0);
             let border = style.border.clone();
 
-            let mut badge = Container::new(
+            let mut badge = Container::<fission_core::ui::Node>::lowered(
                 Align::new(
                     Text::new(self.text.clone())
                         .size(style.font_size.unwrap_or(theme.font_size))

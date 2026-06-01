@@ -10,10 +10,10 @@ pub struct Link {
 
 impl<S: fission_core::AppState> Widget<S> for Link {
     fn build(&self, _ctx: &mut BuildCtx<S>, view: &View<S>) -> impl fission_core::IntoWidget<S> {
-        fission_core::AnyWidget::from_node({
+        fission_core::view::internal_node_widget({
             let tokens = &view.env.theme.tokens;
 
-            Button {
+            Button::<fission_core::ui::Node> {
                 variant: ButtonVariant::Ghost,
                 child: Some(Box::new(
                     Text::new(self.text.clone())

@@ -18,17 +18,42 @@ pub struct Router<S: fission_core::AppState> {
     pub not_found: Option<PageBuilder<S>>,
 }
 
+impl<S: fission_core::AppState> Clone for Route<S> {
+    fn clone(&self) -> Self {
+        Self {
+            path: self.path.clone(),
+            builder: Arc::clone(&self.builder),
+        }
+    }
+}
+
+impl<S: fission_core::AppState> Clone for Router<S> {
+    fn clone(&self) -> Self {
+        Self {
+            current_path: self.current_path.clone(),
+            routes: self.routes.clone(),
+            not_found: self.not_found.as_ref().map(Arc::clone),
+        }
+    }
+}
+
 impl<S: fission_core::AppState> Widget<S> for Router<S> {
     fn build(&self, ctx: &mut BuildCtx<S>, view: &View<S>) -> impl fission_core::IntoWidget<S> {
-        fission_core::AnyWidget::from_node({
+        fission_core::view::internal_node_widget({
             for route in &self.routes {
                 if let Some(params) = match_route(&route.path, &self.current_path) {
-                    return fission_core::AnyWidget::from_node((route.builder)(ctx, view, &params));
+                    return fission_core::view::internal_node_widget((route.builder)(
+                        ctx, view, &params,
+                    ));
                 }
             }
 
             if let Some(not_found) = &self.not_found {
-                return fission_core::AnyWidget::from_node((not_found)(ctx, view, &HashMap::new()));
+                return fission_core::view::internal_node_widget((not_found)(
+                    ctx,
+                    view,
+                    &HashMap::new(),
+                ));
             }
 
             fission_core::ui::Text::new(format!("404: {}", self.current_path)).into_node()

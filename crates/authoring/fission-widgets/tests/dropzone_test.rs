@@ -22,6 +22,6 @@ fn test_dropzone_structure() {
         on_drag_leave: None,
     };
 
-    let node = dropzone.build_node(&mut ctx, &view);
+    let node = fission_core::view::lower_widget_to_node(&dropzone, &mut ctx, &view);
     assert!(matches!(node, Node::GestureDetector(_)));
 }

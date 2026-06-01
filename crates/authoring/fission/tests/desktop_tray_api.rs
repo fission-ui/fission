@@ -36,6 +36,7 @@ impl TrayMenuWidget<FacadeTrayState> for FacadeTrayMenu {
     }
 }
 
+#[derive(Clone)]
 struct FacadeTrayApp;
 
 impl Widget<FacadeTrayState> for FacadeTrayApp {
@@ -44,7 +45,7 @@ impl Widget<FacadeTrayState> for FacadeTrayApp {
         _ctx: &mut BuildCtx<FacadeTrayState>,
         view: &View<FacadeTrayState>,
     ) -> impl fission_core::IntoWidget<FacadeTrayState> {
-        fission_core::AnyWidget::from_node({
+        fission_core::view::internal_node_widget({
             Text::new(if view.state.opened { "Open" } else { "Closed" }).into_node()
         })
     }

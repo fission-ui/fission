@@ -34,7 +34,7 @@ pub struct Toast {
 
 impl<S: fission_core::AppState> Widget<S> for Toast {
     fn build(&self, _ctx: &mut BuildCtx<S>, view: &View<S>) -> impl fission_core::IntoWidget<S> {
-        fission_core::AnyWidget::from_node({
+        fission_core::view::internal_node_widget({
             let tokens = &view.env.theme.tokens;
 
             let (icon_path, icon_color) = match self.kind {
@@ -66,7 +66,7 @@ impl<S: fission_core::AppState> Widget<S> for Toast {
                         .color(tokens.colors.on_surface)
                         .flex_grow(1.0)
                         .into_node(),
-                    Button {
+                    Button::<fission_core::ui::Node> {
                         variant: ButtonVariant::Ghost,
                         child: Some(Box::new(
                             Icon::svg(material::navigation::close::regular())
@@ -81,7 +81,7 @@ impl<S: fission_core::AppState> Widget<S> for Toast {
             }
             .into_node();
 
-            Container::new(content)
+            Container::<fission_core::ui::Node>::lowered(content)
                 .bg(tokens.colors.surface)
                 .border(tokens.colors.border, 1.0)
                 .border_radius(tokens.radii.medium)

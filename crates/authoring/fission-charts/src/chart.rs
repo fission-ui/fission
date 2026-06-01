@@ -217,21 +217,8 @@ impl Chart {
 }
 
 impl<S: fission_core::AppState> Widget<S> for Chart {
-    fn build(&self, ctx: &mut BuildCtx<S>, _view: &View<S>) -> impl fission_core::IntoWidget<S> {
-        fission_core::AnyWidget::from_node({
-            if self.animation.enabled {
-                ctx.anim_for(self.animation_id()).request(AnimationRequest {
-                    property: chart_animation_property(),
-                    from: AnimationStartValue::Explicit(0.0),
-                    to: 1.0,
-                    duration_ms: self.animation.duration_ms,
-                    repeat: self.animation.repeat,
-                    delay_ms: self.animation.delay_ms,
-                    frame_interval_ms: Some(16),
-                    easing: chart_easing(self.animation.easing),
-                });
-            }
-
+    fn build(&self, _ctx: &mut BuildCtx<S>, _view: &View<S>) -> impl fission_core::IntoWidget<S> {
+        fission_core::view::internal_node_widget({
             let render_object = if self.interaction.enabled {
                 Some(Arc::new(ChartRenderObject {
                     chart: self.clone(),
@@ -239,13 +226,14 @@ impl<S: fission_core::AppState> Widget<S> for Chart {
             } else {
                 None
             };
-            let mut container = Container::new(Node::Custom(CustomNode {
-                debug_tag: "fission_charts::Chart".into(),
-                lowerer: Some(Arc::new(ChartLowerer {
-                    chart: self.clone(),
-                })),
-                render_object,
-            }));
+            let mut container =
+                fission_core::ui::Container::<Node>::lowered(Node::Custom(CustomNode {
+                    debug_tag: "fission_charts::Chart".into(),
+                    lowerer: Some(Arc::new(ChartLowerer {
+                        chart: self.clone(),
+                    })),
+                    render_object,
+                }));
             if let Some(w) = self.width {
                 container = container.width(w);
             } else {

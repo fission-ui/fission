@@ -11,10 +11,10 @@ pub struct Stepper {
 
 impl<S: fission_core::AppState> Widget<S> for Stepper {
     fn build(&self, _ctx: &mut BuildCtx<S>, view: &View<S>) -> impl fission_core::IntoWidget<S> {
-        fission_core::AnyWidget::from_node({
+        fission_core::view::internal_node_widget({
             let tokens = &view.env.theme.tokens;
             if self.steps.is_empty() {
-                return fission_core::AnyWidget::from_node(
+                return fission_core::view::internal_node_widget(
                     fission_core::ui::widgets::Spacer::default().into_node(),
                 );
             }
@@ -30,7 +30,7 @@ impl<S: fission_core::AppState> Widget<S> for Stepper {
                 let is_completed = i < self.active_index;
                 let is_emphasized = is_active || is_completed;
 
-                let mut circle = Container::new(
+                let mut circle = Container::<fission_core::ui::Node>::lowered(
                     Align::new(
                         Text::new(format!("{}", i + 1))
                             .size(12.0)
@@ -57,13 +57,13 @@ impl<S: fission_core::AppState> Widget<S> for Stepper {
                 }
 
                 indicator_row.push(
-                    Container::new(circle.into_node())
+                    Container::<fission_core::ui::Node>::lowered(circle.into_node())
                         .width(node_slot)
                         .into_node(),
                 );
 
                 label_row.push(
-                    Container::new(
+                    Container::<fission_core::ui::Node>::lowered(
                         Align::new(
                             Text::new(label.clone())
                                 .size(11.0)
@@ -88,11 +88,13 @@ impl<S: fission_core::AppState> Widget<S> for Stepper {
                     };
 
                     indicator_row.push(
-                        Container::new(fission_core::ui::widgets::Spacer::default().into_node())
-                            .width(connector_width)
-                            .height(2.0)
-                            .bg(line_color)
-                            .into_node(),
+                        Container::<fission_core::ui::Node>::lowered(
+                            fission_core::ui::widgets::Spacer::default().into_node(),
+                        )
+                        .width(connector_width)
+                        .height(2.0)
+                        .bg(line_color)
+                        .into_node(),
                     );
                     label_row.push(
                         fission_core::ui::widgets::Spacer {

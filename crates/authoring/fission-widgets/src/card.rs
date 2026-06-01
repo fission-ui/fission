@@ -18,7 +18,7 @@ pub struct Card {
 impl Default for Card {
     fn default() -> Self {
         Self {
-            child: Box::new(fission_core::ui::Row::default().into()),
+            child: Box::new(fission_core::ui::Row::<fission_core::ui::Node>::default().into()),
             pattern: CardPattern::Raised,
             interactive: false,
         }
@@ -27,7 +27,7 @@ impl Default for Card {
 
 impl<S: fission_core::AppState> Widget<S> for Card {
     fn build(&self, _ctx: &mut BuildCtx<S>, view: &View<S>) -> impl fission_core::IntoWidget<S> {
-        fission_core::AnyWidget::from_node({
+        fission_core::view::internal_node_widget({
             let theme = &view.env.theme.components.card;
             let style = theme.resolve(self.pattern, self.interactive);
             let tokens = &view.env.theme.tokens;
@@ -42,7 +42,7 @@ impl<S: fission_core::AppState> Widget<S> for Card {
                 offset: (0.0, 1.0),
             };
 
-            let mut card = Container::new(*self.child.clone())
+            let mut card = Container::<fission_core::ui::Node>::lowered(*self.child.clone())
                 .bg_fill(
                     style
                         .background

@@ -1,7 +1,8 @@
+use fission_core::ui::Button;
 use fission_core::{Action as CoreAction, ActionId, Env, RuntimeState};
 use fission_core::{Lower, LoweringContext}; // Import Lower and LoweringContext from core
 use fission_ir::{ActionSet, LayoutOp, Op, Role, Semantics}; // Removed StructuralOp
-use fission_widgets::{Button, Node, Row, Text, TextContent};
+use fission_widgets::{Node, Text, TextContent};
 use lazy_static::lazy_static;
 use serde::{Deserialize, Serialize};
 
@@ -40,19 +41,19 @@ fn test_text_widget_default_and_lower() {
 
 #[test]
 fn test_row_widget_children_lower() {
-    let row_widget = Row {
+    let row_widget = fission_core::ui::Row::<fission_core::ui::Node> {
         id: None,
         children: vec![
             Text {
                 content: TextContent::Literal("Hello".into()),
                 ..Default::default()
             }
-            .into(),
+            .into_node(),
             Text {
                 content: TextContent::Literal("World".into()),
                 ..Default::default()
             }
-            .into(),
+            .into_node(),
         ],
         semantics: None,
         ..Default::default()
@@ -71,14 +72,14 @@ fn test_row_widget_children_lower() {
 
 #[test]
 fn test_button_widget_lower_with_child_and_semantics() {
-    let button_widget = Button {
+    let button_widget = Button::<fission_core::ui::Node> {
         id: None,
         child: Some(Box::new(
             Text {
                 content: TextContent::Literal("Click Me".into()),
                 ..Default::default()
             }
-            .into(),
+            .into_node(),
         )),
         on_press: Some(TestClickAction { value: 1 }.into()),
         semantics: Some(Semantics {

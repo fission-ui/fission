@@ -19,7 +19,7 @@ pub struct EmptyState {
 
 impl<S: fission_core::AppState> Widget<S> for EmptyState {
     fn build(&self, _ctx: &mut BuildCtx<S>, view: &View<S>) -> impl fission_core::IntoWidget<S> {
-        fission_core::AnyWidget::from_node({
+        fission_core::view::internal_node_widget({
             let tokens = &view.env.theme.tokens;
 
             let mut children = Vec::new();
@@ -54,20 +54,23 @@ impl<S: fission_core::AppState> Widget<S> for EmptyState {
                 children.push(*act.clone());
             }
 
-            Center {
-                child: Box::new(
-                    Container::new(
-                        VStack {
-                            spacing: Some(8.0),
-                            children,
-                        }
+            fission_core::view::lower_widget_to_node(
+                &Center {
+                    child: Box::new(
+                        Container::<fission_core::ui::Node>::lowered(
+                            VStack {
+                                spacing: Some(8.0),
+                                children,
+                            }
+                            .into_node(),
+                        )
+                        .padding_all(32.0)
                         .into_node(),
-                    )
-                    .padding_all(32.0)
-                    .into_node(),
-                ),
-            }
-            .build_node(_ctx, view)
+                    ),
+                },
+                _ctx,
+                view,
+            )
         })
     }
 }

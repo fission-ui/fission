@@ -41,7 +41,7 @@ impl Default for NumberInput {
 
 impl<S: fission_core::AppState> Widget<S> for NumberInput {
     fn build(&self, _ctx: &mut BuildCtx<S>, view: &View<S>) -> impl fission_core::IntoWidget<S> {
-        fission_core::AnyWidget::from_node({
+        fission_core::view::internal_node_widget({
             let tokens = &view.env.theme.tokens;
             let display_text = self
                 .display_text
@@ -58,12 +58,12 @@ impl<S: fission_core::AppState> Widget<S> for NumberInput {
                 .as_ref()
                 .map(|id| NodeId::derived(id.as_u128(), &[0]));
 
-            Container::new(
-                Row::default()
-                    .gap(self.gap.unwrap_or(4.0))
-                    .align_items(fission_ir::op::AlignItems::Center)
-                    .children(vec![
-                        Button {
+            Container::<fission_core::ui::Node>::lowered(
+                Row::<fission_core::ui::Node> {
+                    gap: Some(self.gap.unwrap_or(4.0)),
+                    align_items: fission_ir::op::AlignItems::Center,
+                    children: vec![
+                        Button::<fission_core::ui::Node> {
                             variant: ButtonVariant::Ghost,
                             child: Some(Box::new(
                                 Icon::svg(material::content::remove::regular())
@@ -88,7 +88,7 @@ impl<S: fission_core::AppState> Widget<S> for NumberInput {
                             ..Default::default()
                         }
                         .into_node(),
-                        Button {
+                        Button::<fission_core::ui::Node> {
                             variant: ButtonVariant::Ghost,
                             child: Some(Box::new(
                                 Icon::svg(material::content::add::regular())
@@ -102,8 +102,10 @@ impl<S: fission_core::AppState> Widget<S> for NumberInput {
                             ..Default::default()
                         }
                         .into_node(),
-                    ])
-                    .into_node(),
+                    ],
+                    ..Default::default()
+                }
+                .into_node(),
             )
             .padding_all(2.0)
             .bg(tokens.colors.background)

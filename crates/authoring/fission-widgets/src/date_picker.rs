@@ -5,6 +5,7 @@ use fission_core::ui::TextInput;
 use fission_core::{ActionEnvelope, BuildCtx, View, Widget, WidgetNodeId};
 use std::sync::Arc;
 
+#[derive(Clone)]
 pub struct DatePicker {
     pub id: WidgetNodeId,
     pub value: Option<NaiveDate>,
@@ -27,7 +28,7 @@ impl std::fmt::Debug for DatePicker {
 
 impl<S: fission_core::AppState> Widget<S> for DatePicker {
     fn build(&self, _ctx: &mut BuildCtx<S>, view: &View<S>) -> impl fission_core::IntoWidget<S> {
-        fission_core::AnyWidget::from_node({
+        fission_core::view::internal_node_widget({
             let text = self
                 .value
                 .map(|d| d.format("%Y-%m-%d").to_string())
@@ -57,7 +58,7 @@ impl<S: fission_core::AppState> Widget<S> for DatePicker {
             // Wrap trigger in GestureDetector to handle click if TextInput consumes it?
             // Actually, let's use a Button for the trigger to ensure click works.
             use fission_core::ui::{Button, ButtonContentAlign, ButtonVariant, Text};
-            let trigger_btn = Button {
+            let trigger_btn = Button::<fission_core::ui::Node> {
                 variant: ButtonVariant::Outline,
                 child: Some(Box::new(
                     Text::new(if text.is_empty() {
@@ -80,8 +81,8 @@ impl<S: fission_core::AppState> Widget<S> for DatePicker {
                 let today = chrono::Local::now().date_naive();
                 let display_date = self.value.unwrap_or(today);
 
-                Box::new(
-                    Calendar {
+                Box::new(fission_core::view::lower_widget_to_node(
+                    &Calendar {
                         year: display_date.year(),
                         month: display_date.month(),
                         selected_date: self.value,
@@ -96,22 +97,26 @@ impl<S: fission_core::AppState> Widget<S> for DatePicker {
                         // It relies on AppState.
                         // User must provide `view_month` in AppState?
                         // Yes, standard Fission pattern.
-                    }
-                    .build_node(_ctx, view),
-                )
+                    },
+                    _ctx,
+                    view,
+                ))
             } else {
                 Box::new(fission_core::ui::widgets::spacer::Spacer::default().into_node())
             };
 
-            Popover {
-                id: self.id,
-                is_open: self.is_open,
-                on_toggle: self.on_toggle.clone(),
-                on_close: self.on_close.clone(),
-                trigger: Box::new(trigger_btn),
-                content,
-            }
-            .build_node(_ctx, view)
+            fission_core::view::lower_widget_to_node(
+                &Popover {
+                    id: self.id,
+                    is_open: self.is_open,
+                    on_toggle: self.on_toggle.clone(),
+                    on_close: self.on_close.clone(),
+                    trigger: Box::new(trigger_btn),
+                    content,
+                },
+                _ctx,
+                view,
+            )
         })
     }
 }

@@ -2,7 +2,7 @@ use crate::stack::{HStack, VStack};
 use crate::Icon;
 use fission_core::op::Color;
 use fission_core::ui::{
-    Align, Button, ButtonVariant, Container, GestureDetector, Node, Text, ZStack,
+    Align, Button, ButtonVariant, Container, GestureDetector, Node, Positioned, Text, ZStack,
 };
 use fission_core::{ActionEnvelope, BuildCtx, View, Widget, WidgetNodeId};
 use serde::{Deserialize, Serialize};
@@ -64,9 +64,9 @@ pub struct ModalAction {
 
 impl<S: fission_core::AppState> Widget<S> for Modal {
     fn build(&self, ctx: &mut BuildCtx<S>, view: &View<S>) -> impl fission_core::IntoWidget<S> {
-        fission_core::AnyWidget::from_node({
+        fission_core::view::internal_node_widget({
             if !self.is_open {
-                return fission_core::AnyWidget::from_node(
+                return fission_core::view::internal_node_widget(
                     fission_core::ui::widgets::spacer::Spacer::default().into_node(),
                 );
             }
@@ -85,17 +85,19 @@ impl<S: fission_core::AppState> Widget<S> for Modal {
 
             // Dimmed backdrop
             let backdrop =
-                Container::new(fission_core::ui::widgets::spacer::Spacer::default().into_node())
-                    .bg_fill(theme.scrim_style.background.clone().unwrap_or(
-                        fission_core::op::Fill::Solid(Color {
-                            r: 0,
-                            g: 0,
-                            b: 0,
-                            a: 220,
-                        }),
-                    ))
-                    .flex_grow(1.0)
-                    .into_node();
+                Container::<fission_core::ui::Node>::lowered(
+                    fission_core::ui::widgets::spacer::Spacer::default().into_node(),
+                )
+                .bg_fill(theme.scrim_style.background.clone().unwrap_or(
+                    fission_core::op::Fill::Solid(Color {
+                        r: 0,
+                        g: 0,
+                        b: 0,
+                        a: 220,
+                    }),
+                ))
+                .flex_grow(1.0)
+                .into_node();
 
             let backdrop_btn = GestureDetector {
                 on_tap: self.on_dismiss.clone(),
@@ -108,7 +110,7 @@ impl<S: fission_core::AppState> Widget<S> for Modal {
             let mut action_buttons = Vec::new();
             for action in &self.actions {
                 action_buttons.push(
-                    Button {
+                    Button::<fission_core::ui::Node> {
                         variant: if action.is_primary {
                             ButtonVariant::Primary
                         } else {
@@ -130,7 +132,7 @@ impl<S: fission_core::AppState> Widget<S> for Modal {
                 );
             }
 
-            let mut modal_card_builder = Container::new(
+            let mut modal_card_builder = Container::<fission_core::ui::Node>::lowered(
                 VStack {
                     spacing: Some(16.0),
                     children: vec![
@@ -144,7 +146,7 @@ impl<S: fission_core::AppState> Widget<S> for Modal {
                                     ..Default::default()
                                 }
                                 .into_node(),
-                                Button {
+                                Button::<fission_core::ui::Node> {
                                     variant: ButtonVariant::Ghost,
                                     child: Some(Box::new(
                                         Icon::svg(
@@ -199,7 +201,7 @@ impl<S: fission_core::AppState> Widget<S> for Modal {
                 .padding_all(24.0)
                 .into_node();
 
-            let center_layer = fission_core::ui::Positioned {
+            let center_layer = Positioned::<fission_core::ui::Node> {
                 left: Some(0.0),
                 right: Some(0.0),
                 top: Some(0.0),
@@ -209,11 +211,11 @@ impl<S: fission_core::AppState> Widget<S> for Modal {
             }
             .into_node();
 
-            let root = Container::new(
-                ZStack {
+            let root = Container::<fission_core::ui::Node>::lowered(
+                ZStack::<fission_core::ui::Node> {
                     children: vec![
                         // Full-screen backdrop button
-                        fission_core::ui::Positioned {
+                        Positioned::<fission_core::ui::Node> {
                             left: Some(0.0),
                             right: Some(0.0),
                             top: Some(0.0),
@@ -232,7 +234,7 @@ impl<S: fission_core::AppState> Widget<S> for Modal {
             .flex_grow(1.0)
             .into_node();
 
-            let positioned_root = fission_core::ui::Positioned {
+            let positioned_root = Positioned::<fission_core::ui::Node> {
                 left: Some(0.0),
                 right: Some(0.0),
                 top: Some(0.0),

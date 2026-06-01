@@ -43,14 +43,14 @@ impl std::fmt::Debug for DataTable {
 
 impl<S: fission_core::AppState> Widget<S> for DataTable {
     fn build(&self, _ctx: &mut BuildCtx<S>, view: &View<S>) -> impl fission_core::IntoWidget<S> {
-        fission_core::AnyWidget::from_node({
+        fission_core::view::internal_node_widget({
             let tokens = &view.env.theme.tokens;
 
             // Header
             let mut header_cells = Vec::new();
             // Checkbox column
             header_cells.push(
-                Container::new(
+                Container::<fission_core::ui::Node>::lowered(
                     Checkbox {
                         checked: false,
                         label: None,
@@ -66,7 +66,7 @@ impl<S: fission_core::AppState> Widget<S> for DataTable {
 
             for col in &self.columns {
                 header_cells.push(
-                    Container::new(
+                    Container::<fission_core::ui::Node>::lowered(
                         HStack {
                             spacing: Some(4.0),
                             children: vec![
@@ -97,7 +97,7 @@ impl<S: fission_core::AppState> Widget<S> for DataTable {
                 );
             }
 
-            let header = Container::new(
+            let header = Container::<fission_core::ui::Node>::lowered(
                 HStack {
                     spacing: Some(0.0),
                     children: header_cells,
@@ -117,7 +117,7 @@ impl<S: fission_core::AppState> Widget<S> for DataTable {
                 // Checkbox
                 let toggle = self.on_selection_change.clone();
                 row_cells.push(
-                    Container::new(
+                    Container::<fission_core::ui::Node>::lowered(
                         Checkbox {
                             checked: is_selected,
                             label: None,
@@ -134,7 +134,7 @@ impl<S: fission_core::AppState> Widget<S> for DataTable {
                 for (i, cell_text) in row.cells.iter().enumerate() {
                     let width = self.columns.get(i).map(|c| c.width).unwrap_or(100.0);
                     row_cells.push(
-                        Container::new(
+                        Container::<fission_core::ui::Node>::lowered(
                             Text::new(cell_text.clone())
                                 .size(14.0)
                                 .color(tokens.colors.text_primary)
@@ -153,7 +153,7 @@ impl<S: fission_core::AppState> Widget<S> for DataTable {
                 .into_node();
 
                 let row_toggle = self.on_selection_change.clone().map(|f| f(row.id.clone()));
-                let row_body = Container::new(row_content)
+                let row_body = Container::<fission_core::ui::Node>::lowered(row_content)
                     .bg(if is_selected {
                         tokens.colors.primary.with_alpha(20)
                     } else {
@@ -161,7 +161,7 @@ impl<S: fission_core::AppState> Widget<S> for DataTable {
                     })
                     .into_node();
                 let row_node = if let Some(action) = row_toggle {
-                    Button {
+                    Button::<fission_core::ui::Node> {
                         variant: ButtonVariant::Ghost,
                         child: Some(Box::new(row_body)),
                         on_press: Some(action),
@@ -175,10 +175,12 @@ impl<S: fission_core::AppState> Widget<S> for DataTable {
 
                 // Divider
                 row_nodes.push(
-                    Container::new(fission_core::ui::widgets::Spacer::default().into_node())
-                        .height(1.0)
-                        .bg(tokens.colors.border)
-                        .into_node(),
+                    Container::<fission_core::ui::Node>::lowered(
+                        fission_core::ui::widgets::Spacer::default().into_node(),
+                    )
+                    .height(1.0)
+                    .bg(tokens.colors.border)
+                    .into_node(),
                 );
             }
 
@@ -195,7 +197,7 @@ impl<S: fission_core::AppState> Widget<S> for DataTable {
             }
             .into_node();
 
-            Container::new(
+            Container::<fission_core::ui::Node>::lowered(
                 VStack {
                     spacing: Some(0.0),
                     children: vec![header, content],

@@ -14,6 +14,7 @@ use std::sync::Arc;
 /// * `options` - The label text for each segment.
 /// * `selected_index` - Index of the currently active segment.
 /// * `on_change` - Closure that produces an action for the newly selected index.
+#[derive(Clone)]
 pub struct SegmentedControl {
     pub options: Vec<String>,
     pub selected_index: usize,
@@ -32,7 +33,7 @@ impl std::fmt::Debug for SegmentedControl {
 
 impl<S: fission_core::AppState> Widget<S> for SegmentedControl {
     fn build(&self, _ctx: &mut BuildCtx<S>, view: &View<S>) -> impl fission_core::IntoWidget<S> {
-        fission_core::AnyWidget::from_node({
+        fission_core::view::internal_node_widget({
             let theme = &view.env.theme.components.segmented_control;
             let tokens = &view.env.theme.tokens;
             let mut children = Vec::new();
@@ -41,7 +42,7 @@ impl<S: fission_core::AppState> Widget<S> for SegmentedControl {
                 let is_selected = i == self.selected_index;
                 let cb = self.on_change.clone();
 
-                let button = Button {
+                let button = Button::<fission_core::ui::Node> {
                     variant: if is_selected {
                         ButtonVariant::Filled
                     } else {
@@ -64,10 +65,14 @@ impl<S: fission_core::AppState> Widget<S> for SegmentedControl {
                 }
                 .into_node();
 
-                children.push(Container::new(button).flex_grow(1.0).into_node());
+                children.push(
+                    Container::<fission_core::ui::Node>::lowered(button)
+                        .flex_grow(1.0)
+                        .into_node(),
+                );
             }
 
-            Container::new(
+            Container::<fission_core::ui::Node>::lowered(
                 HStack {
                     spacing: Some(2.0),
                     children,

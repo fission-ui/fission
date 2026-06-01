@@ -1,5 +1,5 @@
 use fission_core::op::Color;
-use fission_core::ui::{Container, GestureDetector, Node};
+use fission_core::ui::{Container, GestureDetector, Node, Positioned, ZStack};
 use fission_core::{ActionEnvelope, BuildCtx, NodeId, View, Widget, WidgetNodeId};
 use serde::{Deserialize, Serialize};
 
@@ -31,14 +31,15 @@ pub struct Popover {
 
 impl<S: fission_core::AppState> Widget<S> for Popover {
     fn build(&self, ctx: &mut BuildCtx<S>, _view: &View<S>) -> impl fission_core::IntoWidget<S> {
-        fission_core::AnyWidget::from_node({
+        fission_core::view::internal_node_widget({
             // Derive stable anchor ID
             let anchor_id = NodeId::derived(self.id.as_u128(), &[0]);
 
-            let trigger_wrapper = Container::new(*self.trigger.clone())
-                .id(anchor_id)
-                .flex_shrink(0.0)
-                .into_node();
+            let trigger_wrapper =
+                Container::<fission_core::ui::Node>::lowered(*self.trigger.clone())
+                    .id(anchor_id)
+                    .flex_shrink(0.0)
+                    .into_node();
 
             // Wrap trigger in a clickable area if on_toggle provided?
             // Or assume trigger handles clicks.
@@ -51,7 +52,7 @@ impl<S: fission_core::AppState> Widget<S> for Popover {
                     let backdrop = GestureDetector {
                         on_tap: self.on_close.clone(),
                         child: Box::new(
-                            Container::new(
+                            Container::<fission_core::ui::Node>::lowered(
                                 fission_core::ui::widgets::Spacer::default().into_node(),
                             )
                             .bg(Color {
@@ -68,11 +69,10 @@ impl<S: fission_core::AppState> Widget<S> for Popover {
 
                     // We need to render [Backdrop, Flyout].
                     // Backdrop is ZStack layer 0. Flyout layer 1.
-                    use fission_core::ui::ZStack;
 
-                    let overlay = ZStack {
+                    let overlay = ZStack::<fission_core::ui::Node> {
                         children: vec![
-                            fission_core::ui::Positioned {
+                            Positioned::<fission_core::ui::Node> {
                                 left: Some(0.0),
                                 top: Some(0.0),
                                 right: Some(0.0),

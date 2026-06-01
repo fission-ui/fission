@@ -174,7 +174,7 @@ impl TerminalView {
 
 impl<S: AppState> Widget<S> for TerminalView {
     fn build(&self, _ctx: &mut BuildCtx<S>, _view: &View<S>) -> impl fission_core::IntoWidget<S> {
-        fission_core::AnyWidget::from_node({
+        fission_core::view::internal_node_widget({
             self.session.resize_for_viewport(
                 self.viewport_width,
                 self.viewport_height,

@@ -1,4 +1,4 @@
-use fission_core::ui::{Node, Text};
+use fission_core::ui::{Container, Node, Text};
 use fission_core::{AppState, BuildCtx, View, Widget};
 use fission_widgets::router::{Route, Router};
 use std::sync::Arc;
@@ -31,7 +31,7 @@ fn test_router_matching() {
         not_found: None,
     };
 
-    let node = router.build_node(&mut ctx, &view);
+    let node = fission_core::view::lower_widget_to_node(&router, &mut ctx, &view);
     if let Node::Text(t) = node {
         assert_eq!(
             t.content,
@@ -69,7 +69,7 @@ fn test_router_params() {
         not_found: None,
     };
 
-    let node = router.build_node(&mut ctx, &view);
+    let node = fission_core::view::lower_widget_to_node(&router, &mut ctx, &view);
     if let Node::Text(t) = node {
         assert_eq!(
             t.content,

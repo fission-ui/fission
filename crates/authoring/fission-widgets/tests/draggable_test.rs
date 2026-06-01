@@ -46,36 +46,42 @@ fn test_internal_drag_drop_flow() {
     let root = VStack {
         spacing: Some(10.0),
         children: vec![
-            Draggable {
-                payload: "hello".as_bytes().to_vec(),
-                on_drag_start: None,
-                on_drag_end: None,
-                child: Box::new(
-                    Button {
-                        on_press: Some(ActionEnvelope {
-                            id: ActionId::from_u128(100),
-                            payload: vec![],
-                        }),
-                        ..Default::default()
-                    }
-                    .into_node(),
-                ),
-            }
-            .build_node(&mut build_ctx, &view),
-            DragTarget {
-                on_drop: Some(ActionEnvelope {
-                    id: OnDrop::static_id(),
-                    payload: OnDrop.encode(),
-                }),
-                child: Box::new(
-                    Container::default()
-                        .width(100.0)
-                        .height(100.0)
-                        .bg(fission_core::op::Color::RED)
+            fission_core::view::lower_widget_to_node(
+                &Draggable {
+                    payload: "hello".as_bytes().to_vec(),
+                    on_drag_start: None,
+                    on_drag_end: None,
+                    child: Box::new(
+                        fission_core::ui::Button::<fission_core::ui::Node> {
+                            on_press: Some(ActionEnvelope {
+                                id: ActionId::from_u128(100),
+                                payload: vec![],
+                            }),
+                            ..Default::default()
+                        }
                         .into_node(),
-                ),
-            }
-            .build_node(&mut build_ctx, &view),
+                    ),
+                },
+                &mut build_ctx,
+                &view,
+            ),
+            fission_core::view::lower_widget_to_node(
+                &DragTarget {
+                    on_drop: Some(ActionEnvelope {
+                        id: OnDrop::static_id(),
+                        payload: OnDrop.encode(),
+                    }),
+                    child: Box::new(
+                        Container::<fission_core::ui::Node>::default()
+                            .width(100.0)
+                            .height(100.0)
+                            .bg(fission_core::op::Color::RED)
+                            .into_node(),
+                    ),
+                },
+                &mut build_ctx,
+                &view,
+            ),
         ],
     }
     .into_node();

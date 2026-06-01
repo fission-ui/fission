@@ -28,7 +28,7 @@ pub struct Accordion {
 
 impl<S: fission_core::AppState> Widget<S> for Accordion {
     fn build(&self, ctx: &mut BuildCtx<S>, view: &View<S>) -> impl fission_core::IntoWidget<S> {
-        fission_core::AnyWidget::from_node({
+        fission_core::view::internal_node_widget({
             let tokens = &view.env.theme.tokens;
 
             let mut children = Vec::new();
@@ -36,35 +36,38 @@ impl<S: fission_core::AppState> Widget<S> for Accordion {
             for item in &self.items {
                 // Header
                 children.push(
-                    Button {
+                    Button::<fission_core::ui::Node> {
                         variant: ButtonVariant::Ghost,
                         content_align: ButtonContentAlign::Start,
                         child: Some(Box::new(
-                            Container::new(
-                                HStack {
-                                    spacing: Some(8.0),
-                                    children: vec![
-                                        // Expand icon (chevron)
-                                        Text {
-                                            content: TextContent::Literal(
-                                                if item.is_expanded { "▼" } else { "▶" }.into(),
-                                            ),
-                                            font_size: Some(12.0),
-                                            color: Some(tokens.colors.text_secondary),
-                                            ..Default::default()
-                                        }
-                                        .into(),
-                                        // Title
-                                        Text {
-                                            content: TextContent::Literal(item.title.clone()),
-                                            color: Some(tokens.colors.text_primary),
-                                            flex_grow: 1.0,
-                                            ..Default::default()
-                                        }
-                                        .into(),
-                                    ],
-                                }
-                                .build_node(ctx, view),
+                            Container::<fission_core::ui::Node>::lowered(
+                                fission_core::view::lower_widget_to_node(
+                                    &HStack {
+                                        spacing: Some(8.0),
+                                        children: vec![
+                                            // Expand icon (chevron)
+                                            Text {
+                                                content: TextContent::Literal(
+                                                    if item.is_expanded { "▼" } else { "▶" }.into(),
+                                                ),
+                                                font_size: Some(12.0),
+                                                color: Some(tokens.colors.text_secondary),
+                                                ..Default::default()
+                                            }
+                                            .into(),
+                                            // Title
+                                            Text {
+                                                content: TextContent::Literal(item.title.clone()),
+                                                color: Some(tokens.colors.text_primary),
+                                                flex_grow: 1.0,
+                                                ..Default::default()
+                                            }
+                                            .into(),
+                                        ],
+                                    },
+                                    ctx,
+                                    view,
+                                ),
                             )
                             .padding_all(tokens.spacing.m)
                             .bg(tokens.colors.surface)
@@ -80,7 +83,7 @@ impl<S: fission_core::AppState> Widget<S> for Accordion {
                 // Content
                 if item.is_expanded {
                     children.push(
-                        Container::new(item.content.clone())
+                        Container::<fission_core::ui::Node>::lowered(item.content.clone())
                             .padding_all(tokens.spacing.m)
                             .bg(tokens.colors.background)
                             .border(tokens.colors.border, 1.0)
@@ -89,11 +92,14 @@ impl<S: fission_core::AppState> Widget<S> for Accordion {
                 }
             }
 
-            VStack {
-                spacing: Some(0.0), // No gap between items
-                children,
-            }
-            .build_node(ctx, view)
+            fission_core::view::lower_widget_to_node(
+                &VStack {
+                    spacing: Some(0.0), // No gap between items
+                    children,
+                },
+                ctx,
+                view,
+            )
         })
     }
 }

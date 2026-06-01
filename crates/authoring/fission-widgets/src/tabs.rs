@@ -39,7 +39,7 @@ pub struct Tabs {
 
 impl<S: fission_core::AppState> Widget<S> for Tabs {
     fn build(&self, _ctx: &mut BuildCtx<S>, view: &View<S>) -> impl fission_core::IntoWidget<S> {
-        fission_core::AnyWidget::from_node({
+        fission_core::view::internal_node_widget({
             let theme = &view.env.theme.components.tabs;
             let mut tab_buttons = vec![];
 
@@ -61,7 +61,7 @@ impl<S: fission_core::AppState> Widget<S> for Tabs {
                 let tab_button = VStack {
                     spacing: Some(0.0),
                     children: vec![
-                        Button {
+                        Button::<fission_core::ui::Node> {
                             variant: ButtonVariant::Ghost,
                             child: Some(Box::new(
                                 Text::new(item.title.clone())
@@ -82,7 +82,7 @@ impl<S: fission_core::AppState> Widget<S> for Tabs {
                         }
                         .into_node(),
                         if is_active {
-                            Container::new(
+                            Container::<fission_core::ui::Node>::lowered(
                                 fission_core::ui::widgets::spacer::Spacer::default().into_node(),
                             )
                             .height(
@@ -103,10 +103,14 @@ impl<S: fission_core::AppState> Widget<S> for Tabs {
                 }
                 .into_node();
 
-                tab_buttons.push(Container::new(tab_button).padding_all(2.0).into_node());
+                tab_buttons.push(
+                    Container::<fission_core::ui::Node>::lowered(tab_button)
+                        .padding_all(2.0)
+                        .into_node(),
+                );
             }
 
-            let tab_bar = Container::new(
+            let tab_bar = Container::<fission_core::ui::Node>::lowered(
                 HStack {
                     spacing: Some(14.0),
                     children: tab_buttons,

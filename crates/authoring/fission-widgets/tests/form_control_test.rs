@@ -1,4 +1,4 @@
-use fission_core::ui::{Node, TextInput};
+use fission_core::ui::{Container, Node, TextInput};
 use fission_core::{AppState, BuildCtx, View, Widget};
 use fission_widgets::FormControl;
 
@@ -29,7 +29,7 @@ fn test_form_control_structure() {
         required: true,
     };
 
-    let node = control.build_node(&mut ctx, &view);
+    let node = fission_core::view::lower_widget_to_node(&control, &mut ctx, &view);
 
     // Should be a Column (VStack) with 3 children
     if let Node::Column(col) = node {

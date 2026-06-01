@@ -57,17 +57,22 @@ fn future_builder_declares_job_and_builds_from_snapshot() {
         payload: loaded.encode(),
     };
 
-    let node = FutureBuilder::new(
-        ResourceKey::new("message"),
-        LOAD_MESSAGE,
-        LoadMessageRequest { id: 42 },
-        AsyncSnapshot::<String, String>::waiting(),
-        |_ctx, _view, snapshot| Text::new(format!("{:?}", snapshot.connection_state)).into_node(),
-    )
-    .deps(("message", 42_u32))
-    .preserve_on_change()
-    .on_ok(loaded_action.clone())
-    .build_node(&mut ctx, &view);
+    let node = fission_core::view::lower_widget_to_node(
+        &FutureBuilder::new(
+            ResourceKey::new("message"),
+            LOAD_MESSAGE,
+            LoadMessageRequest { id: 42 },
+            AsyncSnapshot::<String, String>::waiting(),
+            |_ctx, _view, snapshot| {
+                Text::new(format!("{:?}", snapshot.connection_state)).into_node()
+            },
+        )
+        .deps(("message", 42_u32))
+        .preserve_on_change()
+        .on_ok(loaded_action.clone()),
+        &mut ctx,
+        &view,
+    );
 
     let Node::Text(text) = node else {
         panic!("FutureBuilder should render the node returned by its builder");

@@ -21,6 +21,6 @@ fn test_empty_state_structure() {
         action: None,
     };
 
-    let node = empty.build_node(&mut ctx, &view);
+    let node = fission_core::view::lower_widget_to_node(&empty, &mut ctx, &view);
     assert!(matches!(node, Node::Align(_) | Node::Container(_)));
 }

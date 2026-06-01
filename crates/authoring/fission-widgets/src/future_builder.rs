@@ -109,7 +109,7 @@ pub type AsyncWidgetBuilder<S, T, E> =
 pub struct FutureBuilder<S, J>
 where
     S: AppState,
-    J: JobSpec,
+    J: JobSpec + 'static,
 {
     pub key: ResourceKey,
     pub job: JobRef<J>,
@@ -122,10 +122,33 @@ where
     pub builder: AsyncWidgetBuilder<S, J::Ok, J::Err>,
 }
 
+impl<S, J> Clone for FutureBuilder<S, J>
+where
+    S: AppState,
+    J: JobSpec + 'static,
+    J::Request: Clone,
+    J::Ok: Clone,
+    J::Err: Clone,
+{
+    fn clone(&self) -> Self {
+        Self {
+            key: self.key.clone(),
+            job: self.job,
+            request: self.request.clone(),
+            snapshot: self.snapshot.clone(),
+            on_ok: self.on_ok.clone(),
+            on_err: self.on_err.clone(),
+            deps: self.deps.clone(),
+            policy: self.policy,
+            builder: Arc::clone(&self.builder),
+        }
+    }
+}
+
 impl<S, J> FutureBuilder<S, J>
 where
     S: AppState,
-    J: JobSpec,
+    J: JobSpec + 'static,
 {
     pub fn new<F>(
         key: ResourceKey,
@@ -183,11 +206,13 @@ where
 impl<S, J> Widget<S> for FutureBuilder<S, J>
 where
     S: AppState,
-    J: JobSpec,
-    J::Request: Clone,
+    J: JobSpec + 'static,
+    J::Request: Clone + Sync,
+    J::Ok: Clone + Sync,
+    J::Err: Clone + Sync,
 {
     fn build(&self, ctx: &mut BuildCtx<S>, view: &View<S>) -> impl fission_core::IntoWidget<S> {
-        fission_core::AnyWidget::from_node({
+        fission_core::view::internal_node_widget({
             let mut resource = JobResource::new(self.key.clone(), self.job, self.request.clone());
             resource.policy = self.policy;
             resource.deps = self.deps.clone();

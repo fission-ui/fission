@@ -16,7 +16,7 @@ pub struct Tag {
 
 impl<S: fission_core::AppState> Widget<S> for Tag {
     fn build(&self, ctx: &mut BuildCtx<S>, view: &View<S>) -> impl fission_core::IntoWidget<S> {
-        fission_core::AnyWidget::from_node({
+        fission_core::view::internal_node_widget({
             let tokens = &view.env.theme.tokens;
 
             let mut children = vec![Text {
@@ -29,7 +29,7 @@ impl<S: fission_core::AppState> Widget<S> for Tag {
 
             if let Some(action) = &self.on_close {
                 children.push(
-                    Button {
+                    Button::<fission_core::ui::Node> {
                         variant: ButtonVariant::Ghost,
                         child: Some(Box::new(
                             Text {
@@ -50,13 +50,14 @@ impl<S: fission_core::AppState> Widget<S> for Tag {
                 );
             }
 
-            Container::new(
-                HStack {
+            Container::<fission_core::ui::Node>::lowered(fission_core::view::lower_widget_to_node(
+                &HStack {
                     spacing: Some(4.0),
                     children,
-                }
-                .build_node(ctx, view),
-            )
+                },
+                ctx,
+                view,
+            ))
             .bg(tokens.colors.surface) // or slightly darker
             .border(tokens.colors.border, 1.0)
             .border_radius(16.0)

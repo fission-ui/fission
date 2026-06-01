@@ -19,12 +19,15 @@ fn build_time_picker(hour: u32, minute: u32) -> Node {
         None,
     );
 
-    TimePicker {
-        hour,
-        minute,
-        on_change: None,
-    }
-    .build_node(&mut ctx, &view)
+    fission_core::view::lower_widget_to_node(
+        &TimePicker {
+            hour,
+            minute,
+            on_change: None,
+        },
+        &mut ctx,
+        &view,
+    )
 }
 
 fn collect_text_inputs<'a>(node: &'a Node, out: &mut Vec<&'a fission_core::ui::TextInput>) {

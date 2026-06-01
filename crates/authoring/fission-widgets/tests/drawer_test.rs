@@ -1,4 +1,4 @@
-use fission_core::ui::{Node, Text};
+use fission_core::ui::{Container, Node, Text};
 use fission_core::{AppState, BuildCtx, View, Widget, WidgetNodeId};
 use fission_widgets::{Drawer, DrawerSide};
 
@@ -25,14 +25,14 @@ fn test_drawer_registers_portal_when_open() {
         width: Some(250.0),
     };
 
-    let _ = drawer.build_node(&mut ctx, &view);
+    let _ = fission_core::view::lower_widget_to_node(&drawer, &mut ctx, &view);
 
     let portals_with_ids = ctx.take_portals();
     let portals: Vec<Node> = portals_with_ids
         .into_iter()
         .map(|(id, node)| {
             if let Some(id) = id {
-                fission_core::ui::Container::new(node)
+                fission_core::ui::Container::<fission_core::ui::Node>::lowered(node)
                     .id(id.into())
                     .into_node()
             } else {

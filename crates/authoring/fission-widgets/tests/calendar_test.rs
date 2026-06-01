@@ -28,7 +28,7 @@ fn test_calendar_build() {
         padding: None,
     };
 
-    let node = calendar.build_node(&mut ctx, &view);
+    let node = fission_core::view::lower_widget_to_node(&calendar, &mut ctx, &view);
 
     // Verify it builds a Container wrapping a VStack
     if let Node::Container(c) = node {

@@ -1,4 +1,4 @@
-use fission_core::ui::{Node, Text};
+use fission_core::ui::{Container, Node, Text};
 use fission_core::{AppState, BuildCtx, View, Widget, WidgetNodeId};
 use fission_widgets::{SplitDirection, SplitView};
 
@@ -25,7 +25,7 @@ fn test_split_view_layout() {
         on_resize: None,
     };
 
-    let node = split.build_node(&mut ctx, &view);
+    let node = fission_core::view::lower_widget_to_node(&split, &mut ctx, &view);
 
     // SplitView lowers to a Row (Horizontal)
     if let Node::Row(row) = node {

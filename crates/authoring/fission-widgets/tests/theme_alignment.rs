@@ -60,7 +60,7 @@ fn build_widget_ir(widget: impl Widget<TestState>, env: &Env) -> (CoreIR, NodeId
     let state = TestState::default();
     let view = View::new(&state, &runtime_state, env, None);
     let mut ctx = BuildCtx::new();
-    let node = widget.build_node(&mut ctx, &view);
+    let node = fission_core::view::lower_widget_to_node(&widget, &mut ctx, &view);
 
     let measurer: Arc<dyn TextMeasurer> = Arc::new(SimpleMeasurer);
     let measurer_ref = measurer.clone();

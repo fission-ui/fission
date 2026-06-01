@@ -62,7 +62,7 @@ impl Default for Select {
 
 impl<S: fission_core::AppState> Widget<S> for Select {
     fn build(&self, ctx: &mut BuildCtx<S>, view: &View<S>) -> impl fission_core::IntoWidget<S> {
-        fission_core::AnyWidget::from_node({
+        fission_core::view::internal_node_widget({
             let tokens = &view.env.theme.tokens;
             let anchor_id = NodeId::derived(self.id.as_u128(), &[]);
 
@@ -94,7 +94,7 @@ impl<S: fission_core::AppState> Widget<S> for Select {
             }
             .into_node();
 
-            let trigger = Button {
+            let trigger = Button::<fission_core::ui::Node> {
                 id: Some(anchor_id),
                 variant: ButtonVariant::Outline,
                 content_align: ButtonContentAlign::Start,
@@ -116,12 +116,15 @@ impl<S: fission_core::AppState> Widget<S> for Select {
                     })
                     .collect();
 
-                let menu = Menu {
-                    items: menu_items,
-                    width: self.width,
-                    max_height: Some(300.0),
-                }
-                .build_node(ctx, view);
+                let menu = fission_core::view::lower_widget_to_node(
+                    &Menu {
+                        items: menu_items,
+                        width: self.width,
+                        max_height: Some(300.0),
+                    },
+                    ctx,
+                    view,
+                );
 
                 let flyout_node = flyout(anchor_id, menu);
                 ctx.register_portal_with_layer(

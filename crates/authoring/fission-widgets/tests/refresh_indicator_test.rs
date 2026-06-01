@@ -34,12 +34,15 @@ fn refresh_indicator_dispatches_refresh_when_armed() {
     let refresh = action(RefreshRequested);
     let cancel = action(PullCanceled);
 
-    let node = RefreshIndicator::new(Text::new("content").into_node())
-        .status(RefreshIndicatorStatus::Armed)
-        .pulled_extent(90.0)
-        .on_refresh(refresh.clone())
-        .on_pull_cancel(cancel)
-        .build_node(&mut ctx, &view);
+    let node = fission_core::view::lower_widget_to_node(
+        &RefreshIndicator::new(Text::new("content").into_node())
+            .status(RefreshIndicatorStatus::Armed)
+            .pulled_extent(90.0)
+            .on_refresh(refresh.clone())
+            .on_pull_cancel(cancel),
+        &mut ctx,
+        &view,
+    );
 
     let Node::GestureDetector(detector) = node else {
         panic!("RefreshIndicator should wrap content in a gesture detector");
@@ -60,12 +63,15 @@ fn refresh_indicator_dispatches_cancel_when_not_armed() {
     let refresh = action(RefreshRequested);
     let cancel = action(PullCanceled);
 
-    let node = RefreshIndicator::new(Text::new("content").into_node())
-        .status(RefreshIndicatorStatus::Drag)
-        .pulled_extent(20.0)
-        .on_refresh(refresh)
-        .on_pull_cancel(cancel.clone())
-        .build_node(&mut ctx, &view);
+    let node = fission_core::view::lower_widget_to_node(
+        &RefreshIndicator::new(Text::new("content").into_node())
+            .status(RefreshIndicatorStatus::Drag)
+            .pulled_extent(20.0)
+            .on_refresh(refresh)
+            .on_pull_cancel(cancel.clone()),
+        &mut ctx,
+        &view,
+    );
 
     let Node::GestureDetector(detector) = node else {
         panic!("RefreshIndicator should wrap content in a gesture detector");
@@ -79,7 +85,11 @@ fn refresh_indicator_hides_overlay_when_inactive() {
     let view = View::new(&state, &runtime, &env, None);
     let mut ctx = BuildCtx::<State>::new();
 
-    let node = RefreshIndicator::new(Text::new("content").into_node()).build_node(&mut ctx, &view);
+    let node = fission_core::view::lower_widget_to_node(
+        &RefreshIndicator::new(Text::new("content").into_node()),
+        &mut ctx,
+        &view,
+    );
 
     let Node::GestureDetector(detector) = node else {
         panic!("RefreshIndicator should wrap content in a gesture detector");

@@ -27,7 +27,7 @@ pub struct Divider {
 
 impl<S: fission_core::AppState> Widget<S> for Divider {
     fn build(&self, _ctx: &mut BuildCtx<S>, view: &View<S>) -> impl fission_core::IntoWidget<S> {
-        fission_core::AnyWidget::from_node({
+        fission_core::view::internal_node_widget({
             let tokens = &view.env.theme.tokens;
 
             let (w, h) = match self.orientation {
@@ -35,8 +35,10 @@ impl<S: fission_core::AppState> Widget<S> for Divider {
                 Orientation::Vertical => (1.0, f32::NAN),   // Auto height
             };
 
-            let mut c = Container::new(fission_core::ui::Row::default().into()) // Empty
-                .bg(tokens.colors.border);
+            let mut c = Container::<fission_core::ui::Node>::lowered(
+                fission_core::ui::Row::<fission_core::ui::Node>::default().into(),
+            ) // Empty
+            .bg(tokens.colors.border);
 
             if w.is_nan() {
                 // Container width default is Auto (None)

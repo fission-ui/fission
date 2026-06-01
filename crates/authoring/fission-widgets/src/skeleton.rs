@@ -32,24 +32,26 @@ pub struct Skeleton {
 
 impl<S: fission_core::AppState> Widget<S> for Skeleton {
     fn build(&self, ctx: &mut BuildCtx<S>, view: &View<S>) -> impl fission_core::IntoWidget<S> {
-        fission_core::AnyWidget::from_node({
+        fission_core::view::internal_node_widget({
             let tokens = &view.env.theme.tokens;
 
-            let base = Container::new(fission_core::ui::widgets::Spacer::default().into_node())
-                .width(self.width.unwrap_or(100.0))
-                .height(self.height.unwrap_or(20.0))
-                .bg(Color {
-                    r: 200,
-                    g: 200,
-                    b: 200,
-                    a: (0.8 * 255.0) as u8,
-                })
-                .border_radius(if self.circle {
-                    9999.0
-                } else {
-                    tokens.radii.small
-                })
-                .into_node();
+            let base = Container::<fission_core::ui::Node>::lowered(
+                fission_core::ui::widgets::Spacer::default().into_node(),
+            )
+            .width(self.width.unwrap_or(100.0))
+            .height(self.height.unwrap_or(20.0))
+            .bg(Color {
+                r: 200,
+                g: 200,
+                b: 200,
+                a: (0.8 * 255.0) as u8,
+            })
+            .border_radius(if self.circle {
+                9999.0
+            } else {
+                tokens.radii.small
+            })
+            .into_node();
             let boundary = Composite::new(base).repaint_boundary(true).into_node();
 
             if self.animated {

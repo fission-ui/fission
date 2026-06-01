@@ -181,7 +181,7 @@ impl RefreshIndicator {
 
 impl<S: AppState> Widget<S> for RefreshIndicator {
     fn build(&self, ctx: &mut BuildCtx<S>, view: &View<S>) -> impl fission_core::IntoWidget<S> {
-        fission_core::AnyWidget::from_node({
+        fission_core::view::internal_node_widget({
             let tokens = &view.env.theme.tokens;
             let pull_offset = self.child_offset();
             let indicator_top = self.edge_offset + pull_offset * 0.5;
@@ -195,18 +195,21 @@ impl<S: AppState> Widget<S> for RefreshIndicator {
             };
             let mut children = vec![child];
             if self.is_indicator_visible() {
-                let progress = CircularProgress {
-                    id: self.progress_id(),
-                    value: self.indicator_progress(),
-                    size: self.indicator_size,
-                    color: Some(self.color.unwrap_or(tokens.colors.primary)),
-                    track_color: Some(self.track_color.unwrap_or(tokens.colors.border)),
-                    thickness: self.stroke_width,
-                    animated: true,
-                }
-                .build_node(ctx, view);
+                let progress = fission_core::view::lower_widget_to_node(
+                    &CircularProgress {
+                        id: self.progress_id(),
+                        value: self.indicator_progress(),
+                        size: self.indicator_size,
+                        color: Some(self.color.unwrap_or(tokens.colors.primary)),
+                        track_color: Some(self.track_color.unwrap_or(tokens.colors.border)),
+                        thickness: self.stroke_width,
+                        animated: true,
+                    },
+                    ctx,
+                    view,
+                );
 
-                let indicator = Container::new(progress)
+                let indicator = Container::<fission_core::ui::Node>::lowered(progress)
                     .size(self.indicator_size + 16.0, self.indicator_size + 16.0)
                     .bg(self.background_color.unwrap_or(tokens.colors.surface))
                     .border(tokens.colors.border, 1.0)
@@ -215,7 +218,7 @@ impl<S: AppState> Widget<S> for RefreshIndicator {
                     .into_node();
 
                 children.push(
-                    Positioned {
+                    Positioned::<fission_core::ui::Node> {
                         top: Some(indicator_top),
                         left: Some(0.0),
                         right: Some(0.0),
@@ -228,7 +231,9 @@ impl<S: AppState> Widget<S> for RefreshIndicator {
             }
 
             GestureDetector {
-                child: Box::new(ZStack { id: None, children }.into_node()),
+                child: Box::new(
+                    ZStack::<fission_core::ui::Node> { id: None, children }.into_node(),
+                ),
                 on_drag_start: self.on_pull_start.clone(),
                 on_drag_update: self.on_pull_update.clone(),
                 on_drag_end: if self.status == RefreshIndicatorStatus::Armed {

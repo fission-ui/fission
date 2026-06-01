@@ -19,6 +19,7 @@ use std::sync::Arc;
 /// * `on_change` - Action dispatched when the text input value changes.
 /// * `on_select` - Closure that produces an action when an item is picked.
 /// * `on_toggle` - Action dispatched to open/close the dropdown.
+#[derive(Clone)]
 pub struct Combobox {
     pub id: WidgetNodeId,
     pub value: String,
@@ -42,7 +43,7 @@ impl std::fmt::Debug for Combobox {
 
 impl<S: fission_core::AppState> Widget<S> for Combobox {
     fn build(&self, _ctx: &mut BuildCtx<S>, view: &View<S>) -> impl fission_core::IntoWidget<S> {
-        fission_core::AnyWidget::from_node({
+        fission_core::view::internal_node_widget({
             let tokens = &view.env.theme.tokens;
             let input_id = NodeId::derived(self.id.as_u128(), &[1]);
             let popup_width = self.width.unwrap_or(320.0);
@@ -74,7 +75,7 @@ impl<S: fission_core::AppState> Widget<S> for Combobox {
                     let cb = self.on_select.clone();
                     let val = item.clone();
                     list_items.push(
-                        Button {
+                        Button::<fission_core::ui::Node> {
                             variant: ButtonVariant::Ghost,
                             child: Some(Box::new(
                                 Text::new(item.clone())
@@ -97,7 +98,7 @@ impl<S: fission_core::AppState> Widget<S> for Combobox {
                 }
                 .into_node();
 
-                let mut c = Container::new(
+                let mut c = Container::<fission_core::ui::Node>::lowered(
                     Scroll {
                         child: Some(Box::new(list)),
                         width: Some(popup_width),
@@ -123,15 +124,18 @@ impl<S: fission_core::AppState> Widget<S> for Combobox {
                 fission_core::ui::widgets::spacer::Spacer::default().into_node()
             };
 
-            Popover {
-                id: self.id,
-                is_open: self.is_open && !self.items.is_empty(),
-                on_toggle: self.on_toggle.clone(),
-                on_close: self.on_toggle.clone(), // Close on click outside
-                trigger: Box::new(input),
-                content: Box::new(list_content),
-            }
-            .build_node(_ctx, view)
+            fission_core::view::lower_widget_to_node(
+                &Popover {
+                    id: self.id,
+                    is_open: self.is_open && !self.items.is_empty(),
+                    on_toggle: self.on_toggle.clone(),
+                    on_close: self.on_toggle.clone(), // Close on click outside
+                    trigger: Box::new(input),
+                    content: Box::new(list_content),
+                },
+                _ctx,
+                view,
+            )
         })
     }
 }

@@ -12,7 +12,7 @@ pub struct Stat {
 
 impl<S: fission_core::AppState> Widget<S> for Stat {
     fn build(&self, _ctx: &mut BuildCtx<S>, view: &View<S>) -> impl fission_core::IntoWidget<S> {
-        fission_core::AnyWidget::from_node({
+        fission_core::view::internal_node_widget({
             let tokens = &view.env.theme.tokens;
 
             let mut children = vec![
@@ -36,7 +36,7 @@ impl<S: fission_core::AppState> Widget<S> for Stat {
                 );
             }
 
-            Container::new(
+            Container::<fission_core::ui::Node>::lowered(
                 VStack {
                     spacing: Some(4.0),
                     children,

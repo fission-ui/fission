@@ -28,7 +28,7 @@ pub struct Spinner {
 
 impl<S: fission_core::AppState> Widget<S> for Spinner {
     fn build(&self, ctx: &mut BuildCtx<S>, view: &View<S>) -> impl fission_core::IntoWidget<S> {
-        fission_core::AnyWidget::from_node({
+        fission_core::view::internal_node_widget({
             let tokens = &view.env.theme.tokens;
             let color = self.color.unwrap_or(tokens.colors.primary);
             let dot_size = 10.0;
@@ -45,11 +45,13 @@ impl<S: fission_core::AppState> Widget<S> for Spinner {
                 let sub_id_u128 = self.id.as_u128() ^ (i as u128 + 1);
                 let sub_id = WidgetNodeId::from_u128(sub_id_u128);
 
-                let dot = Container::new(fission_core::ui::Row::default().into())
-                    .size(dot_size, dot_size)
-                    .bg(color)
-                    .border_radius(dot_size / 2.0)
-                    .into_node();
+                let dot = Container::<fission_core::ui::Node>::lowered(
+                    fission_core::ui::Row::<fission_core::ui::Node>::default().into(),
+                )
+                .size(dot_size, dot_size)
+                .bg(color)
+                .border_radius(dot_size / 2.0)
+                .into_node();
                 let boundary = Composite::new(dot).repaint_boundary(true).into_node();
 
                 let node = if self.animated {
@@ -72,11 +74,14 @@ impl<S: fission_core::AppState> Widget<S> for Spinner {
                 dots.push(node);
             }
 
-            HStack {
-                spacing: Some(6.0),
-                children: dots,
-            }
-            .build_node(ctx, view)
+            fission_core::view::lower_widget_to_node(
+                &HStack {
+                    spacing: Some(6.0),
+                    children: dots,
+                },
+                ctx,
+                view,
+            )
         })
     }
 }

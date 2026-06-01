@@ -14,12 +14,12 @@ pub struct SimpleGrid {
 
 impl<S: fission_core::AppState> Widget<S> for SimpleGrid {
     fn build(&self, _ctx: &mut BuildCtx<S>, _view: &View<S>) -> impl fission_core::IntoWidget<S> {
-        fission_core::AnyWidget::from_node({
+        fission_core::view::internal_node_widget({
             let wrapped_children: Vec<Node> = self
                 .children
                 .iter()
                 .map(|child| {
-                    Container::new(child.clone())
+                    Container::<fission_core::ui::Node>::lowered(child.clone())
                         .flex_grow(1.0)
                         .min_width(self.min_child_width)
                         .into_node()
@@ -27,7 +27,7 @@ impl<S: fission_core::AppState> Widget<S> for SimpleGrid {
                 .collect();
 
             // Use Row with Wrap
-            fission_core::ui::Row {
+            fission_core::ui::Row::<fission_core::ui::Node> {
                 children: wrapped_children,
                 wrap: FlexWrap::Wrap,
                 gap: self.gap,

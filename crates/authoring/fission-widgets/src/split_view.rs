@@ -56,7 +56,7 @@ pub struct SplitView {
 
 impl<S: fission_core::AppState> Widget<S> for SplitView {
     fn build(&self, _ctx: &mut BuildCtx<S>, view: &View<S>) -> impl fission_core::IntoWidget<S> {
-        fission_core::AnyWidget::from_node({
+        fission_core::view::internal_node_widget({
             let handle_size = 4.0;
             let tokens = &view.env.theme.tokens;
 
@@ -70,19 +70,22 @@ impl<S: fission_core::AppState> Widget<S> for SplitView {
                 SplitDirection::Vertical => (None, Some(1.0)),
             };
 
-            let _line = Container::new(fission_core::ui::widgets::Spacer::default().into_node())
-                .bg(tokens.colors.border)
-                .into_node();
+            let _line = Container::<fission_core::ui::Node>::lowered(
+                fission_core::ui::widgets::Spacer::default().into_node(),
+            )
+            .bg(tokens.colors.border)
+            .into_node();
 
             // We need the line to be 1px. Spacer doesn't support background color directly (it's empty).
             // Container supports background.
             // So we use Container(Spacer) for line.
             // And we set width/height on that Container.
 
-            let mut line_container =
-                Container::new(fission_core::ui::widgets::Spacer::default().into_node())
-                    .bg(tokens.colors.border)
-                    .flex_grow(1.0);
+            let mut line_container = Container::<fission_core::ui::Node>::lowered(
+                fission_core::ui::widgets::Spacer::default().into_node(),
+            )
+            .bg(tokens.colors.border)
+            .flex_grow(1.0);
 
             if let Some(w) = line_w {
                 line_container = line_container.width(w);
@@ -91,14 +94,15 @@ impl<S: fission_core::AppState> Widget<S> for SplitView {
                 line_container = line_container.height(h);
             }
 
-            let mut handle = Container::new(line_container.into_node())
-                .bg(Color {
-                    r: 0,
-                    g: 0,
-                    b: 0,
-                    a: 0,
-                }) // Transparent hit area
-                .flex_shrink(0.0);
+            let mut handle =
+                Container::<fission_core::ui::Node>::lowered(line_container.into_node())
+                    .bg(Color {
+                        r: 0,
+                        g: 0,
+                        b: 0,
+                        a: 0,
+                    }) // Transparent hit area
+                    .flex_shrink(0.0);
 
             if let Some(w) = width {
                 handle = handle.width(w);
@@ -113,18 +117,18 @@ impl<S: fission_core::AppState> Widget<S> for SplitView {
             let second_grow = 1.0 - ratio;
 
             // Wrap children in Containers with flex_grow
-            let first_pane = Container::new(*self.first.clone())
+            let first_pane = Container::<fission_core::ui::Node>::lowered(*self.first.clone())
                 .flex_grow(first_grow)
                 .flex_shrink(1.0)
                 .into_node();
 
-            let second_pane = Container::new(*self.second.clone())
+            let second_pane = Container::<fission_core::ui::Node>::lowered(*self.second.clone())
                 .flex_grow(second_grow)
                 .flex_shrink(1.0)
                 .into_node();
 
             match self.direction {
-                SplitDirection::Horizontal => Row {
+                SplitDirection::Horizontal => Row::<fission_core::ui::Node> {
                     children: vec![first_pane, handle.into_node(), second_pane],
                     align_items: fission_ir::op::AlignItems::Stretch,
                     justify_content: fission_ir::op::JustifyContent::Start,
@@ -133,7 +137,7 @@ impl<S: fission_core::AppState> Widget<S> for SplitView {
                     ..Default::default()
                 }
                 .into_node(),
-                SplitDirection::Vertical => Column {
+                SplitDirection::Vertical => Column::<fission_core::ui::Node> {
                     children: vec![first_pane, handle.into_node(), second_pane],
                     align_items: fission_ir::op::AlignItems::Stretch,
                     justify_content: fission_ir::op::JustifyContent::Start,

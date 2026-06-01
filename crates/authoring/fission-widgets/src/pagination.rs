@@ -3,6 +3,7 @@ use fission_core::ui::{Button, ButtonVariant, Node, Text};
 use fission_core::{ActionEnvelope, BuildCtx, View, Widget};
 use std::sync::Arc;
 
+#[derive(Clone)]
 pub struct Pagination {
     pub current_page: usize,
     pub total_pages: usize,
@@ -26,7 +27,7 @@ impl std::fmt::Debug for Pagination {
 
 impl<S: fission_core::AppState> Widget<S> for Pagination {
     fn build(&self, _ctx: &mut BuildCtx<S>, view: &View<S>) -> impl fission_core::IntoWidget<S> {
-        fission_core::AnyWidget::from_node({
+        fission_core::view::internal_node_widget({
             let theme = &view.env.theme.components.pagination;
             let tokens = &view.env.theme.tokens;
             let mut children = Vec::new();
@@ -35,7 +36,7 @@ impl<S: fission_core::AppState> Widget<S> for Pagination {
 
             // ... (Prev button) ...
             children.push(
-                Button {
+                Button::<fission_core::ui::Node> {
                     variant: ButtonVariant::Outline,
                     child: Some(Box::new(Text::new("<").into_node())),
                     on_press: if self.current_page > 1 {
@@ -105,7 +106,7 @@ impl<S: fission_core::AppState> Widget<S> for Pagination {
 
             // ... (Next button) ...
             children.push(
-                Button {
+                Button::<fission_core::ui::Node> {
                     variant: ButtonVariant::Outline,
                     child: Some(Box::new(Text::new(">").into_node())),
                     on_press: if self.current_page < self.total_pages {
@@ -138,7 +139,7 @@ fn page_btn(
     theme: &fission_theme::PaginationTheme,
     tokens: &fission_theme::Tokens,
 ) -> Node {
-    Button {
+    Button::<fission_core::ui::Node> {
         variant: if active {
             ButtonVariant::Filled
         } else {

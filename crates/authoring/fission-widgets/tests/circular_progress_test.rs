@@ -14,12 +14,15 @@ fn indeterminate_circular_progress_registers_rotation_animation() {
     let mut ctx = BuildCtx::<State>::new();
     let id = WidgetNodeId::explicit("test-progress");
 
-    let node = CircularProgress {
-        id,
-        value: None,
-        ..Default::default()
-    }
-    .build_node(&mut ctx, &view);
+    let node = fission_core::view::lower_widget_to_node(
+        &CircularProgress {
+            id,
+            value: None,
+            ..Default::default()
+        },
+        &mut ctx,
+        &view,
+    );
 
     assert!(matches!(node, Node::Composite(_)));
     assert_eq!(ctx.animation_requests.len(), 1);
@@ -39,11 +42,14 @@ fn determinate_circular_progress_does_not_register_animation() {
     let view = View::new(&state, &runtime, &env, None);
     let mut ctx = BuildCtx::<State>::new();
 
-    let node = CircularProgress {
-        value: Some(0.5),
-        ..Default::default()
-    }
-    .build_node(&mut ctx, &view);
+    let node = fission_core::view::lower_widget_to_node(
+        &CircularProgress {
+            value: Some(0.5),
+            ..Default::default()
+        },
+        &mut ctx,
+        &view,
+    );
 
     assert!(matches!(node, Node::Custom(_)));
     assert!(ctx.animation_requests.is_empty());

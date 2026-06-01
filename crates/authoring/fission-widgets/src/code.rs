@@ -10,9 +10,9 @@ pub struct Code {
 
 impl<S: fission_core::AppState> Widget<S> for Code {
     fn build(&self, _ctx: &mut BuildCtx<S>, view: &View<S>) -> impl fission_core::IntoWidget<S> {
-        fission_core::AnyWidget::from_node({
+        fission_core::view::internal_node_widget({
             let tokens = &view.env.theme.tokens;
-            Container::new(
+            Container::<fission_core::ui::Node>::lowered(
                 Text::new(self.text.clone())
                     .size(12.0) // Monospace usually smaller?
                     .color(tokens.colors.text_primary)
@@ -38,9 +38,9 @@ pub struct Kbd {
 
 impl<S: fission_core::AppState> Widget<S> for Kbd {
     fn build(&self, _ctx: &mut BuildCtx<S>, view: &View<S>) -> impl fission_core::IntoWidget<S> {
-        fission_core::AnyWidget::from_node({
+        fission_core::view::internal_node_widget({
             let tokens = &view.env.theme.tokens;
-            Container::new(
+            Container::<fission_core::ui::Node>::lowered(
                 Text::new(self.text.clone())
                     .size(12.0)
                     .color(tokens.colors.text_primary)

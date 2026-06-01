@@ -22,7 +22,7 @@ pub struct Avatar {
 
 impl<S: fission_core::AppState> Widget<S> for Avatar {
     fn build(&self, _ctx: &mut BuildCtx<S>, view: &View<S>) -> impl fission_core::IntoWidget<S> {
-        fission_core::AnyWidget::from_node({
+        fission_core::view::internal_node_widget({
             let tokens = &view.env.theme.tokens;
             let size = self.size.unwrap_or(40.0);
             let radius = size / 2.0;
@@ -62,7 +62,7 @@ impl<S: fission_core::AppState> Widget<S> for Avatar {
                 .into_node()
             };
 
-            Container::new(content)
+            Container::<fission_core::ui::Node>::lowered(content)
                 .size(size, size)
                 .bg(tokens.colors.primary)
                 .border_radius(radius)

@@ -15,7 +15,7 @@ pub struct WebView {
 
 impl<S: fission_core::AppState> Widget<S> for WebView {
     fn build(&self, ctx: &mut BuildCtx<S>, _view: &View<S>) -> impl fission_core::IntoWidget<S> {
-        fission_core::AnyWidget::from_node({
+        fission_core::view::internal_node_widget({
             ctx.register_web_view(fission_core::registry::WebRegistration {
                 node_id: self.id,
                 url: self.url.clone(),

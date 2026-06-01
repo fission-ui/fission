@@ -25,20 +25,20 @@ pub struct Tooltip {
 
 impl<S: fission_core::AppState> Widget<S> for Tooltip {
     fn build(&self, ctx: &mut BuildCtx<S>, view: &View<S>) -> impl fission_core::IntoWidget<S> {
-        fission_core::AnyWidget::from_node({
+        fission_core::view::internal_node_widget({
             let theme = &view.env.theme.components.tooltip;
 
             let trigger_id = fission_ir::NodeId::derived(self.id.as_u128(), &[]);
             let is_hovered = view.runtime.interaction.is_hovered(trigger_id);
             let show_tooltip = self.is_visible || is_hovered;
 
-            let trigger = Container::new(*self.child.clone())
+            let trigger = Container::<fission_core::ui::Node>::lowered(*self.child.clone())
                 .id(trigger_id)
                 .into_node();
 
             if show_tooltip {
                 let style = &theme.style;
-                let tooltip_card = Container::new(
+                let tooltip_card = Container::<fission_core::ui::Node>::lowered(
                     Text::new(self.text.clone())
                         .size(style.font_size.unwrap_or(theme.font_size))
                         .color(style.text_color.unwrap_or(theme.text_color))

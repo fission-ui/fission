@@ -33,14 +33,14 @@ fn test_tooltip_registers_portal_when_hovered() {
         is_visible: true,
     };
 
-    let _ = tooltip.build_node(&mut ctx, &view);
+    let _ = fission_core::view::lower_widget_to_node(&tooltip, &mut ctx, &view);
 
     let portals_with_ids = ctx.take_portals();
     let portals: Vec<Node> = portals_with_ids
         .into_iter()
         .map(|(id, node)| {
             if let Some(id) = id {
-                fission_core::ui::Container::new(node)
+                fission_core::ui::Container::<fission_core::ui::Node>::lowered(node)
                     .id(id.into())
                     .into_node()
             } else {

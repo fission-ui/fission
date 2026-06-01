@@ -17,7 +17,7 @@ pub struct Timeline {
 
 impl<S: fission_core::AppState> Widget<S> for Timeline {
     fn build(&self, _ctx: &mut BuildCtx<S>, view: &View<S>) -> impl fission_core::IntoWidget<S> {
-        fission_core::AnyWidget::from_node({
+        fission_core::view::internal_node_widget({
             let theme = &view.env.theme.components.timeline;
             let tokens = &view.env.theme.tokens;
             let mut children = Vec::new();
@@ -29,19 +29,23 @@ impl<S: fission_core::AppState> Widget<S> for Timeline {
                     spacing: Some(0.0),
                     children: vec![
                         // Dot
-                        Container::new(fission_core::ui::widgets::Spacer::default().into_node())
-                            .width(theme.dot_size)
-                            .height(theme.dot_size)
-                            .border_radius(theme.dot_size / 2.0)
-                            .bg(theme.dot_color)
-                            .into_node(),
+                        Container::<fission_core::ui::Node>::lowered(
+                            fission_core::ui::widgets::Spacer::default().into_node(),
+                        )
+                        .width(theme.dot_size)
+                        .height(theme.dot_size)
+                        .border_radius(theme.dot_size / 2.0)
+                        .bg(theme.dot_color)
+                        .into_node(),
                         // Line
                         if !is_last {
-                            Container::new(fission_core::ui::widgets::Spacer::default().into_node())
-                                .width(theme.line_width)
-                                .flex_grow(1.0)
-                                .bg(theme.line_color)
-                                .into_node()
+                            Container::<fission_core::ui::Node>::lowered(
+                                fission_core::ui::widgets::Spacer::default().into_node(),
+                            )
+                            .width(theme.line_width)
+                            .flex_grow(1.0)
+                            .bg(theme.line_color)
+                            .into_node()
                         } else {
                             fission_core::ui::widgets::Spacer::default().into_node()
                         },
@@ -72,7 +76,7 @@ impl<S: fission_core::AppState> Widget<S> for Timeline {
                     );
                 }
 
-                let content = Container::new(
+                let content = Container::<fission_core::ui::Node>::lowered(
                     VStack {
                         spacing: Some(4.0),
                         children: content_children,
@@ -87,8 +91,13 @@ impl<S: fission_core::AppState> Widget<S> for Timeline {
                 // We need to constrain marker width.
                 use fission_core::ui::Row;
                 children.push(
-                    Row {
-                        children: vec![Container::new(marker).width(20.0).into_node(), content],
+                    Row::<fission_core::ui::Node> {
+                        children: vec![
+                            Container::<fission_core::ui::Node>::lowered(marker)
+                                .width(20.0)
+                                .into_node(),
+                            content,
+                        ],
                         // Align items start?
                         ..Default::default()
                     }

@@ -22,6 +22,6 @@ fn test_pagination_structure() {
         on_change: None,
     };
 
-    let node = pagination.build_node(&mut ctx, &view);
+    let node = fission_core::view::lower_widget_to_node(&pagination, &mut ctx, &view);
     assert!(matches!(node, Node::Row(_))); // It builds a Row (HStack)
 }

@@ -45,7 +45,7 @@ impl MarkdownViewer {
 
 impl<S: fission_core::AppState> Widget<S> for MarkdownViewer {
     fn build(&self, _ctx: &mut BuildCtx<S>, view: &View<S>) -> impl fission_core::IntoWidget<S> {
-        fission_core::AnyWidget::from_node({
+        fission_core::view::internal_node_widget({
             let parser = Parser::with_extensions(
                 parser::Options::default(),
                 parser::gfm(parser::GfmOptions::default()),
@@ -264,7 +264,7 @@ impl<'a> MarkdownRenderer<'a> {
                 .into_node(),
         );
 
-        let code_content = Container::new(
+        let code_content = Container::<fission_core::ui::Node>::lowered(
             VStack {
                 spacing: Some(6.0),
                 children,
@@ -277,7 +277,7 @@ impl<'a> MarkdownRenderer<'a> {
         .padding_all(12.0)
         .into_node();
 
-        Column {
+        Column::<fission_core::ui::Node> {
             children: vec![code_content],
             semantics: Some(markdown_code_semantics(language, text)),
             ..Default::default()
@@ -303,7 +303,7 @@ impl<'a> MarkdownRenderer<'a> {
         }
         .into_node();
 
-        Container::new(content)
+        Container::<fission_core::ui::Node>::lowered(content)
             .bg(self.palette.primary_subtle.with_alpha(40))
             .border(self.palette.border.with_alpha(160), 1.0)
             .border_radius(8.0)
@@ -339,9 +339,9 @@ impl<'a> MarkdownRenderer<'a> {
         };
 
         let content = self.list_item_content(item_ref);
-        Row {
+        Row::<fission_core::ui::Node> {
             children: vec![
-                Container::new(
+                Container::<fission_core::ui::Node>::lowered(
                     Text::new(marker)
                         .size(self.body_size)
                         .color(self.palette.text_secondary)
@@ -349,7 +349,9 @@ impl<'a> MarkdownRenderer<'a> {
                 )
                 .width(if ordered { 30.0 } else { 18.0 })
                 .into_node(),
-                Container::new(content).flex_grow(1.0).into_node(),
+                Container::<fission_core::ui::Node>::lowered(content)
+                    .flex_grow(1.0)
+                    .into_node(),
             ],
             gap: Some(6.0),
             align_items: AlignItems::Start,
@@ -385,8 +387,8 @@ impl<'a> MarkdownRenderer<'a> {
             }
         }
 
-        Container::new(
-            Column {
+        Container::<fission_core::ui::Node>::lowered(
+            Column::<fission_core::ui::Node> {
                 children: rows,
                 semantics: Some(markdown_semantics("markdown-table")),
                 gap: Some(0.0),
@@ -404,7 +406,7 @@ impl<'a> MarkdownRenderer<'a> {
             .children(self.arena)
             .map(|cell_ref| self.table_cell(cell_ref, is_header))
             .collect();
-        Row {
+        Row::<fission_core::ui::Node> {
             children: cells,
             semantics: Some(markdown_semantics(if is_header {
                 "markdown-table-row:header"
@@ -428,10 +430,12 @@ impl<'a> MarkdownRenderer<'a> {
             style.font_weight = Some(700);
         }
 
-        let mut cell = Container::new(RichText::new(self.inline_runs(cell_ref, style)).into_node())
-            .padding_all(8.0)
-            .border(self.palette.border.with_alpha(120), 1.0)
-            .flex_grow(1.0);
+        let mut cell = Container::<fission_core::ui::Node>::lowered(
+            RichText::new(self.inline_runs(cell_ref, style)).into_node(),
+        )
+        .padding_all(8.0)
+        .border(self.palette.border.with_alpha(120), 1.0)
+        .flex_grow(1.0);
         if is_header {
             cell = cell.bg(self.palette.surface_raised);
         } else {
@@ -452,7 +456,7 @@ impl<'a> MarkdownRenderer<'a> {
             TableCellAlignment::None => "none",
             _ => "none",
         };
-        Row {
+        Row::<fission_core::ui::Node> {
             children: vec![cell.into_node()],
             semantics: Some(markdown_semantics(format!(
                 "markdown-table-cell:{}:{alignment}",
@@ -474,7 +478,7 @@ impl<'a> MarkdownRenderer<'a> {
     }
 
     fn divider(&self) -> Node {
-        Container::new(VStack::default().into_node())
+        Container::<fission_core::ui::Node>::lowered(VStack::default().into_node())
             .height(1.0)
             .bg(self.palette.border.with_alpha(180))
             .into_node()

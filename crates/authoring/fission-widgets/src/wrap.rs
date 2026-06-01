@@ -32,16 +32,16 @@ impl Default for Wrap {
 
 impl<S: fission_core::AppState> Widget<S> for Wrap {
     fn build(&self, _ctx: &mut BuildCtx<S>, _view: &View<S>) -> impl fission_core::IntoWidget<S> {
-        fission_core::AnyWidget::from_node({
+        fission_core::view::internal_node_widget({
             match self.direction {
-                FlexDirection::Row => fission_core::ui::Row {
+                FlexDirection::Row => fission_core::ui::Row::<fission_core::ui::Node> {
                     children: self.children.clone(),
                     wrap: FlexWrap::Wrap,
                     gap: self.spacing,
                     ..Default::default()
                 }
                 .into_node(),
-                FlexDirection::Column => fission_core::ui::Column {
+                FlexDirection::Column => fission_core::ui::Column::<fission_core::ui::Node> {
                     children: self.children.clone(),
                     wrap: FlexWrap::Wrap,
                     gap: self.spacing,

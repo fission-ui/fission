@@ -18,7 +18,7 @@ pub struct RangeSlider {
 
 impl<S: fission_core::AppState> Widget<S> for RangeSlider {
     fn build(&self, _ctx: &mut BuildCtx<S>, _view: &View<S>) -> impl fission_core::IntoWidget<S> {
-        fission_core::AnyWidget::from_node({
+        fission_core::view::internal_node_widget({
             Node::Custom(fission_core::ui::CustomNode {
                 debug_tag: "RangeSlider".into(),
                 lowerer: Some(std::sync::Arc::new(RangeSliderLowerer {

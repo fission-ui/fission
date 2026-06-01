@@ -1,5 +1,5 @@
 use fission_core::op::{BoxShadow, Color};
-use fission_core::ui::{Container, GestureDetector, Node, ZStack};
+use fission_core::ui::{Container, GestureDetector, Node, Positioned, ZStack};
 use fission_core::{ActionEnvelope, BuildCtx, View, Widget, WidgetNodeId};
 use serde::{Deserialize, Serialize};
 
@@ -34,7 +34,7 @@ pub struct Drawer {
 
 impl<S: fission_core::AppState> Widget<S> for Drawer {
     fn build(&self, ctx: &mut BuildCtx<S>, view: &View<S>) -> impl fission_core::IntoWidget<S> {
-        fission_core::AnyWidget::from_node({
+        fission_core::view::internal_node_widget({
             // Animation logic
             // We want to animate the transform (TranslateX).
             // If open: 0. If closed: -width (Left) or +width (Right).
@@ -46,7 +46,7 @@ impl<S: fission_core::AppState> Widget<S> for Drawer {
             // But `is_open` is passed in.
 
             if !self.is_open {
-                return fission_core::AnyWidget::from_node(
+                return fission_core::view::internal_node_widget(
                     fission_core::ui::widgets::Spacer::default().into_node(),
                 );
             }
@@ -64,22 +64,24 @@ impl<S: fission_core::AppState> Widget<S> for Drawer {
             let backdrop = GestureDetector {
                 on_tap: self.on_dismiss.clone(),
                 child: Box::new(
-                    Container::new(fission_core::ui::widgets::Spacer::default().into_node())
-                        .bg(Color {
-                            r: 0,
-                            g: 0,
-                            b: 0,
-                            a: 128,
-                        })
-                        .flex_grow(1.0)
-                        .into_node(),
+                    Container::<fission_core::ui::Node>::lowered(
+                        fission_core::ui::widgets::Spacer::default().into_node(),
+                    )
+                    .bg(Color {
+                        r: 0,
+                        g: 0,
+                        b: 0,
+                        a: 128,
+                    })
+                    .flex_grow(1.0)
+                    .into_node(),
                 ),
                 ..Default::default()
             }
             .into_node();
 
             // Drawer Content
-            let content_node = Container::new(*self.content.clone())
+            let content_node = Container::<fission_core::ui::Node>::lowered(*self.content.clone())
                 .bg(tokens.colors.surface)
                 .width(width)
                 // Height fills parent (Positioned top/bottom 0)
@@ -97,7 +99,7 @@ impl<S: fission_core::AppState> Widget<S> for Drawer {
                 .into_node();
 
             let positioned_content = match self.side {
-                DrawerSide::Left => fission_core::ui::Positioned {
+                DrawerSide::Left => Positioned::<fission_core::ui::Node> {
                     left: Some(0.0),
                     top: Some(0.0),
                     bottom: Some(0.0),
@@ -106,7 +108,7 @@ impl<S: fission_core::AppState> Widget<S> for Drawer {
                     child: Some(Box::new(content_node)),
                     ..Default::default()
                 },
-                DrawerSide::Right => fission_core::ui::Positioned {
+                DrawerSide::Right => Positioned::<fission_core::ui::Node> {
                     right: Some(0.0),
                     top: Some(0.0),
                     bottom: Some(0.0),
@@ -120,9 +122,9 @@ impl<S: fission_core::AppState> Widget<S> for Drawer {
 
             // TODO: slide animation for drawer open/close
 
-            let root = ZStack {
+            let root = ZStack::<fission_core::ui::Node> {
                 children: vec![
-                    fission_core::ui::Positioned {
+                    Positioned::<fission_core::ui::Node> {
                         left: Some(0.0),
                         right: Some(0.0),
                         top: Some(0.0),
@@ -137,7 +139,7 @@ impl<S: fission_core::AppState> Widget<S> for Drawer {
             }
             .into_node();
 
-            let overlay_root = fission_core::ui::Positioned {
+            let overlay_root = Positioned::<fission_core::ui::Node> {
                 left: Some(0.0),
                 right: Some(0.0),
                 top: Some(0.0),

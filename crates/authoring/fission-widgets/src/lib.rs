@@ -3,7 +3,7 @@
 //! This crate provides a comprehensive widget library built on top of `fission-core`
 //! primitives. Each widget follows a declarative, data-driven pattern: construct the
 //! widget struct with its configuration, and the framework calls [`Widget::build()`]
-//! to produce the low-level [`Node`] tree.
+//! to produce the next widget in the tree.
 //!
 //! Widgets do not own state. They receive all data through struct fields and communicate
 //! user interactions back to the application via [`ActionEnvelope`](fission_core::ActionEnvelope)
@@ -22,15 +22,19 @@
 //! # Example
 //!
 //! ```rust,ignore
-//! use fission_widgets::{VStack, Badge, Card};
+//! use fission_core::ui::Column;
+//! use fission_widgets::{Badge, Card};
 //!
-//! let layout = VStack {
-//!     spacing: Some(8.0),
-//!     children: vec![
-//!         Badge { text: "New".into(), ..Default::default() }.build_node(&mut ctx, &view),
-//!         Card { child: Box::new(content) }.build_node(&mut ctx, &view),
-//!     ],
-//! }.into_node();
+//! struct ExampleCard;
+//!
+//! impl Widget<AppState> for ExampleCard {
+//!     fn build(&self, ctx: &mut BuildCtx<AppState>, view: &View<AppState>) -> impl IntoWidget<AppState> {
+//!         Column::new()
+//!             .gap(8.0)
+//!             .child(Badge { text: "New".into(), ..Default::default() })
+//!             .child(Card { child: Box::new(content) })
+//!     }
+//! }
 //! ```
 
 pub use fission_core::ui::widgets::Icon;
@@ -402,7 +406,7 @@ pub struct Portal {
 
 impl<S: fission_core::AppState> Widget<S> for Portal {
     fn build(&self, ctx: &mut BuildCtx<S>, _view: &View<S>) -> impl fission_core::IntoWidget<S> {
-        fission_core::AnyWidget::from_node({
+        fission_core::view::internal_node_widget({
             ctx.register_portal(self.child.clone());
             // Return invisible spacer
             Node::Spacer(fission_core::ui::widgets::spacer::Spacer::default())

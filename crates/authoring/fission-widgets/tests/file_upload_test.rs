@@ -20,6 +20,6 @@ fn test_file_upload_structure() {
         on_browse: None,
     };
 
-    let node = upload.build_node(&mut ctx, &view);
+    let node = fission_core::view::lower_widget_to_node(&upload, &mut ctx, &view);
     assert!(matches!(node, Node::Row(_)));
 }

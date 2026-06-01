@@ -4,6 +4,7 @@ use fission_core::ui::{Button, ButtonVariant, Container, Text};
 use fission_core::{ActionEnvelope, BuildCtx, View, Widget};
 use std::sync::Arc;
 
+#[derive(Clone)]
 pub struct Calendar {
     pub year: i32,
     pub month: u32,
@@ -27,7 +28,7 @@ impl std::fmt::Debug for Calendar {
 
 impl<S: fission_core::AppState> Widget<S> for Calendar {
     fn build(&self, _ctx: &mut BuildCtx<S>, view: &View<S>) -> impl fission_core::IntoWidget<S> {
-        fission_core::AnyWidget::from_node({
+        fission_core::view::internal_node_widget({
             let theme = &view.env.theme.components.calendar;
             let tokens = &view.env.theme.tokens;
             let cell_size = self.cell_size.unwrap_or(36.0);
@@ -63,7 +64,7 @@ impl<S: fission_core::AppState> Widget<S> for Calendar {
             let header = HStack {
                 spacing: Some(8.0),
                 children: vec![
-                    Button {
+                    Button::<fission_core::ui::Node> {
                         variant: ButtonVariant::Ghost,
                         child: Some(Box::new(Text::new("<").into_node())),
                         on_press: prev_cb.map(|f| f(prev_y, prev_m)),
@@ -85,7 +86,7 @@ impl<S: fission_core::AppState> Widget<S> for Calendar {
                         ..Default::default()
                     }
                     .into_node(),
-                    Button {
+                    Button::<fission_core::ui::Node> {
                         variant: ButtonVariant::Ghost,
                         child: Some(Box::new(Text::new(">").into_node())),
                         on_press: next_cb.map(|f| f(next_y, next_m)),
@@ -105,7 +106,7 @@ impl<S: fission_core::AppState> Widget<S> for Calendar {
                 children: weekdays
                     .iter()
                     .map(|d| {
-                        Container::new(
+                        Container::<fission_core::ui::Node>::lowered(
                             Text::new(d.to_string())
                                 .size(weekday_text_size)
                                 .color(tokens.colors.text_secondary)
@@ -132,7 +133,7 @@ impl<S: fission_core::AppState> Widget<S> for Calendar {
                 let is_today = date == Local::now().date_naive();
                 let cb = self.on_select.clone();
 
-                let day_button = Button {
+                let day_button = Button::<fission_core::ui::Node> {
                     variant: if is_selected {
                         ButtonVariant::Filled
                     } else {
@@ -157,7 +158,7 @@ impl<S: fission_core::AppState> Widget<S> for Calendar {
                 .into_node();
 
                 let day_node = if is_today && !is_selected {
-                    Container::new(day_button)
+                    Container::<fission_core::ui::Node>::lowered(day_button)
                         .border(theme.today_outline, 1.0)
                         .border_radius(cell_size / 2.0)
                         .into_node()
@@ -180,7 +181,7 @@ impl<S: fission_core::AppState> Widget<S> for Calendar {
             }
             .into_node();
 
-            let mut c = Container::new(
+            let mut c = Container::<fission_core::ui::Node>::lowered(
                 VStack {
                     spacing: Some(8.0),
                     children: vec![header, labels, day_grid],

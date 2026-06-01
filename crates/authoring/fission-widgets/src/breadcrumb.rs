@@ -17,7 +17,7 @@ pub struct Breadcrumb {
 
 impl<S: fission_core::AppState> Widget<S> for Breadcrumb {
     fn build(&self, _ctx: &mut BuildCtx<S>, view: &View<S>) -> impl fission_core::IntoWidget<S> {
-        fission_core::AnyWidget::from_node({
+        fission_core::view::internal_node_widget({
             let tokens = &view.env.theme.tokens;
             let mut children = Vec::new();
 
@@ -50,7 +50,7 @@ impl<S: fission_core::AppState> Widget<S> for Breadcrumb {
                             .into_node(),
                     );
                 } else {
-                    let button = Button {
+                    let button = Button::<fission_core::ui::Node> {
                         variant: ButtonVariant::Ghost,
                         content_align: ButtonContentAlign::Start,
                         child: Some(Box::new(
@@ -64,11 +64,15 @@ impl<S: fission_core::AppState> Widget<S> for Breadcrumb {
                     }
                     .into_node();
 
-                    children.push(Container::new(button).flex_shrink(0.0).into_node());
+                    children.push(
+                        Container::<fission_core::ui::Node>::lowered(button)
+                            .flex_shrink(0.0)
+                            .into_node(),
+                    );
                 }
             }
 
-            Row {
+            Row::<fission_core::ui::Node> {
                 gap: Some(8.0),
                 align_items: fission_ir::op::AlignItems::Center,
                 children,

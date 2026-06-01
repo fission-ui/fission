@@ -4,6 +4,7 @@ use fission_core::ui::Text;
 use fission_core::{ActionEnvelope, BuildCtx, View, Widget};
 use std::sync::Arc;
 
+#[derive(Clone)]
 pub struct TimePicker {
     pub hour: u32,   // 0-23
     pub minute: u32, // 0-59
@@ -22,7 +23,7 @@ impl std::fmt::Debug for TimePicker {
 
 impl<S: fission_core::AppState> Widget<S> for TimePicker {
     fn build(&self, _ctx: &mut BuildCtx<S>, view: &View<S>) -> impl fission_core::IntoWidget<S> {
-        fission_core::AnyWidget::from_node({
+        fission_core::view::internal_node_widget({
             let cb = self.on_change.as_ref();
             let h = self.hour;
             let m = self.minute;
@@ -38,35 +39,41 @@ impl<S: fission_core::AppState> Widget<S> for TimePicker {
             HStack {
                 spacing: Some(8.0),
                 children: vec![
-                    NumberInput {
-                        value: h as f32,
-                        display_text: Some(format!("{:02}", h)),
-                        min: Some(0.0),
-                        max: Some(23.0),
-                        step: 1.0,
-                        field_width: Some(56.0),
-                        button_size: Some(32.0),
-                        gap: Some(4.0),
-                        on_increment: h_inc,
-                        on_decrement: h_dec,
-                        ..Default::default()
-                    }
-                    .build_node(_ctx, view),
+                    fission_core::view::lower_widget_to_node(
+                        &NumberInput {
+                            value: h as f32,
+                            display_text: Some(format!("{:02}", h)),
+                            min: Some(0.0),
+                            max: Some(23.0),
+                            step: 1.0,
+                            field_width: Some(56.0),
+                            button_size: Some(32.0),
+                            gap: Some(4.0),
+                            on_increment: h_inc,
+                            on_decrement: h_dec,
+                            ..Default::default()
+                        },
+                        _ctx,
+                        view,
+                    ),
                     Text::new(":").size(16.0).into_node(),
-                    NumberInput {
-                        value: m as f32,
-                        display_text: Some(format!("{:02}", m)),
-                        min: Some(0.0),
-                        max: Some(59.0),
-                        step: 1.0,
-                        field_width: Some(56.0),
-                        button_size: Some(32.0),
-                        gap: Some(4.0),
-                        on_increment: m_inc,
-                        on_decrement: m_dec,
-                        ..Default::default()
-                    }
-                    .build_node(_ctx, view),
+                    fission_core::view::lower_widget_to_node(
+                        &NumberInput {
+                            value: m as f32,
+                            display_text: Some(format!("{:02}", m)),
+                            min: Some(0.0),
+                            max: Some(59.0),
+                            step: 1.0,
+                            field_width: Some(56.0),
+                            button_size: Some(32.0),
+                            gap: Some(4.0),
+                            on_increment: m_inc,
+                            on_decrement: m_dec,
+                            ..Default::default()
+                        },
+                        _ctx,
+                        view,
+                    ),
                 ],
             }
             .into_node()
