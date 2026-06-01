@@ -29,7 +29,7 @@ fn test_form_control_structure() {
         required: true,
     };
 
-    let node = control.build(&mut ctx, &view);
+    let node = control.build_node(&mut ctx, &view);
 
     // Should be a Column (VStack) with 3 children
     if let Node::Column(col) = node {

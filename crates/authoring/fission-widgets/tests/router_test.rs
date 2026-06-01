@@ -31,7 +31,7 @@ fn test_router_matching() {
         not_found: None,
     };
 
-    let node = router.build(&mut ctx, &view);
+    let node = router.build_node(&mut ctx, &view);
     if let Node::Text(t) = node {
         assert_eq!(
             t.content,
@@ -69,7 +69,7 @@ fn test_router_params() {
         not_found: None,
     };
 
-    let node = router.build(&mut ctx, &view);
+    let node = router.build_node(&mut ctx, &view);
     if let Node::Text(t) = node {
         assert_eq!(
             t.content,

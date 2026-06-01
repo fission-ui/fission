@@ -60,7 +60,7 @@ fn build_lowered_inbox_ir(state: &InboxState) -> (fission::ir::CoreIR, RuntimeSt
     let runtime_state = RuntimeState::default();
     let env = create_env();
     let view = View::new(state, &runtime_state, &env, None);
-    let tree = InboxApp.build(&mut ctx, &view);
+    let tree = InboxApp.build_node(&mut ctx, &view);
     let portals = ctx.take_portals();
 
     let node_tree = if portals.is_empty() {

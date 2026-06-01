@@ -295,7 +295,7 @@ impl FissionSite {
                 let state = S::default();
                 let view = View::new(&state, &runtime, &env, None);
                 let mut build_ctx = BuildCtx::<S>::new();
-                Ok(widget.as_ref().clone().build(&mut build_ctx, &view))
+                Ok(widget.as_ref().clone().build_node(&mut build_ctx, &view))
             }),
         });
         self
@@ -334,7 +334,7 @@ where
     let state = S::default();
     let view = View::new(&state, &runtime, &env, None);
     let mut build_ctx = BuildCtx::<S>::new();
-    Ok(widget.build(&mut build_ctx, &view))
+    Ok(widget.build_node(&mut build_ctx, &view))
 }
 
 pub fn build_from_cli(site: FissionSite) -> Result<()> {

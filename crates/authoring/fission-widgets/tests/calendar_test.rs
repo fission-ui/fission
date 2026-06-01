@@ -28,7 +28,7 @@ fn test_calendar_build() {
         padding: None,
     };
 
-    let node = calendar.build(&mut ctx, &view);
+    let node = calendar.build_node(&mut ctx, &view);
 
     // Verify it builds a Container wrapping a VStack
     if let Node::Container(c) = node {

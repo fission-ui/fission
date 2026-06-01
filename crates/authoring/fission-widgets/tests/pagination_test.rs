@@ -22,6 +22,6 @@ fn test_pagination_structure() {
         on_change: None,
     };
 
-    let node = pagination.build(&mut ctx, &view);
+    let node = pagination.build_node(&mut ctx, &view);
     assert!(matches!(node, Node::Row(_))); // It builds a Row (HStack)
 }

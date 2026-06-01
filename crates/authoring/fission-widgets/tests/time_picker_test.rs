@@ -24,7 +24,7 @@ fn build_time_picker(hour: u32, minute: u32) -> Node {
         minute,
         on_change: None,
     }
-    .build(&mut ctx, &view)
+    .build_node(&mut ctx, &view)
 }
 
 fn collect_text_inputs<'a>(node: &'a Node, out: &mut Vec<&'a fission_core::ui::TextInput>) {

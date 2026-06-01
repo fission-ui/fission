@@ -93,7 +93,7 @@ fn handle_increment(state: &mut Counter) {
 // 3. Build the widget tree
 struct CounterWidget;
 impl Widget<Counter> for CounterWidget {
-    fn build(&self, ctx: &mut BuildCtx<Counter>, view: &View<Counter>) -> Node {
+    fn build(&self, ctx: &mut BuildCtx<Counter>, view: &View<Counter>) -> impl IntoWidget<Counter> {
         let on_press = with_reducer!(ctx, Increment, handle_increment);
         Column {
             children: vec![

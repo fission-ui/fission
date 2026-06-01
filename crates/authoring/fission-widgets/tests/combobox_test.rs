@@ -28,7 +28,7 @@ fn test_combobox_build() {
         on_toggle: None,
     };
 
-    let node = combo.build(&mut ctx, &view);
+    let node = combo.build_node(&mut ctx, &view);
     // Combobox returns the trigger (TextInput) and registers a portal
     assert!(matches!(node, Node::Container(_)));
     assert_eq!(ctx.portals.len(), 1);

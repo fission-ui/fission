@@ -120,7 +120,7 @@ fn flyout_does_not_shift_content() -> Result<()> {
             pipe.last_snapshot.as_ref(),
         );
         let mut ctx = BuildCtx::new();
-        let node = Root.build(&mut ctx, &view);
+        let node = Root.build_node(&mut ctx, &view);
         let portals_with_ids = ctx.take_portals();
         let portals: Vec<Node> = portals_with_ids
             .into_iter()
@@ -176,7 +176,7 @@ fn flyout_does_not_shift_content() -> Result<()> {
                 pipe.last_snapshot.as_ref(),
             );
             let mut ctx = BuildCtx::new();
-            let node = Root.build(&mut ctx, &view);
+            let node = Root.build_node(&mut ctx, &view);
             let portals_with_ids = ctx.take_portals();
             let portals: Vec<Node> = portals_with_ids
                 .into_iter()

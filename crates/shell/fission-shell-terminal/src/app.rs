@@ -345,7 +345,7 @@ where
             self.last_snapshot.as_ref(),
         );
         let mut ctx = BuildCtx::<S>::new();
-        let tree = self.root.build(&mut ctx, &view);
+        let tree = self.root.build_node(&mut ctx, &view);
 
         self.runtime.clear_reducers();
         let animation_requests = ctx.take_animation_requests();

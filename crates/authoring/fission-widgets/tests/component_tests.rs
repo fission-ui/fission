@@ -38,7 +38,7 @@ fn test_menu_button_registers_portal_when_open() {
         on_toggle: None,
     };
 
-    let _ = menu_button.build(&mut ctx, &view);
+    let _ = menu_button.build_node(&mut ctx, &view);
 
     let portals = ctx.take_portals();
     assert_eq!(
@@ -65,7 +65,7 @@ fn test_toast_renders_content() {
         on_close: None,
     };
 
-    let node = toast.build(&mut ctx, &view);
+    let node = toast.build_node(&mut ctx, &view);
 
     // Toast is a direct widget, it returns a Container node
     if let Node::Container(_) = node {
@@ -95,7 +95,7 @@ fn test_popover_without_on_close_does_not_add_backdrop_layer() {
         trigger: Box::new(Text::new("trigger").into_node()),
         content: Box::new(Text::new("content").into_node()),
     }
-    .build(&mut ctx, &view);
+    .build_node(&mut ctx, &view);
 
     let portals = ctx.take_portals();
     assert_eq!(
@@ -132,7 +132,7 @@ fn test_popover_with_on_close_adds_backdrop_layer() {
         trigger: Box::new(Text::new("trigger").into_node()),
         content: Box::new(Text::new("content").into_node()),
     }
-    .build(&mut ctx, &view);
+    .build_node(&mut ctx, &view);
 
     let portals = ctx.take_portals();
     assert_eq!(portals.len(), 1, "popover should register one portal");

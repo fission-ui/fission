@@ -61,7 +61,7 @@ fn test_internal_drag_drop_flow() {
                     .into_node(),
                 ),
             }
-            .build(&mut build_ctx, &view),
+            .build_node(&mut build_ctx, &view),
             DragTarget {
                 on_drop: Some(ActionEnvelope {
                     id: OnDrop::static_id(),
@@ -75,7 +75,7 @@ fn test_internal_drag_drop_flow() {
                         .into_node(),
                 ),
             }
-            .build(&mut build_ctx, &view),
+            .build_node(&mut build_ctx, &view),
         ],
     }
     .into_node();

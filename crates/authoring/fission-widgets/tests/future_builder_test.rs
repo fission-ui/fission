@@ -67,7 +67,7 @@ fn future_builder_declares_job_and_builds_from_snapshot() {
     .deps(("message", 42_u32))
     .preserve_on_change()
     .on_ok(loaded_action.clone())
-    .build(&mut ctx, &view);
+    .build_node(&mut ctx, &view);
 
     let Node::Text(text) = node else {
         panic!("FutureBuilder should render the node returned by its builder");

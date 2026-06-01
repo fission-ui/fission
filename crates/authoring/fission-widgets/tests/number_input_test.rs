@@ -25,7 +25,7 @@ fn test_number_input_structure() {
         ..Default::default()
     };
 
-    let node = input.build(&mut ctx, &view);
+    let node = input.build_node(&mut ctx, &view);
 
     match node {
         Node::Container(container) => {

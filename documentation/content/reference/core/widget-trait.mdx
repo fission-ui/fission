@@ -17,7 +17,7 @@ That design is the reason the trait is centered on `build()`.
 
 ```rust
 pub trait Widget<S: AppState> {
-    fn build(&self, ctx: &mut BuildCtx<S>, view: &View<S>) -> Node;
+    fn build(&self, ctx: &mut BuildCtx<S>, view: &View<S>) -> impl IntoWidget<S>;
 }
 ```
 
@@ -28,7 +28,20 @@ This signature is small, but each parameter has a distinct job.
 | `S: AppState` | The concrete application state type for the widget tree | Keeps widgets tied to a typed shared app model |
 | `ctx: &mut BuildCtx<S>` | The build-time registration and wiring context | Lets widgets bind actions and declare runtime-managed behavior |
 | `view: &View<S>` | The read-only input bundle for the current build | Lets widgets read state, runtime-owned values, environment values, and prior layout data |
-| `Node` | The authored user interface description returned by `build()` | Gives the runtime a deterministic tree to lower, lay out, and render |
+| `impl IntoWidget<S>` | A value the framework can turn into an erased widget | Lets application code return ordinary widget structs while the runtime still gets a deterministic tree to lower, lay out, and render |
+
+`build()` returns `impl IntoWidget<S>` rather than `Node` because `Node` is Fission's internal lowered representation. Application widgets should normally return widgets. The runtime converts those values into nodes at the framework boundary.
+
+## Why `IntoWidget<S>` exists
+
+`IntoWidget<S>` is a Fission-owned conversion boundary. It exists because widget composition has two conflicting needs:
+
+- Application code should be able to return concrete widget structs without manually boxing or naming an erased type.
+- Framework internals still need a uniform value so rows, columns, routes, overlays, test harnesses, and shells can store heterogeneous widgets together.
+
+Rust's built-in `Into` trait cannot express this as `Into<Widget>` because `Widget` is a trait, not a concrete value type. Writing `Into<Box<dyn Widget<S>>>` is not equivalent either. The `Widget` trait deliberately returns `impl IntoWidget<S>`, and a trait method returning `impl Trait` is not object-safe, so it cannot be placed directly behind `dyn Widget<S>`.
+
+That is also why Fission uses its own erased storage type internally instead of asking you to write `Vec<Box<dyn Widget<S>>>`. `AnyWidget<S>` is the narrow framework-owned erasure point. Public authoring code returns widgets; Fission erases them only when it has to store mixed widget values behind one type.
 
 ## What a widget means in Fission
 
@@ -50,7 +63,7 @@ This model keeps rebuilding normal and safe. It also keeps the widget tree compa
 
 In Fission, `build()` must be pure.
 
-That means it reads its inputs, records runtime wiring through `BuildCtx`, and returns a `Node` tree. It does not perform unrelated outside work while it is deciding what to render.
+That means it reads its inputs, records runtime wiring through `BuildCtx`, and returns a widget description. It does not perform unrelated outside work while it is deciding what to render.
 
 In practice, a pure `build()` method:
 

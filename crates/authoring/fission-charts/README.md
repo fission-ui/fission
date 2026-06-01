@@ -6,7 +6,7 @@ Chart widgets and data-visualization primitives for Fission applications.
 
 ```toml
 [dependencies]
-fission = { version = "0.3.0", features = ["desktop", "charts"] }
+fission = { version = "0.4.0", features = ["desktop", "charts"] }
 ```
 
 Most application code should import from `fission::prelude::*` and `fission::charts::*` rather than depending on this crate directly. Depend on `fission-charts` only when you are extending the chart layer itself.
@@ -27,7 +27,7 @@ use fission::charts::*;
 struct Dashboard;
 
 impl Widget<App> for Dashboard {
-    fn build(&self, _ctx: &mut BuildCtx<App>, _view: &View<App>) -> Node {
+    fn build(&self, _ctx: &mut BuildCtx<App>, _view: &View<App>) -> impl IntoWidget<App> {
         LineChart::new()
             .title("Revenue")
             .series(LineSeries::new("Actual", vec![120.0, 156.0, 182.0]))

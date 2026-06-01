@@ -138,7 +138,7 @@ fn pump(
             pipe.last_snapshot.as_ref(),
         );
         let mut ctx = BuildCtx::new();
-        let mut tree = root.build(&mut ctx, &view);
+        let mut tree = root.build_node(&mut ctx, &view);
         runtime.clear_reducers();
         let anim = ctx.take_animation_requests();
         for (t, r) in anim {

@@ -484,7 +484,7 @@ fn build_tray_menu<S: AppState>(
             env,
             pipeline.last_snapshot.as_ref(),
         );
-        menu_widget.build(&mut ctx, &view)
+        menu_widget.build_node(&mut ctx, &view)
     } else {
         TrayMenu::new()
     };

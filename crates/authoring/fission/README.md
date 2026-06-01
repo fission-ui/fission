@@ -15,7 +15,7 @@ This crate is the public facade. Application code should normally depend on `fis
 
 ```toml
 [dependencies]
-fission = { version = "0.3.0", features = ["desktop"] }
+fission = { version = "0.4.0", features = ["desktop"] }
 ```
 
 For the full developer workflow, install the Fission command:
@@ -74,7 +74,11 @@ fn increment(state: &mut CounterState) {
 struct CounterApp;
 
 impl Widget<CounterState> for CounterApp {
-    fn build(&self, ctx: &mut BuildCtx<CounterState>, view: &View<CounterState>) -> Node {
+    fn build(
+        &self,
+        ctx: &mut BuildCtx<CounterState>,
+        view: &View<CounterState>,
+    ) -> impl IntoWidget<CounterState> {
         let increment = with_reducer!(ctx, Increment, increment);
 
         Container::new(

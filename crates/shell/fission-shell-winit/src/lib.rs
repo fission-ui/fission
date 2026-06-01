@@ -5276,7 +5276,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                             pipeline.last_snapshot.as_ref(),
                                         );
                                         let mut ctx = BuildCtx::new();
-                                        let node = root_widget.build(&mut ctx, &view);
+                                        let node = root_widget.build_node(&mut ctx, &view);
                                         let resources = ctx.take_resources();
                                         let anims = ctx.take_animation_requests();
                                         let videos = ctx.take_video_registrations();

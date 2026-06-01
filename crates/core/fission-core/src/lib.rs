@@ -5,7 +5,7 @@
 //!
 //! `fission-core` provides:
 //!
-//! - A **declarative widget tree** built from composable primitives ([`Node`], [`Widget`]).
+//! - A **declarative widget tree** built from composable primitives ([`Widget`]).
 //! - A **unidirectional data-flow** pipeline: [`Action`] -> [`Runtime::dispatch`] -> reducer
 //!   -> mutated [`AppState`].
 //! - An **effect system** for async side-effects ([`Effect`], [`RuntimeEffect`]).
@@ -26,8 +26,8 @@
 //! // Build a widget
 //! struct MyWidget;
 //! impl Widget<MyState> for MyWidget {
-//!     fn build(&self, ctx: &mut BuildCtx<MyState>, view: &View<MyState>) -> Node {
-//!         Text::new(&*view.state.value).into_node()
+//!     fn build(&self, ctx: &mut BuildCtx<MyState>, view: &View<MyState>) -> impl IntoWidget<MyState> {
+//!         Text::new(&*view.state.value)
 //!     }
 //! }
 //! ```
@@ -219,7 +219,7 @@ pub use ui::{
     ComponentState, CustomEventResult, CustomHitResult, CustomNode, CustomRenderObject,
     LayoutBuilder, Lower, LowerDyn, Node, Row, Text,
 };
-pub use view::{Selector, View, Widget};
+pub use view::{AnyWidget, IntoWidget, Selector, View, Widget};
 
 /// Coerces a reducer function item or non-capturing closure to the handler
 /// function-pointer type Rust can infer from the surrounding `ctx.bind(...)`

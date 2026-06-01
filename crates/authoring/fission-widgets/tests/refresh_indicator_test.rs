@@ -39,7 +39,7 @@ fn refresh_indicator_dispatches_refresh_when_armed() {
         .pulled_extent(90.0)
         .on_refresh(refresh.clone())
         .on_pull_cancel(cancel)
-        .build(&mut ctx, &view);
+        .build_node(&mut ctx, &view);
 
     let Node::GestureDetector(detector) = node else {
         panic!("RefreshIndicator should wrap content in a gesture detector");
@@ -65,7 +65,7 @@ fn refresh_indicator_dispatches_cancel_when_not_armed() {
         .pulled_extent(20.0)
         .on_refresh(refresh)
         .on_pull_cancel(cancel.clone())
-        .build(&mut ctx, &view);
+        .build_node(&mut ctx, &view);
 
     let Node::GestureDetector(detector) = node else {
         panic!("RefreshIndicator should wrap content in a gesture detector");
@@ -79,7 +79,7 @@ fn refresh_indicator_hides_overlay_when_inactive() {
     let view = View::new(&state, &runtime, &env, None);
     let mut ctx = BuildCtx::<State>::new();
 
-    let node = RefreshIndicator::new(Text::new("content").into_node()).build(&mut ctx, &view);
+    let node = RefreshIndicator::new(Text::new("content").into_node()).build_node(&mut ctx, &view);
 
     let Node::GestureDetector(detector) = node else {
         panic!("RefreshIndicator should wrap content in a gesture detector");

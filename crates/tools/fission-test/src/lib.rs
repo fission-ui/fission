@@ -1,8 +1,8 @@
 use anyhow::Result;
 use fission_core::lowering::build_layout_tree;
 use fission_core::{
-    Action, ActionEnvelope, ActionId, AdvanceTo, AppState, BuildCtx, Clock, CurrentTime, Env,
-    InputEvent, LayoutPoint, LoweringContext, Runtime, ScrollStateMap, View, Widget,
+    Action, ActionEnvelope, ActionId, AdvanceTo, AnyWidget, AppState, BuildCtx, Clock, CurrentTime,
+    Env, InputEvent, LayoutPoint, LoweringContext, Runtime, ScrollStateMap, View, Widget,
 };
 use fission_ir::{CoreIR, NodeId};
 use fission_layout::{LayoutEngine, LayoutSize, LayoutSnapshot, TextMeasurer};
@@ -147,7 +147,7 @@ pub struct TestHarness<S: AppState> {
     pub layout_engine: LayoutEngine,
     pub last_snapshot: Option<LayoutSnapshot>,
     pub last_ir: Option<CoreIR>,
-    pub root_widget: Option<Box<dyn Widget<S>>>,
+    pub root_widget: Option<AnyWidget<S>>,
     pub env: Env,
     pub measurer: Arc<dyn TextMeasurer>,
     _phantom: std::marker::PhantomData<S>,
@@ -195,8 +195,11 @@ impl<S: AppState> TestHarness<S> {
         }
     }
 
-    pub fn with_root_widget<W: Widget<S> + 'static>(mut self, widget: W) -> Self {
-        self.root_widget = Some(Box::new(widget));
+    pub fn with_root_widget<W>(mut self, widget: W) -> Self
+    where
+        W: Widget<S> + Send + Sync + 'static,
+    {
+        self.root_widget = Some(AnyWidget::new(widget));
         self
     }
 
@@ -272,7 +275,7 @@ impl<S: AppState> TestHarness<S> {
                     self.last_snapshot.as_ref(),
                 );
                 let mut ctx = BuildCtx::new();
-                let tree = root.build(&mut ctx, &view);
+                let tree = root.build_node(&mut ctx, &view);
 
                 self.runtime.clear_reducers();
                 let animation_requests = ctx.take_animation_requests();

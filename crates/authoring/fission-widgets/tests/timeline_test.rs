@@ -29,6 +29,6 @@ fn test_timeline_structure() {
         ],
     };
 
-    let node = timeline.build(&mut ctx, &view);
+    let node = timeline.build_node(&mut ctx, &view);
     assert!(matches!(node, Node::Column(_)));
 }

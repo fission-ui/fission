@@ -20,6 +20,6 @@ fn test_file_upload_structure() {
         on_browse: None,
     };
 
-    let node = upload.build(&mut ctx, &view);
+    let node = upload.build_node(&mut ctx, &view);
     assert!(matches!(node, Node::Row(_)));
 }

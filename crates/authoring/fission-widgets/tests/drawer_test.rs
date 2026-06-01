@@ -25,7 +25,7 @@ fn test_drawer_registers_portal_when_open() {
         width: Some(250.0),
     };
 
-    let _ = drawer.build(&mut ctx, &view);
+    let _ = drawer.build_node(&mut ctx, &view);
 
     let portals_with_ids = ctx.take_portals();
     let portals: Vec<Node> = portals_with_ids

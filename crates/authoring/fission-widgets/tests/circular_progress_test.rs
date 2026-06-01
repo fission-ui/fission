@@ -19,7 +19,7 @@ fn indeterminate_circular_progress_registers_rotation_animation() {
         value: None,
         ..Default::default()
     }
-    .build(&mut ctx, &view);
+    .build_node(&mut ctx, &view);
 
     assert!(matches!(node, Node::Composite(_)));
     assert_eq!(ctx.animation_requests.len(), 1);
@@ -43,7 +43,7 @@ fn determinate_circular_progress_does_not_register_animation() {
         value: Some(0.5),
         ..Default::default()
     }
-    .build(&mut ctx, &view);
+    .build_node(&mut ctx, &view);
 
     assert!(matches!(node, Node::Custom(_)));
     assert!(ctx.animation_requests.is_empty());

@@ -21,6 +21,6 @@ fn test_empty_state_structure() {
         action: None,
     };
 
-    let node = empty.build(&mut ctx, &view);
+    let node = empty.build_node(&mut ctx, &view);
     assert!(matches!(node, Node::Align(_) | Node::Container(_)));
 }

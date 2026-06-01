@@ -734,7 +734,7 @@ fn render_route(
         all_routes: routes,
     };
     let node = append_footer(
-        page.build(&mut build_ctx, &view),
+        page.build_node(&mut build_ctx, &view),
         render_footer_node(options, site, &route.path)?,
     );
     render_node_to_html(

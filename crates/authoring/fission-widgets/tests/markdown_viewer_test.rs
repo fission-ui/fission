@@ -12,7 +12,7 @@ fn build_markdown(markdown: &str) -> Node {
     let view = View::new(&state, &runtime, &env, None);
     let mut ctx = BuildCtx::<State>::new();
 
-    MarkdownViewer::new(markdown).build(&mut ctx, &view)
+    MarkdownViewer::new(markdown).build_node(&mut ctx, &view)
 }
 
 fn scroll_content(node: Node) -> Node {

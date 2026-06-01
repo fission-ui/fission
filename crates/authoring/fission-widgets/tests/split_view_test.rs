@@ -25,7 +25,7 @@ fn test_split_view_layout() {
         on_resize: None,
     };
 
-    let node = split.build(&mut ctx, &view);
+    let node = split.build_node(&mut ctx, &view);
 
     // SplitView lowers to a Row (Horizontal)
     if let Node::Row(row) = node {

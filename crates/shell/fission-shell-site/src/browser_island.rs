@@ -171,7 +171,7 @@ where
         env.theme = self.theme.clone();
         let view = View::new(&self.state, &runtime, &env, None);
         let mut ctx = BuildCtx::<S>::new();
-        let node = self.widget.clone().build(&mut ctx, &view);
+        let node = self.widget.clone().build_node(&mut ctx, &view);
         (node, ctx.registry)
     }
 }
