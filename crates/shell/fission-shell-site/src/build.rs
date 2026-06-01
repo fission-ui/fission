@@ -13,6 +13,7 @@ use crate::site::{
 };
 use anyhow::{bail, Context, Result};
 use fission_core::ui::Column;
+use fission_core::IntoWidget;
 use fission_core::{BuildCtx, Env, LoweringContext, Node, RuntimeState, View, Widget};
 use fission_layout::LayoutSize;
 use fission_theme::DesignMode;
@@ -488,7 +489,7 @@ fn append_footer(node: Node, footer: Option<Node>) -> Node {
     let Some(footer) = footer else {
         return node;
     };
-    Column {
+    Column::<fission_core::ui::Node> {
         children: vec![node, footer],
         ..Default::default()
     }
@@ -725,16 +726,18 @@ fn render_route(
     let view = View::new(&state, &runtime, &env, None);
     let mut build_ctx = BuildCtx::<SitePageState>::new();
     let page = DocumentationPage {
-        site_title: &options.site_title,
-        site_logo: options.site_logo.as_deref(),
-        site_nav: &options.site_nav,
+        site_title: options.site_title.clone(),
+        site_logo: options.site_logo.clone(),
+        site_nav: options.site_nav.clone(),
         theme_switching: site.theme_switching,
         search_enabled: options.search.enabled,
-        route,
-        all_routes: routes,
+        route: route.clone(),
+        all_routes: routes.to_vec(),
     };
     let node = append_footer(
-        page.build_node(&mut build_ctx, &view),
+        page.build(&mut build_ctx, &view)
+            .into_widget()
+            .lower_to_node(&mut build_ctx, &view),
         render_footer_node(options, site, &route.path)?,
     );
     render_node_to_html(

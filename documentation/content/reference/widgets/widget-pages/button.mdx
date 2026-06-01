@@ -63,7 +63,7 @@ fn on_save_draft(
 struct SaveDraftButton;
 
 impl Widget<ComposerState> for SaveDraftButton {
-    fn build(&self, ctx: &mut BuildCtx<ComposerState>, view: &View<ComposerState>) -> Node {
+    fn build(&self, ctx: &mut BuildCtx<ComposerState>, view: &View<ComposerState>) -> impl IntoWidget<ComposerState> {
         let save_draft = with_reducer!(ctx, SaveDraft, on_save_draft);
 
         let can_save = !view.state.is_saving

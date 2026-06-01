@@ -2,6 +2,7 @@ use super::home_widgets::semantic_row;
 use super::state::DocsState;
 use fission::op::{AlignItems, Fill, FlexWrap, JustifyContent, TextAlign};
 use fission::prelude::*;
+use fission::IntoWidget;
 
 #[derive(Clone, Debug)]
 pub(crate) struct DocsFooter;
@@ -12,13 +13,14 @@ impl Widget<DocsState> for DocsFooter {
         ctx: &mut BuildCtx<DocsState>,
         view: &View<DocsState>,
     ) -> impl fission::IntoWidget<DocsState> {
-        fission::AnyWidget::from_node({
-            let tokens = &view.env.theme.tokens;
-            Container::new(
-                Column {
-                    children: vec![
-                        Row {
-                            children: vec![
+        fission::core::view::internal_node_widget({
+            {
+                let tokens = &view.env.theme.tokens;
+                Container::<fission::Node>::lowered(
+                    Column {
+                        children: vec![
+                            Row {
+                                children: vec![
                                 FooterColumn::new(
                                     "Setup",
                                     &[
@@ -27,7 +29,7 @@ impl Widget<DocsState> for DocsFooter {
                                         ("Project structure", "/docs/guides/app-structure/"),
                                     ],
                                 )
-                                .build_node(ctx, view),
+                                .build(ctx, view).into_widget().lower_to_node(ctx, view),
                                 FooterColumn::new(
                                     "Learn",
                                     &[
@@ -38,7 +40,7 @@ impl Widget<DocsState> for DocsFooter {
                                         ("Charts", "/docs/charts/overview/"),
                                     ],
                                 )
-                                .build_node(ctx, view),
+                                .build(ctx, view).into_widget().lower_to_node(ctx, view),
                                 FooterColumn::new(
                                     "Build",
                                     &[
@@ -51,7 +53,7 @@ impl Widget<DocsState> for DocsFooter {
                                         ("Packaging", "/docs/build-and-package/overview/"),
                                     ],
                                 )
-                                .build_node(ctx, view),
+                                .build(ctx, view).into_widget().lower_to_node(ctx, view),
                                 FooterColumn::new(
                                     "Test",
                                     &[
@@ -60,7 +62,7 @@ impl Widget<DocsState> for DocsFooter {
                                         ("Live UI test", "/docs/cookbook/write-a-live-ui-test/"),
                                     ],
                                 )
-                                .build_node(ctx, view),
+                                .build(ctx, view).into_widget().lower_to_node(ctx, view),
                                 FooterColumn::new(
                                     "Publish",
                                     &[
@@ -76,34 +78,35 @@ impl Widget<DocsState> for DocsFooter {
                                         ("Examples", "/docs/learn/examples-and-targets/"),
                                     ],
                                 )
-                                .build_node(ctx, view),
+                                .build(ctx, view).into_widget().lower_to_node(ctx, view),
                             ],
-                            gap: Some(tokens.spacing.xxl),
-                            wrap: FlexWrap::Wrap,
-                            align_items: AlignItems::Start,
-                            justify_content: JustifyContent::Center,
-                            ..Default::default()
-                        }
-                        .into_node(),
-                        footer_identity(ctx, view),
-                    ],
-                    gap: Some(tokens.spacing.xxl),
-                    align_items: AlignItems::Center,
-                    ..Default::default()
-                }
-                .into_node(),
-            )
-            .padding_all(tokens.spacing.xxxxl)
-            .bg_fill(Fill::Solid(tokens.colors.background))
-            .border(tokens.colors.border, 1.0)
-            .into_node()
+                                gap: Some(tokens.spacing.xxl),
+                                wrap: FlexWrap::Wrap,
+                                align_items: AlignItems::Start,
+                                justify_content: JustifyContent::Center,
+                                ..Default::default()
+                            }
+                            .into_node(),
+                            footer_identity(ctx, view),
+                        ],
+                        gap: Some(tokens.spacing.xxl),
+                        align_items: AlignItems::Center,
+                        ..Default::default()
+                    }
+                    .into_node(),
+                )
+                .padding_all(tokens.spacing.xxxxl)
+                .bg_fill(Fill::Solid(tokens.colors.background))
+                .border(tokens.colors.border, 1.0)
+                .into_node()
+            }
         })
     }
 }
 
 fn footer_identity(ctx: &mut BuildCtx<DocsState>, view: &View<DocsState>) -> Node {
     let tokens = &view.env.theme.tokens;
-    Container::new(
+    Container::<fission::Node>::lowered(
         Column {
             children: vec![
                 semantic_row(
@@ -147,10 +150,10 @@ fn footer_identity(ctx: &mut BuildCtx<DocsState>, view: &View<DocsState>) -> Nod
                 Row {
                     children: vec![
                         FooterLink::new("GitHub", "https://github.com/worka-ai/fission")
-                            .build_node(ctx, view),
-                        FooterLink::new("Quickstart", "/docs/learn/quickstart/").build_node(ctx, view),
+                            .build(ctx, view).into_widget().lower_to_node(ctx, view),
+                        FooterLink::new("Quickstart", "/docs/learn/quickstart/").build(ctx, view).into_widget().lower_to_node(ctx, view),
                         FooterLink::new("Reference", "/reference/overview/overview/")
-                            .build_node(ctx, view),
+                            .build(ctx, view).into_widget().lower_to_node(ctx, view),
                     ],
                     gap: Some(tokens.spacing.m),
                     wrap: FlexWrap::Wrap,
@@ -193,31 +196,34 @@ impl Widget<DocsState> for FooterColumn {
         ctx: &mut BuildCtx<DocsState>,
         view: &View<DocsState>,
     ) -> impl fission::IntoWidget<DocsState> {
-        fission::AnyWidget::from_node({
-            let tokens = &view.env.theme.tokens;
-            Container::new(
-                Column {
-                    children: std::iter::once(
-                        Text::new(self.title)
-                            .size(tokens.typography.font_size_sm)
-                            .weight(tokens.typography.font_weight_bold)
-                            .color(tokens.colors.heading)
-                            .into_node(),
-                    )
-                    .chain(
-                        self.links.iter().map(|(label, href)| {
-                            FooterLink::new(label, href).build_node(ctx, view)
-                        }),
-                    )
-                    .collect(),
-                    gap: Some(tokens.spacing.s),
-                    ..Default::default()
-                }
-                .into_node(),
-            )
-            .width(tokens.spacing.xxxxl * 1.75)
-            .flex_shrink(1.0)
-            .into_node()
+        fission::core::view::internal_node_widget({
+            {
+                let tokens = &view.env.theme.tokens;
+                Container::<fission::Node>::lowered(
+                    Column {
+                        children: std::iter::once(
+                            Text::new(self.title)
+                                .size(tokens.typography.font_size_sm)
+                                .weight(tokens.typography.font_weight_bold)
+                                .color(tokens.colors.heading)
+                                .into_node(),
+                        )
+                        .chain(self.links.iter().map(|(label, href)| {
+                            FooterLink::new(label, href)
+                                .build(ctx, view)
+                                .into_widget()
+                                .lower_to_node(ctx, view)
+                        }))
+                        .collect(),
+                        gap: Some(tokens.spacing.s),
+                        ..Default::default()
+                    }
+                    .into_node(),
+                )
+                .width(tokens.spacing.xxxxl * 1.75)
+                .flex_shrink(1.0)
+                .into_node()
+            }
         })
     }
 }
@@ -240,7 +246,7 @@ impl Widget<DocsState> for FooterLink {
         _ctx: &mut BuildCtx<DocsState>,
         view: &View<DocsState>,
     ) -> impl fission::IntoWidget<DocsState> {
-        fission::AnyWidget::from_node({
+        {
             let tokens = &view.env.theme.tokens;
             let identifier =
                 if self.href.starts_with("http://") || self.href.starts_with("https://") {
@@ -253,7 +259,6 @@ impl Widget<DocsState> for FooterLink {
                 .weight(tokens.typography.font_weight_medium)
                 .color(tokens.colors.text_secondary)
                 .semantics_identifier(identifier)
-                .into_node()
-        })
+        }
     }
 }

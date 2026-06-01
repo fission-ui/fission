@@ -29,33 +29,22 @@ impl Widget<CounterState> for CounterRoot {
         let increment = fission_core::with_reducer!(ctx, Increment, increment);
 
         Container::new(
-            Column {
-                gap: Some(12.0),
-                children: vec![
-                    Text::new("Counter").size(24.0).into_node(),
-                    Text::new(format!("Count: {}", view.state.count))
-                        .color(Color {
-                            r: 20,
-                            g: 40,
-                            b: 60,
-                            a: 255,
-                        })
-                        .into_node(),
-                    Row {
-                        gap: Some(8.0),
-                        children: vec![Button {
-                            on_press: Some(increment),
-                            child: Some(Box::new(Text::new("Increment").into_node())),
-                            ..Default::default()
-                        }
-                        .into_node()],
-                        ..Default::default()
-                    }
-                    .into_node(),
-                ],
-                ..Default::default()
-            }
-            .into_node(),
+            Column::new()
+                .gap(Some(12.0))
+                .child(Text::new("Counter").size(24.0))
+                .child(
+                    Text::new(format!("Count: {}", view.state.count)).color(Color {
+                        r: 20,
+                        g: 40,
+                        b: 60,
+                        a: 255,
+                    }),
+                )
+                .child(
+                    Row::new()
+                        .gap(8.0)
+                        .child(Button::new(Text::new("Increment")).on_press(increment)),
+                ),
         )
         .padding_all(16.0)
     }

@@ -1,5 +1,5 @@
 use anyhow::Result;
-use fission_core::ui::{Node, Row, Text, TextContent};
+use fission_core::ui::{Row, Text, TextContent};
 use fission_core::{BuildCtx, View, Widget};
 use fission_render::DisplayOp;
 use fission_test::TestHarness;
@@ -15,28 +15,19 @@ impl Widget<AppState> for OrderRow {
         _ctx: &mut BuildCtx<AppState>,
         _view: &View<AppState>,
     ) -> impl fission_core::IntoWidget<AppState> {
-        fission_core::AnyWidget::from_node({
-            Node::Row(Row {
-                children: vec![
-                    Text {
-                        content: TextContent::Literal("A".into()),
-                        ..Default::default()
-                    }
-                    .into(),
-                    Text {
-                        content: TextContent::Literal("B".into()),
-                        ..Default::default()
-                    }
-                    .into(),
-                    Text {
-                        content: TextContent::Literal("C".into()),
-                        ..Default::default()
-                    }
-                    .into(),
-                ],
+        Row::new()
+            .child(Text {
+                content: TextContent::Literal("A".into()),
                 ..Default::default()
             })
-        })
+            .child(Text {
+                content: TextContent::Literal("B".into()),
+                ..Default::default()
+            })
+            .child(Text {
+                content: TextContent::Literal("C".into()),
+                ..Default::default()
+            })
     }
 }
 

@@ -2,6 +2,7 @@ use fission::core::EasingFunction;
 use fission::prelude::DesktopApp;
 use fission::prelude::*;
 use fission::widgets::{Transition, Wrap};
+use fission::IntoWidget;
 use fission::{
     op::Color as IrColor, with_reducer, AnimationPropertyId, AnimationRequest, AnimationStartValue,
     AppState, BuildCtx, Button, ButtonVariant, Column, Composite, Container, FlexDirection, Node,
@@ -46,6 +47,8 @@ fn toggle_custom(state: &mut AnimationGalleryState) {
     state.custom_active = !state.custom_active;
 }
 
+#[derive(Clone)]
+
 struct AnimationGalleryApp;
 
 impl Widget<AnimationGalleryState> for AnimationGalleryApp {
@@ -54,47 +57,48 @@ impl Widget<AnimationGalleryState> for AnimationGalleryApp {
         ctx: &mut BuildCtx<AnimationGalleryState>,
         view: &View<AnimationGalleryState>,
     ) -> impl fission::IntoWidget<AnimationGalleryState> {
-        fission::AnyWidget::from_node({
-            let tokens = &view.env.theme.tokens.colors;
-            let scene_active = view.state.scene_active;
-            let custom_active = view.state.custom_active;
-            let viewport_width = view.viewport_size().width.max(0.0);
-            let content_width = (viewport_width - 48.0).max(260.0);
-            let columns = if content_width >= 1120.0 {
-                3.0
-            } else if content_width >= 760.0 {
-                2.0
-            } else {
-                1.0
-            };
-            let card_width =
-                ((content_width - (columns - 1.0) * 18.0) / columns).clamp(220.0, 360.0);
-            let wide_card_width = content_width.clamp(card_width, 980.0);
+        fission::core::view::internal_node_widget({
+            {
+                let tokens = &view.env.theme.tokens.colors;
+                let scene_active = view.state.scene_active;
+                let custom_active = view.state.custom_active;
+                let viewport_width = view.viewport_size().width.max(0.0);
+                let content_width = (viewport_width - 48.0).max(260.0);
+                let columns = if content_width >= 1120.0 {
+                    3.0
+                } else if content_width >= 760.0 {
+                    2.0
+                } else {
+                    1.0
+                };
+                let card_width =
+                    ((content_width - (columns - 1.0) * 18.0) / columns).clamp(220.0, 360.0);
+                let wide_card_width = content_width.clamp(card_width, 980.0);
 
-            if custom_active {
-                ctx.anim_for(*CUSTOM_ID).request(AnimationRequest {
-                    property: AnimationPropertyId::Scale,
-                    from: AnimationStartValue::Explicit(0.92),
-                    to: 1.08,
-                    duration_ms: 1400,
-                    delay_ms: 0,
-                    repeat: true,
-                    frame_interval_ms: None,
-                    easing: EasingFunction::EaseInOut,
-                });
-                ctx.anim_for(*CUSTOM_ID).request(AnimationRequest {
-                    property: AnimationPropertyId::Opacity,
-                    from: AnimationStartValue::Explicit(0.72),
-                    to: 1.0,
-                    duration_ms: 1400,
-                    delay_ms: 0,
-                    repeat: true,
-                    frame_interval_ms: None,
-                    easing: EasingFunction::EaseInOut,
-                });
-            }
+                if custom_active {
+                    ctx.anim_for(*CUSTOM_ID).request(AnimationRequest {
+                        property: AnimationPropertyId::Scale,
+                        from: AnimationStartValue::Explicit(0.92),
+                        to: 1.08,
+                        duration_ms: 1400,
+                        delay_ms: 0,
+                        repeat: true,
+                        frame_interval_ms: None,
+                        easing: EasingFunction::EaseInOut,
+                    });
+                    ctx.anim_for(*CUSTOM_ID).request(AnimationRequest {
+                        property: AnimationPropertyId::Opacity,
+                        from: AnimationStartValue::Explicit(0.72),
+                        to: 1.0,
+                        duration_ms: 1400,
+                        delay_ms: 0,
+                        repeat: true,
+                        frame_interval_ms: None,
+                        easing: EasingFunction::EaseInOut,
+                    });
+                }
 
-            let title = Column {
+                let title = Column {
             gap: Some(8.0),
             children: vec![
                 Text::new("Animation Gallery").size(28.0).into_node(),
@@ -109,165 +113,189 @@ impl Widget<AnimationGalleryState> for AnimationGalleryApp {
         }
         .into_node();
 
-            let controls = Wrap {
-                direction: FlexDirection::Row,
-                spacing: Some(12.0),
-                children: vec![
-                    Button {
-                        child: Some(Box::new(Text::new("Toggle scene").into_node())),
-                        on_press: Some(with_reducer!(ctx, ToggleScene, toggle_scene)),
-                        ..Default::default()
-                    }
-                    .into_node(),
-                    Button {
-                        child: Some(Box::new(Text::new("Toggle custom pulse").into_node())),
-                        on_press: Some(with_reducer!(ctx, ToggleCustom, toggle_custom)),
-                        variant: ButtonVariant::Outline,
-                        ..Default::default()
-                    }
-                    .into_node(),
-                ],
-            }
-            .build_node(ctx, view);
-
-            let demos = Column {
-                gap: Some(18.0),
-                children: vec![
-                    Wrap {
-                        direction: FlexDirection::Row,
-                        spacing: Some(18.0),
-                        children: vec![
-                            demo_card(
-                                "Opacity",
-                                card_width,
-                                Transition {
-                                    id: *OPACITY_ID,
-                                    property: AnimationPropertyId::Opacity,
-                                    value: if scene_active { 0.92 } else { 0.28 },
-                                    duration: 550,
-                                    child: Box::new(sample_block("Fade", tokens.primary)),
-                                    ..Default::default()
-                                }
-                                .build_node(ctx, view),
-                            ),
-                            demo_card(
-                                "Translate X",
-                                card_width,
-                                Transition {
-                                    id: *TRANSLATE_ID,
-                                    property: AnimationPropertyId::TranslateX,
-                                    value: if scene_active { 14.0 } else { -28.0 },
-                                    duration: 550,
-                                    child: Box::new(sample_block("Slide", color(30, 136, 93, 255))),
-                                    ..Default::default()
-                                }
-                                .build_node(ctx, view),
-                            ),
-                            demo_card(
-                                "Scale",
-                                card_width,
-                                Transition {
-                                    id: *SCALE_ID,
-                                    property: AnimationPropertyId::Scale,
-                                    value: if scene_active { 0.94 } else { 0.68 },
-                                    duration: 550,
-                                    child: Box::new(sample_block("Zoom", color(222, 144, 35, 255))),
-                                    ..Default::default()
-                                }
-                                .build_node(ctx, view),
-                            ),
-                            demo_card(
-                                "Rotation",
-                                card_width,
-                                Transition {
-                                    id: *ROTATION_ID,
-                                    property: AnimationPropertyId::Rotation,
-                                    value: if scene_active { -0.14 } else { 0.24 },
-                                    duration: 650,
-                                    child: Box::new(sample_block(
-                                        "Rotate",
-                                        color(54, 96, 168, 255),
-                                    )),
-                                    ..Default::default()
-                                }
-                                .build_node(ctx, view),
-                            ),
-                            demo_card(
-                                "Clip + translate",
-                                card_width,
-                                Composite::new(
-                                    Transition {
-                                        id: *CLIP_ID,
-                                        property: AnimationPropertyId::TranslateX,
-                                        value: if scene_active { 16.0 } else { -28.0 },
-                                        duration: 700,
-                                        child: Box::new(
-                                            Container::new(sample_block("Clipped", tokens.primary))
-                                                .width(116.0)
-                                                .height(64.0)
-                                                .into_node(),
-                                        ),
-                                        ..Default::default()
-                                    }
-                                    .build_node(ctx, view),
-                                )
-                                .clip_to_bounds(true)
-                                .repaint_boundary(true)
-                                .into_node(),
-                            ),
-                            demo_card(
-                                "Custom pulse",
-                                card_width,
-                                custom_pulse_card(custom_active, tokens.primary),
-                            ),
-                        ],
-                    }
-                    .build_node(ctx, view),
-                    wide_demo_card(
-                        "Scroll translation",
-                        Scroll {
-                            direction: FlexDirection::Row,
-                            width: Some((wide_card_width - 42.0).max(240.0)),
-                            height: Some(88.0),
-                            show_scrollbar: true,
-                            child: Some(Box::new(scroll_strip(
-                                tokens.primary,
-                                color(84, 110, 122, 255),
-                            ))),
+                let controls = Wrap {
+                    direction: FlexDirection::Row,
+                    spacing: Some(12.0),
+                    children: vec![
+                        Button {
+                            child: Some(Box::new(Text::new("Toggle scene").into_node())),
+                            on_press: Some(with_reducer!(ctx, ToggleScene, toggle_scene)),
                             ..Default::default()
                         }
                         .into_node(),
-                        wide_card_width,
-                    ),
-                ],
-                ..Default::default()
-            }
-            .into_node();
+                        Button {
+                            child: Some(Box::new(Text::new("Toggle custom pulse").into_node())),
+                            on_press: Some(with_reducer!(ctx, ToggleCustom, toggle_custom)),
+                            variant: ButtonVariant::Outline,
+                            ..Default::default()
+                        }
+                        .into_node(),
+                    ],
+                }
+                .build(ctx, view)
+                .into_widget()
+                .lower_to_node(ctx, view);
 
-            Container::new(
-                Scroll {
-                    direction: FlexDirection::Column,
-                    show_scrollbar: true,
-                    flex_grow: 1.0,
-                    flex_shrink: 1.0,
-                    child: Some(Box::new(
-                        Container::new(
-                            Column {
-                                gap: Some(20.0),
-                                children: vec![title, controls, demos],
+                let demos = Column {
+                    gap: Some(18.0),
+                    children: vec![
+                        Wrap {
+                            direction: FlexDirection::Row,
+                            spacing: Some(18.0),
+                            children: vec![
+                                demo_card(
+                                    "Opacity",
+                                    card_width,
+                                    Transition {
+                                        id: *OPACITY_ID,
+                                        property: AnimationPropertyId::Opacity,
+                                        value: if scene_active { 0.92 } else { 0.28 },
+                                        duration: 550,
+                                        child: Box::new(sample_block("Fade", tokens.primary)),
+                                        ..Default::default()
+                                    }
+                                    .build(ctx, view)
+                                    .into_widget()
+                                    .lower_to_node(ctx, view),
+                                ),
+                                demo_card(
+                                    "Translate X",
+                                    card_width,
+                                    Transition {
+                                        id: *TRANSLATE_ID,
+                                        property: AnimationPropertyId::TranslateX,
+                                        value: if scene_active { 14.0 } else { -28.0 },
+                                        duration: 550,
+                                        child: Box::new(sample_block(
+                                            "Slide",
+                                            color(30, 136, 93, 255),
+                                        )),
+                                        ..Default::default()
+                                    }
+                                    .build(ctx, view)
+                                    .into_widget()
+                                    .lower_to_node(ctx, view),
+                                ),
+                                demo_card(
+                                    "Scale",
+                                    card_width,
+                                    Transition {
+                                        id: *SCALE_ID,
+                                        property: AnimationPropertyId::Scale,
+                                        value: if scene_active { 0.94 } else { 0.68 },
+                                        duration: 550,
+                                        child: Box::new(sample_block(
+                                            "Zoom",
+                                            color(222, 144, 35, 255),
+                                        )),
+                                        ..Default::default()
+                                    }
+                                    .build(ctx, view)
+                                    .into_widget()
+                                    .lower_to_node(ctx, view),
+                                ),
+                                demo_card(
+                                    "Rotation",
+                                    card_width,
+                                    Transition {
+                                        id: *ROTATION_ID,
+                                        property: AnimationPropertyId::Rotation,
+                                        value: if scene_active { -0.14 } else { 0.24 },
+                                        duration: 650,
+                                        child: Box::new(sample_block(
+                                            "Rotate",
+                                            color(54, 96, 168, 255),
+                                        )),
+                                        ..Default::default()
+                                    }
+                                    .build(ctx, view)
+                                    .into_widget()
+                                    .lower_to_node(ctx, view),
+                                ),
+                                demo_card(
+                                    "Clip + translate",
+                                    card_width,
+                                    Composite::new(
+                                        Transition {
+                                            id: *CLIP_ID,
+                                            property: AnimationPropertyId::TranslateX,
+                                            value: if scene_active { 16.0 } else { -28.0 },
+                                            duration: 700,
+                                            child: Box::new(
+                                                Container::<fission::Node>::lowered(sample_block(
+                                                    "Clipped",
+                                                    tokens.primary,
+                                                ))
+                                                .width(116.0)
+                                                .height(64.0)
+                                                .into_node(),
+                                            ),
+                                            ..Default::default()
+                                        }
+                                        .build(ctx, view)
+                                        .into_widget()
+                                        .lower_to_node(ctx, view),
+                                    )
+                                    .clip_to_bounds(true)
+                                    .repaint_boundary(true)
+                                    .into_node(),
+                                ),
+                                demo_card(
+                                    "Custom pulse",
+                                    card_width,
+                                    custom_pulse_card(custom_active, tokens.primary),
+                                ),
+                            ],
+                        }
+                        .build(ctx, view)
+                        .into_widget()
+                        .lower_to_node(ctx, view),
+                        wide_demo_card(
+                            "Scroll translation",
+                            Scroll {
+                                direction: FlexDirection::Row,
+                                width: Some((wide_card_width - 42.0).max(240.0)),
+                                height: Some(88.0),
+                                show_scrollbar: true,
+                                child: Some(Box::new(scroll_strip(
+                                    tokens.primary,
+                                    color(84, 110, 122, 255),
+                                ))),
                                 ..Default::default()
                             }
                             .into_node(),
-                        )
-                        .padding_all(24.0)
-                        .into_node(),
-                    )),
+                            wide_card_width,
+                        ),
+                    ],
                     ..Default::default()
                 }
-                .into_node(),
-            )
-            .bg(tokens.background)
-            .into_node()
+                .into_node();
+
+                Container::<fission::Node>::lowered(
+                    Scroll {
+                        direction: FlexDirection::Column,
+                        show_scrollbar: true,
+                        flex_grow: 1.0,
+                        flex_shrink: 1.0,
+                        child: Some(Box::new(
+                            Container::<fission::Node>::lowered(
+                                Column {
+                                    gap: Some(20.0),
+                                    children: vec![title, controls, demos],
+                                    ..Default::default()
+                                }
+                                .into_node(),
+                            )
+                            .padding_all(24.0)
+                            .into_node(),
+                        )),
+                        ..Default::default()
+                    }
+                    .into_node(),
+                )
+                .bg(tokens.background)
+                .into_node()
+            }
         })
     }
 }
@@ -283,7 +311,7 @@ fn wide_demo_card(title: &str, body: Node, width: f32) -> Node {
 fn sized_demo_card(title: &str, body: Node, width: f32) -> Node {
     let header = Text::new(title).size(14.0).into_node();
     let frame = Composite::new(
-        Container::new(body)
+        Container::<Node>::lowered(body)
             .height(112.0)
             .padding_all(14.0)
             .border(color(120, 120, 140, 70), 1.0)
@@ -294,7 +322,7 @@ fn sized_demo_card(title: &str, body: Node, width: f32) -> Node {
     .repaint_boundary(true)
     .into_node();
 
-    Container::new(
+    Container::<Node>::lowered(
         Column {
             gap: Some(10.0),
             children: vec![header, frame],
@@ -311,7 +339,7 @@ fn sized_demo_card(title: &str, body: Node, width: f32) -> Node {
 }
 
 fn sample_block(label: &str, color: IrColor) -> Node {
-    Container::new(
+    Container::<Node>::lowered(
         Text::new(label)
             .size(18.0)
             .color(IrColor::WHITE)
@@ -331,7 +359,7 @@ fn custom_pulse_card(active: bool, base: IrColor) -> Node {
     } else {
         "Pulse paused"
     };
-    let block = Container::new(
+    let block = Container::<Node>::lowered(
         Text::new(label)
             .size(16.0)
             .color(IrColor::WHITE)
@@ -350,7 +378,7 @@ fn custom_pulse_card(active: bool, base: IrColor) -> Node {
             .animated_opacity(*CUSTOM_ID, 1.0)
             .into_node()
     } else {
-        Container::new(block)
+        Container::<Node>::lowered(block)
             .width(112.0)
             .height(72.0)
             .border_radius(16.0)
@@ -364,7 +392,7 @@ fn scroll_strip(primary: IrColor, alt: IrColor) -> Node {
     for i in 0..14 {
         let bg = if i % 2 == 0 { primary } else { alt };
         items.push(
-            Container::new(
+            Container::<Node>::lowered(
                 Text::new(format!("Lane {}", i + 1))
                     .size(14.0)
                     .color(IrColor::WHITE)

@@ -2,7 +2,8 @@ use anyhow::Result;
 use fission_core::action::AppState as CoreAppState;
 use fission_core::env::Env;
 use fission_core::lowering::LoweringContext;
-use fission_core::ui::{Node, TextInput};
+use fission_core::ui::{Column, Container, Node, Row, TextInput};
+use fission_core::IntoWidget;
 use fission_core::{reduce_with, BuildCtx, InputEvent, LayoutPoint, ReducerContext, Runtime, View};
 use fission_ir::Role;
 use fission_layout::{LayoutEngine, LayoutSize, LineMetric, TextMeasurer};
@@ -66,6 +67,7 @@ impl TextMeasurer for MockMeasurer {
     }
 }
 
+#[derive(Clone)]
 struct Root;
 impl fission_core::view::Widget<AppState> for Root {
     fn build(
@@ -73,8 +75,7 @@ impl fission_core::view::Widget<AppState> for Root {
         ctx: &mut BuildCtx<AppState>,
         view: &View<AppState>,
     ) -> impl fission_core::IntoWidget<AppState> {
-        fission_core::AnyWidget::from_node({
-            use fission_core::ui::Column;
+        fission_core::view::internal_node_widget({
             let mut children: Vec<Node> = vec![
                 Checkbox {
                     checked: view.state.checked,
@@ -94,20 +95,22 @@ impl fission_core::view::Widget<AppState> for Root {
                 .into(),
             ];
             if view.state.show_portal {
-                use fission_core::ui::{Overlay, Row as UIRow, ZStack};
+                use fission_core::ui::{Overlay, ZStack};
                 let overlay = Overlay {
                     id: None,
-                    content: Box::new(Node::Row(UIRow::default())),
-                    overlay: Box::new(Node::ZStack(ZStack::default())),
+                    content: Box::new(Node::Row(Row::<fission_core::ui::Node>::default())),
+                    overlay: Box::new(Node::ZStack(ZStack::<fission_core::ui::Node>::default())),
                 };
                 children.push(
                     Portal {
                         child: Node::Overlay(overlay),
                     }
-                    .build_node(ctx, view),
+                    .build(ctx, view)
+                    .into_widget()
+                    .lower_to_node(ctx, view),
                 );
             }
-            Node::Column(Column {
+            Node::Column(Column::<fission_core::ui::Node> {
                 children,
                 ..Default::default()
             })
@@ -132,7 +135,10 @@ fn pump(
             pipe.last_snapshot.as_ref(),
         );
         let mut ctx = BuildCtx::new();
-        let mut tree = root.build_node(&mut ctx, &view);
+        let mut tree = root
+            .build(&mut ctx, &view)
+            .into_widget()
+            .lower_to_node(&mut ctx, &view);
         runtime.clear_reducers();
         let anim = ctx.take_animation_requests();
         for (t, r) in anim {
@@ -145,7 +151,7 @@ fn pump(
             .into_iter()
             .map(|(id, node)| {
                 if let Some(id) = id {
-                    fission_core::ui::Container::new(node)
+                    Container::<fission_core::ui::Node>::lowered(node)
                         .id(id.into())
                         .into_node()
                 } else {
@@ -154,17 +160,17 @@ fn pump(
             })
             .collect::<Vec<_>>();
         if !portals.is_empty() {
-            use fission_core::ui::{Overlay, Row, ZStack};
+            use fission_core::ui::{Overlay, ZStack};
             let mut children = Vec::with_capacity(1 + portals.len());
             children.push(tree);
             for p in portals {
                 children.push(Node::Overlay(Overlay {
                     id: None,
-                    content: Box::new(Node::Row(Row::default())),
+                    content: Box::new(Node::Row(Row::<fission_core::ui::Node>::default())),
                     overlay: Box::new(p),
                 }));
             }
-            tree = Node::ZStack(ZStack { id: None, children });
+            tree = Node::ZStack(ZStack::<fission_core::ui::Node> { id: None, children });
         }
         tree
     };

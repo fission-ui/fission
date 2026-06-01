@@ -22,38 +22,26 @@ fn test_email_list_row_layout() {
             _ctx: &mut BuildCtx<State>,
             _view: &View<State>,
         ) -> impl fission_core::IntoWidget<State> {
-            fission_core::AnyWidget::from_node({
-                Container::new(
-                    Row::default()
-                        .flex_grow(0.0) // Row itself
-                        .children(vec![
-                            // Avatar
-                            Container::new(
-                                fission_core::ui::widgets::spacer::Spacer::default().into_node(),
-                            )
+            Container::new(
+                Row::new()
+                    .flex_grow(0.0)
+                    .child(
+                        Container::new(fission_core::ui::widgets::spacer::Spacer::default())
                             .width(40.0)
                             .height(40.0)
-                            .bg(Color::BLUE)
-                            .into_node(),
-                            // Text Column
-                            Container::new(
-                                Column::default()
-                                    .children(vec![
-                                        Text::new("Subject Line").into_node(),
-                                        Text::new("Preview Text").into_node(),
-                                    ])
-                                    .into_node(),
-                            )
-                            .flex_grow(1.0) // Grow to fill space
-                            .into_node(),
-                            // Date
-                            Text::new("10:00 AM").into_node(),
-                        ])
-                        .into_node(),
-                )
-                .width(300.0)
-                .into_node()
-            })
+                            .bg(Color::BLUE),
+                    )
+                    .child(
+                        Container::new(
+                            Column::new()
+                                .child(Text::new("Subject Line"))
+                                .child(Text::new("Preview Text")),
+                        )
+                        .flex_grow(1.0),
+                    )
+                    .child(Text::new("10:00 AM")),
+            )
+            .width(300.0)
         }
     }
 

@@ -1,6 +1,7 @@
 use fission::core::{AppState, BuildCtx, View, Widget, WidgetNodeId};
 use fission::layout::LayoutSize;
 use fission::render::DisplayOp;
+use fission::IntoWidget;
 use fission_test::prelude::*;
 use fission_test::TestHarness;
 use std::collections::HashSet;
@@ -47,32 +48,44 @@ fn build_all_widgets(ctx: &mut BuildCtx<GS>, view: &View<GS>) -> Node {
                 text: "New".into(),
                 ..Default::default()
             }
-            .build_node(ctx, view),
+            .build(ctx, view)
+            .into_widget()
+            .lower_to_node(ctx, view),
             Tag {
                 label: "Rust".into(),
                 on_close: None,
             }
-            .build_node(ctx, view),
+            .build(ctx, view)
+            .into_widget()
+            .lower_to_node(ctx, view),
             Avatar {
                 name: Some("John Doe".into()),
                 src: None,
                 size: Some(40.0),
             }
-            .build_node(ctx, view),
+            .build(ctx, view)
+            .into_widget()
+            .lower_to_node(ctx, view),
             Code {
                 text: "let x = 42;".into(),
             }
-            .build_node(ctx, view),
+            .build(ctx, view)
+            .into_widget()
+            .lower_to_node(ctx, view),
             Kbd {
                 text: "Ctrl+C".into(),
             }
-            .build_node(ctx, view),
+            .build(ctx, view)
+            .into_widget()
+            .lower_to_node(ctx, view),
             Stat {
                 label: "Users".into(),
                 value: "1234".into(),
                 help_text: Some("up".into()),
             }
-            .build_node(ctx, view),
+            .build(ctx, view)
+            .into_widget()
+            .lower_to_node(ctx, view),
         ],
     );
 
@@ -122,7 +135,7 @@ fn build_all_widgets(ctx: &mut BuildCtx<GS>, view: &View<GS>) -> Node {
                 ..Default::default()
             }
             .into_node(),
-            Container::new(
+            Container::<Node>::lowered(
                 Slider {
                     value: 0.5,
                     min: 0.0,
@@ -138,7 +151,9 @@ fn build_all_widgets(ctx: &mut BuildCtx<GS>, view: &View<GS>) -> Node {
                 step: 1.0,
                 ..Default::default()
             }
-            .build_node(ctx, view),
+            .build(ctx, view)
+            .into_widget()
+            .lower_to_node(ctx, view),
         ],
     );
 
@@ -150,38 +165,53 @@ fn build_all_widgets(ctx: &mut BuildCtx<GS>, view: &View<GS>) -> Node {
                 title: "Info".into(),
                 description: Some("Desc".into()),
             }
-            .build_node(ctx, view),
+            .build(ctx, view)
+            .into_widget()
+            .lower_to_node(ctx, view),
             Alert {
                 kind: AlertKind::Success,
                 title: "Success".into(),
                 description: None,
             }
-            .build_node(ctx, view),
+            .build(ctx, view)
+            .into_widget()
+            .lower_to_node(ctx, view),
             Alert {
                 kind: AlertKind::Warning,
                 title: "Warning".into(),
                 description: None,
             }
-            .build_node(ctx, view),
+            .build(ctx, view)
+            .into_widget()
+            .lower_to_node(ctx, view),
             Alert {
                 kind: AlertKind::Error,
                 title: "Error".into(),
                 description: None,
             }
-            .build_node(ctx, view),
-            ProgressBar { value: 0.65 }.build_node(ctx, view),
+            .build(ctx, view)
+            .into_widget()
+            .lower_to_node(ctx, view),
+            ProgressBar { value: 0.65 }
+                .build(ctx, view)
+                .into_widget()
+                .lower_to_node(ctx, view),
             Spinner {
                 id: WidgetNodeId::explicit("sp"),
                 color: None,
                 animated: true,
             }
-            .build_node(ctx, view),
+            .build(ctx, view)
+            .into_widget()
+            .lower_to_node(ctx, view),
             CircularProgress {
                 value: Some(0.7),
                 size: 40.0,
                 ..Default::default()
             }
-            .build_node(ctx, view),
+            .build(ctx, view)
+            .into_widget()
+            .lower_to_node(ctx, view),
             Skeleton {
                 id: WidgetNodeId::explicit("sk"),
                 width: Some(120.0),
@@ -189,14 +219,18 @@ fn build_all_widgets(ctx: &mut BuildCtx<GS>, view: &View<GS>) -> Node {
                 circle: false,
                 animated: true,
             }
-            .build_node(ctx, view),
+            .build(ctx, view)
+            .into_widget()
+            .lower_to_node(ctx, view),
             EmptyState {
                 icon: None,
                 title: "Empty".into(),
                 description: Some("Nothing here".into()),
                 action: None,
             }
-            .build_node(ctx, view),
+            .build(ctx, view)
+            .into_widget()
+            .lower_to_node(ctx, view),
         ],
     );
 
@@ -219,7 +253,9 @@ fn build_all_widgets(ctx: &mut BuildCtx<GS>, view: &View<GS>) -> Node {
                 ],
                 ..Default::default()
             }
-            .build_node(ctx, view),
+            .build(ctx, view)
+            .into_widget()
+            .lower_to_node(ctx, view),
             Breadcrumb {
                 items: vec![
                     BreadcrumbItem {
@@ -232,18 +268,24 @@ fn build_all_widgets(ctx: &mut BuildCtx<GS>, view: &View<GS>) -> Node {
                     },
                 ],
             }
-            .build_node(ctx, view),
+            .build(ctx, view)
+            .into_widget()
+            .lower_to_node(ctx, view),
             Pagination {
                 current_page: 3,
                 total_pages: 10,
                 on_change: None,
             }
-            .build_node(ctx, view),
+            .build(ctx, view)
+            .into_widget()
+            .lower_to_node(ctx, view),
             Link {
                 text: "Click me".into(),
                 on_click: None,
             }
-            .build_node(ctx, view),
+            .build(ctx, view)
+            .into_widget()
+            .lower_to_node(ctx, view),
         ],
     );
 
@@ -254,7 +296,9 @@ fn build_all_widgets(ctx: &mut BuildCtx<GS>, view: &View<GS>) -> Node {
                 child: Box::new(Text::new("Card content").into_node()),
                 ..Default::default()
             }
-            .build_node(ctx, view),
+            .build(ctx, view)
+            .into_widget()
+            .lower_to_node(ctx, view),
             Accordion {
                 items: vec![
                     AccordionItem {
@@ -271,12 +315,16 @@ fn build_all_widgets(ctx: &mut BuildCtx<GS>, view: &View<GS>) -> Node {
                     },
                 ],
             }
-            .build_node(ctx, view),
+            .build(ctx, view)
+            .into_widget()
+            .lower_to_node(ctx, view),
             Stepper {
                 steps: vec!["A".into(), "B".into(), "C".into()],
                 active_index: 1,
             }
-            .build_node(ctx, view),
+            .build(ctx, view)
+            .into_widget()
+            .lower_to_node(ctx, view),
             Timeline {
                 items: vec![
                     TimelineItem {
@@ -291,7 +339,9 @@ fn build_all_widgets(ctx: &mut BuildCtx<GS>, view: &View<GS>) -> Node {
                     },
                 ],
             }
-            .build_node(ctx, view),
+            .build(ctx, view)
+            .into_widget()
+            .lower_to_node(ctx, view),
             TreeView {
                 items: vec![TreeItem {
                     id: "root".into(),
@@ -315,7 +365,9 @@ fn build_all_widgets(ctx: &mut BuildCtx<GS>, view: &View<GS>) -> Node {
                 },
                 selected_id: None,
             }
-            .build_node(ctx, view),
+            .build(ctx, view)
+            .into_widget()
+            .lower_to_node(ctx, view),
         ],
     );
 
@@ -328,7 +380,9 @@ fn build_all_widgets(ctx: &mut BuildCtx<GS>, view: &View<GS>) -> Node {
                 text: "Tip".into(),
                 is_visible: false,
             }
-            .build_node(ctx, view),
+            .build(ctx, view)
+            .into_widget()
+            .lower_to_node(ctx, view),
             Select {
                 id: WidgetNodeId::explicit("sel"),
                 selected_label: Some("Opt A".into()),
@@ -338,7 +392,9 @@ fn build_all_widgets(ctx: &mut BuildCtx<GS>, view: &View<GS>) -> Node {
                 placeholder: "Select".into(),
                 width: Some(200.0),
             }
-            .build_node(ctx, view),
+            .build(ctx, view)
+            .into_widget()
+            .lower_to_node(ctx, view),
             MenuButton {
                 id: WidgetNodeId::explicit("mb"),
                 label: "Menu".into(),
@@ -350,7 +406,9 @@ fn build_all_widgets(ctx: &mut BuildCtx<GS>, view: &View<GS>) -> Node {
                 is_open: false,
                 on_toggle: None,
             }
-            .build_node(ctx, view),
+            .build(ctx, view)
+            .into_widget()
+            .lower_to_node(ctx, view),
         ],
     );
 
@@ -371,7 +429,7 @@ fn build_all_widgets(ctx: &mut BuildCtx<GS>, view: &View<GS>) -> Node {
     Scroll {
         direction: FlexDirection::Column,
         child: Some(Box::new(
-            Container::new(all)
+            Container::<Node>::lowered(all)
                 .padding_all(24.0)
                 .flex_grow(1.0)
                 .into_node(),
@@ -384,10 +442,11 @@ fn build_all_widgets(ctx: &mut BuildCtx<GS>, view: &View<GS>) -> Node {
     .into_node()
 }
 
+#[derive(Clone)]
 struct GalleryWidget;
 impl Widget<GS> for GalleryWidget {
     fn build(&self, ctx: &mut BuildCtx<GS>, view: &View<GS>) -> impl fission::IntoWidget<GS> {
-        fission::AnyWidget::from_node(build_all_widgets(ctx, view))
+        fission::core::view::internal_node_widget(build_all_widgets(ctx, view))
     }
 }
 

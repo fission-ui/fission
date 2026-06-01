@@ -4,13 +4,16 @@ use fission::core::ui::{Button, ButtonVariant, Container, Node, Text, TextInput}
 use fission::core::{BuildCtx, reduce_with, View, Widget};
 use fission::widgets::{HStack, Spacer};
 
+#[derive(Clone)]
 pub struct FindReplaceBar;
 
 impl Widget<EditorState> for FindReplaceBar {
-    fn build(&self, ctx: &mut BuildCtx<EditorState>, view: &View<EditorState>) -> impl fission::IntoWidget<EditorState>  {
-        fission::AnyWidget::from_node({
+    fn build(&self, ctx: &mut BuildCtx<EditorState>, view: &View<EditorState>) -> impl fission::IntoWidget<EditorState> {
+        fission::core::view::internal_node_widget({
+
+        
         if !view.state.show_find_replace {
-            return fission::AnyWidget::from_node(Spacer { height: Some(0.0), ..Default::default() }.into_node());
+            return fission::core::view::internal_node_widget(Spacer { height: Some(0.0), ..Default::default() }.into_node());
         }
 
         let bg = Color { r: 37, g: 37, b: 38, a: 255 };
@@ -87,7 +90,7 @@ impl Widget<EditorState> for FindReplaceBar {
         let find_row = HStack {
             spacing: Some(4.0),
             children: vec![
-                Container::new(
+                Container::<fission::Node>::lowered(
                     TextInput {
                         id: Some(fission::ir::NodeId::explicit("editor_find_query_input")),
                         value: view.state.find_query.clone(),
@@ -113,7 +116,7 @@ impl Widget<EditorState> for FindReplaceBar {
         let replace_row = HStack {
             spacing: Some(4.0),
             children: vec![
-                Container::new(
+                Container::<fission::Node>::lowered(
                     TextInput {
                         id: Some(fission::ir::NodeId::explicit("editor_replace_query_input")),
                         value: view.state.replace_query.clone(),
@@ -134,11 +137,11 @@ impl Widget<EditorState> for FindReplaceBar {
             ],
         }.into_node();
 
-        Container::new(
+        Container::<fission::Node>::lowered(
             HStack {
                 spacing: Some(8.0),
                 children: vec![
-                    Container::new(
+                    Container::<fission::Node>::lowered(
                         fission::widgets::VStack {
                             spacing: Some(4.0),
                             children: vec![find_row, replace_row],
@@ -154,6 +157,8 @@ impl Widget<EditorState> for FindReplaceBar {
         .border(Color { r: 48, g: 48, b: 49, a: 255 }, 1.0)
         .flex_shrink(0.0)
         .into_node()
+    
+        
     
         })
     }

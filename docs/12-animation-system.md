@@ -411,7 +411,7 @@ Use quantized values for hashing to avoid floating noise.
 Example: pulse opacity whenever the counter increments.
 
 ```rust
-fn build(&self, ctx: &mut BuildCtx<AppState>, view: &View<AppState>) -> Node {
+fn build(&self, ctx: &mut BuildCtx<AppState>, view: &View<AppState>) -> impl IntoWidget<AppState> {
     let vm = view.select::<CounterVM>();
 
     // When state changes, build re-runs; request replaces existing animation.

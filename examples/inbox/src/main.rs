@@ -6,6 +6,7 @@ use fission::widgets::{
     Center, Drawer, DrawerSide, Overlay, Route, Router, SafeArea, SplitDirection, SplitView, Toast,
     ToastKind, Transition,
 };
+use fission::IntoWidget;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -20,6 +21,8 @@ use model::*;
 
 // --- APP ---
 
+#[derive(Clone)]
+
 struct InboxApp;
 
 impl Widget<InboxState> for InboxApp {
@@ -28,7 +31,7 @@ impl Widget<InboxState> for InboxApp {
         ctx: &mut BuildCtx<InboxState>,
         view: &View<InboxState>,
     ) -> impl fission::IntoWidget<InboxState> {
-        fission::AnyWidget::from_node({
+        fission::core::view::internal_node_widget({
             let tokens = &view.env.theme.tokens;
             let viewport = view.viewport_size();
             let viewport_width = viewport.width.max(0.0);
@@ -43,19 +46,31 @@ impl Widget<InboxState> for InboxApp {
             let right_sidebar_width = (viewport_width * 0.24).clamp(232.0, 320.0);
             // Register Modals
             if view.state.show_settings {
-                let node = SettingsModal.build_node(ctx, view);
+                let node = SettingsModal
+                    .build(ctx, view)
+                    .into_widget()
+                    .lower_to_node(ctx, view);
                 ctx.register_portal(node);
             }
             if view.state.show_contacts {
-                let node = ContactsModal.build_node(ctx, view);
+                let node = ContactsModal
+                    .build(ctx, view)
+                    .into_widget()
+                    .lower_to_node(ctx, view);
                 ctx.register_portal(node);
             }
             if view.state.show_compose {
-                let node = ComposeModal.build_node(ctx, view);
+                let node = ComposeModal
+                    .build(ctx, view)
+                    .into_widget()
+                    .lower_to_node(ctx, view);
                 ctx.register_portal(node);
             }
             if view.state.show_browser_demo {
-                let node = BrowserModal.build_node(ctx, view);
+                let node = BrowserModal
+                    .build(ctx, view)
+                    .into_widget()
+                    .lower_to_node(ctx, view);
                 ctx.register_portal(node);
             }
 
@@ -72,10 +87,17 @@ impl Widget<InboxState> for InboxApp {
                                 a.0)
                         ),
                     )),
-                    content: Box::new(Sidebar.build_node(ctx, view)),
+                    content: Box::new(
+                        Sidebar
+                            .build(ctx, view)
+                            .into_widget()
+                            .lower_to_node(ctx, view),
+                    ),
                     width: Some(mobile_drawer_width),
                 }
-                .build_node(ctx, view);
+                .build(ctx, view)
+                .into_widget()
+                .lower_to_node(ctx, view);
 
                 ctx.register_portal(drawer_node);
             }
@@ -96,7 +118,9 @@ impl Widget<InboxState> for InboxApp {
                         ),
                     )),
                 }
-                .build_node(ctx, view);
+                .build(ctx, view)
+                .into_widget()
+                .lower_to_node(ctx, view);
 
                 ctx.register_portal(
                     fission::widgets::Positioned {
@@ -119,13 +143,18 @@ impl Widget<InboxState> for InboxApp {
                         direction: SplitDirection::Horizontal,
                         split_ratio,
                         on_resize: None,
-                        first: Box::new(Sidebar.build_node(ctx, view)),
+                        first: Box::new(
+                            Sidebar
+                                .build(ctx, view)
+                                .into_widget()
+                                .lower_to_node(ctx, view),
+                        ),
                         second: Box::new(
                             Row {
                                 gap: None,
                                 align_items: fission::ir::op::AlignItems::Stretch,
                                 children: {
-                                    let mut children = vec![Container::new(
+                                    let mut children = vec![Container::<fission::Node>::lowered(
                                         Router {
                                             current_path: view.state.current_path.clone(),
                                             routes: vec![
@@ -135,7 +164,9 @@ impl Widget<InboxState> for InboxApp {
                                                         EmailList {
                                                             folder: "Inbox".into(),
                                                         }
-                                                        .build_node(c, v)
+                                                        .build(c, v)
+                                                        .into_widget()
+                                                        .lower_to_node(c, v)
                                                     }),
                                                 },
                                                 Route {
@@ -145,7 +176,10 @@ impl Widget<InboxState> for InboxApp {
                                                             .get("folder")
                                                             .unwrap_or(&"Inbox".to_string())
                                                             .clone();
-                                                        EmailList { folder }.build_node(c, v)
+                                                        EmailList { folder }
+                                                            .build(c, v)
+                                                            .into_widget()
+                                                            .lower_to_node(c, v)
                                                     }),
                                                 },
                                                 Route {
@@ -160,7 +194,10 @@ impl Widget<InboxState> for InboxApp {
                                                             .unwrap_or(&"0".to_string())
                                                             .parse()
                                                             .unwrap_or(0);
-                                                        EmailDetail { folder, id }.build_node(c, v)
+                                                        EmailDetail { folder, id }
+                                                            .build(c, v)
+                                                            .into_widget()
+                                                            .lower_to_node(c, v)
                                                     }),
                                                 },
                                             ],
@@ -169,16 +206,23 @@ impl Widget<InboxState> for InboxApp {
                                                     .into_node()
                                             })),
                                         }
-                                        .build_node(ctx, view),
+                                        .build(ctx, view)
+                                        .into_widget()
+                                        .lower_to_node(ctx, view),
                                     )
                                     .flex_grow(1.0)
                                     .into_node()];
                                     if show_right_sidebar {
                                         children.push(
-                                            Container::new(RightSidebar.build_node(ctx, view))
-                                                .width(right_sidebar_width)
-                                                .flex_shrink(0.0)
-                                                .into_node(),
+                                            Container::<fission::Node>::lowered(
+                                                RightSidebar
+                                                    .build(ctx, view)
+                                                    .into_widget()
+                                                    .lower_to_node(ctx, view),
+                                            )
+                                            .width(right_sidebar_width)
+                                            .flex_shrink(0.0)
+                                            .into_node(),
                                         );
                                     }
                                     children
@@ -188,11 +232,13 @@ impl Widget<InboxState> for InboxApp {
                             .into_node(),
                         ),
                     }
-                    .build_node(ctx, view),
+                    .build(ctx, view)
+                    .into_widget()
+                    .lower_to_node(ctx, view),
                 ),
             }
             .into();
-            let main_content = Container::new(main_content)
+            let main_content = Container::<fission::Node>::lowered(main_content)
                 .bg(tokens.colors.background)
                 .flex_grow(1.0)
                 .into_node();
@@ -227,13 +273,19 @@ impl Widget<InboxState> for InboxApp {
                                     ),
                                     ..Default::default()
                                 }
-                                .build_node(ctx, view),
+                                .build(ctx, view)
+                                .into_widget()
+                                .lower_to_node(ctx, view),
                             ),
                         }
-                        .build_node(ctx, view),
+                        .build(ctx, view)
+                        .into_widget()
+                        .lower_to_node(ctx, view),
                     ),
                 }
-                .build_node(ctx, view)
+                .build(ctx, view)
+                .into_widget()
+                .lower_to_node(ctx, view)
             } else {
                 fission::core::ui::widgets::Spacer::default().into_node()
             };

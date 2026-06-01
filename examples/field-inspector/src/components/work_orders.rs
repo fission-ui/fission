@@ -4,6 +4,7 @@ use crate::components::ui::{
 use crate::model::{on_select_order, CapabilityState, FieldInspectorState, SelectOrder};
 use fission::prelude::*;
 
+#[derive(Clone)]
 pub struct WorkOrderRail;
 
 impl Widget<FieldInspectorState> for WorkOrderRail {
@@ -12,7 +13,7 @@ impl Widget<FieldInspectorState> for WorkOrderRail {
         ctx: &mut BuildCtx<FieldInspectorState>,
         view: &View<FieldInspectorState>,
     ) -> impl fission::IntoWidget<FieldInspectorState> {
-        fission::AnyWidget::from_node({
+        fission::core::view::internal_node_widget({
             let compact = is_compact(view);
             let rows = view
                 .state
@@ -68,7 +69,7 @@ impl Widget<FieldInspectorState> for WorkOrderRail {
                         ..Default::default()
                     }
                     .into_node();
-                    let mut container = Container::new(card)
+                    let mut container = Container::<Node>::lowered(card)
                         .bg(if selected {
                             view.env.theme.tokens.colors.primary.with_alpha(26)
                         } else {

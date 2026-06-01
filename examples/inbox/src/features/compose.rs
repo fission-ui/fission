@@ -9,9 +9,12 @@ use fission::widgets::{
     Combobox, DatePicker, Dropzone, FileUpload, FocusScope, FormControl, Modal, ModalAction,
     TextInput, TimePicker, VStack, Wrap,
 };
+use fission::IntoWidget;
 use serde_json;
 use std::collections::HashSet;
 use std::sync::Arc;
+
+#[derive(Clone)]
 
 pub struct ComposeModal;
 
@@ -21,7 +24,7 @@ impl Widget<InboxState> for ComposeModal {
         ctx: &mut BuildCtx<InboxState>,
         view: &View<InboxState>,
     ) -> impl fission::IntoWidget<InboxState> {
-        fission::AnyWidget::from_node({
+        fission::core::view::internal_node_widget({
             let viewport_width = view.viewport_size().width.max(0.0);
             let modal_width = (viewport_width - 48.0).clamp(320.0, 760.0);
             let field_width = (modal_width - 56.0).max(240.0);
@@ -211,10 +214,14 @@ impl Widget<InboxState> for ComposeModal {
                                 })),
                                 on_toggle: None,
                             }
-                            .build_node(ctx, view)
+                            .build(ctx, view)
+                            .into_widget()
+                            .lower_to_node(ctx, view)
                         }),
                     }
-                    .build_node(ctx, view),
+                    .build(ctx, view)
+                    .into_widget()
+                    .lower_to_node(ctx, view),
                     // Subject
                     FormControl {
                         id: None,
@@ -236,7 +243,9 @@ impl Widget<InboxState> for ComposeModal {
                             .into_node(),
                         ),
                     }
-                    .build_node(ctx, view),
+                    .build(ctx, view)
+                    .into_widget()
+                    .lower_to_node(ctx, view),
                     // Schedule
                     Wrap {
                         direction: fission::ir::op::FlexDirection::Row,
@@ -254,7 +263,9 @@ impl Widget<InboxState> for ComposeModal {
                                 on_toggle: Some(toggle_date_picker.clone()),
                                 on_close: Some(close_date_picker.clone()),
                             }
-                            .build_node(ctx, view),
+                            .build(ctx, view)
+                            .into_widget()
+                            .lower_to_node(ctx, view),
                             TimePicker {
                                 hour: view.state.schedule_time.map(|(h, _)| h).unwrap_or(9),
                                 minute: view.state.schedule_time.map(|(_, m)| m).unwrap_or(0),
@@ -263,17 +274,23 @@ impl Widget<InboxState> for ComposeModal {
                                     payload: serde_json::to_vec(&SetScheduleTime(h, m)).unwrap(),
                                 })),
                             }
-                            .build_node(ctx, view),
+                            .build(ctx, view)
+                            .into_widget()
+                            .lower_to_node(ctx, view),
                         ],
                     }
-                    .build_node(ctx, view),
+                    .build(ctx, view)
+                    .into_widget()
+                    .lower_to_node(ctx, view),
                     // Attachments
                     FileUpload {
                         label: "Attach File".into(),
                         selected_file: view.state.compose_attachments.first().cloned(),
                         on_browse: None,
                     }
-                    .build_node(ctx, view),
+                    .build(ctx, view)
+                    .into_widget()
+                    .lower_to_node(ctx, view),
                     // Message
                     FormControl {
                         id: None,
@@ -297,7 +314,9 @@ impl Widget<InboxState> for ComposeModal {
                             .into_node(),
                         ),
                     }
-                    .build_node(ctx, view),
+                    .build(ctx, view)
+                    .into_widget()
+                    .lower_to_node(ctx, view),
                 ],
             }
             .into_node();
@@ -330,7 +349,9 @@ impl Widget<InboxState> for ComposeModal {
                             on_drag_enter: None,
                             on_drag_leave: None,
                         }
-                        .build_node(ctx, view)],
+                        .build(ctx, view)
+                        .into_widget()
+                        .lower_to_node(ctx, view)],
                     }
                     .into(),
                 ),
@@ -355,7 +376,9 @@ impl Widget<InboxState> for ComposeModal {
                     },
                 ],
             }
-            .build_node(ctx, view)
+            .build(ctx, view)
+            .into_widget()
+            .lower_to_node(ctx, view)
         })
     }
 }

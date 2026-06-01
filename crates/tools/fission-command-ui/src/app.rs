@@ -2,6 +2,7 @@ use super::components::{AppShell, ConfirmationDialog};
 use super::screens::ActiveScreen;
 use super::state::UiState;
 use fission::prelude::*;
+use fission::IntoWidget;
 
 #[derive(Clone)]
 pub struct CliUiApp;
@@ -12,15 +13,26 @@ impl Widget<UiState> for CliUiApp {
         ctx: &mut BuildCtx<UiState>,
         view: &View<UiState>,
     ) -> impl fission::IntoWidget<UiState> {
-        fission::AnyWidget::from_node({
-            let content = ActiveScreen.build_node(ctx, view);
-            let shell = AppShell { content }.build_node(ctx, view);
+        fission::core::view::internal_node_widget({
+            let content = ActiveScreen
+                .build(ctx, view)
+                .into_widget()
+                .lower_to_node(ctx, view);
+            let shell = AppShell { content }
+                .build(ctx, view)
+                .into_widget()
+                .lower_to_node(ctx, view);
             if view.state.pending_dialog.is_none() {
-                return fission::AnyWidget::from_node(shell);
+                return fission::core::view::internal_node_widget(shell);
             }
             Overlay {
                 content: Box::new(shell),
-                overlay: Box::new(ConfirmationDialog.build_node(ctx, view)),
+                overlay: Box::new(
+                    ConfirmationDialog
+                        .build(ctx, view)
+                        .into_widget()
+                        .lower_to_node(ctx, view),
+                ),
                 ..Default::default()
             }
             .into_node()

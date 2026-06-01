@@ -11,8 +11,10 @@ use fission::core::ui::{Container, CustomNode, Node, Row, Scroll, Text};
 use fission::core::{reduce_with, BuildCtx, FlexDirection, View, Widget};
 use fission::ir::NodeId as IrNodeId;
 use fission::widgets::{HStack, Spacer, VStack};
+use fission::IntoWidget;
 use std::sync::Arc;
 
+#[derive(Clone)]
 pub struct EditorSurface;
 
 impl Widget<EditorState> for EditorSurface {
@@ -21,7 +23,7 @@ impl Widget<EditorState> for EditorSurface {
         ctx: &mut BuildCtx<EditorState>,
         view: &View<EditorState>,
     ) -> impl fission::IntoWidget<EditorState> {
-        fission::AnyWidget::from_node({
+        fission::core::view::internal_node_widget({
             // If there is no active buffer, show the welcome screen.
             const MENU_BAR_HEIGHT: f32 = 28.0;
             const STATUS_BAR_HEIGHT: f32 = 26.0;
@@ -81,7 +83,11 @@ impl Widget<EditorState> for EditorSurface {
                 scroll_y,
             ) {
                 Some(rn) => rn,
-                None => return fission::AnyWidget::from_node(self.build_welcome_screen(ctx, view)),
+                None => {
+                    return fission::core::view::internal_node_widget(
+                        self.build_welcome_screen(ctx, view),
+                    );
+                }
             };
 
             let path = render_node.file_path.clone();
@@ -174,7 +180,7 @@ impl Widget<EditorState> for EditorSurface {
             });
 
             // Wrap the custom node in a Container that fills available space.
-            let editor_area = Container::new(editor_custom)
+            let editor_area = Container::<fission::Node>::lowered(editor_custom)
                 .height(editor_canvas_height)
                 .min_height(editor_canvas_height)
                 .flex_grow(0.0)
@@ -197,18 +203,22 @@ impl Widget<EditorState> for EditorSurface {
             .into_node();
 
             // ---- Minimap (kept as a separate widget) ----------------------------
-            let minimap_separator = Container::new(Spacer::default().into_node())
-                .width(1.0)
-                .bg(Color {
-                    r: 48,
-                    g: 48,
-                    b: 49,
-                    a: 255,
-                })
-                .flex_shrink(0.0)
-                .into_node();
+            let minimap_separator =
+                Container::<fission::Node>::lowered(Spacer::default().into_node())
+                    .width(1.0)
+                    .bg(Color {
+                        r: 48,
+                        g: 48,
+                        b: 49,
+                        a: 255,
+                    })
+                    .flex_shrink(0.0)
+                    .into_node();
 
-            let minimap_node = Minimap.build_node(ctx, view);
+            let minimap_node = Minimap
+                .build(ctx, view)
+                .into_widget()
+                .lower_to_node(ctx, view);
 
             // Outer row: scrollable editor | separator | minimap
             let editor_row = Row {
@@ -225,7 +235,7 @@ impl Widget<EditorState> for EditorSurface {
             }
             .into_node();
 
-            Container::new(editor_column)
+            Container::<fission::Node>::lowered(editor_column)
                 .bg(Color {
                     r: 30,
                     g: 30,
@@ -274,16 +284,18 @@ impl EditorSurface {
             HStack {
                 spacing: Some(16.0),
                 children: vec![
-                    Container::new(Text::new(keys).size(12.0).color(key_color).into_node())
-                        .width(140.0)
-                        .into_node(),
+                    Container::<fission::Node>::lowered(
+                        Text::new(keys).size(12.0).color(key_color).into_node(),
+                    )
+                    .width(140.0)
+                    .into_node(),
                     Text::new(desc).size(12.0).color(shortcut_color).into_node(),
                 ],
             }
             .into_node()
         };
 
-        Container::new(
+        Container::<fission::Node>::lowered(
             fission::widgets::center::Center {
                 child: Box::new(
                     VStack {
@@ -350,7 +362,9 @@ impl EditorSurface {
                     .into_node(),
                 ),
             }
-            .build_node(ctx, view),
+            .build(ctx, view)
+            .into_widget()
+            .lower_to_node(ctx, view),
         )
         .bg(Color {
             r: 30,

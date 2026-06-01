@@ -2,6 +2,9 @@ use crate::model::{InboxState, OpenInAppLink, OpenSystemLink, ToggleBrowserDemo}
 use fission::core::ui::{Container, Text};
 use fission::core::{reduce_with, BuildCtx, View, Widget, WidgetNodeId};
 use fission::widgets::{HStack, Modal, ModalAction, VStack, WebView};
+use fission::IntoWidget;
+
+#[derive(Clone)]
 
 pub struct BrowserModal;
 
@@ -11,7 +14,7 @@ impl Widget<InboxState> for BrowserModal {
         ctx: &mut BuildCtx<InboxState>,
         view: &View<InboxState>,
     ) -> impl fission::IntoWidget<InboxState> {
-        fission::AnyWidget::from_node({
+        fission::core::view::internal_node_widget({
             let tokens = &view.env.theme.tokens;
             let viewport_width = view.viewport_size().width.max(0.0);
             let modal_width = (viewport_width - 48.0).clamp(360.0, 820.0);
@@ -42,7 +45,7 @@ impl Widget<InboxState> for BrowserModal {
                                         .size(12.0)
                                         .color(tokens.colors.text_secondary)
                                         .into_node(),
-                                    Container::new(
+                                    Container::<fission::Node>::lowered(
                                         WebView {
                                             id: WidgetNodeId::explicit("demo_webview"),
                                             url: view.state.browser_url.clone(),
@@ -50,7 +53,9 @@ impl Widget<InboxState> for BrowserModal {
                                             width: Some(webview_width),
                                             height: Some(300.0),
                                         }
-                                        .build_node(ctx, view),
+                                        .build(ctx, view)
+                                        .into_widget()
+                                        .lower_to_node(ctx, view),
                                     )
                                     .width(webview_width)
                                     .height(300.0)
@@ -80,7 +85,7 @@ impl Widget<InboxState> for BrowserModal {
                                                 ),
                                                 ..Default::default()
                                             }
-                                            .build_node(ctx, view),
+                                            .into_node(),
                                             fission::widgets::Button {
                                                 variant: fission::widgets::ButtonVariant::Filled,
                                                 child: Some(Box::new(
@@ -94,7 +99,7 @@ impl Widget<InboxState> for BrowserModal {
                                                 ),
                                                 ..Default::default()
                                             }
-                                            .build_node(ctx, view),
+                                            .into_node(),
                                         ],
                                     }
                                     .into_node(),
@@ -117,7 +122,9 @@ impl Widget<InboxState> for BrowserModal {
                     )),
                 }],
             }
-            .build_node(ctx, view)
+            .build(ctx, view)
+            .into_widget()
+            .lower_to_node(ctx, view)
         })
     }
 }

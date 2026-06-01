@@ -11,8 +11,8 @@ impl Widget<StoreState> for Hero {
         _ctx: &mut BuildCtx<StoreState>,
         _view: &View<StoreState>,
     ) -> impl fission::IntoWidget<StoreState> {
-        fission::AnyWidget::from_node({
-            Container::new(
+        fission::core::view::internal_node_widget({
+            Container::<Node>::lowered(
                 Row {
                     gap: Some(34.0),
                     align_items: ir_op::AlignItems::Stretch,
@@ -31,7 +31,7 @@ impl Widget<StoreState> for Hero {
 }
 
 fn copy() -> Node {
-    Container::new(
+    Container::<Node>::lowered(
         Column {
             gap: Some(18.0),
             children: vec![
@@ -63,7 +63,7 @@ fn copy() -> Node {
 
 fn spotlight() -> Node {
     let card = &data::cards()[0];
-    Container::new(
+    Container::<Node>::lowered(
         Column {
             gap: Some(16.0),
             children: vec![
@@ -104,7 +104,7 @@ fn spotlight() -> Node {
 }
 
 fn metric(value: &str, label: &str) -> Node {
-    Container::new(
+    Container::<Node>::lowered(
         Column {
             gap: Some(2.0),
             children: vec![

@@ -3,6 +3,7 @@ use crate::components::KeyValueRow;
 use crate::state::UiState;
 use crate::theme::UiPalette;
 use fission::prelude::*;
+use fission::IntoWidget;
 
 #[derive(Clone)]
 pub struct HelpScreen;
@@ -13,7 +14,7 @@ impl Widget<UiState> for HelpScreen {
         ctx: &mut BuildCtx<UiState>,
         view: &View<UiState>,
     ) -> impl fission::IntoWidget<UiState> {
-        fission::AnyWidget::from_node({
+        fission::core::view::internal_node_widget({
             let palette = UiPalette::for_mode(view.state.theme_mode);
             Column {
             gap: Some(1.0),
@@ -24,16 +25,16 @@ impl Widget<UiState> for HelpScreen {
                     palette.accent,
                     palette.muted,
                 ),
-                KeyValueRow::new("Quit", "press q or Esc").build_node(ctx, view),
-                KeyValueRow::new("Theme", "use Switch theme in the header").build_node(ctx, view),
+                KeyValueRow::new("Quit", "press q or Esc").build(ctx, view).into_widget().lower_to_node(ctx, view),
+                KeyValueRow::new("Theme", "use Switch theme in the header").build(ctx, view).into_widget().lower_to_node(ctx, view),
                 KeyValueRow::new("Project", "initialise a directory and add targets from Project setup")
-                    .build_node(ctx, view),
+                    .build(ctx, view).into_widget().lower_to_node(ctx, view),
                 KeyValueRow::new("Run", "select a target, optionally select a device, then run")
-                    .build_node(ctx, view),
+                    .build(ctx, view).into_widget().lower_to_node(ctx, view),
                 KeyValueRow::new("Site", "build, check, serve, and inspect static routes")
-                    .build_node(ctx, view),
+                    .build(ctx, view).into_widget().lower_to_node(ctx, view),
                 KeyValueRow::new("Logs", "read a snapshot or start a follower under .fission/ui")
-                    .build_node(ctx, view),
+                    .build(ctx, view).into_widget().lower_to_node(ctx, view),
                 Text::new(
                     "The UI delegates actions to the same commands as the CLI, so command output and validation remain consistent.",
                 )

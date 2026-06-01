@@ -1,6 +1,7 @@
 use anyhow::Result;
 use fission_core::event::{PointerButton, PointerEvent};
 use fission_core::ui::Text;
+use fission_core::IntoWidget;
 use fission_core::{with_reducer, AppState, BuildCtx, View, Widget};
 use fission_test::TestHarness;
 use fission_widgets::{Drawer, DrawerSide};
@@ -18,6 +19,7 @@ fn dismiss(state: &mut State) {
 
 #[test]
 fn drawer_renders_content_and_backdrop_dismisses() -> Result<()> {
+    #[derive(Clone)]
     struct Root;
     impl Widget<State> for Root {
         fn build(
@@ -25,7 +27,7 @@ fn drawer_renders_content_and_backdrop_dismisses() -> Result<()> {
             ctx: &mut BuildCtx<State>,
             view: &View<State>,
         ) -> impl fission_core::IntoWidget<State> {
-            fission_core::AnyWidget::from_node({
+            fission_core::view::internal_node_widget({
                 let content = Text::new("Drawer content").into_node();
                 Drawer {
                     id: fission_core::WidgetNodeId::explicit("drawer"),
@@ -35,7 +37,9 @@ fn drawer_renders_content_and_backdrop_dismisses() -> Result<()> {
                     content: Box::new(content),
                     width: Some(300.0),
                 }
-                .build_node(ctx, view)
+                .build(ctx, view)
+                .into_widget()
+                .lower_to_node(ctx, view)
             })
         }
     }

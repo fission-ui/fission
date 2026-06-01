@@ -5,6 +5,7 @@ use fission::core::{reduce_with, ActionEnvelope, BuildCtx, View, Widget};
 use fission::widgets::{HStack, Spacer};
 use serde_json;
 
+#[derive(Clone)]
 pub struct TabBar;
 
 impl Widget<EditorState> for TabBar {
@@ -13,11 +14,11 @@ impl Widget<EditorState> for TabBar {
         ctx: &mut BuildCtx<EditorState>,
         view: &View<EditorState>,
     ) -> impl fission::IntoWidget<EditorState> {
-        fission::AnyWidget::from_node({
+        fission::core::view::internal_node_widget({
             let _tokens = &view.env.theme.tokens;
 
             if view.state.open_tabs.is_empty() {
-                return fission::AnyWidget::from_node(
+                return fission::core::view::internal_node_widget(
                     Spacer {
                         height: Some(0.0),
                         ..Default::default()
@@ -95,7 +96,7 @@ impl Widget<EditorState> for TabBar {
                     a: 255,
                 };
                 let top_border = if is_active {
-                    Container::new(
+                    Container::<fission::Node>::lowered(
                         Spacer {
                             ..Default::default()
                         }
@@ -105,7 +106,7 @@ impl Widget<EditorState> for TabBar {
                     .bg(accent_color)
                     .into_node()
                 } else {
-                    Container::new(
+                    Container::<fission::Node>::lowered(
                         Spacer {
                             ..Default::default()
                         }
@@ -155,7 +156,7 @@ impl Widget<EditorState> for TabBar {
                 let tab_with_accent = fission::core::ui::Column {
                     children: vec![
                         top_border,
-                        Container::new(tab_content)
+                        Container::<fission::Node>::lowered(tab_content)
                             .bg(bg)
                             .padding_all(6.0)
                             .flex_grow(1.0)
@@ -182,7 +183,7 @@ impl Widget<EditorState> for TabBar {
                 );
             }
 
-            Container::new(
+            Container::<fission::Node>::lowered(
                 fission::core::ui::Scroll {
                     direction: fission::ir::op::FlexDirection::Row,
                     show_scrollbar: true,

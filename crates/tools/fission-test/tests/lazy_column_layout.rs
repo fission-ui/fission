@@ -9,6 +9,7 @@ use std::sync::Arc;
 struct AppState {}
 impl fission_core::action::AppState for AppState {}
 
+#[derive(Clone)]
 struct Root;
 impl Widget<AppState> for Root {
     fn build(
@@ -16,11 +17,11 @@ impl Widget<AppState> for Root {
         _ctx: &mut BuildCtx<AppState>,
         _view: &View<AppState>,
     ) -> impl fission_core::IntoWidget<AppState> {
-        fission_core::AnyWidget::from_node({
+        fission_core::view::internal_node_widget({
             let mut children = Vec::new();
             for i in 0..5 {
                 children.push(
-                    Container::new(
+                    Container::<fission_core::ui::Node>::lowered(
                         Text {
                             content: TextContent::Literal(format!("Item {}", i)),
                             ..Default::default()

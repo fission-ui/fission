@@ -8,7 +8,10 @@ use fission::icons::material;
 use fission::widgets::{
     Calendar, Card, HStack, Icon, Menu, MenuItem, Skeleton, Spinner, Stepper, VStack,
 };
+use fission::IntoWidget;
 use serde_json;
+
+#[derive(Clone)]
 
 pub struct RightSidebar;
 
@@ -18,7 +21,7 @@ impl Widget<InboxState> for RightSidebar {
         ctx: &mut BuildCtx<InboxState>,
         view: &View<InboxState>,
     ) -> impl fission::IntoWidget<InboxState> {
-        fission::AnyWidget::from_node({
+        fission::core::view::internal_node_widget({
             let tokens = &view.env.theme.tokens;
             let t = |key: &str| {
                 view.env
@@ -111,7 +114,9 @@ impl Widget<InboxState> for RightSidebar {
                     200.0
                 }),
             }
-            .build_node(ctx, view);
+            .build(ctx, view)
+            .into_widget()
+            .lower_to_node(ctx, view);
 
             let sidebar_spacing = if ultra_compact_sidebar {
                 10.0
@@ -135,7 +140,7 @@ impl Widget<InboxState> for RightSidebar {
                 12.0
             };
 
-            Container::new(
+            Container::<fission::Node>::lowered(
                 fission::core::ui::Scroll {
                     direction: fission::ir::op::FlexDirection::Column,
                     show_scrollbar: true,
@@ -160,7 +165,9 @@ impl Widget<InboxState> for RightSidebar {
                                                             color: Some(tokens.colors.primary),
                                                             animated: true,
                                                         }
-                                                        .build_node(ctx, view),
+                                                        .build(ctx, view)
+                                                        .into_widget()
+                                                        .lower_to_node(ctx, view),
                                                         Skeleton {
                                                             id: WidgetNodeId::explicit(
                                                                 "sync_skeleton",
@@ -170,7 +177,9 @@ impl Widget<InboxState> for RightSidebar {
                                                             circle: false,
                                                             animated: true,
                                                         }
-                                                        .build_node(ctx, view),
+                                                        .build(ctx, view)
+                                                        .into_widget()
+                                                        .lower_to_node(ctx, view),
                                                     ],
                                                 }
                                                 .into_node(),
@@ -198,7 +207,9 @@ impl Widget<InboxState> for RightSidebar {
                                     ),
                                     ..Default::default()
                                 }
-                                .build_node(ctx, view),
+                                .build(ctx, view)
+                                .into_widget()
+                                .lower_to_node(ctx, view),
                                 Calendar {
                                     year: today.year(),
                                     month: today.month(),
@@ -214,7 +225,9 @@ impl Widget<InboxState> for RightSidebar {
                                     cell_size: Some(calendar_cell_size),
                                     padding: Some(calendar_padding),
                                 }
-                                .build_node(ctx, view),
+                                .build(ctx, view)
+                                .into_widget()
+                                .lower_to_node(ctx, view),
                                 Card {
                                     child: Box::new(
                                         VStack {
@@ -230,7 +243,9 @@ impl Widget<InboxState> for RightSidebar {
                                     ),
                                     ..Default::default()
                                 }
-                                .build_node(ctx, view),
+                                .build(ctx, view)
+                                .into_widget()
+                                .lower_to_node(ctx, view),
                                 Card {
                                     child: Box::new(
                                         VStack {
@@ -339,7 +354,9 @@ impl Widget<InboxState> for RightSidebar {
                                     ),
                                     ..Default::default()
                                 }
-                                .build_node(ctx, view),
+                                .build(ctx, view)
+                                .into_widget()
+                                .lower_to_node(ctx, view),
                                 Card {
                                     child: Box::new(
                                         VStack {
@@ -366,7 +383,9 @@ impl Widget<InboxState> for RightSidebar {
                                                             },
                                                             ..Default::default()
                                                         }
-                                                        .build_node(ctx, view),
+                                                        .build(ctx, view)
+                                                        .into_widget()
+                                                        .lower_to_node(ctx, view),
                                                         VStack {
                                                             spacing: Some(2.0),
                                                             children: vec![
@@ -512,7 +531,9 @@ impl Widget<InboxState> for RightSidebar {
                                     ),
                                     ..Default::default()
                                 }
-                                .build_node(ctx, view),
+                                .build(ctx, view)
+                                .into_widget()
+                                .lower_to_node(ctx, view),
                                 Card {
                                     child: Box::new(
                                         VStack {
@@ -529,14 +550,18 @@ impl Widget<InboxState> for RightSidebar {
                                                     ],
                                                     active_index: 1,
                                                 }
-                                                .build_node(ctx, view),
+                                                .build(ctx, view)
+                                                .into_widget()
+                                                .lower_to_node(ctx, view),
                                             ],
                                         }
                                         .into_node(),
                                     ),
                                     ..Default::default()
                                 }
-                                .build_node(ctx, view),
+                                .build(ctx, view)
+                                .into_widget()
+                                .lower_to_node(ctx, view),
                             ],
                             ..Default::default()
                         }

@@ -14,8 +14,11 @@ use fission::widgets::{
     Pagination, Popover, RangeSlider, SegmentedControl, TabItem, Tabs, Tag, TextInput, VStack,
     Wrap,
 };
+use fission::IntoWidget;
 use serde_json;
 use std::sync::Arc;
+
+#[derive(Clone)]
 
 pub struct EmailList {
     pub folder: String,
@@ -38,7 +41,7 @@ impl Widget<InboxState> for EmailList {
         ctx: &mut BuildCtx<InboxState>,
         view: &View<InboxState>,
     ) -> impl fission::IntoWidget<InboxState> {
-        fission::AnyWidget::from_node({
+        fission::core::view::internal_node_widget({
             let tokens = &view.env.theme.tokens;
             let t = |key: &str| {
                 view.env
@@ -209,7 +212,9 @@ impl Widget<InboxState> for EmailList {
                             text: format!("{} {}", unread_count, t("badge.new")),
                             ..Default::default()
                         }
-                        .build_node(ctx, view),
+                        .build(ctx, view)
+                        .into_widget()
+                        .lower_to_node(ctx, view),
                     ],
                     ..Default::default()
                 }
@@ -253,7 +258,9 @@ impl Widget<InboxState> for EmailList {
                                 payload: serde_json::to_vec(&SetFilterMode(idx)).unwrap(),
                             })),
                         }
-                        .build_node(ctx, view),
+                        .build(ctx, view)
+                        .into_widget()
+                        .lower_to_node(ctx, view),
                         fission::core::ui::widgets::Spacer {
                             flex_grow: 1.0,
                             ..Default::default()
@@ -265,7 +272,9 @@ impl Widget<InboxState> for EmailList {
                             on_toggle: Some(sort_toggle),
                             ..Default::default()
                         }
-                        .build_node(ctx, view),
+                        .build(ctx, view)
+                        .into_widget()
+                        .lower_to_node(ctx, view),
                         Popover {
                             id: WidgetNodeId::explicit("advanced_filters"),
                             is_open: view.state.show_advanced_filters,
@@ -309,7 +318,7 @@ impl Widget<InboxState> for EmailList {
                                 .into_node(),
                             ),
                             content: Box::new(
-                                Container::new(
+                                Container::<fission::Node>::lowered(
                                     VStack {
                                         spacing: Some(14.0),
                                         children: vec![
@@ -332,7 +341,9 @@ impl Widget<InboxState> for EmailList {
                                                 on_close_start: None,
                                                 on_close_end: None,
                                             }
-                                            .build_node(ctx, view),
+                                            .build(ctx, view)
+                                            .into_widget()
+                                            .lower_to_node(ctx, view),
                                             Text::new(TextContent::Key("filter.size_mb".into()))
                                                 .size(12.0)
                                                 .color(tokens.colors.text_secondary)
@@ -345,7 +356,9 @@ impl Widget<InboxState> for EmailList {
                                                 max: 100.0,
                                                 on_change: None,
                                             }
-                                            .build_node(ctx, view),
+                                            .build(ctx, view)
+                                            .into_widget()
+                                            .lower_to_node(ctx, view),
                                         ],
                                     }
                                     .into_node(),
@@ -370,11 +383,15 @@ impl Widget<InboxState> for EmailList {
                                 .into_node(),
                             ),
                         }
-                        .build_node(ctx, view),
+                        .build(ctx, view)
+                        .into_widget()
+                        .lower_to_node(ctx, view),
                     ],
                     ..Default::default()
                 }
-                .build_node(ctx, view),
+                .build(ctx, view)
+                .into_widget()
+                .lower_to_node(ctx, view),
             );
 
             chrome_items.push(
@@ -408,7 +425,9 @@ impl Widget<InboxState> for EmailList {
                     ],
                     size: ComponentSize::Sm,
                 }
-                .build_node(ctx, view),
+                .build(ctx, view)
+                .into_widget()
+                .lower_to_node(ctx, view),
             );
 
             let mut emails: Vec<_> = view
@@ -466,7 +485,9 @@ impl Widget<InboxState> for EmailList {
                         .into_node(),
                     )),
                 }
-                .build_node(ctx, view)
+                .build(ctx, view)
+                .into_widget()
+                .lower_to_node(ctx, view)
             } else {
                 let mut email_nodes = Vec::new();
                 for (idx, email) in emails[start_idx..end_idx].iter().enumerate() {
@@ -497,7 +518,7 @@ impl Widget<InboxState> for EmailList {
                                 ..Default::default()
                             }
                             .into_node(),
-                            Container::new(
+                            Container::<fission::Node>::lowered(
                                 VStack {
                                     spacing: Some(4.0),
                                     children: vec![
@@ -542,7 +563,9 @@ impl Widget<InboxState> for EmailList {
                                                 .into_node(),
                                             ],
                                         }
-                                        .build_node(ctx, view),
+                                        .build(ctx, view)
+                                        .into_widget()
+                                        .lower_to_node(ctx, view),
                                         Hero {
                                             tag: format!("email_subject_{}", email.id),
                                             child: Box::new(
@@ -557,8 +580,10 @@ impl Widget<InboxState> for EmailList {
                                                 .into(),
                                             ),
                                         }
-                                        .build_node(ctx, view),
-                                        Container::new(
+                                        .build(ctx, view)
+                                        .into_widget()
+                                        .lower_to_node(ctx, view),
+                                        Container::<fission::Node>::lowered(
                                             Text {
                                                 content: TextContent::Literal({
                                                     let preview: String =
@@ -594,15 +619,21 @@ impl Widget<InboxState> for EmailList {
                                                             label: label.clone(),
                                                             on_close: None,
                                                         }
-                                                        .build_node(ctx, view)
+                                                        .build(ctx, view)
+                                                        .into_widget()
+                                                        .lower_to_node(ctx, view)
                                                     })
                                                     .collect(),
                                             }
-                                            .build_node(ctx, view)
+                                            .build(ctx, view)
+                                            .into_widget()
+                                            .lower_to_node(ctx, view)
                                         },
                                     ],
                                 }
-                                .build_node(ctx, view),
+                                .build(ctx, view)
+                                .into_widget()
+                                .lower_to_node(ctx, view),
                             )
                             .flex_grow(1.0)
                             .into_node(),
@@ -614,7 +645,7 @@ impl Widget<InboxState> for EmailList {
                     let item = VStack {
                         spacing: Some(0.0),
                         children: vec![
-                            Container::new(item_content)
+                            Container::<fission::Node>::lowered(item_content)
                                 .padding_all(4.0)
                                 .bg(if is_selected {
                                     tokens.colors.primary.with_alpha(20)
@@ -627,20 +658,24 @@ impl Widget<InboxState> for EmailList {
                                 Divider {
                                     orientation: fission::widgets::divider::Orientation::Horizontal,
                                 }
-                                .build_node(ctx, view)
+                                .build(ctx, view)
+                                .into_widget()
+                                .lower_to_node(ctx, view)
                             } else {
                                 fission::core::ui::widgets::Spacer::default().into_node()
                             },
                         ],
                     }
-                    .build_node(ctx, view);
+                    .build(ctx, view)
+                    .into_widget()
+                    .lower_to_node(ctx, view);
 
                     email_nodes.push(
                         Button {
                             variant: ButtonVariant::Ghost,
                             content_align: ButtonContentAlign::Start,
                             child: Some(Box::new(
-                                Container::new(item)
+                                Container::<fission::Node>::lowered(item)
                                     .flex_grow(1.0)
                                     .min_width(0.0)
                                     .into_node(),
@@ -659,7 +694,7 @@ impl Widget<InboxState> for EmailList {
                 let lazy_id = WidgetNodeId::explicit("email_list");
                 let node_id = NodeId::derived(lazy_id.as_u128(), &[current_page as u32]);
 
-                Container::new(
+                Container::<fission::Node>::lowered(
                     LazyColumn {
                         id: Some(node_id),
                         children: Arc::new(email_nodes),
@@ -691,18 +726,24 @@ impl Widget<InboxState> for EmailList {
                                         payload: serde_json::to_vec(&SetPage(page)).unwrap(),
                                     })),
                                 }
-                                .build_node(ctx, view),
+                                .build(ctx, view)
+                                .into_widget()
+                                .lower_to_node(ctx, view),
                             ),
                         }
-                        .build_node(ctx, view),
+                        .build(ctx, view)
+                        .into_widget()
+                        .lower_to_node(ctx, view),
                     ],
                 }
-                .build_node(ctx, view)
+                .build(ctx, view)
+                .into_widget()
+                .lower_to_node(ctx, view)
             } else {
                 fission::core::ui::widgets::Spacer::default().into_node()
             };
 
-            Container::new(
+            Container::<fission::Node>::lowered(
                 VStack {
                     spacing: Some(8.0),
                     children: vec![
@@ -710,15 +751,19 @@ impl Widget<InboxState> for EmailList {
                             spacing: Some(4.0),
                             children: chrome_items,
                         }
-                        .build_node(ctx, view),
-                        Container::new(list_body)
+                        .build(ctx, view)
+                        .into_widget()
+                        .lower_to_node(ctx, view),
+                        Container::<fission::Node>::lowered(list_body)
                             .flex_grow(1.0)
                             .min_height(0.0)
                             .into_node(),
                         footer,
                     ],
                 }
-                .build_node(ctx, view),
+                .build(ctx, view)
+                .into_widget()
+                .lower_to_node(ctx, view),
             )
             .padding_all(8.0)
             .flex_grow(1.0)
@@ -761,6 +806,7 @@ mod tests {
 
     #[test]
     fn filter_mode_changes_list_contents() -> Result<()> {
+        #[derive(Clone)]
         struct Root;
         impl Widget<InboxState> for Root {
             fn build(
@@ -768,11 +814,13 @@ mod tests {
                 ctx: &mut BuildCtx<InboxState>,
                 view: &View<InboxState>,
             ) -> impl fission::IntoWidget<InboxState> {
-                fission::AnyWidget::from_node({
+                fission::core::view::internal_node_widget({
                     EmailList {
                         folder: "inbox".into(),
                     }
-                    .build_node(ctx, view)
+                    .build(ctx, view)
+                    .into_widget()
+                    .lower_to_node(ctx, view)
                 })
             }
         }

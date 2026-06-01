@@ -86,7 +86,7 @@ pub fn title_text<S: AppState>(view: &View<S>, text: impl Into<String>, size: f3
 pub fn panel_card<S: AppState>(view: &View<S>, child: Node) -> Node {
     let tokens = &view.env.theme.tokens;
     let compact = is_compact(view);
-    Container::new(child)
+    Container::<Node>::lowered(child)
         .bg(tokens.colors.surface)
         .border(tokens.colors.border.with_alpha(150), 1.0)
         .border_radius(if compact { 16.0 } else { 22.0 })
@@ -107,7 +107,7 @@ pub fn panel_card<S: AppState>(view: &View<S>, child: Node) -> Node {
 pub fn soft_panel<S: AppState>(view: &View<S>, child: Node) -> Node {
     let tokens = &view.env.theme.tokens;
     let compact = is_compact(view);
-    Container::new(child)
+    Container::<Node>::lowered(child)
         .bg(tokens.colors.background.with_alpha(170))
         .border(tokens.colors.border.with_alpha(120), 1.0)
         .border_radius(if compact { 14.0 } else { 18.0 })
@@ -164,7 +164,7 @@ pub fn status_pill<S: AppState>(
         CapabilityState::Warning => (color(254, 249, 195), color(133, 77, 14)),
         CapabilityState::Error => (color(254, 226, 226), color(185, 28, 28)),
     };
-    Container::new(
+    Container::<Node>::lowered(
         Text::new(label.into())
             .size(if is_compact(view) { 11.0 } else { 12.0 })
             .line_height(if is_compact(view) { 15.0 } else { 16.0 })

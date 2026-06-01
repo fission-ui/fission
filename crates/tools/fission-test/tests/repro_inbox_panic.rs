@@ -1,5 +1,6 @@
 use anyhow::Result;
 use fission_core::ui::{Button, Container, Grid, GridItem, Text, TextContent};
+use fission_core::IntoWidget;
 use fission_core::{op::GridTrack, BuildCtx, View, Widget};
 use fission_test::TestHarness;
 use fission_widgets::{LazyColumn, VStack};
@@ -9,6 +10,7 @@ use std::sync::Arc;
 struct AppState {}
 impl fission_core::action::AppState for AppState {}
 
+#[derive(Clone)]
 struct Root;
 impl Widget<AppState> for Root {
     fn build(
@@ -16,7 +18,7 @@ impl Widget<AppState> for Root {
         _ctx: &mut BuildCtx<AppState>,
         _view: &View<AppState>,
     ) -> impl fission_core::IntoWidget<AppState> {
-        fission_core::AnyWidget::from_node({
+        fission_core::view::internal_node_widget({
             // Mimic InboxApp Grid structure
             Grid {
                 columns: vec![
@@ -28,7 +30,7 @@ impl Widget<AppState> for Root {
                 children: vec![
                     // Sidebar (VStack)
                     GridItem::new(
-                        Container::new(
+                        Container::<fission_core::ui::Node>::lowered(
                             VStack {
                                 spacing: Some(10.0),
                                 children: vec![Text {
@@ -37,7 +39,9 @@ impl Widget<AppState> for Root {
                                 }
                                 .into()],
                             }
-                            .build_node(_ctx, _view),
+                            .build(_ctx, _view)
+                            .into_widget()
+                            .lower_to_node(_ctx, _view),
                         )
                         .into_node(),
                     )
@@ -75,7 +79,7 @@ impl Widget<AppState> for Root {
                     .into(),
                     // Detail (Container)
                     GridItem::new(
-                        Container::new(
+                        Container::<fission_core::ui::Node>::lowered(
                             Text {
                                 content: TextContent::Literal("Detail".into()),
                                 ..Default::default()

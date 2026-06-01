@@ -220,7 +220,7 @@ The widget reads state as usual, but user-facing text should come from translati
 pub struct SettingsApp;
 
 impl Widget<SettingsState> for SettingsApp {
-    fn build(&self, ctx: &mut BuildCtx<SettingsState>, view: &View<SettingsState>) -> Node {
+    fn build(&self, ctx: &mut BuildCtx<SettingsState>, view: &View<SettingsState>) -> impl IntoWidget<SettingsState> {
         let light = ctx.bind(
             SetLightTheme,
             reduce_with!(on_set_light_theme),

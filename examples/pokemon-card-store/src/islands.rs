@@ -17,7 +17,7 @@ impl Widget<BrowserCartState> for CartDrawerIsland {
         ctx: &mut BuildCtx<BrowserCartState>,
         view: &View<BrowserCartState>,
     ) -> impl fission::IntoWidget<BrowserCartState> {
-        fission::AnyWidget::from_node({
+        fission::core::view::internal_node_widget({
             let add = ctx.bind(IslandAddToCart, reduce_with!(on_island_add_to_cart));
             let count = view.state.count;
             let item_word = if count == 1 { "item" } else { "items" };
@@ -33,7 +33,7 @@ impl Widget<BrowserCartState> for CartDrawerIsland {
                 "Island handled browser-side reducer event"
             };
 
-            Container::new(
+            Container::<Node>::lowered(
                 Column {
                     gap: Some(14.0),
                     children: vec![
@@ -44,7 +44,7 @@ impl Widget<BrowserCartState> for CartDrawerIsland {
                             .color(color(251, 191, 36))
                             .semantics_identifier("island-status:cart-drawer")
                             .into_node(),
-                        Container::new(
+                        Container::<Node>::lowered(
                             Column {
                                 gap: Some(6.0),
                                 children: vec![
@@ -102,7 +102,7 @@ impl Widget<BrowserCartState> for CartDrawerIsland {
                                 }
                                 .into_node(),
                                 SemanticsRegion::new(
-                                    Container::new(
+                                    Container::<Node>::lowered(
                                         Text::new("Add Charizard")
                                             .size(14.0)
                                             .line_height(20.0)

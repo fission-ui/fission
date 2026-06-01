@@ -3,6 +3,7 @@ use crate::state::UiState;
 use crate::theme::UiPalette;
 use fission::ir::op::Fill;
 use fission::prelude::*;
+use fission::IntoWidget;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ButtonTone {
@@ -47,7 +48,7 @@ impl Widget<UiState> for ActionButton {
         _ctx: &mut BuildCtx<UiState>,
         view: &View<UiState>,
     ) -> impl fission::IntoWidget<UiState> {
-        fission::AnyWidget::from_node({
+        fission::core::view::internal_node_widget({
             let palette = UiPalette::for_mode(view.state.theme_mode);
             let (background, text) = match self.tone {
                 ButtonTone::Primary => (palette.accent, palette.accent_text),
@@ -101,7 +102,7 @@ impl Widget<UiState> for TogglePill {
         ctx: &mut BuildCtx<UiState>,
         view: &View<UiState>,
     ) -> impl fission::IntoWidget<UiState> {
-        fission::AnyWidget::from_node({
+        fission::core::view::internal_node_widget({
             let label = if self.enabled {
                 format!("[x] {}", self.label)
             } else {
@@ -114,7 +115,9 @@ impl Widget<UiState> for TogglePill {
             };
             ActionButton::new(label, self.action.clone())
                 .tone(tone)
-                .build_node(ctx, view)
+                .build(ctx, view)
+                .into_widget()
+                .lower_to_node(ctx, view)
         })
     }
 }
@@ -159,7 +162,7 @@ impl Widget<UiState> for FormTextField {
         _ctx: &mut BuildCtx<UiState>,
         view: &View<UiState>,
     ) -> impl fission::IntoWidget<UiState> {
-        fission::AnyWidget::from_node({
+        fission::core::view::internal_node_widget({
             let palette = UiPalette::for_mode(view.state.theme_mode);
             let density = UiDensity::new(view.state.compact_mode);
             TextInput {

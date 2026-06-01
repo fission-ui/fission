@@ -20,8 +20,11 @@ use fission::widgets::{
     ModalAction, NumberInput, SegmentedControl, Select, SelectItem, Slider, Switch, Tag, VStack,
     Wrap,
 };
+use fission::IntoWidget;
 use serde_json;
 use std::sync::Arc;
+
+#[derive(Clone)]
 
 pub struct SettingsModal;
 
@@ -53,7 +56,9 @@ fn theme_preview(
                 text: t("settings.theme.active"),
                 ..Default::default()
             }
-            .build_node(ctx, view),
+            .build(ctx, view)
+            .into_widget()
+            .lower_to_node(ctx, view),
         )
     } else {
         None
@@ -69,10 +74,10 @@ fn theme_preview(
                 id: None,
                 path: Some("inset(0px round 12px)".into()),
                 child: Box::new(
-                    Container::new(
+                    Container::<fission::Node>::lowered(
                         ZStack {
                             children: vec![
-                                Container::new(
+                                Container::<fission::Node>::lowered(
                                     fission::core::ui::widgets::Spacer::default().into_node(),
                                 )
                                 .size(160.0, 96.0)
@@ -123,7 +128,7 @@ impl Widget<InboxState> for SettingsModal {
         ctx: &mut BuildCtx<InboxState>,
         view: &View<InboxState>,
     ) -> impl fission::IntoWidget<InboxState> {
-        fission::AnyWidget::from_node({
+        fission::core::view::internal_node_widget({
             let tokens = &view.env.theme.tokens;
             let viewport = view.viewport_size();
             let modal_width = (viewport.width.max(0.0) - 48.0).clamp(360.0, 640.0);
@@ -370,10 +375,14 @@ impl Widget<InboxState> for SettingsModal {
                                 label: (*label).into(),
                                 on_close: None,
                             }
-                            .build_node(ctx, view),
+                            .build(ctx, view)
+                            .into_widget()
+                            .lower_to_node(ctx, view),
                         ),
                     }
-                    .build_node(ctx, view)
+                    .build(ctx, view)
+                    .into_widget()
+                    .lower_to_node(ctx, view)
                 })
                 .collect::<Vec<_>>();
 
@@ -383,7 +392,7 @@ impl Widget<InboxState> for SettingsModal {
                     payload: serde_json::to_vec(&LabelDropped("Pinned".into())).unwrap(),
                 }),
                 child: Box::new(
-                    Container::new(
+                    Container::<fission::Node>::lowered(
                         Text::new(TextContent::Key("settings.labels.drop_target".into()))
                             .size(12.0)
                             .into_node(),
@@ -399,14 +408,18 @@ impl Widget<InboxState> for SettingsModal {
                     .into_node(),
                 ),
             }
-            .build_node(ctx, view);
+            .build(ctx, view)
+            .into_widget()
+            .lower_to_node(ctx, view);
 
             let pinned_badge = if let Some(label) = &view.state.last_drag_label {
                 Badge {
                     text: format!("Pinned: {}", label),
                     ..Default::default()
                 }
-                .build_node(ctx, view)
+                .build(ctx, view)
+                .into_widget()
+                .lower_to_node(ctx, view)
             } else {
                 Text::new(TextContent::Key("settings.labels.helper".into()))
                     .size(12.0)
@@ -437,7 +450,9 @@ impl Widget<InboxState> for SettingsModal {
                     payload: serde_json::to_vec(&SetSignatureEditing(false)).unwrap(),
                 }),
             }
-            .build_node(ctx, view);
+            .build(ctx, view)
+            .into_widget()
+            .lower_to_node(ctx, view);
 
             let theme_display = match view.state.theme_mode.as_str() {
                 "Dark" => t("settings.theme.dark"),
@@ -496,7 +511,9 @@ impl Widget<InboxState> for SettingsModal {
                                             }
                                         })),
                                     }
-                                    .build_node(ctx, view),
+                                    .build(ctx, view)
+                                    .into_widget()
+                                    .lower_to_node(ctx, view),
                                     FormControl {
                                         id: None,
                                         label: Some(t("settings.inbox_type.label")),
@@ -546,15 +563,21 @@ impl Widget<InboxState> for SettingsModal {
                                                 ],
                                                 ..Default::default()
                                             }
-                                            .build_node(ctx, view),
+                                            .build(ctx, view)
+                                            .into_widget()
+                                            .lower_to_node(ctx, view),
                                         ),
                                     }
-                                    .build_node(ctx, view),
+                                    .build(ctx, view)
+                                    .into_widget()
+                                    .lower_to_node(ctx, view),
                                     Divider {
                                         orientation:
                                             fission::widgets::divider::Orientation::Horizontal,
                                     }
-                                    .build_node(ctx, view),
+                                    .build(ctx, view)
+                                    .into_widget()
+                                    .lower_to_node(ctx, view),
                                     Text::new(TextContent::Key("settings.appearance".into()))
                                         .size(14.0)
                                         .into_node(),
@@ -582,10 +605,14 @@ impl Widget<InboxState> for SettingsModal {
                                                 items: theme_items,
                                                 ..Default::default()
                                             }
-                                            .build_node(ctx, view),
+                                            .build(ctx, view)
+                                            .into_widget()
+                                            .lower_to_node(ctx, view),
                                         ),
                                     }
-                                    .build_node(ctx, view),
+                                    .build(ctx, view)
+                                    .into_widget()
+                                    .lower_to_node(ctx, view),
                                     FormControl {
                                         id: None,
                                         label: Some(t("settings.density.label")),
@@ -610,10 +637,14 @@ impl Widget<InboxState> for SettingsModal {
                                                 items: density_items,
                                                 ..Default::default()
                                             }
-                                            .build_node(ctx, view),
+                                            .build(ctx, view)
+                                            .into_widget()
+                                            .lower_to_node(ctx, view),
                                         ),
                                     }
-                                    .build_node(ctx, view),
+                                    .build(ctx, view)
+                                    .into_widget()
+                                    .lower_to_node(ctx, view),
                                     FormControl {
                                         id: None,
                                         label: Some(t("settings.zoom.label")),
@@ -637,7 +668,9 @@ impl Widget<InboxState> for SettingsModal {
                                             .into_node(),
                                         ),
                                     }
-                                    .build_node(ctx, view),
+                                    .build(ctx, view)
+                                    .into_widget()
+                                    .lower_to_node(ctx, view),
                                     Grid {
                                         id: None,
                                         columns: vec![GridTrack::Fr(1.0), GridTrack::Fr(1.0)],
@@ -684,7 +717,9 @@ impl Widget<InboxState> for SettingsModal {
                                                     ),
                                                     ..Default::default()
                                                 }
-                                                .build_node(ctx, view),
+                                                .build(ctx, view)
+                                                .into_widget()
+                                                .lower_to_node(ctx, view),
                                             )
                                             .into_node(),
                                             GridItem::new(
@@ -724,7 +759,9 @@ impl Widget<InboxState> for SettingsModal {
                                                     ),
                                                     ..Default::default()
                                                 }
-                                                .build_node(ctx, view),
+                                                .build(ctx, view)
+                                                .into_widget()
+                                                .lower_to_node(ctx, view),
                                             )
                                             .into_node(),
                                         ],
@@ -734,7 +771,9 @@ impl Widget<InboxState> for SettingsModal {
                                         orientation:
                                             fission::widgets::divider::Orientation::Horizontal,
                                     }
-                                    .build_node(ctx, view),
+                                    .build(ctx, view)
+                                    .into_widget()
+                                    .lower_to_node(ctx, view),
                                     Text::new(TextContent::Key("settings.signature.title".into()))
                                         .size(14.0)
                                         .into_node(),
@@ -746,7 +785,9 @@ impl Widget<InboxState> for SettingsModal {
                                         helper: Some("Displayed at the end of new emails".into()),
                                         child: Box::new(signature_editor),
                                     }
-                                    .build_node(ctx, view),
+                                    .build(ctx, view)
+                                    .into_widget()
+                                    .lower_to_node(ctx, view),
                                     Button {
                                         variant: ButtonVariant::Outline,
                                         child: Some(Box::new(
@@ -769,7 +810,9 @@ impl Widget<InboxState> for SettingsModal {
                                         orientation:
                                             fission::widgets::divider::Orientation::Horizontal,
                                     }
-                                    .build_node(ctx, view),
+                                    .build(ctx, view)
+                                    .into_widget()
+                                    .lower_to_node(ctx, view),
                                     Text::new(TextContent::Key("settings.labs.title".into()))
                                         .size(14.0)
                                         .into_node(),
@@ -889,7 +932,9 @@ impl Widget<InboxState> for SettingsModal {
                                         ),
                                         ..Default::default()
                                     }
-                                    .build_node(ctx, view),
+                                    .build(ctx, view)
+                                    .into_widget()
+                                    .lower_to_node(ctx, view),
                                     Text::new(TextContent::Key("settings.labels.title".into()))
                                         .size(12.0)
                                         .into_node(),
@@ -898,7 +943,9 @@ impl Widget<InboxState> for SettingsModal {
                                         spacing: Some(6.0),
                                         children: draggable_labels,
                                     }
-                                    .build_node(ctx, view),
+                                    .build(ctx, view)
+                                    .into_widget()
+                                    .lower_to_node(ctx, view),
                                     drop_target,
                                     pinned_badge,
                                     HStack {
@@ -937,7 +984,9 @@ impl Widget<InboxState> for SettingsModal {
                                                 text: "Beta".into(),
                                                 ..Default::default()
                                             }
-                                            .build_node(ctx, view),
+                                            .build(ctx, view)
+                                            .into_widget()
+                                            .lower_to_node(ctx, view),
                                         ],
                                     }
                                     .into_node(),
@@ -959,10 +1008,14 @@ impl Widget<InboxState> for SettingsModal {
                                                 on_change: None,
                                                 ..Default::default()
                                             }
-                                            .build_node(ctx, view),
+                                            .build(ctx, view)
+                                            .into_widget()
+                                            .lower_to_node(ctx, view),
                                         ),
                                     }
-                                    .build_node(ctx, view),
+                                    .build(ctx, view)
+                                    .into_widget()
+                                    .lower_to_node(ctx, view),
                                 ],
                             }
                             .into_node(),
@@ -982,7 +1035,9 @@ impl Widget<InboxState> for SettingsModal {
                     )),
                 }],
             }
-            .build_node(ctx, view)
+            .build(ctx, view)
+            .into_widget()
+            .lower_to_node(ctx, view)
         })
     }
 }

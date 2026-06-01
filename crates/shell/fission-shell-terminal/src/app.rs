@@ -17,6 +17,7 @@ use crossterm::{execute, queue};
 use fission_core::event::ImeEvent;
 use fission_core::lowering::build_layout_tree;
 use fission_core::ui::{Container, Node, Overlay, ZStack};
+use fission_core::IntoWidget;
 use fission_core::{
     AppState, BuildCtx, Env, InputEvent, KeyCode, KeyEvent, LayoutEngine, LayoutPoint, LayoutSize,
     LayoutSnapshot, LoweringContext, PointerButton, PointerEvent, Runtime, RuntimeState, View,
@@ -166,7 +167,7 @@ where
             self.env.measurer = Some(self.measurer.clone());
         }
 
-        let node_tree = self.build_node_tree(viewport)?;
+        let node_tree = self.build_tree(viewport)?;
         let mut cx = LoweringContext::new(
             &self.env,
             &self.runtime.runtime_state,
@@ -333,7 +334,7 @@ where
         Ok(changed)
     }
 
-    fn build_node_tree(&mut self, viewport: LayoutSize) -> Result<Node> {
+    fn build_tree(&mut self, viewport: LayoutSize) -> Result<Node> {
         let state = self
             .runtime
             .get_app_state::<S>()
@@ -345,7 +346,11 @@ where
             self.last_snapshot.as_ref(),
         );
         let mut ctx = BuildCtx::<S>::new();
-        let tree = self.root.build_node(&mut ctx, &view);
+        let tree = self
+            .root
+            .build(&mut ctx, &view)
+            .into_widget()
+            .lower_to_node(&mut ctx, &view);
 
         self.runtime.clear_reducers();
         let animation_requests = ctx.take_animation_requests();
@@ -364,7 +369,7 @@ where
             .map(|(id, node)| {
                 if let Some(id) = id {
                     let wrapper_id = fission_ir::NodeId::derived(id.as_u128(), &[0x0000_F001]);
-                    Container::new(node)
+                    fission_core::ui::Container::<fission_core::ui::Node>::lowered(node)
                         .id(wrapper_id)
                         .width(viewport.width)
                         .height(viewport.height)
@@ -381,12 +386,12 @@ where
             Ok(Node::Overlay(Overlay {
                 id: None,
                 content: Box::new(
-                    Container::new(tree)
+                    fission_core::ui::Container::<fission_core::ui::Node>::lowered(tree)
                         .width(viewport.width)
                         .height(viewport.height)
                         .into_node(),
                 ),
-                overlay: Box::new(Node::ZStack(ZStack {
+                overlay: Box::new(Node::ZStack(ZStack::<fission_core::ui::Node> {
                     id: None,
                     children: portals,
                 })),

@@ -1,4 +1,5 @@
 use anyhow::{Context, Result};
+use fission_core::IntoWidget;
 use fission_core::{ActionEnvelope, ActionRegistry, AppState, BuildCtx, Env, Runtime, View};
 use fission_ir::NodeId;
 use std::collections::HashMap;
@@ -484,7 +485,10 @@ fn build_tray_menu<S: AppState>(
             env,
             pipeline.last_snapshot.as_ref(),
         );
-        menu_widget.build_node(&mut ctx, &view)
+        menu_widget
+            .build(&mut ctx, &view)
+            .into_widget()
+            .lower_to_node(&mut ctx, &view)
     } else {
         TrayMenu::new()
     };

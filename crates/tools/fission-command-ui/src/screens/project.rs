@@ -8,6 +8,7 @@ use crate::components::{ActionButton, ButtonTone, FormTextField, KeyValueRow};
 use crate::state::{all_targets, target_label, UiState};
 use crate::theme::UiPalette;
 use fission::prelude::*;
+use fission::IntoWidget;
 
 #[derive(Clone)]
 pub struct ProjectScreen;
@@ -18,7 +19,7 @@ impl Widget<UiState> for ProjectScreen {
         ctx: &mut BuildCtx<UiState>,
         view: &View<UiState>,
     ) -> impl fission::IntoWidget<UiState> {
-        fission::AnyWidget::from_node({
+        fission::core::view::internal_node_widget({
             let palette = UiPalette::for_mode(view.state.theme_mode);
             let init = with_reducer!(ctx, RequestCommand(UiCommand::InitProject), request_command);
             let refresh = with_reducer!(ctx, RequestCommand(UiCommand::Refresh), request_command);
@@ -41,7 +42,9 @@ impl Widget<UiState> for ProjectScreen {
                     ActionButton::new(format!("Add {}", target_label(target)), action)
                         .tone(ButtonTone::Neutral)
                         .width(20.0)
-                        .build_node(ctx, view),
+                        .build(ctx, view)
+                        .into_widget()
+                        .lower_to_node(ctx, view),
                 );
             }
             let target_section = if target_buttons.is_empty() {
@@ -66,10 +69,17 @@ impl Widget<UiState> for ProjectScreen {
                         palette.muted,
                     ),
                     KeyValueRow::new("Directory", view.state.project_dir.display().to_string())
-                        .build_node(ctx, view),
-                    KeyValueRow::new("App id", view.state.app_id.clone()).build_node(ctx, view),
+                        .build(ctx, view)
+                        .into_widget()
+                        .lower_to_node(ctx, view),
+                    KeyValueRow::new("App id", view.state.app_id.clone())
+                        .build(ctx, view)
+                        .into_widget()
+                        .lower_to_node(ctx, view),
                     KeyValueRow::new("Status", view.state.project_status.clone())
-                        .build_node(ctx, view),
+                        .build(ctx, view)
+                        .into_widget()
+                        .lower_to_node(ctx, view),
                     Row {
                         gap: Some(1.0),
                         children: vec![
@@ -81,7 +91,9 @@ impl Widget<UiState> for ProjectScreen {
                                 set_name,
                             )
                             .width(24.0)
-                            .build_node(ctx, view),
+                            .build(ctx, view)
+                            .into_widget()
+                            .lower_to_node(ctx, view),
                             FormTextField::new(
                                 "cli_ui_init_app_id",
                                 "App id override",
@@ -90,7 +102,9 @@ impl Widget<UiState> for ProjectScreen {
                                 set_app_id,
                             )
                             .width(32.0)
-                            .build_node(ctx, view),
+                            .build(ctx, view)
+                            .into_widget()
+                            .lower_to_node(ctx, view),
                             FormTextField::new(
                                 "cli_ui_init_local_path",
                                 "Local Fission",
@@ -99,7 +113,9 @@ impl Widget<UiState> for ProjectScreen {
                                 set_local_path,
                             )
                             .width(30.0)
-                            .build_node(ctx, view),
+                            .build(ctx, view)
+                            .into_widget()
+                            .lower_to_node(ctx, view),
                         ],
                         ..Default::default()
                     }
@@ -109,10 +125,14 @@ impl Widget<UiState> for ProjectScreen {
                         children: vec![
                             ActionButton::new("Initialise project", init)
                                 .tone(ButtonTone::Primary)
-                                .build_node(ctx, view),
+                                .build(ctx, view)
+                                .into_widget()
+                                .lower_to_node(ctx, view),
                             ActionButton::new("Refresh", refresh)
                                 .tone(ButtonTone::Neutral)
-                                .build_node(ctx, view),
+                                .build(ctx, view)
+                                .into_widget()
+                                .lower_to_node(ctx, view),
                         ],
                         ..Default::default()
                     }

@@ -6,6 +6,7 @@ use super::home_widgets::{
 use super::state::DocsState;
 use fission::op::{AlignItems, Fill, FlexWrap, JustifyContent, TextAlign};
 use fission::prelude::*;
+use fission::IntoWidget;
 
 #[derive(Clone, Debug)]
 pub(super) struct HomePageHero;
@@ -16,12 +17,12 @@ impl Widget<DocsState> for HomePageHero {
         ctx: &mut BuildCtx<DocsState>,
         view: &View<DocsState>,
     ) -> impl fission::IntoWidget<DocsState> {
-        fission::AnyWidget::from_node({
+        fission::core::view::internal_node_widget({
             let tokens = &view.env.theme.tokens;
             semantic_column(
             "site-home-hero",
             vec![
-                Pill::new("Rust application platform").build_node(ctx, view),
+                Pill::new("Rust application platform").build(ctx, view).into_widget().lower_to_node(ctx, view),
                 Text::new("Build, test, package, and release production apps in Rust.")
                     .size(tokens.typography.display_md_size)
                     .family(tokens.typography.font_family_serif.clone())
@@ -57,11 +58,11 @@ impl Widget<DocsState> for HomePageHero {
                 Row {
                     children: vec![
                         Cta::new("Start building ->", "/docs/learn/quickstart/", true)
-                            .build_node(ctx, view),
+                            .build(ctx, view).into_widget().lower_to_node(ctx, view),
                         Cta::new("Explore platform", "/product/overview/", false)
-                            .build_node(ctx, view),
+                            .build(ctx, view).into_widget().lower_to_node(ctx, view),
                         NavLink::new("Release workflow ->", "/docs/release-and-distribute/overview/")
-                            .build_node(ctx, view),
+                            .build(ctx, view).into_widget().lower_to_node(ctx, view),
                     ],
                     gap: Some(tokens.spacing.m),
                     wrap: FlexWrap::Wrap,
@@ -71,10 +72,10 @@ impl Widget<DocsState> for HomePageHero {
                 .into_node(),
                 Row {
                     children: vec![
-                        CodeCard::new("Create an app", "fission init my-app").build_node(ctx, view),
+                        CodeCard::new("Create an app", "fission init my-app").build(ctx, view).into_widget().lower_to_node(ctx, view),
                         CodeCard::new("Run on a target", "fission run --project-dir my-app")
-                            .build_node(ctx, view),
-                        CodeCard::new("Check release readiness", "fission readiness release --target windows --format msix --provider microsoft-store").build_node(ctx, view),
+                            .build(ctx, view).into_widget().lower_to_node(ctx, view),
+                        CodeCard::new("Check release readiness", "fission readiness release --target windows --format msix --provider microsoft-store").build(ctx, view).into_widget().lower_to_node(ctx, view),
                     ],
                     gap: Some(tokens.spacing.m),
                     wrap: FlexWrap::Wrap,
@@ -84,11 +85,11 @@ impl Widget<DocsState> for HomePageHero {
                 .into_node(),
                 Row {
                     children: vec![
-                        StatusText::new("Desktop").build_node(ctx, view),
-                        StatusText::new("Web/WASM").build_node(ctx, view),
-                        StatusText::new("Android + iOS").build_node(ctx, view),
-                        StatusText::new("Terminal UI").build_node(ctx, view),
-                        StatusText::new("Static HTML").build_node(ctx, view),
+                        StatusText::new("Desktop").build(ctx, view).into_widget().lower_to_node(ctx, view),
+                        StatusText::new("Web/WASM").build(ctx, view).into_widget().lower_to_node(ctx, view),
+                        StatusText::new("Android + iOS").build(ctx, view).into_widget().lower_to_node(ctx, view),
+                        StatusText::new("Terminal UI").build(ctx, view).into_widget().lower_to_node(ctx, view),
+                        StatusText::new("Static HTML").build(ctx, view).into_widget().lower_to_node(ctx, view),
                     ],
                     gap: Some(tokens.spacing.l),
                     wrap: FlexWrap::Wrap,
@@ -113,7 +114,7 @@ impl Widget<DocsState> for ProofStrip {
         ctx: &mut BuildCtx<DocsState>,
         view: &View<DocsState>,
     ) -> impl fission::IntoWidget<DocsState> {
-        fission::AnyWidget::from_node({
+        fission::core::view::internal_node_widget({
             let tokens = &view.env.theme.tokens;
             semantic_column(
             "site-home-signals",
@@ -123,7 +124,7 @@ impl Widget<DocsState> for ProofStrip {
                     "One platform for the whole application lifecycle.",
                     "Fission combines a Rust UI runtime, target shells, developer workflow, package readiness, release content, and distribution tooling so teams do not have to invent a platform around the framework.",
                 )
-                .build_node(ctx, view),
+                .build(ctx, view).into_widget().lower_to_node(ctx, view),
                 Row {
                     children: vec![
                         LinkCard::new(
@@ -133,7 +134,7 @@ impl Widget<DocsState> for ProofStrip {
                             "Learn the model ->",
                             "/docs/learn/overview/",
                         )
-                        .build_node(ctx, view),
+                        .build(ctx, view).into_widget().lower_to_node(ctx, view),
                         LinkCard::new(
                             "Run",
                             "Real target shells",
@@ -141,7 +142,7 @@ impl Widget<DocsState> for ProofStrip {
                             "See targets ->",
                             "/product/cross-platform-apps/",
                         )
-                        .build_node(ctx, view),
+                        .build(ctx, view).into_widget().lower_to_node(ctx, view),
                         LinkCard::new(
                             "Verify",
                             "Tests and diagnostics",
@@ -149,7 +150,7 @@ impl Widget<DocsState> for ProofStrip {
                             "Debug path ->",
                             "/docs/test-and-debug/overview/",
                         )
-                        .build_node(ctx, view),
+                        .build(ctx, view).into_widget().lower_to_node(ctx, view),
                         LinkCard::new(
                             "Ship",
                             "Post-build lifecycle",
@@ -157,7 +158,7 @@ impl Widget<DocsState> for ProofStrip {
                             "Release path ->",
                             "/product/production-lifecycle/",
                         )
-                        .build_node(ctx, view),
+                        .build(ctx, view).into_widget().lower_to_node(ctx, view),
                     ],
                     gap: Some(tokens.spacing.m),
                     wrap: FlexWrap::Wrap,
@@ -182,7 +183,7 @@ impl Widget<DocsState> for LifecycleSection {
         ctx: &mut BuildCtx<DocsState>,
         view: &View<DocsState>,
     ) -> impl fission::IntoWidget<DocsState> {
-        fission::AnyWidget::from_node({
+        fission::core::view::internal_node_widget({
             let tokens = &view.env.theme.tokens;
             ShellSection::new(
             Column {
@@ -238,8 +239,8 @@ impl Widget<DocsState> for LifecycleSection {
                     .into_node(),
                     Row {
                         children: vec![
-                            Cta::new("Open lifecycle docs", "/docs/release-and-distribute/overview/", true).build_node(ctx, view),
-                            Cta::new("Read product page", "/product/production-lifecycle/", false).build_node(ctx, view),
+                            Cta::new("Open lifecycle docs", "/docs/release-and-distribute/overview/", true).build(ctx, view).into_widget().lower_to_node(ctx, view),
+                            Cta::new("Read product page", "/product/production-lifecycle/", false).build(ctx, view).into_widget().lower_to_node(ctx, view),
                         ],
                         gap: Some(tokens.spacing.s),
                         wrap: FlexWrap::Wrap,
@@ -252,7 +253,7 @@ impl Widget<DocsState> for LifecycleSection {
             }
             .into_node(),
         )
-        .build_node(ctx, view)
+        .build(ctx, view).into_widget().lower_to_node(ctx, view)
         })
     }
 }
@@ -266,7 +267,7 @@ impl Widget<DocsState> for ArchitectureSection {
         ctx: &mut BuildCtx<DocsState>,
         view: &View<DocsState>,
     ) -> impl fission::IntoWidget<DocsState> {
-        fission::AnyWidget::from_node({
+        fission::core::view::internal_node_widget({
             let tokens = &view.env.theme.tokens;
             ShellSection::new(
             Column {
@@ -323,7 +324,7 @@ impl Widget<DocsState> for ArchitectureSection {
             }
             .into_node(),
         )
-        .build_node(ctx, view)
+        .build(ctx, view).into_widget().lower_to_node(ctx, view)
         })
     }
 }
@@ -337,7 +338,7 @@ impl Widget<DocsState> for ModelSection {
         ctx: &mut BuildCtx<DocsState>,
         view: &View<DocsState>,
     ) -> impl fission::IntoWidget<DocsState> {
-        fission::AnyWidget::from_node({
+        fission::core::view::internal_node_widget({
             let tokens = &view.env.theme.tokens;
             semantic_row(
             "site-home-model",
@@ -368,9 +369,9 @@ impl Widget<DocsState> for ModelSection {
                         Row {
                             children: vec![
                                 Cta::new("Read the model", "/docs/learn/runtime-model/", true)
-                                    .build_node(ctx, view),
+                                    .build(ctx, view).into_widget().lower_to_node(ctx, view),
                                 Cta::new("Browse reference", "/reference/overview/overview/", false)
-                                    .build_node(ctx, view),
+                                    .build(ctx, view).into_widget().lower_to_node(ctx, view),
                             ],
                             gap: Some(tokens.spacing.s),
                             wrap: FlexWrap::Wrap,
@@ -385,10 +386,10 @@ impl Widget<DocsState> for ModelSection {
                 .into_node(),
                 Row {
                     children: vec![
-                        LinkCard::new("01", "Plain Rust data stays in charge.", "Product truth is not hidden inside widgets or host callbacks.", "State", "/docs/learn/runtime-model/").build_node(ctx, view),
-                        LinkCard::new("02", "Every durable change has a named cause.", "Typed actions and reducers keep behavior reviewable and testable.", "Reducers", "/docs/learn/runtime-model/").build_node(ctx, view),
-                        LinkCard::new("03", "Outside work has an explicit path.", "Files, timers, authentication, and services do not leak through rendering.", "Host work", "/docs/guides/resources-and-async/").build_node(ctx, view),
-                        LinkCard::new("04", "Layout and paint stay inspectable.", "Tests and diagnostics can inspect structure, semantics, and paint order directly.", "Render", "/docs/learn/rendering-pipeline/").build_node(ctx, view),
+                        LinkCard::new("01", "Plain Rust data stays in charge.", "Product truth is not hidden inside widgets or host callbacks.", "State", "/docs/learn/runtime-model/").build(ctx, view).into_widget().lower_to_node(ctx, view),
+                        LinkCard::new("02", "Every durable change has a named cause.", "Typed actions and reducers keep behavior reviewable and testable.", "Reducers", "/docs/learn/runtime-model/").build(ctx, view).into_widget().lower_to_node(ctx, view),
+                        LinkCard::new("03", "Outside work has an explicit path.", "Files, timers, authentication, and services do not leak through rendering.", "Host work", "/docs/guides/resources-and-async/").build(ctx, view).into_widget().lower_to_node(ctx, view),
+                        LinkCard::new("04", "Layout and paint stay inspectable.", "Tests and diagnostics can inspect structure, semantics, and paint order directly.", "Render", "/docs/learn/rendering-pipeline/").build(ctx, view).into_widget().lower_to_node(ctx, view),
                     ],
                     gap: Some(tokens.spacing.m),
                     wrap: FlexWrap::Wrap,
@@ -415,7 +416,7 @@ impl Widget<DocsState> for TargetsSection {
         ctx: &mut BuildCtx<DocsState>,
         view: &View<DocsState>,
     ) -> impl fission::IntoWidget<DocsState> {
-        fission::AnyWidget::from_node({
+        fission::core::view::internal_node_widget({
             let tokens = &view.env.theme.tokens;
             semantic_column(
             "site-home-targets",
@@ -425,14 +426,14 @@ impl Widget<DocsState> for TargetsSection {
                     "Desktop, mobile, web, terminal, and static HTML are first-class outputs.",
                     "Start on the host that answers your next product question fastest, then validate on every real target your users will touch.",
                 )
-                .build_node(ctx, view),
+                .build(ctx, view).into_widget().lower_to_node(ctx, view),
                 Column {
                     children: vec![
-                        TargetRowCard::new("Desktop", "First-class", "macOS - Linux - Windows", "fission run --target desktop", "Native windows, rendering, input, diagnostics, package readiness, and desktop release paths.", "/product/cross-platform-apps/", "Desktop path ->").build_node(ctx, view),
-                        TargetRowCard::new("Web", "First-class", "WASM", "fission run --target web", "Browser delivery with the same shared app model and web/static packaging workflow.", "/product/cross-platform-apps/", "Web path ->").build_node(ctx, view),
-                        TargetRowCard::new("Mobile", "First-class", "Android - iOS", "fission devices", "Generated mobile hosts, emulator/simulator workflow, APK/AAB/IPA readiness, and store publishing.", "/product/cross-platform-apps/", "Mobile path ->").build_node(ctx, view),
-                        TargetRowCard::new("Terminal UI", "First-class", "Windows - macOS - Linux", "fission ui", "Interactive terminal apps built from normal Fission widgets, reducers, screens, and routes.", "/product/terminal-apps/", "Terminal path ->").build_node(ctx, view),
-                        TargetRowCard::new("Static HTML", "First-class", "Sites - Docs - Marketing", "fission site build", "SEO-friendly static HTML from Fission widgets, Markdown content, search, metadata, and assets.", "/product/static-sites/", "Site path ->").build_node(ctx, view),
+                        TargetRowCard::new("Desktop", "First-class", "macOS - Linux - Windows", "fission run --target desktop", "Native windows, rendering, input, diagnostics, package readiness, and desktop release paths.", "/product/cross-platform-apps/", "Desktop path ->").build(ctx, view).into_widget().lower_to_node(ctx, view),
+                        TargetRowCard::new("Web", "First-class", "WASM", "fission run --target web", "Browser delivery with the same shared app model and web/static packaging workflow.", "/product/cross-platform-apps/", "Web path ->").build(ctx, view).into_widget().lower_to_node(ctx, view),
+                        TargetRowCard::new("Mobile", "First-class", "Android - iOS", "fission devices", "Generated mobile hosts, emulator/simulator workflow, APK/AAB/IPA readiness, and store publishing.", "/product/cross-platform-apps/", "Mobile path ->").build(ctx, view).into_widget().lower_to_node(ctx, view),
+                        TargetRowCard::new("Terminal UI", "First-class", "Windows - macOS - Linux", "fission ui", "Interactive terminal apps built from normal Fission widgets, reducers, screens, and routes.", "/product/terminal-apps/", "Terminal path ->").build(ctx, view).into_widget().lower_to_node(ctx, view),
+                        TargetRowCard::new("Static HTML", "First-class", "Sites - Docs - Marketing", "fission site build", "SEO-friendly static HTML from Fission widgets, Markdown content, search, metadata, and assets.", "/product/static-sites/", "Site path ->").build(ctx, view).into_widget().lower_to_node(ctx, view),
                     ],
                     gap: Some(tokens.spacing.s),
                     ..Default::default()
@@ -455,7 +456,7 @@ impl Widget<DocsState> for ChartsSection {
         ctx: &mut BuildCtx<DocsState>,
         view: &View<DocsState>,
     ) -> impl fission::IntoWidget<DocsState> {
-        fission::AnyWidget::from_node({
+        fission::core::view::internal_node_widget({
             let tokens = &view.env.theme.tokens;
             semantic_column(
             "site-home-charts",
@@ -491,8 +492,8 @@ impl Widget<DocsState> for ChartsSection {
                                     .into_node(),
                                 Row {
                                     children: vec![
-                                        Cta::new("Explore Charts", "/reference/charts/overview/", true).build_node(ctx, view),
-                                        Cta::new("Open catalog", "/docs/charts/catalog/", false).build_node(ctx, view),
+                                        Cta::new("Explore Charts", "/reference/charts/overview/", true).build(ctx, view).into_widget().lower_to_node(ctx, view),
+                                        Cta::new("Open catalog", "/docs/charts/catalog/", false).build(ctx, view).into_widget().lower_to_node(ctx, view),
                                     ],
                                     gap: Some(tokens.spacing.s),
                                     wrap: FlexWrap::Wrap,
@@ -514,11 +515,11 @@ impl Widget<DocsState> for ChartsSection {
                 .into_node(),
                 Row {
                     children: vec![
-                        ChartImageCard::new("Gradient area line", "/img/charts/line-gradient-area.png").build_node(ctx, view),
-                        ChartImageCard::new("Ranked bar", "/img/charts/bar-horizontal.png").build_node(ctx, view),
-                        ChartImageCard::new("Quarter calendar heatmap", "/img/charts/calendar-user-activity.png").build_node(ctx, view),
-                        ChartImageCard::new("Energy sankey", "/img/charts/sankey-energy.png").build_node(ctx, view),
-                        ChartImageCard::new("3D wave surface", "/img/charts/surface3d-wave.png").with_badge("3D / GL").build_node(ctx, view),
+                        ChartImageCard::new("Gradient area line", "/img/charts/line-gradient-area.png").build(ctx, view).into_widget().lower_to_node(ctx, view),
+                        ChartImageCard::new("Ranked bar", "/img/charts/bar-horizontal.png").build(ctx, view).into_widget().lower_to_node(ctx, view),
+                        ChartImageCard::new("Quarter calendar heatmap", "/img/charts/calendar-user-activity.png").build(ctx, view).into_widget().lower_to_node(ctx, view),
+                        ChartImageCard::new("Energy sankey", "/img/charts/sankey-energy.png").build(ctx, view).into_widget().lower_to_node(ctx, view),
+                        ChartImageCard::new("3D wave surface", "/img/charts/surface3d-wave.png").with_badge("3D / GL").build(ctx, view).into_widget().lower_to_node(ctx, view),
                     ],
                     gap: Some(tokens.spacing.m),
                     wrap: FlexWrap::Wrap,
@@ -532,7 +533,7 @@ impl Widget<DocsState> for ChartsSection {
                         "Relationship", "Map", "Component", "Dynamic", "3D",
                     ]
                     .iter()
-                    .map(|label| Chip::new(label).build_node(ctx, view))
+                    .map(|label| Chip::new(label).build(ctx, view).into_widget().lower_to_node(ctx, view))
                     .collect(),
                     gap: Some(tokens.spacing.s),
                     wrap: FlexWrap::Wrap,
@@ -557,18 +558,18 @@ impl Widget<DocsState> for ExamplesSection {
         ctx: &mut BuildCtx<DocsState>,
         view: &View<DocsState>,
     ) -> impl fission::IntoWidget<DocsState> {
-        fission::AnyWidget::from_node({
+        fission::core::view::internal_node_widget({
             CenteredSection::new(
             "Examples",
             "Examples across the platform, not only the widget layer.",
             "Start with the smallest app, then inspect the examples that prove targets, charts, static sites, terminal tooling, and release workflow.",
             vec![
-                ExampleCard::new("Starter", "Counter", "cargo run -p counter", "The smallest complete Fission app loop: plain state, two reducers, a widget tree, and buttons bound with the public prelude macros.", "typed actions and reducers", "single-file starter app", "/docs/cookbook/build-a-counter/", "/reference/core/state-system/").build_node(ctx, view),
-                ExampleCard::new("Site", "Documentation", "fission site build --project-dir documentation", "This website is a Fission static site: custom homepage widgets, Markdown content routes, generated search, metadata, sidebars, and GitHub Pages output.", "static HTML shell", "content routes and custom widgets", "/docs/guides/static-sites/", "/product/static-sites/").build_node(ctx, view),
-                ExampleCard::new("Terminal", "Fission command UI", "fission ui --project-dir .", "The CLI includes a terminal Fission app with screens, routes, reducers, dialogs, command sessions, logs, settings, density, and theme switching.", "terminal shell", "non-blocking command workflow", "/docs/guides/terminal-user-interfaces/", "/product/terminal-apps/").build_node(ctx, view),
+                ExampleCard::new("Starter", "Counter", "cargo run -p counter", "The smallest complete Fission app loop: plain state, two reducers, a widget tree, and buttons bound with the public prelude macros.", "typed actions and reducers", "single-file starter app", "/docs/cookbook/build-a-counter/", "/reference/core/state-system/").build(ctx, view).into_widget().lower_to_node(ctx, view),
+                ExampleCard::new("Site", "Documentation", "fission site build --project-dir documentation", "This website is a Fission static site: custom homepage widgets, Markdown content routes, generated search, metadata, sidebars, and GitHub Pages output.", "static HTML shell", "content routes and custom widgets", "/docs/guides/static-sites/", "/product/static-sites/").build(ctx, view).into_widget().lower_to_node(ctx, view),
+                ExampleCard::new("Terminal", "Fission command UI", "fission ui --project-dir .", "The CLI includes a terminal Fission app with screens, routes, reducers, dialogs, command sessions, logs, settings, density, and theme switching.", "terminal shell", "non-blocking command workflow", "/docs/guides/terminal-user-interfaces/", "/product/terminal-apps/").build(ctx, view).into_widget().lower_to_node(ctx, view),
             ],
         )
-        .build_node(ctx, view)
+        .build(ctx, view).into_widget().lower_to_node(ctx, view)
         })
     }
 }
@@ -582,12 +583,13 @@ impl Widget<DocsState> for FinalCta {
         ctx: &mut BuildCtx<DocsState>,
         view: &View<DocsState>,
     ) -> impl fission::IntoWidget<DocsState> {
-        fission::AnyWidget::from_node({
-            let tokens = &view.env.theme.tokens;
-            Container::new(
+        fission::core::view::internal_node_widget({
+            {
+                let tokens = &view.env.theme.tokens;
+                Container::<fission::Node>::lowered(
             Column {
                 children: vec![
-                    Pill::new("Next").build_node(ctx, view),
+                    Pill::new("Next").build(ctx, view).into_widget().lower_to_node(ctx, view),
                     Text::new("Pick a lifecycle stage and keep moving.")
                         .size(tokens.typography.heading1_size)
                         .family(tokens.typography.font_family_serif.clone())
@@ -606,9 +608,9 @@ impl Widget<DocsState> for FinalCta {
                         .into_node(),
                     Row {
                         children: vec![
-                            Cta::new("Start docs", "/docs/intro/", true).build_node(ctx, view),
-                            Cta::new("Product overview", "/product/overview/", false).build_node(ctx, view),
-                            NavLink::new("Reference ->", "/reference/overview/overview/").build_node(ctx, view),
+                            Cta::new("Start docs", "/docs/intro/", true).build(ctx, view).into_widget().lower_to_node(ctx, view),
+                            Cta::new("Product overview", "/product/overview/", false).build(ctx, view).into_widget().lower_to_node(ctx, view),
+                            NavLink::new("Reference ->", "/reference/overview/overview/").build(ctx, view).into_widget().lower_to_node(ctx, view),
                         ],
                         gap: Some(tokens.spacing.m),
                         wrap: FlexWrap::Wrap,
@@ -633,6 +635,7 @@ impl Widget<DocsState> for FinalCta {
             ],
         })
         .into_node()
+            }
         })
     }
 }
@@ -645,7 +648,7 @@ fn boundary_panel(
     items: &[&'static str],
 ) -> Node {
     let tokens = &view.env.theme.tokens;
-    Container::new(
+    Container::<fission::Node>::lowered(
         Column {
             children: vec![
                 Text::new(kicker)
@@ -697,7 +700,7 @@ fn lifecycle_step(
     title: &'static str,
     body: &'static str,
 ) -> Node {
-    Container::new(
+    Container::<fission::Node>::lowered(
         Column {
             children: vec![
                 Text::new(number)
@@ -734,7 +737,7 @@ fn lifecycle_step(
 }
 
 fn reducer_card(tokens: &Tokens) -> Node {
-    Container::new(
+    Container::<fission::Node>::lowered(
         Text::new("fn reduce(state: &mut AppState, action: Action) {\n  match action {\n    Action::Inc => state.count += 1,\n    Action::Reset => state.count = 0,\n  }\n}")
             .size(tokens.typography.font_size_sm)
             .family(tokens.typography.font_family_mono.clone())

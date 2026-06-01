@@ -25,45 +25,24 @@ impl Widget<CounterState> for CounterApp {
         ctx: &mut BuildCtx<CounterState>,
         view: &View<CounterState>,
     ) -> impl fission::IntoWidget<CounterState> {
-        fission::AnyWidget::from_node({
+        {
             let decrement = with_reducer!(ctx, Decrement, decrement);
             let increment = with_reducer!(ctx, Increment, increment);
 
             Container::new(
-                Column {
-                    gap: Some(20.0),
-                    children: vec![
-                        Text::new("Counter").size(32.0).into_node(),
-                        Text::new(format!("{}", view.state.count))
-                            .size(56.0)
-                            .into_node(),
-                        Row {
-                            gap: Some(12.0),
-                            children: vec![
-                                Button {
-                                    on_press: Some(decrement),
-                                    child: Some(Box::new(Text::new("Decrement").into_node())),
-                                    ..Default::default()
-                                }
-                                .into_node(),
-                                Button {
-                                    on_press: Some(increment),
-                                    child: Some(Box::new(Text::new("Increment").into_node())),
-                                    ..Default::default()
-                                }
-                                .into_node(),
-                            ],
-                            ..Default::default()
-                        }
-                        .into_node(),
-                    ],
-                    ..Default::default()
-                }
-                .into_node(),
+                Column::new()
+                    .gap(Some(20.0))
+                    .child(Text::new("Counter").size(32.0))
+                    .child(Text::new(format!("{}", view.state.count)).size(56.0))
+                    .child(
+                        Row::new()
+                            .gap(12.0)
+                            .child(Button::new(Text::new("Decrement")).on_press(decrement))
+                            .child(Button::new(Text::new("Increment")).on_press(increment)),
+                    ),
             )
             .padding_all(32.0)
-            .into_node()
-        })
+        }
     }
 }
 

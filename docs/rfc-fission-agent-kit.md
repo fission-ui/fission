@@ -442,7 +442,7 @@ pub struct EmptyInboxState {
 }
 
 impl Widget for EmptyInboxState {
-    fn build(&self, ctx: &mut BuildCtx) -> Node {
+    fn build(&self, ctx: &mut BuildCtx<AppState>, view: &View<AppState>) -> impl IntoWidget<AppState> {
         // real implementation generated from the selected template
         todo!()
     }

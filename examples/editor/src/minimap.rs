@@ -9,6 +9,7 @@ use fission::widgets::{Spacer, VStack};
 /// as a thin coloured bar whose hue hints at the kind of content (comment,
 /// string literal, blank, or plain code) and whose width is proportional to
 /// the trimmed line length.
+#[derive(Clone)]
 pub struct Minimap;
 
 /// Background colour for the minimap column.
@@ -84,17 +85,17 @@ impl Widget<EditorState> for Minimap {
         _ctx: &mut BuildCtx<EditorState>,
         view: &View<EditorState>,
     ) -> impl fission::IntoWidget<EditorState> {
-        fission::AnyWidget::from_node({
+        fission::core::view::internal_node_widget({
             // If there is no active buffer we collapse to nothing.
             let Some((_tab, buffer)) = view.state.active_buffer() else {
-                return fission::AnyWidget::from_node(Spacer::default().into_node());
+                return fission::core::view::internal_node_widget(Spacer::default().into_node());
             };
 
             let content_str = buffer.content();
             let lines: Vec<&str> = content_str.lines().collect();
             let line_count = lines.len();
             if line_count == 0 {
-                return fission::AnyWidget::from_node(Spacer::default().into_node());
+                return fission::core::view::internal_node_widget(Spacer::default().into_node());
             }
 
             // Scale factor: if the file is long we shrink each bar so everything
@@ -136,7 +137,7 @@ impl Widget<EditorState> for Minimap {
 
                 let in_viewport = i >= vis_start && i < vis_end;
 
-                let bar = Container::new(Spacer::default().into_node())
+                let bar = Container::<fission::Node>::lowered(Spacer::default().into_node())
                     .width(width)
                     .height(scale)
                     .bg(color)
@@ -146,7 +147,7 @@ impl Widget<EditorState> for Minimap {
                     // Wrap in a container with the semi-transparent viewport
                     // overlay so the visible region stands out.
                     bars.push(
-                        Container::new(bar)
+                        Container::<fission::Node>::lowered(bar)
                             .height(scale)
                             .bg(VIEWPORT_OVERLAY)
                             .into_node(),
@@ -156,7 +157,7 @@ impl Widget<EditorState> for Minimap {
                 }
             }
 
-            Container::new(
+            Container::<fission::Node>::lowered(
                 VStack {
                     spacing: Some(0.0),
                     children: bars,

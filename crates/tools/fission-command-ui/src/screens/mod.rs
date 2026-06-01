@@ -1,3 +1,4 @@
+use fission::IntoWidget;
 mod dashboard;
 mod devices;
 mod doctor;
@@ -31,19 +32,52 @@ impl Widget<UiState> for ActiveScreen {
         ctx: &mut BuildCtx<UiState>,
         view: &View<UiState>,
     ) -> impl fission::IntoWidget<UiState> {
-        fission::AnyWidget::from_node({
+        fission::core::view::internal_node_widget({
             match view.state.route {
-                UiRoute::Dashboard => DashboardScreen.build_node(ctx, view),
-                UiRoute::Project => ProjectScreen.build_node(ctx, view),
-                UiRoute::Doctor => DoctorScreen.build_node(ctx, view),
-                UiRoute::Devices => DevicesScreen.build_node(ctx, view),
-                UiRoute::Run => RunScreen.build_node(ctx, view),
-                UiRoute::Build => BuildScreen.build_node(ctx, view),
-                UiRoute::Test => TestScreen.build_node(ctx, view),
-                UiRoute::Site => SiteScreen.build_node(ctx, view),
-                UiRoute::Logs => LogsScreen.build_node(ctx, view),
-                UiRoute::Settings => SettingsScreen.build_node(ctx, view),
-                UiRoute::Help => HelpScreen.build_node(ctx, view),
+                UiRoute::Dashboard => DashboardScreen
+                    .build(ctx, view)
+                    .into_widget()
+                    .lower_to_node(ctx, view),
+                UiRoute::Project => ProjectScreen
+                    .build(ctx, view)
+                    .into_widget()
+                    .lower_to_node(ctx, view),
+                UiRoute::Doctor => DoctorScreen
+                    .build(ctx, view)
+                    .into_widget()
+                    .lower_to_node(ctx, view),
+                UiRoute::Devices => DevicesScreen
+                    .build(ctx, view)
+                    .into_widget()
+                    .lower_to_node(ctx, view),
+                UiRoute::Run => RunScreen
+                    .build(ctx, view)
+                    .into_widget()
+                    .lower_to_node(ctx, view),
+                UiRoute::Build => BuildScreen
+                    .build(ctx, view)
+                    .into_widget()
+                    .lower_to_node(ctx, view),
+                UiRoute::Test => TestScreen
+                    .build(ctx, view)
+                    .into_widget()
+                    .lower_to_node(ctx, view),
+                UiRoute::Site => SiteScreen
+                    .build(ctx, view)
+                    .into_widget()
+                    .lower_to_node(ctx, view),
+                UiRoute::Logs => LogsScreen
+                    .build(ctx, view)
+                    .into_widget()
+                    .lower_to_node(ctx, view),
+                UiRoute::Settings => SettingsScreen
+                    .build(ctx, view)
+                    .into_widget()
+                    .lower_to_node(ctx, view),
+                UiRoute::Help => HelpScreen
+                    .build(ctx, view)
+                    .into_widget()
+                    .lower_to_node(ctx, view),
             }
         })
     }

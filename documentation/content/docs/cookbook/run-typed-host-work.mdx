@@ -192,7 +192,7 @@ The widget does not need special platform logic. It only binds actions and rende
 
 ```rust
 impl Widget<ImportState> for ImportScreen {
-    fn build(&self, ctx: &mut BuildCtx<ImportState>, view: &View<ImportState>) -> Node {
+    fn build(&self, ctx: &mut BuildCtx<ImportState>, view: &View<ImportState>) -> impl IntoWidget<ImportState> {
         let import = ctx.bind(
             ImportPressed,
             reduce_with!(on_import_pressed),

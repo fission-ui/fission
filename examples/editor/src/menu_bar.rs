@@ -4,11 +4,14 @@ use fission::core::ui::{Button, ButtonContentAlign, ButtonVariant, Container, Ge
 use fission::core::{ActionEnvelope, BuildCtx, reduce_with, PortalLayer, View, Widget, WidgetNodeId};
 use fission::widgets::{HStack, VStack, Spacer};
 
+#[derive(Clone)]
 pub struct MenuBar;
 
 impl Widget<EditorState> for MenuBar {
-    fn build(&self, ctx: &mut BuildCtx<EditorState>, view: &View<EditorState>) -> impl fission::IntoWidget<EditorState>  {
-        fission::AnyWidget::from_node({
+    fn build(&self, ctx: &mut BuildCtx<EditorState>, view: &View<EditorState>) -> impl fission::IntoWidget<EditorState> {
+        fission::core::view::internal_node_widget({
+
+        
         let bg = Color { r: 51, g: 51, b: 51, a: 255 };
         let text_color = Color { r: 204, g: 204, b: 204, a: 255 };
         let active_bg = Color { r: 70, g: 70, b: 70, a: 255 };
@@ -35,7 +38,7 @@ impl Widget<EditorState> for MenuBar {
                 Button {
                     variant: ButtonVariant::Ghost,
                     child: Some(Box::new(
-                        Container::new(
+                        Container::<fission::Node>::lowered(
                             Text::new(*menu_name).size(12.0).color(text_color).into_node(),
                         ).bg(item_bg).padding_all(6.0).into_node(),
                     )),
@@ -52,7 +55,7 @@ impl Widget<EditorState> for MenuBar {
 
         menu_buttons.push(Spacer { flex_grow: 1.0, ..Default::default() }.into_node());
 
-        let bar = Container::new(
+        let bar = Container::<fission::Node>::lowered(
             HStack {
                 spacing: Some(0.0),
                 children: menu_buttons,
@@ -69,6 +72,8 @@ impl Widget<EditorState> for MenuBar {
         }
 
         bar
+    
+        
     
         })
     }
@@ -91,7 +96,7 @@ impl MenuBar {
                 variant: ButtonVariant::Ghost,
                 content_align: ButtonContentAlign::Start,
                 child: Some(Box::new(
-                    Container::new(
+                    Container::<fission::Node>::lowered(
                         HStack {
                             spacing: Some(0.0),
                             children: vec![
@@ -109,7 +114,7 @@ impl MenuBar {
         };
 
         let separator = || -> Node {
-            Container::new(Spacer::default().into_node())
+            Container::<fission::Node>::lowered(Spacer::default().into_node())
                 .height(1.0)
                 .bg(border)
                 .into_node()
@@ -223,7 +228,7 @@ impl MenuBar {
             _ => 0.0,
         };
 
-        let dropdown = Container::new(
+        let dropdown = Container::<fission::Node>::lowered(
             VStack { spacing: Some(0.0), children: items }.into_node(),
         )
         .bg(bg)
@@ -236,7 +241,7 @@ impl MenuBar {
         let backdrop = GestureDetector {
             on_tap: Some(dismiss.clone()),
             child: Box::new(
-                Container::new(Spacer::default().into_node())
+                Container::<fission::Node>::lowered(Spacer::default().into_node())
                     .bg(Color { r: 0, g: 0, b: 0, a: 1 })
                     .flex_grow(1.0)
                     .into_node(),
@@ -244,7 +249,7 @@ impl MenuBar {
             ..Default::default()
         }.into_node();
 
-        let overlay = Container::new(
+        let overlay = Container::<fission::Node>::lowered(
             ZStack {
                 children: vec![
                     Positioned {

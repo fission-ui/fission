@@ -7,6 +7,7 @@ use super::home_widgets::{content_width, page_fill};
 use super::state::DocsState;
 use fission::op::{AlignItems, JustifyContent};
 use fission::prelude::*;
+use fission::IntoWidget;
 use std::sync::Arc;
 
 #[derive(Clone, Debug)]
@@ -28,16 +29,23 @@ impl Widget<DocsState> for RoutedHomePage {
         ctx: &mut BuildCtx<DocsState>,
         view: &View<DocsState>,
     ) -> impl fission::IntoWidget<DocsState> {
-        fission::AnyWidget::from_node({
+        fission::core::view::internal_node_widget({
             Router {
                 current_path: self.current_path.clone(),
                 routes: vec![Route {
                     path: "/".to_string(),
-                    builder: Arc::new(|ctx, view, _params| HomePage.build_node(ctx, view)),
+                    builder: Arc::new(|ctx, view, _params| {
+                        HomePage
+                            .build(ctx, view)
+                            .into_widget()
+                            .lower_to_node(ctx, view)
+                    }),
                 }],
                 not_found: None,
             }
-            .build_node(ctx, view)
+            .build(ctx, view)
+            .into_widget()
+            .lower_to_node(ctx, view)
         })
     }
 }
@@ -51,49 +59,81 @@ impl Widget<DocsState> for HomePage {
         ctx: &mut BuildCtx<DocsState>,
         view: &View<DocsState>,
     ) -> impl fission::IntoWidget<DocsState> {
-        fission::AnyWidget::from_node({
-            let tokens = &view.env.theme.tokens;
-            Container::new(
-                Column {
-                    children: vec![
-                        HomePageNav.build_node(ctx, view),
-                        Row {
-                            children: vec![Container::new(
-                                Column {
-                                    children: vec![
-                                        HomePageHero.build_node(ctx, view),
-                                        ProofStrip.build_node(ctx, view),
-                                        LifecycleSection.build_node(ctx, view),
-                                        ArchitectureSection.build_node(ctx, view),
-                                        ChartsSection.build_node(ctx, view),
-                                        ModelSection.build_node(ctx, view),
-                                        TargetsSection.build_node(ctx, view),
-                                        ExamplesSection.build_node(ctx, view),
-                                        FinalCta.build_node(ctx, view),
-                                    ],
-                                    gap: Some(tokens.spacing.xxxl),
-                                    align_items: AlignItems::Center,
-                                    ..Default::default()
-                                }
-                                .into_node(),
-                            )
-                            .width(content_width(tokens))
-                            .padding([0.0, 0.0, tokens.spacing.xxl, tokens.spacing.xxxxl])
-                            .into_node()],
-                            justify_content: JustifyContent::Center,
-                            ..Default::default()
-                        }
-                        .into_node(),
-                    ],
-                    gap: Some(0.0),
-                    flex_grow: 1.0,
-                    ..Default::default()
-                }
-                .into_node(),
-            )
-            .min_height(tokens.spacing.xxxxl * 9.0)
-            .bg_fill(page_fill(tokens))
-            .into_node()
+        fission::core::view::internal_node_widget({
+            {
+                let tokens = &view.env.theme.tokens;
+                Container::<fission::Node>::lowered(
+                    Column {
+                        children: vec![
+                            HomePageNav
+                                .build(ctx, view)
+                                .into_widget()
+                                .lower_to_node(ctx, view),
+                            Row {
+                                children: vec![Container::<fission::Node>::lowered(
+                                    Column {
+                                        children: vec![
+                                            HomePageHero
+                                                .build(ctx, view)
+                                                .into_widget()
+                                                .lower_to_node(ctx, view),
+                                            ProofStrip
+                                                .build(ctx, view)
+                                                .into_widget()
+                                                .lower_to_node(ctx, view),
+                                            LifecycleSection
+                                                .build(ctx, view)
+                                                .into_widget()
+                                                .lower_to_node(ctx, view),
+                                            ArchitectureSection
+                                                .build(ctx, view)
+                                                .into_widget()
+                                                .lower_to_node(ctx, view),
+                                            ChartsSection
+                                                .build(ctx, view)
+                                                .into_widget()
+                                                .lower_to_node(ctx, view),
+                                            ModelSection
+                                                .build(ctx, view)
+                                                .into_widget()
+                                                .lower_to_node(ctx, view),
+                                            TargetsSection
+                                                .build(ctx, view)
+                                                .into_widget()
+                                                .lower_to_node(ctx, view),
+                                            ExamplesSection
+                                                .build(ctx, view)
+                                                .into_widget()
+                                                .lower_to_node(ctx, view),
+                                            FinalCta
+                                                .build(ctx, view)
+                                                .into_widget()
+                                                .lower_to_node(ctx, view),
+                                        ],
+                                        gap: Some(tokens.spacing.xxxl),
+                                        align_items: AlignItems::Center,
+                                        ..Default::default()
+                                    }
+                                    .into_node(),
+                                )
+                                .width(content_width(tokens))
+                                .padding([0.0, 0.0, tokens.spacing.xxl, tokens.spacing.xxxxl])
+                                .into_node()],
+                                justify_content: JustifyContent::Center,
+                                ..Default::default()
+                            }
+                            .into_node(),
+                        ],
+                        gap: Some(0.0),
+                        flex_grow: 1.0,
+                        ..Default::default()
+                    }
+                    .into_node(),
+                )
+                .min_height(tokens.spacing.xxxxl * 9.0)
+                .bg_fill(page_fill(tokens))
+                .into_node()
+            }
         })
     }
 }

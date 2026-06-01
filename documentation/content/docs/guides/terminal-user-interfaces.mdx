@@ -50,7 +50,7 @@ fn select_screen(state: &mut ToolState, selected: usize) {
 struct ToolApp;
 
 impl Widget<ToolState> for ToolApp {
-    fn build(&self, ctx: &mut BuildCtx<ToolState>, view: &View<ToolState>) -> Node {
+    fn build(&self, ctx: &mut BuildCtx<ToolState>, view: &View<ToolState>) -> impl IntoWidget<ToolState> {
         let dashboard = with_reducer!(ctx, SelectScreen(0), select_screen);
         let settings = with_reducer!(ctx, SelectScreen(1), select_screen);
 

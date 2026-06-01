@@ -101,13 +101,13 @@ Wire the user-facing control with the normal Fission action pattern. This exampl
 struct ScanWifiNetworksButton;
 
 impl Widget<AppState> for ScanWifiNetworksButton {
-    fn build(&self, view: &View<AppState>, ctx: &mut BuildCtx<AppState>) -> Node {
+    fn build(&self, ctx: &mut BuildCtx<AppState>, view: &View<AppState>) -> impl IntoWidget<AppState> {
         let run = with_reducer!(ctx, ScanWifiNetworks, on_scan_wifi_networks);
 
         Button::new("Scan networks")
             .disabled(view.state.scanning_wifi)
             .on_press(run)
-            .build(view, ctx)
+            
     }
 }
 ```

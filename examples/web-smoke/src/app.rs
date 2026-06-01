@@ -20,7 +20,7 @@ impl Widget<CounterState> for CounterApp {
         ctx: &mut BuildCtx<CounterState>,
         view: &View<CounterState>,
     ) -> impl fission::IntoWidget<CounterState> {
-        fission::AnyWidget::from_node({
+        {
             let increment = with_reducer!(ctx, Increment, on_increment);
             let viewport = view.viewport_size();
             let content_width = (viewport.width - 48.0).clamp(240.0, 420.0);
@@ -44,64 +44,45 @@ impl Widget<CounterState> for CounterApp {
             };
 
             let content = Container::new(
-                Column {
-                    gap: Some(16.0),
-                    children: vec![
+                Column::new()
+                    .gap(Some(16.0))
+                    .child(
                         Text::new("Fission web smoke")
                             .size(28.0)
                             .color(Color::WHITE)
-                            .max_width(content_width)
-                            .into_node(),
+                            .max_width(content_width),
+                    )
+                    .child(
                         Text::new(
                             "This exercises the shared Fission runtime through the browser shell.",
                         )
                         .size(16.0)
                         .color(body)
-                        .max_width(content_width)
-                        .into_node(),
+                        .max_width(content_width),
+                    )
+                    .child(
                         Text::new(format!("Count: {}", view.state.count))
                             .size(22.0)
-                            .color(accent)
-                            .into_node(),
-                        Button {
-                            width: Some(content_width),
-                            on_press: Some(increment),
-                            child: Some(Box::new(
-                                Text::new("Increment")
-                                    .width((content_width - 96.0).max(120.0))
-                                    .into_node(),
-                            )),
-                            ..Default::default()
-                        }
-                        .into_node(),
-                    ],
-                    ..Default::default()
-                }
-                .into_node(),
+                            .color(accent),
+                    )
+                    .child(
+                        Button::new(
+                            Text::new("Increment").width((content_width - 96.0).max(120.0)),
+                        )
+                        .width(content_width)
+                        .on_press(increment),
+                    ),
             )
-            .width(content_width)
-            .into_node();
+            .width(content_width);
 
-            Container::new(
-                Column {
-                    gap: Some(0.0),
-                    children: vec![
-                        content,
-                        Spacer {
-                            flex_grow: 1.0,
-                            ..Default::default()
-                        }
-                        .into_node(),
-                    ],
-                    ..Default::default()
-                }
-                .into_node(),
-            )
+            Container::new(Column::new().gap(Some(0.0)).child(content).child(Spacer {
+                flex_grow: 1.0,
+                ..Default::default()
+            }))
             .width(viewport.width.max(1.0))
             .height(viewport.height.max(1.0))
             .padding_all(24.0)
             .bg(background)
-            .into_node()
-        })
+        }
     }
 }

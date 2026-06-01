@@ -275,7 +275,7 @@ impl<S: AppState> TestHarness<S> {
                     self.last_snapshot.as_ref(),
                 );
                 let mut ctx = BuildCtx::new();
-                let tree = root.build_node(&mut ctx, &view);
+                let tree = root.lower_to_node(&mut ctx, &view);
 
                 self.runtime.clear_reducers();
                 let animation_requests = ctx.take_animation_requests();
@@ -289,7 +289,7 @@ impl<S: AppState> TestHarness<S> {
                         if let Some(id) = id {
                             // Use a derived ID for the wrapper to avoid conflict with the widget's own node
                             let wrapper_id = NodeId::derived(id.as_u128(), &[0x0000_F001]);
-                            fission_core::ui::Container::new(node)
+                            fission_core::ui::Container::<fission_core::ui::Node>::lowered(node)
                                 .id(wrapper_id)
                                 .width(viewport.width)
                                 .height(viewport.height)
@@ -318,13 +318,13 @@ impl<S: AppState> TestHarness<S> {
                         // Ensure content establishes a viewport-sized containing block so
                         // the overlay AbsoluteFill has a concrete size in tests.
                         content: Box::new(
-                            fission_core::ui::Container::new(tree)
+                            fission_core::ui::Container::<fission_core::ui::Node>::lowered(tree)
                                 .width(viewport.width)
                                 .height(viewport.height)
                                 .into_node(),
                         ),
                         overlay: Box::new(fission_core::ui::Node::ZStack(
-                            fission_core::ui::ZStack {
+                            fission_core::ui::ZStack::<fission_core::ui::Node> {
                                 id: None,
                                 children: portals,
                             },

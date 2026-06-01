@@ -1,4 +1,5 @@
 use fission_core::ui::{Container, CustomNode, LowerDyn, Node, Video};
+use fission_core::IntoWidget;
 use fission_core::{AppState, BuildCtx, View, Widget, WidgetNodeId};
 use fission_ir::{EmbedKind, LayoutOp, NodeId, Op};
 use fission_render::DisplayOp;
@@ -66,6 +67,7 @@ fn video_embed_registers_runtime_state_and_draws_surface() {
     }
 }
 
+#[derive(Clone)]
 struct WebApp;
 impl Widget<EmbedState> for WebApp {
     fn build(
@@ -73,8 +75,8 @@ impl Widget<EmbedState> for WebApp {
         ctx: &mut BuildCtx<EmbedState>,
         view: &View<EmbedState>,
     ) -> impl fission_core::IntoWidget<EmbedState> {
-        fission_core::AnyWidget::from_node({
-            Container::new(
+        fission_core::view::internal_node_widget({
+            Container::<fission_core::ui::Node>::lowered(
                 WebView {
                     id: WidgetNodeId::explicit("test.web"),
                     url: "https://example.test/docs".into(),
@@ -82,7 +84,9 @@ impl Widget<EmbedState> for WebApp {
                     width: Some(320.0),
                     height: Some(180.0),
                 }
-                .build_node(ctx, view),
+                .build(ctx, view)
+                .into_widget()
+                .lower_to_node(ctx, view),
             )
             .width(320.0)
             .height(180.0)
@@ -121,6 +125,7 @@ fn webview_embed_registers_runtime_state_and_draws_surface() {
     assert_eq!(display_surfaces(&harness).len(), 1);
 }
 
+#[derive(Clone)]
 struct CustomEmbedApp;
 impl Widget<EmbedState> for CustomEmbedApp {
     fn build(
@@ -128,7 +133,7 @@ impl Widget<EmbedState> for CustomEmbedApp {
         _ctx: &mut BuildCtx<EmbedState>,
         _view: &View<EmbedState>,
     ) -> impl fission_core::IntoWidget<EmbedState> {
-        fission_core::AnyWidget::from_node({
+        fission_core::view::internal_node_widget({
             Node::Custom(CustomNode {
                 debug_tag: "TestCustomEmbed".into(),
                 lowerer: Some(Arc::new(CustomEmbedLowerer)),

@@ -10,7 +10,9 @@ use crate::model::{
 };
 use fission::core::ResourceKey;
 use fission::prelude::*;
+use fission::IntoWidget;
 
+#[derive(Clone)]
 pub struct OverviewPanel;
 
 impl Widget<FieldInspectorState> for OverviewPanel {
@@ -19,7 +21,7 @@ impl Widget<FieldInspectorState> for OverviewPanel {
         ctx: &mut BuildCtx<FieldInspectorState>,
         view: &View<FieldInspectorState>,
     ) -> impl fission::IntoWidget<FieldInspectorState> {
-        fission::AnyWidget::from_node({
+        fission::core::view::internal_node_widget({
             let order = view.state.selected_order();
             let start = with_reducer!(ctx, StartInspection, on_start_inspection);
             let weather_ok = with_reducer!(ctx, WeatherLoaded, on_weather_loaded);
@@ -36,7 +38,9 @@ impl Widget<FieldInspectorState> for OverviewPanel {
             .deps(request)
             .on_ok(weather_ok)
             .on_err(weather_err)
-            .build_node(ctx, view);
+            .build(ctx, view)
+            .into_widget()
+            .lower_to_node(ctx, view);
 
             let (complete, total) = view.state.checklist_progress();
             let heading = Column {
@@ -155,7 +159,14 @@ impl Widget<FieldInspectorState> for OverviewPanel {
 
             Column {
                 gap: Some(18.0),
-                children: vec![hero, weather, CapabilityOverview.build_node(ctx, view)],
+                children: vec![
+                    hero,
+                    weather,
+                    CapabilityOverview
+                        .build(ctx, view)
+                        .into_widget()
+                        .lower_to_node(ctx, view),
+                ],
                 ..Default::default()
             }
             .into_node()
@@ -188,7 +199,10 @@ fn weather_card(
         Row {
             gap: Some(12.0),
             children: vec![
-                CircularProgress::default().build_node(ctx, view),
+                CircularProgress::default()
+                    .build(ctx, view)
+                    .into_widget()
+                    .lower_to_node(ctx, view),
                 body_text(view, "Loading live site weather from Open-Meteo..."),
             ],
             ..Default::default()

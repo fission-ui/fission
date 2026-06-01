@@ -9,6 +9,7 @@ use fission::core::op::Color;
 use fission::core::ui::{Container, Node, Text};
 use fission::core::{BuildCtx, View, Widget};
 use fission::three_d::Scene3D;
+use fission::IntoWidget;
 
 mod cartesian;
 pub(crate) mod cartesian_variants;
@@ -40,7 +41,7 @@ pub(crate) fn build_selected_chart(
         (category, chart) if category >= deep_catalog::DEEP_CATEGORY_OFFSET => {
             deep_catalog::build_chart(category, chart, ctx, view, content_width, s).unwrap_or_else(
                 || {
-                    Container::new(
+                    Container::<Node>::lowered(
                         Text::new("Select a chart from the gallery")
                             .color(Color {
                                 r: 150,
@@ -54,7 +55,7 @@ pub(crate) fn build_selected_chart(
                 },
             )
         }
-        _ => Container::new(
+        _ => Container::<Node>::lowered(
             Text::new("Select a chart from the gallery")
                 .color(Color {
                     r: 150,
@@ -90,7 +91,9 @@ impl GalleryBuildExt for Chart {
             gallery_chart_width(content_width),
             gallery_chart_height(),
         )
-        .build_node(ctx, view)
+        .build(ctx, view)
+        .into_widget()
+        .lower_to_node(ctx, view)
     }
 }
 
@@ -103,7 +106,9 @@ impl GalleryBuildExt for Scene3D {
     ) -> Node {
         self.width(gallery_chart_width(content_width))
             .height(gallery_chart_height())
-            .build_node(ctx, _view)
+            .build(ctx, _view)
+            .into_widget()
+            .lower_to_node(ctx, _view)
     }
 }
 

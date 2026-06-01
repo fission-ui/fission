@@ -2,6 +2,7 @@ use crate::api::{ApiError, ProductPage};
 use crate::components::product_card::ProductCard;
 use crate::model::ProductBrowserState;
 use fission::prelude::*;
+use fission::IntoWidget;
 use std::sync::Arc;
 
 #[derive(Clone, Debug)]
@@ -16,10 +17,10 @@ impl Widget<ProductBrowserState> for ProductResults {
         ctx: &mut BuildCtx<ProductBrowserState>,
         view: &View<ProductBrowserState>,
     ) -> impl fission::IntoWidget<ProductBrowserState> {
-        fission::AnyWidget::from_node({
+        fission::core::view::internal_node_widget({
             let tokens = &view.env.theme.tokens;
             if self.snapshot.connection_state == AsyncConnectionState::Waiting {
-                return fission::AnyWidget::from_node(
+                return fission::core::view::internal_node_widget(
                     Center {
                         child: Box::new(
                             Column {
@@ -29,7 +30,9 @@ impl Widget<ProductBrowserState> for ProductResults {
                                         id: WidgetNodeId::explicit("product-browser.loading"),
                                         ..Default::default()
                                     }
-                                    .build_node(ctx, view),
+                                    .build(ctx, view)
+                                    .into_widget()
+                                    .lower_to_node(ctx, view),
                                     Text::new("Loading products...")
                                         .color(tokens.colors.text_secondary)
                                         .into_node(),
@@ -39,12 +42,14 @@ impl Widget<ProductBrowserState> for ProductResults {
                             .into_node(),
                         ),
                     }
-                    .build_node(ctx, view),
+                    .build(ctx, view)
+                    .into_widget()
+                    .lower_to_node(ctx, view),
                 );
             }
 
             if let Some(error) = self.snapshot.error() {
-                return fission::AnyWidget::from_node(
+                return fission::core::view::internal_node_widget(
                     Center {
                         child: Box::new(
                             Column {
@@ -65,12 +70,14 @@ impl Widget<ProductBrowserState> for ProductResults {
                             .into_node(),
                         ),
                     }
-                    .build_node(ctx, view),
+                    .build(ctx, view)
+                    .into_widget()
+                    .lower_to_node(ctx, view),
                 );
             }
 
             let Some(page) = self.snapshot.data() else {
-                return fission::AnyWidget::from_node(
+                return fission::core::view::internal_node_widget(
                     Spacer {
                         flex_grow: 1.0,
                         ..Default::default()
@@ -80,7 +87,7 @@ impl Widget<ProductBrowserState> for ProductResults {
             };
 
             if page.products.is_empty() {
-                return fission::AnyWidget::from_node(
+                return fission::core::view::internal_node_widget(
                     Center {
                         child: Box::new(
                             Text::new("No products match the current filters")
@@ -88,7 +95,9 @@ impl Widget<ProductBrowserState> for ProductResults {
                                 .into_node(),
                         ),
                     }
-                    .build_node(ctx, view),
+                    .build(ctx, view)
+                    .into_widget()
+                    .lower_to_node(ctx, view),
                 );
             }
 
@@ -112,7 +121,9 @@ impl Widget<ProductBrowserState> for ProductResults {
                                 selected: Some(product.id) == view.state.selected_product_id,
                                 compact: false,
                             }
-                            .build_node(ctx, view),
+                            .build(ctx, view)
+                            .into_widget()
+                            .lower_to_node(ctx, view),
                         )
                         .cell(row, col)
                         .into_node()
@@ -146,7 +157,9 @@ impl Widget<ProductBrowserState> for ProductResults {
                             selected: Some(product.id) == view.state.selected_product_id,
                             compact: true,
                         }
-                        .build_node(ctx, view)
+                        .build(ctx, view)
+                        .into_widget()
+                        .lower_to_node(ctx, view)
                     })
                     .collect();
 

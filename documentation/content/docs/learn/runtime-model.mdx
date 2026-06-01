@@ -93,7 +93,7 @@ A `Widget` is a reusable piece of user interface. It might be a whole screen, a 
 Every widget implements the same core method:
 
 ```rust
-fn build(&self, ctx: &mut BuildCtx<S>, view: &View<S>) -> Node
+fn build(&self, ctx: &mut BuildCtx<S>, view: &View<S>) -> impl IntoWidget<S>
 ```
 
 You do not need to read that as a Rust expert yet. In plain English, it says: "given a widget, a build context, and a read-only view of the current app inputs, return a user interface node tree."
@@ -106,7 +106,7 @@ Here is a shortened version of the note editor widget:
 pub struct NoteEditor;
 
 impl Widget<NoteState> for NoteEditor {
-    fn build(&self, ctx: &mut BuildCtx<NoteState>, view: &View<NoteState>) -> Node {
+    fn build(&self, ctx: &mut BuildCtx<NoteState>, view: &View<NoteState>) -> impl IntoWidget<NoteState> {
         let save = with_reducer!(ctx, SavePressed, on_save_pressed);
 
         Column {

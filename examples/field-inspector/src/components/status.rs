@@ -4,6 +4,7 @@ use crate::components::ui::{
 use crate::model::{CapabilityLine, CapabilityState, FieldInspectorState};
 use fission::prelude::*;
 
+#[derive(Clone)]
 pub struct CapabilityOverview;
 
 impl Widget<FieldInspectorState> for CapabilityOverview {
@@ -12,7 +13,7 @@ impl Widget<FieldInspectorState> for CapabilityOverview {
         _ctx: &mut BuildCtx<FieldInspectorState>,
         view: &View<FieldInspectorState>,
     ) -> impl fission::IntoWidget<FieldInspectorState> {
-        fission::AnyWidget::from_node({
+        fission::core::view::internal_node_widget({
             let lines = view.state.capability_lines();
             let complete = lines
                 .iter()
@@ -99,7 +100,7 @@ fn capability_grid(view: &View<FieldInspectorState>, lines: Vec<CapabilityLine>)
 
 fn capability_cell(view: &View<FieldInspectorState>, line: CapabilityLine) -> Node {
     let tokens = &view.env.theme.tokens;
-    Container::new(
+    Container::<Node>::lowered(
         Column {
             gap: Some(8.0),
             children: vec![
@@ -136,6 +137,7 @@ fn capability_cell(view: &View<FieldInspectorState>, line: CapabilityLine) -> No
     .into_node()
 }
 
+#[derive(Clone)]
 pub struct ActivityLog;
 
 impl Widget<FieldInspectorState> for ActivityLog {
@@ -144,7 +146,7 @@ impl Widget<FieldInspectorState> for ActivityLog {
         _ctx: &mut BuildCtx<FieldInspectorState>,
         view: &View<FieldInspectorState>,
     ) -> impl fission::IntoWidget<FieldInspectorState> {
-        fission::AnyWidget::from_node({
+        fission::core::view::internal_node_widget({
             let rows: Vec<Node> = if view.state.logs.is_empty() {
                 vec![body_text(
                     view,

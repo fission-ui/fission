@@ -10,6 +10,7 @@ use fission::core::ui::{
 use fission::core::{reduce_with, BuildCtx, View, Widget, WidgetNodeId};
 use fission::widgets::{HStack, Spacer, VStack};
 
+#[derive(Clone)]
 pub struct CommandPalette;
 
 struct Command {
@@ -23,9 +24,9 @@ impl Widget<EditorState> for CommandPalette {
         ctx: &mut BuildCtx<EditorState>,
         view: &View<EditorState>,
     ) -> impl fission::IntoWidget<EditorState> {
-        fission::AnyWidget::from_node({
+        fission::core::view::internal_node_widget({
             if !view.state.show_command_palette {
-                return fission::AnyWidget::from_node(
+                return fission::core::view::internal_node_widget(
                     Spacer {
                         height: Some(0.0),
                         ..Default::default()
@@ -261,11 +262,11 @@ impl Widget<EditorState> for CommandPalette {
             let results_height = (viewport.height - 140.0).clamp(160.0, 320.0);
 
             // VS Code-style dropdown from top center
-            let dropdown = Container::new(
+            let dropdown = Container::<fission::Node>::lowered(
                 VStack {
                     spacing: Some(0.0),
                     children: vec![
-                        Container::new(
+                        Container::<fission::Node>::lowered(
                             TextInput {
                                 id: Some(fission::ir::NodeId::explicit(
                                     "editor_command_palette_input",
@@ -279,7 +280,7 @@ impl Widget<EditorState> for CommandPalette {
                         )
                         .padding_all(6.0)
                         .into_node(),
-                        Container::new(
+                        Container::<fission::Node>::lowered(
                             fission::core::ui::widgets::scroll::Scroll {
                                 direction: fission::core::op::FlexDirection::Column,
                                 child: Some(Box::new(
@@ -313,7 +314,7 @@ impl Widget<EditorState> for CommandPalette {
             let backdrop = GestureDetector {
                 on_tap: Some(dismiss.clone()),
                 child: Box::new(
-                    Container::new(Spacer::default().into_node())
+                    Container::<fission::Node>::lowered(Spacer::default().into_node())
                         .bg(Color {
                             r: 0,
                             g: 0,
@@ -327,7 +328,7 @@ impl Widget<EditorState> for CommandPalette {
             }
             .into_node();
 
-            let overlay = Container::new(
+            let overlay = Container::<fission::Node>::lowered(
                 ZStack {
                     children: vec![
                         // Full-screen backdrop

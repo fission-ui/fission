@@ -12,8 +12,10 @@ use crate::model::{
     SelectPanel, StartInspection,
 };
 use fission::prelude::*;
+use fission::IntoWidget;
 use std::sync::Arc;
 
+#[derive(Clone)]
 pub struct FieldInspectorApp;
 
 impl Widget<FieldInspectorState> for FieldInspectorApp {
@@ -22,7 +24,7 @@ impl Widget<FieldInspectorState> for FieldInspectorApp {
         ctx: &mut BuildCtx<FieldInspectorState>,
         view: &View<FieldInspectorState>,
     ) -> impl fission::IntoWidget<FieldInspectorState> {
-        fission::AnyWidget::from_node({
+        fission::core::view::internal_node_widget({
             let viewport = view.viewport_size();
             let wide = viewport.width >= 1100.0;
             let padding = page_padding(view);
@@ -31,10 +33,15 @@ impl Widget<FieldInspectorState> for FieldInspectorApp {
                     gap: Some(18.0),
                     align_items: ir_op::AlignItems::Stretch,
                     children: vec![
-                        Container::new(WorkOrderRail.build_node(ctx, view))
-                            .width(330.0)
-                            .into_node(),
-                        Container::new(main_column(ctx, view))
+                        Container::<Node>::lowered(
+                            WorkOrderRail
+                                .build(ctx, view)
+                                .into_widget()
+                                .lower_to_node(ctx, view),
+                        )
+                        .width(330.0)
+                        .into_node(),
+                        Container::<Node>::lowered(main_column(ctx, view))
                             .flex_grow(1.0)
                             .into_node(),
                     ],
@@ -44,7 +51,13 @@ impl Widget<FieldInspectorState> for FieldInspectorApp {
             } else {
                 Column {
                     gap: Some(18.0),
-                    children: vec![main_column(ctx, view), WorkOrderRail.build_node(ctx, view)],
+                    children: vec![
+                        main_column(ctx, view),
+                        WorkOrderRail
+                            .build(ctx, view)
+                            .into_widget()
+                            .lower_to_node(ctx, view),
+                    ],
                     ..Default::default()
                 }
                 .into_node()
@@ -59,7 +72,7 @@ impl Widget<FieldInspectorState> for FieldInspectorApp {
             }
             .into_node();
 
-            Container::new(
+            Container::<Node>::lowered(
                 SafeArea {
                     child: Box::new(scroll),
                     ..Default::default()
@@ -221,7 +234,7 @@ fn panel_tabs(ctx: &mut BuildCtx<FieldInspectorState>, view: &View<FieldInspecto
             .iter()
             .enumerate()
             .map(|(index, panel)| {
-                Container::new(small_button(
+                Container::<Node>::lowered(small_button(
                     panel.label(),
                     actions[index].clone(),
                     if index == selected_index {
@@ -256,17 +269,37 @@ fn panel_tabs(ctx: &mut BuildCtx<FieldInspectorState>, view: &View<FieldInspecto
             selected_index,
             on_change: Some(Arc::new(move |index| actions[index].clone())),
         }
-        .build_node(ctx, view),
+        .build(ctx, view)
+        .into_widget()
+        .lower_to_node(ctx, view),
     )
 }
 
 fn active_panel(ctx: &mut BuildCtx<FieldInspectorState>, view: &View<FieldInspectorState>) -> Node {
     match view.state.panel {
-        InspectorPanel::Overview => OverviewPanel.build_node(ctx, view),
-        InspectorPanel::Verify => VerifyPanel.build_node(ctx, view),
-        InspectorPanel::Evidence => EvidencePanel.build_node(ctx, view),
-        InspectorPanel::Sensors => SensorsPanel.build_node(ctx, view),
-        InspectorPanel::Security => SecurityPanel.build_node(ctx, view),
-        InspectorPanel::Review => ReviewPanel.build_node(ctx, view),
+        InspectorPanel::Overview => OverviewPanel
+            .build(ctx, view)
+            .into_widget()
+            .lower_to_node(ctx, view),
+        InspectorPanel::Verify => VerifyPanel
+            .build(ctx, view)
+            .into_widget()
+            .lower_to_node(ctx, view),
+        InspectorPanel::Evidence => EvidencePanel
+            .build(ctx, view)
+            .into_widget()
+            .lower_to_node(ctx, view),
+        InspectorPanel::Sensors => SensorsPanel
+            .build(ctx, view)
+            .into_widget()
+            .lower_to_node(ctx, view),
+        InspectorPanel::Security => SecurityPanel
+            .build(ctx, view)
+            .into_widget()
+            .lower_to_node(ctx, view),
+        InspectorPanel::Review => ReviewPanel
+            .build(ctx, view)
+            .into_widget()
+            .lower_to_node(ctx, view),
     }
 }

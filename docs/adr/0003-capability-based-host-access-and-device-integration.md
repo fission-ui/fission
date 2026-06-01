@@ -288,7 +288,7 @@ Resource capabilities are declared from `BuildCtx`, not from reducers.
 Representative build usage:
 
 ```rust
-fn build(&self, ctx: &mut BuildCtx<AppState>, view: &View<AppState>) -> Node {
+fn build(&self, ctx: &mut BuildCtx<AppState>, view: &View<AppState>) -> impl IntoWidget<AppState> {
     ctx.resources.capability(
         CapabilityResource::new(
             ResourceKey::new("location-watch"),
@@ -1082,7 +1082,7 @@ This is the correct level of abstraction for audio and video.
 #### Build-declared resource
 
 ```rust
-fn build(&self, ctx: &mut BuildCtx<AppState>, view: &View<AppState>) -> Node {
+fn build(&self, ctx: &mut BuildCtx<AppState>, view: &View<AppState>) -> impl IntoWidget<AppState> {
     ctx.resources.capability(
         CapabilityResource::new(
             ResourceKey::new("nearby-delivery-location"),
@@ -1132,7 +1132,7 @@ They implement providers for shells that support the hardware.
 An app uses it like any other resource capability:
 
 ```rust
-fn build(&self, ctx: &mut BuildCtx<AppState>, view: &View<AppState>) -> Node {
+fn build(&self, ctx: &mut BuildCtx<AppState>, view: &View<AppState>) -> impl IntoWidget<AppState> {
     ctx.resources.capability(
         CapabilityResource::new(
             ResourceKey::new("air-gesture-watch"),

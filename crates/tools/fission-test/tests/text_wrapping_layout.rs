@@ -29,20 +29,14 @@ fn text_wrap_pushes_siblings() {
             _ctx: &mut BuildCtx<State>,
             _view: &View<State>,
         ) -> impl fission_core::IntoWidget<State> {
-            fission_core::AnyWidget::from_node({
-                let subject = "Design review: Inbox refresh";
-                Container::new(
-                    Column::default()
-                        .gap(Some(6.0))
-                        .children(vec![
-                            Text::new(subject).size(16.0).into_node(),
-                            Text::new("Preview line").size(12.0).into_node(),
-                        ])
-                        .into_node(),
-                )
-                .width(160.0)
-                .into_node()
-            })
+            let subject = "Design review: Inbox refresh";
+            Container::new(
+                Column::new()
+                    .gap(Some(6.0))
+                    .child(Text::new(subject).size(16.0))
+                    .child(Text::new("Preview line").size(12.0)),
+            )
+            .width(160.0)
         }
     }
 
@@ -82,18 +76,16 @@ fn menu_item_text_stays_single_line() {
             ctx: &mut BuildCtx<State>,
             view: &View<State>,
         ) -> impl fission_core::IntoWidget<State> {
-            fission_core::AnyWidget::from_node({
-                Menu {
-                    items: vec![MenuItem {
-                        label: "New event".into(),
-                        icon: None,
-                        on_select: None,
-                    }],
-                    width: Some(220.0),
-                    max_height: Some(200.0),
-                }
-                .build_node(ctx, view)
-            })
+            let _ = (ctx, view);
+            Menu {
+                items: vec![MenuItem {
+                    label: "New event".into(),
+                    icon: None,
+                    on_select: None,
+                }],
+                width: Some(220.0),
+                max_height: Some(200.0),
+            }
         }
     }
 

@@ -6,13 +6,16 @@ use fission::core::ui::{Container, GestureDetector, Node, Positioned, Text, ZSta
 use fission::core::{BuildCtx, reduce_with, PortalLayer, View, Widget, WidgetNodeId};
 use fission::widgets::Spacer;
 
+#[derive(Clone)]
 pub struct HoverTooltip;
 
 impl Widget<EditorState> for HoverTooltip {
-    fn build(&self, ctx: &mut BuildCtx<EditorState>, view: &View<EditorState>) -> impl fission::IntoWidget<EditorState>  {
-        fission::AnyWidget::from_node({
+    fn build(&self, ctx: &mut BuildCtx<EditorState>, view: &View<EditorState>) -> impl fission::IntoWidget<EditorState> {
+        fission::core::view::internal_node_widget({
+
+        
         if !view.state.show_hover || view.state.hover_info.is_none() {
-            return fission::AnyWidget::from_node(Spacer { height: Some(0.0), ..Default::default() }.into_node());
+            return fission::core::view::internal_node_widget(Spacer { height: Some(0.0), ..Default::default() }.into_node());
         }
 
         let info = view.state.hover_info.as_ref().unwrap();
@@ -31,7 +34,7 @@ impl Widget<EditorState> for HoverTooltip {
         let text_color = Color { r: 220, g: 220, b: 220, a: 255 };
 
         // Tooltip card with hover content
-        let tooltip_card = Container::new(
+        let tooltip_card = Container::<fission::Node>::lowered(
             Text::new(info.as_str())
                 .size(12.0)
                 .color(text_color)
@@ -57,7 +60,7 @@ impl Widget<EditorState> for HoverTooltip {
         let backdrop = GestureDetector {
             on_tap: Some(dismiss.clone()),
             child: Box::new(
-                Container::new(Spacer::default().into_node())
+                Container::<fission::Node>::lowered(Spacer::default().into_node())
                     .bg(Color { r: 0, g: 0, b: 0, a: 0 })
                     .flex_grow(1.0)
                     .into_node(),
@@ -66,7 +69,7 @@ impl Widget<EditorState> for HoverTooltip {
         }
         .into_node();
 
-        let overlay = Container::new(
+        let overlay = Container::<fission::Node>::lowered(
             ZStack {
                 children: vec![
                     // Full-screen transparent backdrop for dismissal
@@ -106,6 +109,8 @@ impl Widget<EditorState> for HoverTooltip {
         );
 
         Spacer { height: Some(0.0), ..Default::default() }.into_node()
+    
+        
     
         })
     }

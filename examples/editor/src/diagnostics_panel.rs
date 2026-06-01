@@ -5,6 +5,7 @@ use fission::core::{reduce_with, ActionEnvelope, BuildCtx, FlexDirection, View, 
 use fission::widgets::VStack;
 use serde_json;
 
+#[derive(Clone)]
 pub struct DiagnosticsPanel;
 
 impl Widget<EditorState> for DiagnosticsPanel {
@@ -13,7 +14,7 @@ impl Widget<EditorState> for DiagnosticsPanel {
         ctx: &mut BuildCtx<EditorState>,
         view: &View<EditorState>,
     ) -> impl fission::IntoWidget<EditorState> {
-        fission::AnyWidget::from_node({
+        fission::core::view::internal_node_widget({
             let text_color = Color {
                 r: 204,
                 g: 204,
@@ -76,8 +77,8 @@ impl Widget<EditorState> for DiagnosticsPanel {
             };
 
             if all_diags.is_empty() {
-                return fission::AnyWidget::from_node(
-                    Container::new(
+                return fission::core::view::internal_node_widget(
+                    Container::<fission::Node>::lowered(
                         Text::new("No problems detected")
                             .size(12.0)
                             .color(dim_color)
@@ -129,7 +130,7 @@ impl Widget<EditorState> for DiagnosticsPanel {
                 );
             }
 
-            Container::new(
+            Container::<fission::Node>::lowered(
                 Scroll {
                     direction: FlexDirection::Column,
                     child: Some(Box::new(

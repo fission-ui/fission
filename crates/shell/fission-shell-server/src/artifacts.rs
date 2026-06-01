@@ -421,7 +421,7 @@ mod tests {
             _ctx: &mut BuildCtx<State>,
             _view: &View<State>,
         ) -> impl fission_core::IntoWidget<State> {
-            fission_core::AnyWidget::from_node(Text::new("artifact page").into_node())
+            fission_core::view::internal_node_widget(Text::new("artifact page").into_node())
         }
     }
 

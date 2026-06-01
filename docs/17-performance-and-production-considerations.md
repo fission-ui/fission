@@ -7,7 +7,7 @@ This document defines how the runtime achieves high performance while preserving
 - cross-platform consistency.
 
 The core strategy is **hybrid retained mode**:
-- the authoring tree (`Widget::build -> Node`) may be rebuilt frequently,
+- the authoring tree (`Widget::build -> impl IntoWidget`) may be rebuilt frequently,
 - **compiled artifacts are retained** and updated incrementally.
 
 Retained artifacts include:
@@ -289,7 +289,7 @@ These values feed into hashing:
 
 ## 11. Scheduling and Update Pipeline (Per Frame)
 
-1. **Build**: `Widget::build -> Node` (authoring)
+1. **Build**: `Widget::build -> impl IntoWidget` (authoring)
 2. **Lower + Canonicalize**: `Node -> CoreIR` (stable ids + hashes)
 3. **Diff**: PrevCore vs NextCore → dirty sets
 4. **Layout**:

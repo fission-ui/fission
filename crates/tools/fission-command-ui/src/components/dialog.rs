@@ -4,6 +4,7 @@ use crate::state::{UiDialog, UiState};
 use crate::theme::UiPalette;
 use fission::ir::op::{AlignItems, JustifyContent};
 use fission::prelude::*;
+use fission::IntoWidget;
 
 #[derive(Clone)]
 pub struct ConfirmationDialog;
@@ -14,10 +15,10 @@ impl Widget<UiState> for ConfirmationDialog {
         ctx: &mut BuildCtx<UiState>,
         view: &View<UiState>,
     ) -> impl fission::IntoWidget<UiState> {
-        fission::AnyWidget::from_node({
+        fission::core::view::internal_node_widget({
             let palette = UiPalette::for_mode(view.state.theme_mode);
             let Some(dialog) = &view.state.pending_dialog else {
-                return fission::AnyWidget::from_node(Spacer::default().into_node());
+                return fission::core::view::internal_node_widget(Spacer::default().into_node());
             };
             let (title, message, confirm_label, tone) = match dialog {
                 UiDialog::Command { title, message, .. } => {
@@ -33,7 +34,7 @@ impl Widget<UiState> for ConfirmationDialog {
             let confirm = with_reducer!(ctx, ConfirmDialog, confirm_dialog);
             let cancel = with_reducer!(ctx, CancelDialog, cancel_dialog);
 
-            Container::new(
+            Container::<Node>::lowered(
                 Row {
                     align_items: AlignItems::Center,
                     justify_content: JustifyContent::Center,
@@ -70,7 +71,7 @@ fn dialog_card(
     view: &View<UiState>,
 ) -> Node {
     let palette = UiPalette::for_mode(view.state.theme_mode);
-    Container::new(
+    Container::<Node>::lowered(
         Column {
             gap: Some(1.0),
             children: vec![
@@ -85,11 +86,15 @@ fn dialog_card(
                         ActionButton::new(confirm_label, confirm)
                             .tone(tone)
                             .width(14.0)
-                            .build_node(ctx, view),
+                            .build(ctx, view)
+                            .into_widget()
+                            .lower_to_node(ctx, view),
                         ActionButton::new("Cancel", cancel)
                             .tone(ButtonTone::Neutral)
                             .width(14.0)
-                            .build_node(ctx, view),
+                            .build(ctx, view)
+                            .into_widget()
+                            .lower_to_node(ctx, view),
                     ],
                     ..Default::default()
                 }

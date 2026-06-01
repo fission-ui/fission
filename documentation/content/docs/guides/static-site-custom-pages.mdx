@@ -20,7 +20,7 @@ use fission::prelude::*;
 pub struct HomePageHero;
 
 impl<State: AppState> Widget<State> for HomePageHero {
-    fn build(&self, _ctx: &mut BuildCtx<State>, _view: &View<State>) -> Node {
+    fn build(&self, _ctx: &mut BuildCtx<State>, _view: &View<State>) -> impl IntoWidget<State> {
         Column {
             gap: Some(20.0),
             children: vec![

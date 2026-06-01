@@ -84,7 +84,7 @@ Now declare the timer during `build()`.
 
 ```rust
 impl Widget<DashboardState> for DashboardScreen {
-    fn build(&self, ctx: &mut BuildCtx<DashboardState>, view: &View<DashboardState>) -> Node {
+    fn build(&self, ctx: &mut BuildCtx<DashboardState>, view: &View<DashboardState>) -> impl IntoWidget<DashboardState> {
         let tick = ctx.bind(
             ClockTick,
             reduce_with!(on_clock_tick),
@@ -197,7 +197,7 @@ pub struct SyncEventArrived;
 pub struct SyncStartFailed;
 
 impl Widget<DashboardState> for DashboardScreen {
-    fn build(&self, ctx: &mut BuildCtx<DashboardState>, view: &View<DashboardState>) -> Node {
+    fn build(&self, ctx: &mut BuildCtx<DashboardState>, view: &View<DashboardState>) -> impl IntoWidget<DashboardState> {
         let on_started = ctx.bind(
             SyncStarted,
             reduce_with!(on_sync_started),

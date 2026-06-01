@@ -11,6 +11,7 @@ use fission::core::{
 };
 use fission::widgets::{HStack, Spacer, VStack};
 
+#[derive(Clone)]
 pub struct CompletionPopup;
 
 /// Map a completion kind string to a short icon/label for the list.
@@ -79,9 +80,9 @@ impl Widget<EditorState> for CompletionPopup {
         ctx: &mut BuildCtx<EditorState>,
         view: &View<EditorState>,
     ) -> impl fission::IntoWidget<EditorState> {
-        fission::AnyWidget::from_node({
+        fission::core::view::internal_node_widget({
             if !view.state.show_completions || view.state.completions.is_empty() {
-                return fission::AnyWidget::from_node(
+                return fission::core::view::internal_node_widget(
                     Spacer {
                         height: Some(0.0),
                         ..Default::default()
@@ -176,7 +177,7 @@ impl Widget<EditorState> for CompletionPopup {
                     spacing: Some(6.0),
                     children: vec![
                         // Kind badge
-                        Container::new(
+                        Container::<fission::Node>::lowered(
                             Text::new(icon_text)
                                 .size(10.0)
                                 .color(icon_color)
@@ -229,7 +230,9 @@ impl Widget<EditorState> for CompletionPopup {
 
                 // Highlight the selected item
                 if is_selected {
-                    btn_container = Container::new(btn_container).bg(selected_bg).into_node();
+                    btn_container = Container::<fission::Node>::lowered(btn_container)
+                        .bg(selected_bg)
+                        .into_node();
                 }
 
                 items.push(btn_container);
@@ -242,7 +245,7 @@ impl Widget<EditorState> for CompletionPopup {
             let popup_y = (popup_y + 18.0).min((viewport.height - popup_height - 16.0).max(8.0));
             let popup_x = popup_x.min((viewport.width - popup_width - 16.0).max(8.0));
 
-            let list = Container::new(
+            let list = Container::<fission::Node>::lowered(
                 Scroll {
                     direction: FlexDirection::Column,
                     child: Some(Box::new(
@@ -278,7 +281,7 @@ impl Widget<EditorState> for CompletionPopup {
             let backdrop = GestureDetector {
                 on_tap: Some(dismiss.clone()),
                 child: Box::new(
-                    Container::new(Spacer::default().into_node())
+                    Container::<fission::Node>::lowered(Spacer::default().into_node())
                         .bg(Color {
                             r: 0,
                             g: 0,
@@ -292,7 +295,7 @@ impl Widget<EditorState> for CompletionPopup {
             }
             .into_node();
 
-            let overlay = Container::new(
+            let overlay = Container::<fission::Node>::lowered(
                 ZStack {
                     children: vec![
                         Positioned {

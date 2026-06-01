@@ -5,6 +5,7 @@ use crate::components::{ActionButton, ButtonTone, DeviceTable, KeyValueRow};
 use crate::state::UiState;
 use crate::theme::UiPalette;
 use fission::prelude::*;
+use fission::IntoWidget;
 
 #[derive(Clone)]
 pub struct DevicesScreen;
@@ -15,7 +16,7 @@ impl Widget<UiState> for DevicesScreen {
         ctx: &mut BuildCtx<UiState>,
         view: &View<UiState>,
     ) -> impl fission::IntoWidget<UiState> {
-        fission::AnyWidget::from_node({
+        fission::core::view::internal_node_widget({
             let palette = UiPalette::for_mode(view.state.theme_mode);
             let refresh = with_reducer!(ctx, RequestCommand(UiCommand::Refresh), request_command);
             Column {
@@ -31,12 +32,12 @@ impl Widget<UiState> for DevicesScreen {
                     gap: Some(2.0),
                     children: vec![
                         KeyValueRow::new("Selected target", view.state.selected_target_label())
-                            .build_node(ctx, view),
+                            .build(ctx, view).into_widget().lower_to_node(ctx, view),
                         KeyValueRow::new("Selected device", view.state.selected_device_label())
-                            .build_node(ctx, view),
+                            .build(ctx, view).into_widget().lower_to_node(ctx, view),
                         ActionButton::new("Refresh devices", refresh)
                             .tone(ButtonTone::Primary)
-                            .build_node(ctx, view),
+                            .build(ctx, view).into_widget().lower_to_node(ctx, view),
                     ],
                     ..Default::default()
                 }
@@ -46,7 +47,7 @@ impl Widget<UiState> for DevicesScreen {
                     selectable: true,
                     max_rows: 12,
                 }
-                .build_node(ctx, view),
+                .build(ctx, view).into_widget().lower_to_node(ctx, view),
             ],
             ..Default::default()
         }

@@ -82,13 +82,13 @@ Deep links are inbound, so there is no button to wire for the route itself. The 
 struct CurrentRoute;
 
 impl Widget<AppState> for CurrentRoute {
-    fn build(&self, view: &View<AppState>, ctx: &mut BuildCtx<AppState>) -> Node {
+    fn build(&self, ctx: &mut BuildCtx<AppState>, view: &View<AppState>) -> impl IntoWidget<AppState> {
         match view.state.pending_route.as_deref() {
             Some(route) if route.starts_with("document:") => {
-                DocumentScreen::new(route.to_owned()).build(view, ctx)
+                DocumentScreen::new(route.to_owned())
             }
-            Some(_) => Text::new("This link is not supported yet").build(view, ctx),
-            None => HomeScreen.build(view, ctx),
+            Some(_) => Text::new("This link is not supported yet"),
+            None => HomeScreen,
         }
     }
 }

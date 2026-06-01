@@ -1,5 +1,6 @@
 use fission_core::op::Color;
 use fission_core::ui::Container;
+use fission_core::IntoWidget;
 use fission_core::{AppState, BuildCtx, View, Widget};
 use fission_test::TestHarness;
 
@@ -17,6 +18,7 @@ fn test_container_background_fills_border_box() {
     let width = 100.0;
     let height = 100.0;
 
+    #[derive(Clone)]
     struct Root {
         p: f32,
         _w: f32,
@@ -25,26 +27,25 @@ fn test_container_background_fills_border_box() {
     impl Widget<State> for Root {
         fn build(
             &self,
-            _ctx: &mut BuildCtx<State>,
-            _view: &View<State>,
+            ctx: &mut BuildCtx<State>,
+            view: &View<State>,
         ) -> impl fission_core::IntoWidget<State> {
-            fission_core::AnyWidget::from_node({
+            fission_core::view::internal_node_widget({
                 // Use Align to prevent stretching the test container
                 fission_core::ui::widgets::align::Align::new(
                     Container::new(
                         // Content: Large box
-                        Container::new(
-                            fission_core::ui::widgets::spacer::Spacer::default().into_node(),
-                        )
-                        .width(200.0)
-                        .height(200.0)
-                        .bg(Color::BLUE)
-                        .into_node(),
+                        Container::new(fission_core::ui::widgets::spacer::Spacer::default())
+                            .width(200.0)
+                            .height(200.0)
+                            .bg(Color::BLUE),
                     )
                     // Auto size
                     .padding_all(self.p)
                     .bg(Color::RED) // The background
-                    .into_node(),
+                    .build(ctx, view)
+                    .into_widget()
+                    .lower_to_node(ctx, view),
                 )
                 .into_node()
             })

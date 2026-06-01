@@ -4,6 +4,7 @@ use crate::{
     WebRoute, WebRouteMode,
 };
 use anyhow::Result;
+use fission_core::IntoWidget;
 use fission_core::{
     ActionInput, AppState, BuildCtx, Effect, Env, Node, RuntimeResourceDeclaration,
     RuntimeResourceKind, RuntimeState, View, Widget,
@@ -217,7 +218,11 @@ where
     for pass in 0..=ctx.render_pass_limit {
         let view = View::new(&state, &runtime, &env, None);
         let mut build_ctx = BuildCtx::<S>::new();
-        let node = widget.clone().build_node(&mut build_ctx, &view);
+        let node = widget
+            .clone()
+            .build(&mut build_ctx, &view)
+            .into_widget()
+            .lower_to_node(&mut build_ctx, &view);
 
         if let Some(action) = pending_action.take() {
             build_ctx.registry.dispatch(
@@ -254,7 +259,10 @@ where
         node: final_node.unwrap_or_else(|| {
             let view = View::new(&state, &runtime, &env, None);
             let mut build_ctx = BuildCtx::<S>::new();
-            widget.build_node(&mut build_ctx, &view)
+            widget
+                .build(&mut build_ctx, &view)
+                .into_widget()
+                .lower_to_node(&mut build_ctx, &view)
         }),
         resources: final_resources,
     })

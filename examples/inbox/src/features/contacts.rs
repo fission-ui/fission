@@ -1,8 +1,11 @@
 use crate::model::{InboxState, SetContactsOpen, ToggleContactSelection};
 use fission::core::{reduce_with, BuildCtx, View, Widget, WidgetNodeId};
 use fission::widgets::{DataTable, Modal, ModalAction, TableColumn, TableRow};
+use fission::IntoWidget;
 use serde_json;
 use std::sync::Arc;
+
+#[derive(Clone)]
 
 pub struct ContactsModal;
 
@@ -12,7 +15,7 @@ impl Widget<InboxState> for ContactsModal {
         ctx: &mut BuildCtx<InboxState>,
         view: &View<InboxState>,
     ) -> impl fission::IntoWidget<InboxState> {
-        fission::AnyWidget::from_node({
+        fission::core::view::internal_node_widget({
             let viewport_width = view.viewport_size().width.max(0.0);
             let toggle_id = ctx
                 .bind(
@@ -83,7 +86,9 @@ impl Widget<InboxState> for ContactsModal {
                             }
                         })),
                     }
-                    .build_node(ctx, view),
+                    .build(ctx, view)
+                    .into_widget()
+                    .lower_to_node(ctx, view),
                 ),
                 actions: vec![ModalAction {
                     label: "Done".into(),
@@ -96,7 +101,9 @@ impl Widget<InboxState> for ContactsModal {
                     )),
                 }],
             }
-            .build_node(ctx, view)
+            .build(ctx, view)
+            .into_widget()
+            .lower_to_node(ctx, view)
         })
     }
 }

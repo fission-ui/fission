@@ -1154,7 +1154,7 @@ mod tests {
             _ctx: &mut BuildCtx<TestState>,
             _view: &View<TestState>,
         ) -> impl fission_core::IntoWidget<TestState> {
-            fission_core::AnyWidget::from_node(Text::new(self.0).into_node())
+            Text::new(self.0)
         }
     }
 
@@ -1167,14 +1167,7 @@ mod tests {
             _ctx: &mut BuildCtx<TestState>,
             _view: &View<TestState>,
         ) -> impl fission_core::IntoWidget<TestState> {
-            fission_core::AnyWidget::from_node({
-                Button {
-                    child: Some(Box::new(Text::new("Run action").into_node())),
-                    on_press: Some(ActionEnvelope::from(TestAction)),
-                    ..Default::default()
-                }
-                .into_node()
-            })
+            Button::new(Text::new("Run action")).on_press(ActionEnvelope::from(TestAction))
         }
     }
 
@@ -1747,7 +1740,7 @@ same_site = "none"
             ctx: &mut BuildCtx<TestState>,
             _view: &View<TestState>,
         ) -> impl fission_core::IntoWidget<TestState> {
-            fission_core::AnyWidget::from_node({
+            fission_core::view::internal_node_widget({
                 ctx.resources.job(JobResource::new(
                     ResourceKey::new("missing-job"),
                     MISSING_JOB,
@@ -1824,7 +1817,7 @@ same_site = "none"
             ctx: &mut BuildCtx<LoopState>,
             view: &View<LoopState>,
         ) -> impl fission_core::IntoWidget<LoopState> {
-            fission_core::AnyWidget::from_node({
+            fission_core::view::internal_node_widget({
                 let on_ok = ctx.bind(LoopLoaded, on_loop_loaded as Handler<LoopState, LoopLoaded>);
                 ctx.resources.job(
                     JobResource::new(

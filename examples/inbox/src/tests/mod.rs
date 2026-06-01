@@ -10,6 +10,7 @@ use fission::ir::{EmbedKind, LayoutOp, Op, PaintOp};
 use fission::layout::LayoutEngine;
 use fission::render::{DisplayOp, LayoutRect};
 use fission::shell::Pipeline;
+use fission::IntoWidget;
 use fission_test::prelude::*;
 use std::collections::HashMap;
 
@@ -60,7 +61,10 @@ fn build_lowered_inbox_ir(state: &InboxState) -> (fission::ir::CoreIR, RuntimeSt
     let runtime_state = RuntimeState::default();
     let env = create_env();
     let view = View::new(state, &runtime_state, &env, None);
-    let tree = InboxApp.build_node(&mut ctx, &view);
+    let tree = InboxApp
+        .build(&mut ctx, &view)
+        .into_widget()
+        .lower_to_node(&mut ctx, &view);
     let portals = ctx.take_portals();
 
     let node_tree = if portals.is_empty() {
@@ -69,7 +73,7 @@ fn build_lowered_inbox_ir(state: &InboxState) -> (fission::ir::CoreIR, RuntimeSt
         fission::core::ui::Node::Overlay(fission::core::ui::Overlay {
             id: None,
             content: Box::new(
-                fission::core::ui::Container::new(tree)
+                fission::core::ui::Container::<fission::core::ui::Node>::lowered(tree)
                     .width(800.0)
                     .height(600.0)
                     .into_node(),

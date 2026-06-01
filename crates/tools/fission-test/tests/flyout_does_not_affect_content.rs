@@ -2,6 +2,7 @@ use anyhow::Result;
 use fission_core::env::Env;
 use fission_core::lowering::LoweringContext;
 use fission_core::ui::{Grid, GridItem, Node, TextInput};
+use fission_core::IntoWidget;
 use fission_core::Runtime;
 use fission_core::{op::GridTrack, BuildCtx, NodeId, View, Widget, WidgetNodeId};
 use fission_layout::{LayoutEngine, LineMetric, TextMeasurer};
@@ -48,6 +49,7 @@ impl TextMeasurer for MockMeasurer {
     }
 }
 
+#[derive(Clone)]
 struct Root;
 impl Widget<AppState> for Root {
     fn build(
@@ -55,7 +57,7 @@ impl Widget<AppState> for Root {
         ctx: &mut BuildCtx<AppState>,
         view: &View<AppState>,
     ) -> impl fission_core::IntoWidget<AppState> {
-        fission_core::AnyWidget::from_node({
+        fission_core::view::internal_node_widget({
             Grid {
                 columns: vec![
                     GridTrack::Points(220.0),
@@ -92,12 +94,18 @@ impl Widget<AppState> for Root {
                                         },
                                     ],
                                 }
-                                .build_node(ctx, view),
+                                .build(ctx, view)
+                                .into_widget()
+                                .lower_to_node(ctx, view),
                             ],
                         }
-                        .build_node(ctx, view)],
+                        .build(ctx, view)
+                        .into_widget()
+                        .lower_to_node(ctx, view)],
                     }
-                    .build_node(ctx, view),
+                    .build(ctx, view)
+                    .into_widget()
+                    .lower_to_node(ctx, view),
                 )
                 .cell(1, 2)
                 .into()],
@@ -126,13 +134,16 @@ fn flyout_does_not_shift_content() -> Result<()> {
             pipe.last_snapshot.as_ref(),
         );
         let mut ctx = BuildCtx::new();
-        let node = Root.build_node(&mut ctx, &view);
+        let node = Root
+            .build(&mut ctx, &view)
+            .into_widget()
+            .lower_to_node(&mut ctx, &view);
         let portals_with_ids = ctx.take_portals();
         let portals: Vec<Node> = portals_with_ids
             .into_iter()
             .map(|(id, node)| {
                 if let Some(id) = id {
-                    fission_core::ui::Container::new(node)
+                    fission_core::ui::Container::<fission_core::ui::Node>::lowered(node)
                         .id(id.into())
                         .into_node()
                 } else {
@@ -182,13 +193,16 @@ fn flyout_does_not_shift_content() -> Result<()> {
                 pipe.last_snapshot.as_ref(),
             );
             let mut ctx = BuildCtx::new();
-            let node = Root.build_node(&mut ctx, &view);
+            let node = Root
+                .build(&mut ctx, &view)
+                .into_widget()
+                .lower_to_node(&mut ctx, &view);
             let portals_with_ids = ctx.take_portals();
             let portals: Vec<Node> = portals_with_ids
                 .into_iter()
                 .map(|(id, node)| {
                     if let Some(id) = id {
-                        fission_core::ui::Container::new(node)
+                        fission_core::ui::Container::<fission_core::ui::Node>::lowered(node)
                             .id(id.into())
                             .into_node()
                     } else {

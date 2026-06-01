@@ -12,9 +12,9 @@ impl Widget<StoreState> for StoreShell {
         _ctx: &mut BuildCtx<StoreState>,
         view: &View<StoreState>,
     ) -> impl fission::IntoWidget<StoreState> {
-        fission::AnyWidget::from_node({
+        fission::core::view::internal_node_widget({
             let viewport = view.viewport_size();
-            Container::new(
+            Container::<Node>::lowered(
                 Column {
                     gap: Some(26.0),
                     children: vec![nav(view), self.child.clone(), footer(view)],
@@ -77,7 +77,7 @@ fn footer(_view: &View<StoreState>) -> Node {
 }
 
 fn pill(label: &str, accent: Color) -> Node {
-    Container::new(
+    Container::<Node>::lowered(
         Text::new(label)
             .size(12.0)
             .line_height(16.0)

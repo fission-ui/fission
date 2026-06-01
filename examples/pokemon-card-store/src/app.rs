@@ -3,6 +3,7 @@ use crate::components::{card_grid::CardGrid, hero::Hero, shell::StoreShell};
 use crate::data::{self, CatalogRequest, CatalogResponse, StoreError, CATALOG_JOB};
 use fission::core::ResourceKey;
 use fission::prelude::*;
+use fission::IntoWidget;
 
 #[derive(Debug, Clone)]
 pub struct StoreState {
@@ -43,7 +44,7 @@ impl Widget<StoreState> for StoreHomePage {
         ctx: &mut BuildCtx<StoreState>,
         view: &View<StoreState>,
     ) -> impl fission::IntoWidget<StoreState> {
-        fission::AnyWidget::from_node({
+        fission::core::view::internal_node_widget({
             let catalog_loaded = with_reducer!(ctx, CatalogLoaded, on_catalog_loaded);
             let catalog_failed = with_reducer!(ctx, CatalogFailed, on_catalog_failed);
             ctx.register::<AddToCart, _>(reduce_with!(on_add_to_cart));
@@ -59,19 +60,23 @@ impl Widget<StoreState> for StoreHomePage {
                     CardGrid {
                         snapshot: snapshot.clone(),
                     }
-                    .build_node(ctx, view)
+                    .build(ctx, view)
+                    .into_widget()
+                    .lower_to_node(ctx, view)
                 },
             )
             .deps(catalog_request)
             .on_ok(catalog_loaded)
             .on_err(catalog_failed)
-            .build_node(ctx, view);
+            .build(ctx, view)
+            .into_widget()
+            .lower_to_node(ctx, view);
 
             StoreShell {
                 child: Column {
                     gap: Some(28.0),
                     children: vec![
-                        Hero.build_node(ctx, view),
+                        Hero.build(ctx, view).into_widget().lower_to_node(ctx, view),
                         cart_summary(view),
                         card_grid,
                         browser_runtime_panel(),
@@ -80,7 +85,9 @@ impl Widget<StoreState> for StoreHomePage {
                 }
                 .into_node(),
             }
-            .build_node(ctx, view)
+            .build(ctx, view)
+            .into_widget()
+            .lower_to_node(ctx, view)
         })
     }
 }
@@ -96,13 +103,15 @@ impl Widget<StoreState> for StoreCardPage {
         ctx: &mut BuildCtx<StoreState>,
         view: &View<StoreState>,
     ) -> impl fission::IntoWidget<StoreState> {
-        fission::AnyWidget::from_node({
+        fission::core::view::internal_node_widget({
             let Some(card) = data::card_by_slug(&self.slug) else {
-                return fission::AnyWidget::from_node(
+                return fission::core::view::internal_node_widget(
                     StoreShell {
                         child: not_found(&self.slug),
                     }
-                    .build_node(ctx, view),
+                    .build(ctx, view)
+                    .into_widget()
+                    .lower_to_node(ctx, view),
                 );
             };
             let add = ctx.bind(
@@ -121,7 +130,7 @@ impl Widget<StoreState> for StoreCardPage {
                             .color(accent)
                             .semantics_identifier("site-route:/")
                             .into_node(),
-                        Container::new(
+                        Container::<Node>::lowered(
                             Row {
                                 gap: Some(28.0),
                                 align_items: ir_op::AlignItems::Stretch,
@@ -189,7 +198,9 @@ impl Widget<StoreState> for StoreCardPage {
                 }
                 .into_node(),
             }
-            .build_node(ctx, view)
+            .build(ctx, view)
+            .into_widget()
+            .lower_to_node(ctx, view)
         })
     }
 }
@@ -236,7 +247,7 @@ fn cart_summary(view: &View<StoreState>) -> Node {
         .and_then(|slug| data::card_by_slug(slug))
         .map(|card| format!("Last added: {}", card.name))
         .unwrap_or_else(|| "Choose a card to exercise signed server actions.".to_string());
-    Container::new(
+    Container::<Node>::lowered(
         Row {
             gap: Some(12.0),
             align_items: ir_op::AlignItems::Center,
@@ -274,7 +285,7 @@ fn cart_summary(view: &View<StoreState>) -> Node {
 }
 
 fn browser_runtime_panel() -> Node {
-    Container::new(
+    Container::<Node>::lowered(
         Column {
             gap: Some(18.0),
             children: vec![
@@ -344,7 +355,7 @@ fn browser_runtime_panel() -> Node {
 
 fn browser_cart_island() -> Node {
     SemanticsRegion::new(
-        Container::new(
+        Container::<Node>::lowered(
             Column {
                 gap: Some(14.0),
                 children: vec![
@@ -402,7 +413,7 @@ fn status_chip(label: &str, identifier: &str, status: &str) -> Node {
 
 fn detail_art(card: &data::Card) -> Node {
     let accent = color(card.accent.0, card.accent.1, card.accent.2);
-    Container::new(
+    Container::<Node>::lowered(
         Column {
             gap: Some(14.0),
             children: vec![
@@ -437,7 +448,7 @@ fn detail_art(card: &data::Card) -> Node {
 }
 
 fn not_found(slug: &str) -> Node {
-    Container::new(
+    Container::<Node>::lowered(
         Column {
             gap: Some(12.0),
             children: vec![

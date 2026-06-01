@@ -17,18 +17,16 @@ impl Widget<State> for HelloApp {
         _ctx: &mut BuildCtx<State>,
         _view: &View<State>,
     ) -> impl fission_core::IntoWidget<State> {
-        fission_core::AnyWidget::from_node({
-            Container::new(Text::new("Hello terminal").color(Color::BLACK).into_node())
-                .width(24.0)
-                .height(3.0)
-                .padding([1.0, 1.0, 1.0, 1.0])
-                .bg(Color::WHITE)
-                .border(Color::BLACK, 1.0)
-                .into_node()
-        })
+        Container::new(Text::new("Hello terminal").color(Color::BLACK))
+            .width(24.0)
+            .height(3.0)
+            .padding([1.0, 1.0, 1.0, 1.0])
+            .bg(Color::WHITE)
+            .border(Color::BLACK, 1.0)
     }
 }
 
+#[derive(Clone)]
 struct ScrollApp;
 
 impl Widget<State> for ScrollApp {
@@ -37,7 +35,7 @@ impl Widget<State> for ScrollApp {
         _ctx: &mut BuildCtx<State>,
         _view: &View<State>,
     ) -> impl fission_core::IntoWidget<State> {
-        fission_core::AnyWidget::from_node({
+        fission_core::view::internal_node_widget({
             let children = (0..12)
                 .map(|idx| {
                     Text::new(format!("line-{idx:02}"))
@@ -52,7 +50,7 @@ impl Widget<State> for ScrollApp {
                 height: Some(8.0),
                 show_scrollbar: true,
                 child: Some(Box::new(
-                    Column {
+                    Column::<fission_core::ui::Node> {
                         gap: Some(0.0),
                         children,
                         ..Default::default()
@@ -66,6 +64,7 @@ impl Widget<State> for ScrollApp {
     }
 }
 
+#[derive(Clone)]
 struct TextInputApp;
 
 impl Widget<State> for TextInputApp {
@@ -74,7 +73,7 @@ impl Widget<State> for TextInputApp {
         _ctx: &mut BuildCtx<State>,
         _view: &View<State>,
     ) -> impl fission_core::IntoWidget<State> {
-        fission_core::AnyWidget::from_node({
+        fission_core::view::internal_node_widget({
             TextInput {
                 id: Some(fission_ir::NodeId::explicit("terminal_text_input")),
                 value: "abc".to_string(),

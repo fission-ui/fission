@@ -13,9 +13,9 @@ impl Widget<StoreState> for CardGrid {
         ctx: &mut BuildCtx<StoreState>,
         _view: &View<StoreState>,
     ) -> impl fission::IntoWidget<StoreState> {
-        fission::AnyWidget::from_node({
+        fission::core::view::internal_node_widget({
             let Some(catalog) = self.snapshot.data() else {
-                return fission::AnyWidget::from_node(loading_or_error(&self.snapshot));
+                return fission::core::view::internal_node_widget(loading_or_error(&self.snapshot));
             };
             let mut children = Vec::new();
             for (index, summary) in catalog.cards.iter().enumerate() {
@@ -69,7 +69,7 @@ fn loading_or_error(snapshot: &AsyncSnapshot<CatalogResponse, StoreError>) -> No
             color(96, 165, 250),
         )
     };
-    Container::new(
+    Container::<Node>::lowered(
         Column {
             gap: Some(10.0),
             children: vec![
@@ -119,7 +119,7 @@ fn section_title() -> Node {
             }
             .into_node(),
             Spacer { flex_grow: 1.0, ..Default::default() }.into_node(),
-            Container::new(
+            Container::<Node>::lowered(
                 Text::new("Cart updates persist through the server session")
                     .size(13.0)
                     .line_height(18.0)
@@ -145,7 +145,7 @@ fn card_tile(ctx: &mut BuildCtx<StoreState>, card: &Card) -> Node {
         AddToCart(card.slug.to_string()),
         reduce_with!(on_add_to_cart),
     );
-    Container::new(
+    Container::<Node>::lowered(
         Column {
             gap: Some(14.0),
             children: vec![
@@ -233,7 +233,7 @@ fn card_tile(ctx: &mut BuildCtx<StoreState>, card: &Card) -> Node {
 
 fn card_art(card: &Card) -> Node {
     let accent = color(card.accent.0, card.accent.1, card.accent.2);
-    Container::new(
+    Container::<Node>::lowered(
         Column {
             gap: Some(8.0),
             children: vec![

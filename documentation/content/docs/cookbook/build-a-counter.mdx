@@ -87,7 +87,7 @@ In Fission, a widget's `build()` method reads inputs and returns a description o
 pub struct CounterApp;
 
 impl Widget<CounterState> for CounterApp {
-    fn build(&self, ctx: &mut BuildCtx<CounterState>, view: &View<CounterState>) -> Node {
+    fn build(&self, ctx: &mut BuildCtx<CounterState>, view: &View<CounterState>) -> impl IntoWidget<CounterState> {
         let increment = with_reducer!(ctx, Increment, on_increment);
 
         Column {
@@ -188,7 +188,7 @@ fn on_increment(state: &mut CounterState) {
 pub struct CounterApp;
 
 impl Widget<CounterState> for CounterApp {
-    fn build(&self, ctx: &mut BuildCtx<CounterState>, view: &View<CounterState>) -> Node {
+    fn build(&self, ctx: &mut BuildCtx<CounterState>, view: &View<CounterState>) -> impl IntoWidget<CounterState> {
         let increment = with_reducer!(ctx, Increment, on_increment);
 
         Column {

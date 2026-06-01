@@ -32,22 +32,15 @@ impl Widget<TestState> for Root {
         _ctx: &mut BuildCtx<TestState>,
         _view: &View<TestState>,
     ) -> impl fission_core::IntoWidget<TestState> {
-        fission_core::AnyWidget::from_node({
-            Container::new(
-                Button {
-                    child: Some(Box::new(Text::new("Open").into_node())),
-                    on_press: Some(ActionEnvelope::from(OpenLink("https://example.com".into()))),
-                    variant: ButtonVariant::Filled,
-                    width: Some(200.0),
-                    height: Some(40.0),
-                    ..Default::default()
-                }
-                .into_node(),
-            )
-            .width(300.0)
-            .height(100.0)
-            .into_node()
-        })
+        Container::new(
+            Button::new(Text::new("Open"))
+                .on_press(ActionEnvelope::from(OpenLink("https://example.com".into())))
+                .variant(ButtonVariant::Filled)
+                .width(200.0)
+                .height(40.0),
+        )
+        .width(300.0)
+        .height(100.0)
     }
 }
 

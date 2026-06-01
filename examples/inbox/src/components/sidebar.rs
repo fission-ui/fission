@@ -4,7 +4,10 @@ use crate::model::{
 use fission::core::ui::{Button, ButtonContentAlign, ButtonVariant, Container, Text, TextContent};
 use fission::core::{reduce_with, BuildCtx, View, Widget};
 use fission::widgets::{Divider, Tag, TreeItem, TreeView, VStack, Wrap};
+use fission::IntoWidget;
 use serde_json;
+
+#[derive(Clone)]
 
 pub struct Sidebar;
 
@@ -14,7 +17,7 @@ impl Widget<InboxState> for Sidebar {
         ctx: &mut BuildCtx<InboxState>,
         view: &View<InboxState>,
     ) -> impl fission::IntoWidget<InboxState> {
-        fission::AnyWidget::from_node({
+        fission::core::view::internal_node_widget({
             let tokens = &view.env.theme.tokens;
             let t = |key: &str| {
                 view.env
@@ -44,7 +47,7 @@ impl Widget<InboxState> for Sidebar {
                 )
                 .id;
 
-            Container::new(
+            Container::<fission::Node>::lowered(
                 fission::core::ui::Scroll {
                     direction: fission::ir::op::FlexDirection::Column,
                     show_scrollbar: true,
@@ -159,7 +162,9 @@ impl Widget<InboxState> for Sidebar {
                                         },
                                     ],
                                 }
-                                .build_node(ctx, view),
+                                .build(ctx, view)
+                                .into_widget()
+                                .lower_to_node(ctx, view),
                                 Text::new(t("labels.title"))
                                     .size(12.0)
                                     .color(tokens.colors.text_secondary)
@@ -172,29 +177,41 @@ impl Widget<InboxState> for Sidebar {
                                             label: "Work".into(),
                                             on_close: None,
                                         }
-                                        .build_node(ctx, view),
+                                        .build(ctx, view)
+                                        .into_widget()
+                                        .lower_to_node(ctx, view),
                                         Tag {
                                             label: "Personal".into(),
                                             on_close: None,
                                         }
-                                        .build_node(ctx, view),
+                                        .build(ctx, view)
+                                        .into_widget()
+                                        .lower_to_node(ctx, view),
                                         Tag {
                                             label: "Travel".into(),
                                             on_close: None,
                                         }
-                                        .build_node(ctx, view),
+                                        .build(ctx, view)
+                                        .into_widget()
+                                        .lower_to_node(ctx, view),
                                         Tag {
                                             label: "Receipts".into(),
                                             on_close: None,
                                         }
-                                        .build_node(ctx, view),
+                                        .build(ctx, view)
+                                        .into_widget()
+                                        .lower_to_node(ctx, view),
                                     ],
                                 }
-                                .build_node(ctx, view),
+                                .build(ctx, view)
+                                .into_widget()
+                                .lower_to_node(ctx, view),
                                 Divider {
                                     orientation: fission::widgets::divider::Orientation::Horizontal,
                                 }
-                                .build_node(ctx, view),
+                                .build(ctx, view)
+                                .into_widget()
+                                .lower_to_node(ctx, view),
                                 Button {
                                     variant: ButtonVariant::Ghost,
                                     child: Some(Box::new(
@@ -231,7 +248,9 @@ impl Widget<InboxState> for Sidebar {
                                 .into_node(),
                             ],
                         }
-                        .build_node(ctx, view),
+                        .build(ctx, view)
+                        .into_widget()
+                        .lower_to_node(ctx, view),
                     )),
                     ..Default::default()
                 }

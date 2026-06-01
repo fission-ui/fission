@@ -1,5 +1,6 @@
 use crate::build::{build_site, check_site, list_site_routes, SiteBuildOptions};
 use anyhow::{bail, Context, Result};
+use fission_core::IntoWidget;
 use fission_core::{AppState, BuildCtx, Env, Node, RuntimeState, View, Widget};
 use fission_layout::LayoutSize;
 use fission_theme::{DesignMode, Theme};
@@ -295,7 +296,12 @@ impl FissionSite {
                 let state = S::default();
                 let view = View::new(&state, &runtime, &env, None);
                 let mut build_ctx = BuildCtx::<S>::new();
-                Ok(widget.as_ref().clone().build_node(&mut build_ctx, &view))
+                Ok(widget
+                    .as_ref()
+                    .clone()
+                    .build(&mut build_ctx, &view)
+                    .into_widget()
+                    .lower_to_node(&mut build_ctx, &view))
             }),
         });
         self
@@ -334,7 +340,10 @@ where
     let state = S::default();
     let view = View::new(&state, &runtime, &env, None);
     let mut build_ctx = BuildCtx::<S>::new();
-    Ok(widget.build_node(&mut build_ctx, &view))
+    Ok(widget
+        .build(&mut build_ctx, &view)
+        .into_widget()
+        .lower_to_node(&mut build_ctx, &view))
 }
 
 pub fn build_from_cli(site: FissionSite) -> Result<()> {

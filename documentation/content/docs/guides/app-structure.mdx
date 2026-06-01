@@ -102,13 +102,13 @@ Prefer reusable widget structs over large helper functions that return `Node` di
 pub struct TodoScreen;
 
 impl Widget<TodoState> for TodoScreen {
-    fn build(&self, view: &View<TodoState>, ctx: &mut BuildCtx<TodoState>) -> Node {
+    fn build(&self, ctx: &mut BuildCtx<TodoState>, view: &View<TodoState>) -> impl IntoWidget<TodoState> {
         let add = with_reducer!(ctx, AddTodo, on_add_todo);
 
         Column::new()
             .child(TodoComposer { on_submit: add })
             .child(TodoList::new(view.state.visible_items()))
-            .build(view, ctx)
+            
     }
 }
 ```

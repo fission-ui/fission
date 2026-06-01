@@ -52,7 +52,7 @@ use fission::prelude::*;
 pub struct MailScreen;
 
 impl Widget<MailState> for MailScreen {
-    fn build(&self, ctx: &mut BuildCtx<MailState>, view: &View<MailState>) -> Node {
+    fn build(&self, ctx: &mut BuildCtx<MailState>, view: &View<MailState>) -> impl IntoWidget<MailState> {
         let viewport = view.viewport_size();
         let is_phone = viewport.width < 900.0;
 

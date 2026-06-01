@@ -1,5 +1,6 @@
 use fission_core::op::{AlignItems, Fill, JustifyContent};
 use fission_core::ui::{Column, Container, Image, Row, Text};
+use fission_core::IntoWidget;
 use fission_core::{AppState, BuildCtx, Node, View, Widget};
 use fission_ir::{Role, Semantics};
 use fission_theme::Tokens;
@@ -42,26 +43,27 @@ pub(crate) struct SidebarLink {
 pub(crate) struct SitePageState;
 impl AppState for SitePageState {}
 
-pub(crate) struct DocumentationPage<'a> {
-    pub site_title: &'a str,
-    pub site_logo: Option<&'a str>,
-    pub site_nav: &'a [SiteNavLink],
+#[derive(Clone)]
+pub(crate) struct DocumentationPage {
+    pub site_title: String,
+    pub site_logo: Option<String>,
+    pub site_nav: Vec<SiteNavLink>,
     pub theme_switching: bool,
     pub search_enabled: bool,
-    pub route: &'a ContentRoute,
-    pub all_routes: &'a [ContentRoute],
+    pub route: ContentRoute,
+    pub all_routes: Vec<ContentRoute>,
 }
 
-impl<'a> Widget<SitePageState> for DocumentationPage<'a> {
+impl Widget<SitePageState> for DocumentationPage {
     fn build(
         &self,
         ctx: &mut BuildCtx<SitePageState>,
         view: &View<SitePageState>,
     ) -> impl fission_core::IntoWidget<SitePageState> {
-        fission_core::AnyWidget::from_node({
+        fission_core::view::internal_node_widget({
             let tokens = &view.env.theme.tokens;
-            Container::new(
-                Column {
+            Container::<fission_core::ui::Node>::lowered(
+                Column::<fission_core::ui::Node> {
                     children: vec![self.header(tokens), self.document_grid(ctx, view)],
                     flex_grow: 1.0,
                     ..Default::default()
@@ -75,12 +77,12 @@ impl<'a> Widget<SitePageState> for DocumentationPage<'a> {
     }
 }
 
-impl DocumentationPage<'_> {
+impl DocumentationPage {
     fn header(&self, tokens: &Tokens) -> Node {
         let mut children = vec![sidebar_toggle(tokens), self.brand(tokens)];
         if !self.site_nav.is_empty() {
             children.push(
-                Row {
+                Row::<fission_core::ui::Node> {
                     children: self
                         .site_nav
                         .iter()
@@ -101,8 +103,8 @@ impl DocumentationPage<'_> {
         if self.search_enabled {
             children.push(search_trigger(tokens));
         }
-        Container::new(
-            Row {
+        Container::<fission_core::ui::Node>::lowered(
+            Row::<fission_core::ui::Node> {
                 children,
                 gap: Some(tokens.spacing.m),
                 align_items: AlignItems::Center,
@@ -125,22 +127,22 @@ impl DocumentationPage<'_> {
 
     fn brand(&self, tokens: &Tokens) -> Node {
         let mut children = Vec::new();
-        if let Some(logo) = self.site_logo {
+        if let Some(logo) = &self.site_logo {
             children.push(
-                Image::asset(logo.to_string())
+                Image::asset(logo.clone())
                     .size(tokens.spacing.xl, tokens.spacing.xl)
                     .into_node(),
             );
         }
         children.push(
-            Text::new(self.site_title)
+            Text::new(self.site_title.clone())
                 .size(tokens.typography.font_size_lg)
                 .weight(tokens.typography.font_weight_bold)
                 .color(tokens.colors.heading)
                 .semantics_identifier("site-route:/")
                 .into_node(),
         );
-        Row {
+        Row::<fission_core::ui::Node> {
             children,
             gap: Some(tokens.spacing.s),
             align_items: AlignItems::Center,
@@ -151,7 +153,7 @@ impl DocumentationPage<'_> {
 
     fn document_grid(&self, ctx: &mut BuildCtx<SitePageState>, view: &View<SitePageState>) -> Node {
         let tokens = &view.env.theme.tokens;
-        Row {
+        Row::<fission_core::ui::Node> {
             children: vec![
                 self.sidebar(tokens),
                 self.article(ctx, view),
@@ -196,9 +198,9 @@ impl DocumentationPage<'_> {
                 ));
             }
         }
-        Column {
-            children: vec![Container::new(
-                Column {
+        Column::<fission_core::ui::Node> {
+            children: vec![Container::<fission_core::ui::Node>::lowered(
+                Column::<fission_core::ui::Node> {
                     children,
                     gap: Some(tokens.spacing.s),
                     ..Default::default()
@@ -234,7 +236,7 @@ impl DocumentationPage<'_> {
         } else {
             tokens.colors.text_primary
         };
-        let mut item = Container::new(
+        let mut item = Container::<fission_core::ui::Node>::lowered(
             Text::new(title.to_string())
                 .size(if group {
                     tokens.typography.font_size_sm
@@ -260,7 +262,7 @@ impl DocumentationPage<'_> {
         if active {
             item = item.bg_fill(Fill::Solid(tokens.colors.surface_raised));
         }
-        Column {
+        Column::<fission_core::ui::Node> {
             children: vec![item.into_node()],
             semantics: Some(site_semantics(format!(
                 "site-sidebar-item:{level}:{active}:{group}:{index}"
@@ -305,11 +307,16 @@ impl DocumentationPage<'_> {
             markdown: self.route.body.clone(),
             show_scrollbar: false,
         };
-        children.push(markdown.build_node(ctx, view));
+        children.push(
+            markdown
+                .build(ctx, view)
+                .into_widget()
+                .lower_to_node(ctx, view),
+        );
 
-        Column {
-            children: vec![Container::new(
-                Column {
+        Column::<fission_core::ui::Node> {
+            children: vec![Container::<fission_core::ui::Node>::lowered(
+                Column::<fission_core::ui::Node> {
                     children,
                     gap: Some(tokens.spacing.l),
                     flex_grow: 1.0,
@@ -358,7 +365,7 @@ impl DocumentationPage<'_> {
             );
         }
         Some(
-            Row {
+            Row::<fission_core::ui::Node> {
                 children,
                 gap: Some(tokens.spacing.s),
                 align_items: AlignItems::Center,
@@ -379,9 +386,9 @@ impl DocumentationPage<'_> {
                     .into_node(),
             );
         }
-        Column {
-            children: vec![Container::new(
-                Column {
+        Column::<fission_core::ui::Node> {
+            children: vec![Container::<fission_core::ui::Node>::lowered(
+                Column::<fission_core::ui::Node> {
                     children,
                     gap: Some(tokens.spacing.s),
                     ..Default::default()
@@ -427,7 +434,7 @@ fn theme_toggle(tokens: &Tokens) -> Node {
 }
 
 fn search_trigger(tokens: &Tokens) -> Node {
-    Row {
+    Row::<fission_core::ui::Node> {
         children: vec![
             Text::new("Search")
                 .size(tokens.typography.label_large_size)
@@ -449,7 +456,7 @@ fn search_trigger(tokens: &Tokens) -> Node {
 }
 
 fn sidebar_toggle(tokens: &Tokens) -> Node {
-    Row {
+    Row::<fission_core::ui::Node> {
         children: vec![Text::new("Menu")
             .size(tokens.typography.label_large_size)
             .weight(tokens.typography.font_weight_semibold)

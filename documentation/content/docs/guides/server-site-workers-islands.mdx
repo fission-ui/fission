@@ -96,7 +96,7 @@ impl AppState for BrowserCartState {}
 pub struct CartDrawerIsland;
 
 impl Widget<BrowserCartState> for CartDrawerIsland {
-    fn build(&self, ctx: &mut BuildCtx<BrowserCartState>, view: &View<BrowserCartState>) -> Node {
+    fn build(&self, ctx: &mut BuildCtx<BrowserCartState>, view: &View<BrowserCartState>) -> impl IntoWidget<BrowserCartState> {
         let add = ctx.bind(IslandAddToCart, reduce_with!(on_island_add_to_cart));
 
         SemanticsRegion::new(

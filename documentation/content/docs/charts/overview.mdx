@@ -40,7 +40,7 @@ impl AppState for DashboardState {}
 struct Dashboard;
 
 impl Widget<DashboardState> for Dashboard {
-    fn build(&self, ctx: &mut BuildCtx<DashboardState>, view: &View<DashboardState>) -> Node {
+    fn build(&self, ctx: &mut BuildCtx<DashboardState>, view: &View<DashboardState>) -> impl IntoWidget<DashboardState> {
         Chart::new()
             .title("Weekly revenue")
             .x_axis(Axis::category(vec!["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]))

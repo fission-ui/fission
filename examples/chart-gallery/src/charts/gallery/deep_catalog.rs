@@ -14,6 +14,7 @@ use fission::core::op::Color;
 use fission::core::ui::Node;
 use fission::core::{BuildCtx, View, Widget};
 use fission::three_d::Scene3D;
+use fission::IntoWidget;
 
 use super::dataset_3d;
 
@@ -2576,7 +2577,10 @@ fn build_deep_node(
             } else {
                 scene
             };
-            scene.build_node(ctx, view)
+            scene
+                .build(ctx, view)
+                .into_widget()
+                .lower_to_node(ctx, view)
         }
         None => {
             let mut chart = chart_for_kind(meta.kind, meta.title, meta.seed, s);
@@ -2594,7 +2598,10 @@ fn build_deep_node(
                     height.unwrap_or(520.0),
                 );
             }
-            chart.build_node(ctx, view)
+            chart
+                .build(ctx, view)
+                .into_widget()
+                .lower_to_node(ctx, view)
         }
     }
 }

@@ -13,6 +13,7 @@ impl fission_core::action::AppState for AppState {}
 
 #[test]
 fn text_input_focus_has_no_ir_cycles() -> Result<()> {
+    #[derive(Clone)]
     struct Root;
     impl Widget<AppState> for Root {
         fn build(
@@ -20,7 +21,7 @@ fn text_input_focus_has_no_ir_cycles() -> Result<()> {
             _ctx: &mut fission_core::BuildCtx<AppState>,
             _view: &View<AppState>,
         ) -> impl fission_core::IntoWidget<AppState> {
-            fission_core::AnyWidget::from_node({
+            fission_core::view::internal_node_widget({
                 TextInput {
                     value: String::new(),
                     placeholder: Some("type".into()),
@@ -84,6 +85,7 @@ fn checkbox_toggle_has_no_ir_cycles() -> Result<()> {
         state.checked = !state.checked;
     }
 
+    #[derive(Clone)]
     struct Root;
     impl Widget<AppState> for Root {
         fn build(
@@ -91,15 +93,15 @@ fn checkbox_toggle_has_no_ir_cycles() -> Result<()> {
             ctx: &mut BuildCtx<AppState>,
             view: &View<AppState>,
         ) -> impl fission_core::IntoWidget<AppState> {
-            fission_core::AnyWidget::from_node(
+            fission_core::view::internal_node_widget({
                 Checkbox {
                     checked: view.state.checked,
                     on_toggle: Some(fission_core::with_reducer!(ctx, Toggle, on_toggle)),
                     label: Some("check".into()),
                     ..Default::default()
                 }
-                .into(),
-            )
+                .into_node()
+            })
         }
     }
 

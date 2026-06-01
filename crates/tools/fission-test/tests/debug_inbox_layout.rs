@@ -1,5 +1,6 @@
 use anyhow::Result;
 use fission_core::ui::{Button, Grid, GridItem, Text, TextContent, TextInput};
+use fission_core::IntoWidget;
 use fission_core::{op::GridTrack, BuildCtx, NodeId, View, Widget, WidgetNodeId};
 use fission_test::TestHarness;
 use fission_widgets::{HStack, VStack};
@@ -8,6 +9,7 @@ use fission_widgets::{HStack, VStack};
 struct AppState {}
 impl fission_core::action::AppState for AppState {}
 
+#[derive(Clone)]
 struct HeaderRepro;
 impl Widget<AppState> for HeaderRepro {
     fn build(
@@ -15,7 +17,7 @@ impl Widget<AppState> for HeaderRepro {
         ctx: &mut BuildCtx<AppState>,
         view: &View<AppState>,
     ) -> impl fission_core::IntoWidget<AppState> {
-        fission_core::AnyWidget::from_node({
+        fission_core::view::internal_node_widget({
             Grid {
                 columns: vec![
                     GridTrack::Points(220.0),
@@ -57,10 +59,14 @@ impl Widget<AppState> for HeaderRepro {
                                         .into(),
                                     ],
                                 }
-                                .build_node(ctx, view),
+                                .build(ctx, view)
+                                .into_widget()
+                                .lower_to_node(ctx, view),
                             ],
                         }
-                        .build_node(ctx, view),
+                        .build(ctx, view)
+                        .into_widget()
+                        .lower_to_node(ctx, view),
                     )
                     .cell(1, 2)
                     .into(),

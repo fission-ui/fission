@@ -6,6 +6,7 @@
 
 use anyhow::Result;
 use base64::Engine;
+use fission_core::IntoWidget;
 use std::collections::{HashMap, VecDeque};
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
@@ -2970,7 +2971,7 @@ fn wrap_portal_for_viewport(
     node: fission_core::Node,
     env: &Env,
 ) -> fission_core::Node {
-    let builder = fission_core::ui::Container::new(node)
+    let builder = fission_core::ui::Container::<fission_core::ui::Node>::lowered(node)
         .width(env.viewport_size.width)
         .height(env.viewport_size.height);
     if let Some(id) = id {
@@ -5276,7 +5277,10 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                             pipeline.last_snapshot.as_ref(),
                                         );
                                         let mut ctx = BuildCtx::new();
-                                        let node = root_widget.build_node(&mut ctx, &view);
+                                        let node = root_widget
+                                            .build(&mut ctx, &view)
+                                            .into_widget()
+                                            .lower_to_node(&mut ctx, &view);
                                         let resources = ctx.take_resources();
                                         let anims = ctx.take_animation_requests();
                                         let videos = ctx.take_video_registrations();
@@ -5358,7 +5362,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                             id: None,
                                             content: Box::new(node_tree),
                                             overlay: Box::new(fission_core::Node::ZStack(
-                                                fission_core::ui::ZStack {
+                                                fission_core::ui::ZStack::<fission_core::ui::Node> {
                                                     children: portals,
                                                     ..Default::default()
                                                 },

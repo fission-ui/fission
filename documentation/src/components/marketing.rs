@@ -5,6 +5,7 @@ use super::home_widgets::{
 use super::state::DocsState;
 use fission::op::{AlignItems, Fill, FlexWrap, JustifyContent};
 use fission::prelude::*;
+use fission::IntoWidget;
 
 #[derive(Clone, Copy, Debug)]
 pub(crate) enum MarketingPageKind {
@@ -317,45 +318,52 @@ impl Widget<DocsState> for ProductMarketingPage {
         ctx: &mut BuildCtx<DocsState>,
         view: &View<DocsState>,
     ) -> impl fission::IntoWidget<DocsState> {
-        fission::AnyWidget::from_node({
-            let tokens = &view.env.theme.tokens;
-            let copy = self.kind.copy();
-            Container::new(
-                Column {
-                    children: vec![
-                        HomePageNav.build_node(ctx, view),
-                        Row {
-                            children: vec![Container::new(semantic_column(
-                                "site-product-page",
-                                vec![
-                                    marketing_hero(ctx, view, self.kind, copy),
-                                    product_nav_strip(ctx, view),
-                                    feature_showcase(view, copy),
-                                    workflow_showcase(view, copy),
-                                    proof_band(ctx, view, copy),
-                                ],
-                                Some(tokens.spacing.xxxl),
-                                AlignItems::Stretch,
-                            ))
-                            .max_width(content_width(tokens))
-                            .flex_grow(1.0)
-                            .flex_shrink(1.0)
-                            .padding([0.0, 0.0, tokens.spacing.xxl, tokens.spacing.xxxxl])
-                            .into_node()],
-                            justify_content: JustifyContent::Center,
-                            ..Default::default()
-                        }
-                        .into_node(),
-                    ],
-                    gap: Some(0.0),
-                    flex_grow: 1.0,
-                    ..Default::default()
-                }
-                .into_node(),
-            )
-            .min_height(tokens.spacing.xxxxl * 9.0)
-            .bg_fill(page_fill(tokens))
-            .into_node()
+        fission::core::view::internal_node_widget({
+            {
+                let tokens = &view.env.theme.tokens;
+                let copy = self.kind.copy();
+                Container::<fission::Node>::lowered(
+                    Column {
+                        children: vec![
+                            HomePageNav
+                                .build(ctx, view)
+                                .into_widget()
+                                .lower_to_node(ctx, view),
+                            Row {
+                                children: vec![Container::<fission::Node>::lowered(
+                                    semantic_column(
+                                        "site-product-page",
+                                        vec![
+                                            marketing_hero(ctx, view, self.kind, copy),
+                                            product_nav_strip(ctx, view),
+                                            feature_showcase(view, copy),
+                                            workflow_showcase(view, copy),
+                                            proof_band(ctx, view, copy),
+                                        ],
+                                        Some(tokens.spacing.xxxl),
+                                        AlignItems::Stretch,
+                                    ),
+                                )
+                                .max_width(content_width(tokens))
+                                .flex_grow(1.0)
+                                .flex_shrink(1.0)
+                                .padding([0.0, 0.0, tokens.spacing.xxl, tokens.spacing.xxxxl])
+                                .into_node()],
+                                justify_content: JustifyContent::Center,
+                                ..Default::default()
+                            }
+                            .into_node(),
+                        ],
+                        gap: Some(0.0),
+                        flex_grow: 1.0,
+                        ..Default::default()
+                    }
+                    .into_node(),
+                )
+                .min_height(tokens.spacing.xxxxl * 9.0)
+                .bg_fill(page_fill(tokens))
+                .into_node()
+            }
         })
     }
 }
@@ -367,13 +375,16 @@ fn marketing_hero(
     copy: PageCopy,
 ) -> Node {
     let tokens = &view.env.theme.tokens;
-    Container::new(semantic_row(
+    Container::<fission::Node>::lowered(semantic_row(
         "site-product-hero",
         vec![
-            Container::new(
+            Container::<fission::Node>::lowered(
                 Column {
                     children: vec![
-                        Pill::new(copy.eyebrow).build_node(ctx, view),
+                        Pill::new(copy.eyebrow)
+                            .build(ctx, view)
+                            .into_widget()
+                            .lower_to_node(ctx, view),
                         Text::new(copy.title)
                             .size(tokens.typography.display_md_size)
                             .family(tokens.typography.font_family_serif.clone())
@@ -402,9 +413,13 @@ fn marketing_hero(
                             "site-product-hero-ctas",
                             vec![
                                 Cta::new(copy.primary_label, copy.primary_href, true)
-                                    .build_node(ctx, view),
+                                    .build(ctx, view)
+                                    .into_widget()
+                                    .lower_to_node(ctx, view),
                                 Cta::new(copy.secondary_label, copy.secondary_href, false)
-                                    .build_node(ctx, view),
+                                    .build(ctx, view)
+                                    .into_widget()
+                                    .lower_to_node(ctx, view),
                             ],
                             Some(tokens.spacing.m),
                             FlexWrap::Wrap,
@@ -444,7 +459,7 @@ fn marketing_hero(
 
 fn product_nav_strip(ctx: &mut BuildCtx<DocsState>, view: &View<DocsState>) -> Node {
     let tokens = &view.env.theme.tokens;
-    Container::new(
+    Container::<fission::Node>::lowered(
         Row {
             children: vec![
                 strip_link(ctx, view, "Platform", "/product/overview/"),
@@ -478,17 +493,22 @@ fn strip_link(
     href: &'static str,
 ) -> Node {
     let tokens = &view.env.theme.tokens;
-    Container::new(NavLink::new(label, href).build_node(ctx, view))
-        .padding([
-            tokens.spacing.m,
-            tokens.spacing.m,
-            tokens.spacing.s,
-            tokens.spacing.s,
-        ])
-        .bg_fill(Fill::Solid(tokens.colors.surface_raised))
-        .border(tokens.colors.border, 1.0)
-        .border_radius(tokens.radii.full)
-        .into_node()
+    Container::<fission::Node>::lowered(
+        NavLink::new(label, href)
+            .build(ctx, view)
+            .into_widget()
+            .lower_to_node(ctx, view),
+    )
+    .padding([
+        tokens.spacing.m,
+        tokens.spacing.m,
+        tokens.spacing.s,
+        tokens.spacing.s,
+    ])
+    .bg_fill(Fill::Solid(tokens.colors.surface_raised))
+    .border(tokens.colors.border, 1.0)
+    .border_radius(tokens.radii.full)
+    .into_node()
 }
 
 fn feature_showcase(view: &View<DocsState>, copy: PageCopy) -> Node {
@@ -550,7 +570,7 @@ fn feature_showcase(view: &View<DocsState>, copy: PageCopy) -> Node {
 
 fn feature_card(view: &View<DocsState>, feature: FeatureCopy) -> Node {
     let tokens = &view.env.theme.tokens;
-    Container::new(
+    Container::<fission::Node>::lowered(
         Column {
             children: vec![
                 Text::new(feature.label)
@@ -590,7 +610,7 @@ fn feature_card(view: &View<DocsState>, feature: FeatureCopy) -> Node {
 
 fn workflow_showcase(view: &View<DocsState>, copy: PageCopy) -> Node {
     let tokens = &view.env.theme.tokens;
-    Container::new(
+    Container::<fission::Node>::lowered(
         Column {
             children: vec![
                 Row {
@@ -641,7 +661,7 @@ fn workflow_showcase(view: &View<DocsState>, copy: PageCopy) -> Node {
 
 fn workflow_step(view: &View<DocsState>, index: usize, step: StepCopy) -> Node {
     let tokens = &view.env.theme.tokens;
-    Container::new(
+    Container::<fission::Node>::lowered(
         Column {
             children: vec![
                 Text::new(format!("{:02}", index))
@@ -680,7 +700,7 @@ fn workflow_step(view: &View<DocsState>, index: usize, step: StepCopy) -> Node {
 
 fn proof_band(ctx: &mut BuildCtx<DocsState>, view: &View<DocsState>, copy: PageCopy) -> Node {
     let tokens = &view.env.theme.tokens;
-    Container::new(semantic_row(
+    Container::<fission::Node>::lowered(semantic_row(
         "site-product-proof",
         vec![
             Column {
@@ -708,7 +728,10 @@ fn proof_band(ctx: &mut BuildCtx<DocsState>, view: &View<DocsState>, copy: PageC
                 ..Default::default()
             }
             .into_node(),
-            Cta::new("Open documentation", "/docs/intro/", true).build_node(ctx, view),
+            Cta::new("Open documentation", "/docs/intro/", true)
+                .build(ctx, view)
+                .into_widget()
+                .lower_to_node(ctx, view),
         ],
         Some(tokens.spacing.xl),
         FlexWrap::Wrap,
@@ -741,7 +764,7 @@ fn product_visual(view: &View<DocsState>, kind: MarketingPageKind) -> Node {
         MarketingPageKind::CrossPlatformApps => target_visual(view),
         MarketingPageKind::Overview => platform_visual(view),
     };
-    Container::new(children)
+    Container::<fission::Node>::lowered(children)
         .width(tokens.spacing.xxxxl * 4.35)
         .flex_shrink(1.0)
         .padding_all(tokens.spacing.l)
@@ -912,7 +935,7 @@ fn visual_header(view: &View<DocsState>, title: &'static str) -> Node {
 
 fn visual_row(view: &View<DocsState>, label: &'static str, body: &'static str) -> Node {
     let tokens = &view.env.theme.tokens;
-    Container::new(
+    Container::<fission::Node>::lowered(
         Row {
             children: vec![
                 Text::new(label)
@@ -942,7 +965,7 @@ fn visual_row(view: &View<DocsState>, label: &'static str, body: &'static str) -
 
 fn chart_thumb(view: &View<DocsState>, src: &'static str) -> Node {
     let tokens = &view.env.theme.tokens;
-    Container::new(
+    Container::<fission::Node>::lowered(
         Image::asset(src)
             .size(tokens.spacing.xxxxl * 1.85, tokens.spacing.xxxxl * 1.05)
             .into_node(),
@@ -954,7 +977,7 @@ fn chart_thumb(view: &View<DocsState>, src: &'static str) -> Node {
 }
 
 fn dot(color: Color) -> Node {
-    Container::new(Text::new(" ").into_node())
+    Container::<fission::Node>::lowered(Text::new(" ").into_node())
         .width(9.0)
         .height(9.0)
         .bg_fill(Fill::Solid(color))

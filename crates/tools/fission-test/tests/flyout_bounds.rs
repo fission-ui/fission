@@ -1,4 +1,5 @@
 use fission_core::ui::{Button, Container, Positioned, Text, ZStack};
+use fission_core::IntoWidget;
 use fission_core::{AppState, BuildCtx, NodeId, View, Widget, WidgetNodeId};
 use fission_test::TestHarness;
 use fission_widgets::flyout;
@@ -19,53 +20,39 @@ impl Widget<State> for Root {
         ctx: &mut BuildCtx<State>,
         view: &View<State>,
     ) -> impl fission_core::IntoWidget<State> {
-        fission_core::AnyWidget::from_node({
-            let anchor_id = NodeId::derived(WidgetNodeId::explicit("anchor").as_u128(), &[]);
-            let popup_id = NodeId::derived(WidgetNodeId::explicit("popup").as_u128(), &[]);
+        let anchor_id = NodeId::derived(WidgetNodeId::explicit("anchor").as_u128(), &[]);
+        let popup_id = NodeId::derived(WidgetNodeId::explicit("popup").as_u128(), &[]);
 
-            let anchor = Positioned {
-                left: Some(740.0),
-                top: Some(560.0),
-                child: Some(Box::new(
-                    Button {
-                        id: Some(anchor_id),
-                        child: Some(Box::new(Text::new("Open").into_node())),
-                        width: Some(48.0),
-                        height: Some(28.0),
-                        ..Default::default()
-                    }
-                    .into_node(),
-                )),
-                ..Default::default()
-            }
-            .into_node();
+        let anchor = Positioned::new(
+            Button::new(Text::new("Open"))
+                .id(anchor_id)
+                .width(48.0)
+                .height(28.0),
+        )
+        .left(740.0)
+        .top(560.0);
 
-            let root = Container::new(
-                ZStack {
-                    children: vec![anchor],
-                    ..Default::default()
-                }
-                .into_node(),
-            )
+        let root = Container::new(ZStack::new().child(anchor))
             .width(800.0)
-            .height(600.0)
-            .into_node();
+            .height(600.0);
 
-            if view.state.open {
-                let popup = Container::new(Text::new("Popup").into_node())
-                    .id(popup_id)
-                    .width(200.0)
-                    .height(120.0)
-                    .into_node();
-                ctx.register_portal_with_layer(
-                    fission_core::PortalLayer::Flyout,
-                    Some(WidgetNodeId::explicit("portal")),
-                    flyout(anchor_id, popup),
-                );
-            }
+        if view.state.open {
+            let mut local_ctx = BuildCtx::new();
+            let popup = Container::new(Text::new("Popup"))
+                .id(popup_id)
+                .width(200.0)
+                .height(120.0)
+                .build(&mut local_ctx, view)
+                .into_widget()
+                .lower_to_node(&mut local_ctx, view);
+            ctx.register_portal_with_layer(
+                fission_core::PortalLayer::Flyout,
+                Some(WidgetNodeId::explicit("portal")),
+                flyout(anchor_id, popup),
+            );
+        }
 
-            root
-        })
+        root
     }
 }
 

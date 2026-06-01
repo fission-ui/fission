@@ -33,7 +33,7 @@ fn build_icon_rows() -> Vec<Node> {
         }
         .into_node();
 
-        let item = Container::new(row)
+        let item = Container::<Node>::lowered(row)
             .height(56.0)
             .padding_all(8.0)
             .bg(if idx % 2 == 0 {
@@ -72,51 +72,55 @@ struct State;
 
 impl AppState for State {}
 
+#[derive(Clone)]
+
 struct IconsApp;
 
 impl Widget<State> for IconsApp {
     fn build(
         &self,
-        _ctx: &mut BuildCtx<State>,
-        _view: &View<State>,
+        ctx: &mut BuildCtx<State>,
+        view: &View<State>,
     ) -> impl fission::IntoWidget<State> {
-        fission::AnyWidget::from_node({
-            let title = Text::new("Material Icons Gallery").size(32.0);
+        fission::core::view::internal_node_widget({
+            {
+                let title = Text::new("Material Icons Gallery").size(32.0);
 
-            let total = ICON_ROWS.len();
-            let item_height = 56.0;
+                let total = ICON_ROWS.len();
+                let item_height = 56.0;
 
-            let content = LazyColumn {
-                id: None,
-                children: ICON_ROWS.clone(),
-                item_height,
-            }
-            .into_node();
-
-            Container::new(
-                Column {
-                    gap: Some(24.0),
-                    flex_grow: 1.0,
-                    children: vec![
-                        title.into_node(),
-                        Text::new(format!("{} icon variants", total))
-                            .size(14.0)
-                            .into_node(),
-                        content,
-                    ],
-                    ..Default::default()
+                let content = LazyColumn {
+                    id: None,
+                    children: ICON_ROWS.clone(),
+                    item_height,
                 }
-                .into_node(),
-            )
-            .padding_all(24.0)
-            .bg(Color {
-                r: 245,
-                g: 245,
-                b: 245,
-                a: 255,
-            })
-            .flex_grow(1.0)
-            .into_node()
+                .into_node();
+
+                Container::<fission::Node>::lowered(
+                    Column {
+                        gap: Some(24.0),
+                        flex_grow: 1.0,
+                        children: vec![
+                            title.into_node(),
+                            Text::new(format!("{} icon variants", total))
+                                .size(14.0)
+                                .into_node(),
+                            content,
+                        ],
+                        ..Default::default()
+                    }
+                    .into_node(),
+                )
+                .padding_all(24.0)
+                .bg(Color {
+                    r: 245,
+                    g: 245,
+                    b: 245,
+                    a: 255,
+                })
+                .flex_grow(1.0)
+                .into_node()
+            }
         })
     }
 }

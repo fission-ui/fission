@@ -113,7 +113,7 @@ Button {
 ### 5.1 Widget trait
 ```rust
 pub trait Widget<S: AppState> {
-    fn build(&self, ctx: &mut BuildCtx<S>, view: &View<S>) -> Node;
+    fn build(&self, ctx: &mut BuildCtx<S>, view: &View<S>) -> impl IntoWidget<S>;
 }
 ```
 
@@ -268,7 +268,7 @@ pub struct StarButton {
 }
 
 impl Widget<AppState> for StarButton {
-    fn build(&self, ctx: &mut BuildCtx<AppState>, view: &View<AppState>) -> Node {
+    fn build(&self, ctx: &mut BuildCtx<AppState>, view: &View<AppState>) -> impl IntoWidget<AppState> {
         // Bind handler at authoring site (ergonomic)
         let on_press = with_reducer!(ctx, StarPressed, on_star_pressed);
 

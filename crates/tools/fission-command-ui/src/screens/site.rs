@@ -8,6 +8,7 @@ use crate::components::{ActionButton, ButtonTone, FormTextField, KeyValueRow, To
 use crate::state::UiState;
 use crate::theme::UiPalette;
 use fission::prelude::*;
+use fission::IntoWidget;
 
 #[derive(Clone)]
 pub struct SiteScreen;
@@ -18,7 +19,7 @@ impl Widget<UiState> for SiteScreen {
         ctx: &mut BuildCtx<UiState>,
         view: &View<UiState>,
     ) -> impl fission::IntoWidget<UiState> {
-        fission::AnyWidget::from_node({
+        fission::core::view::internal_node_widget({
             let palette = UiPalette::for_mode(view.state.theme_mode);
             let build = with_reducer!(ctx, RequestCommand(UiCommand::SiteBuild), request_command);
             let check = with_reducer!(ctx, RequestCommand(UiCommand::SiteCheck), request_command);
@@ -39,7 +40,7 @@ impl Widget<UiState> for SiteScreen {
                     palette.muted,
                 ),
                 KeyValueRow::new("Project", view.state.project_dir.display().to_string())
-                    .build_node(ctx, view),
+                    .build(ctx, view).into_widget().lower_to_node(ctx, view),
                 Row {
                     gap: Some(1.0),
                     children: vec![
@@ -51,10 +52,10 @@ impl Widget<UiState> for SiteScreen {
                             host,
                         )
                         .width(24.0)
-                        .build_node(ctx, view),
+                        .build(ctx, view).into_widget().lower_to_node(ctx, view),
                         FormTextField::new("cli_ui_site_port", "Port", view.state.port.clone(), "8123", port)
                             .width(12.0)
-                            .build_node(ctx, view),
+                            .build(ctx, view).into_widget().lower_to_node(ctx, view),
                     ],
                     ..Default::default()
                 }
@@ -62,8 +63,8 @@ impl Widget<UiState> for SiteScreen {
                 Row {
                     gap: Some(1.0),
                     children: vec![
-                        TogglePill::new("Release", view.state.release, release).build_node(ctx, view),
-                        TogglePill::new("No open", view.state.no_open, no_open).build_node(ctx, view),
+                        TogglePill::new("Release", view.state.release, release).build(ctx, view).into_widget().lower_to_node(ctx, view),
+                        TogglePill::new("No open", view.state.no_open, no_open).build(ctx, view).into_widget().lower_to_node(ctx, view),
                     ],
                     ..Default::default()
                 }
@@ -74,19 +75,19 @@ impl Widget<UiState> for SiteScreen {
                         ActionButton::new("Build site", build)
                             .tone(ButtonTone::Primary)
                             .width(18.0)
-                            .build_node(ctx, view),
+                            .build(ctx, view).into_widget().lower_to_node(ctx, view),
                         ActionButton::new("Check site", check)
                             .tone(ButtonTone::Success)
                             .width(18.0)
-                            .build_node(ctx, view),
+                            .build(ctx, view).into_widget().lower_to_node(ctx, view),
                         ActionButton::new("List routes", routes)
                             .tone(ButtonTone::Neutral)
                             .width(18.0)
-                            .build_node(ctx, view),
+                            .build(ctx, view).into_widget().lower_to_node(ctx, view),
                         ActionButton::new("Serve site", serve)
                             .tone(ButtonTone::Warning)
                             .width(18.0)
-                            .build_node(ctx, view),
+                            .build(ctx, view).into_widget().lower_to_node(ctx, view),
                     ],
                     ..Default::default()
                 }

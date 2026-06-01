@@ -2983,11 +2983,14 @@ fn on_increment(state: &mut CounterState) {
     state.count += 1;
 }
 
+#[derive(Clone)]
 pub struct CounterApp;
 
 impl Widget<CounterState> for CounterApp {
-    fn build(&self, ctx: &mut BuildCtx<CounterState>, view: &View<CounterState>) -> impl fission_core::IntoWidget<CounterState>  {
-        fission_core::AnyWidget::from_node({
+    fn build(&self, ctx: &mut BuildCtx<CounterState>, view: &View<CounterState>) -> impl fission_core::IntoWidget<CounterState> {
+        fission_core::view::internal_node_widget({
+
+        
         let increment = with_reducer!(ctx, Increment, on_increment);
 
         Column {
@@ -3004,6 +3007,8 @@ impl Widget<CounterState> for CounterApp {
             ..Default::default()
         }
         .into_node()
+    
+        
     
         })
     }

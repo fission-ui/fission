@@ -109,7 +109,7 @@ impl AppState for SiteState {}
 struct HomePage;
 
 impl Widget<SiteState> for HomePage {
-    fn build(&self, _ctx: &mut BuildCtx<SiteState>, _view: &View<SiteState>) -> Node {
+    fn build(&self, _ctx: &mut BuildCtx<SiteState>, _view: &View<SiteState>) -> impl IntoWidget<SiteState> {
         Column {
             children: vec![
                 Text::new("Build something people can read").size(48.0).into_node(),

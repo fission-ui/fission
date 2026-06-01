@@ -1,6 +1,7 @@
 use anyhow::Result;
 use fission_core::event::{PointerButton, PointerEvent};
 use fission_core::ui::TextInput;
+use fission_core::IntoWidget;
 use fission_core::{with_reducer, AppState, BuildCtx, View, Widget};
 use fission_ir::NodeId;
 use fission_test::TestHarness;
@@ -21,6 +22,7 @@ fn dismiss(state: &mut State) {
 fn clicking_text_input_inside_modal_sets_focus() -> Result<()> {
     let subject_id = NodeId::explicit("subject_input");
 
+    #[derive(Clone)]
     struct Root {
         subject_id: NodeId,
     }
@@ -30,7 +32,7 @@ fn clicking_text_input_inside_modal_sets_focus() -> Result<()> {
             ctx: &mut BuildCtx<State>,
             view: &View<State>,
         ) -> impl fission_core::IntoWidget<State> {
-            fission_core::AnyWidget::from_node({
+            fission_core::view::internal_node_widget({
                 let content = fission_widgets::VStack {
                     spacing: Some(8.0),
                     children: vec![
@@ -65,7 +67,9 @@ fn clicking_text_input_inside_modal_sets_focus() -> Result<()> {
                     actions: vec![],
                     width: Some(420.0),
                 }
-                .build_node(ctx, view)
+                .build(ctx, view)
+                .into_widget()
+                .lower_to_node(ctx, view)
             })
         }
     }

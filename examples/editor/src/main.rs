@@ -9,6 +9,7 @@ use fission::core::{
 };
 use fission::prelude::DesktopApp;
 use fission::widgets::{Spacer, VStack};
+use fission::IntoWidget;
 use std::path::PathBuf;
 use std::time::Duration;
 
@@ -92,6 +93,7 @@ const FIND_BAR_BG: Color = Color {
 
 // ── Activity bar (left icon strip, like VS Code) ─────────────────────────────
 
+#[derive(Clone)]
 struct ActivityBar;
 
 impl Widget<EditorState> for ActivityBar {
@@ -100,132 +102,138 @@ impl Widget<EditorState> for ActivityBar {
         ctx: &mut BuildCtx<EditorState>,
         view: &View<EditorState>,
     ) -> impl fission::IntoWidget<EditorState> {
-        fission::AnyWidget::from_node({
-            let bg = Color {
-                r: 44,
-                g: 44,
-                b: 44,
-                a: 255,
-            };
-            let active_color = Color {
-                r: 255,
-                g: 255,
-                b: 255,
-                a: 255,
-            };
-            let inactive_color = Color {
-                r: 140,
-                g: 140,
-                b: 140,
-                a: 255,
-            };
+        fission::core::view::internal_node_widget({
+            let node = {
+                {
+                    let bg = Color {
+                        r: 44,
+                        g: 44,
+                        b: 44,
+                        a: 255,
+                    };
+                    let active_color = Color {
+                        r: 255,
+                        g: 255,
+                        b: 255,
+                        a: 255,
+                    };
+                    let inactive_color = Color {
+                        r: 140,
+                        g: 140,
+                        b: 140,
+                        a: 255,
+                    };
 
-            let section_icons = vec![
-                (
-                    fission::icons::material::action::description::round(),
-                    SidebarSection::Explorer,
-                    "Explorer",
-                ),
-                (
-                    fission::icons::material::action::search::round(),
-                    SidebarSection::Search,
-                    "Search",
-                ),
-                (
-                    fission::icons::material::action::commit::round(),
-                    SidebarSection::Git,
-                    "Source Control",
-                ),
-                (
-                    fission::icons::material::action::extension::round(),
-                    SidebarSection::Extensions,
-                    "Extensions",
-                ),
-            ];
+                    let section_icons = vec![
+                        (
+                            fission::icons::material::action::description::round(),
+                            SidebarSection::Explorer,
+                            "Explorer",
+                        ),
+                        (
+                            fission::icons::material::action::search::round(),
+                            SidebarSection::Search,
+                            "Search",
+                        ),
+                        (
+                            fission::icons::material::action::commit::round(),
+                            SidebarSection::Git,
+                            "Source Control",
+                        ),
+                        (
+                            fission::icons::material::action::extension::round(),
+                            SidebarSection::Extensions,
+                            "Extensions",
+                        ),
+                    ];
 
-            let set_section_id = ctx
-                .bind(
-                    SetSidebarSection(SidebarSection::Explorer),
-                    reduce_with!(
-                        (|s: &mut EditorState, a: SetSidebarSection, _| {
-                            if s.sidebar_visible && s.sidebar_section == a.0 {
-                                s.sidebar_visible = false;
-                            } else {
-                                s.sidebar_section = a.0;
-                                s.sidebar_visible = true;
+                    let set_section_id = ctx
+                        .bind(
+                            SetSidebarSection(SidebarSection::Explorer),
+                            reduce_with!(
+                                (|s: &mut EditorState, a: SetSidebarSection, _| {
+                                    if s.sidebar_visible && s.sidebar_section == a.0 {
+                                        s.sidebar_visible = false;
+                                    } else {
+                                        s.sidebar_section = a.0;
+                                        s.sidebar_visible = true;
+                                    }
+                                })
+                            ),
+                        )
+                        .id;
+
+                    let mut icons = Vec::new();
+                    for (icon_svg, section, _label) in &section_icons {
+                        let is_active =
+                            view.state.sidebar_visible && view.state.sidebar_section == *section;
+                        let color = if is_active {
+                            active_color
+                        } else {
+                            inactive_color
+                        };
+
+                        let indicator_color = if is_active {
+                            active_color
+                        } else {
+                            Color {
+                                r: 0,
+                                g: 0,
+                                b: 0,
+                                a: 0,
                             }
-                        })
-                    ),
-                )
-                .id;
+                        };
 
-            let mut icons = Vec::new();
-            for (icon_svg, section, _label) in &section_icons {
-                let is_active =
-                    view.state.sidebar_visible && view.state.sidebar_section == *section;
-                let color = if is_active {
-                    active_color
-                } else {
-                    inactive_color
-                };
-
-                let indicator_color = if is_active {
-                    active_color
-                } else {
-                    Color {
-                        r: 0,
-                        g: 0,
-                        b: 0,
-                        a: 0,
-                    }
-                };
-
-                icons.push(
-                    Button {
-                        variant: ButtonVariant::Ghost,
-                        child: Some(Box::new(
-                            Container::new(
-                                Align::new(
-                                    fission::widgets::Icon::svg(*icon_svg)
-                                        .size(24.0)
-                                        .color(color)
+                        icons.push(
+                            Button {
+                                variant: ButtonVariant::Ghost,
+                                child: Some(Box::new(
+                                    Container::<fission::Node>::lowered(
+                                        Align::new(
+                                            fission::widgets::Icon::svg(*icon_svg)
+                                                .size(24.0)
+                                                .color(color)
+                                                .into_node(),
+                                        )
                                         .into_node(),
-                                )
-                                .into_node(),
-                            )
-                            .border(indicator_color, 0.0)
+                                    )
+                                    .border(indicator_color, 0.0)
+                                    .into_node(),
+                                )),
+                                on_press: Some(ActionEnvelope {
+                                    id: set_section_id,
+                                    payload: serde_json::to_vec(&SetSidebarSection(*section))
+                                        .unwrap(),
+                                }),
+                                width: Some(48.0),
+                                height: Some(48.0),
+                                padding: Some([0.0; 4]),
+                                ..Default::default()
+                            }
                             .into_node(),
-                        )),
-                        on_press: Some(ActionEnvelope {
-                            id: set_section_id,
-                            payload: serde_json::to_vec(&SetSidebarSection(*section)).unwrap(),
-                        }),
-                        width: Some(48.0),
-                        height: Some(48.0),
-                        padding: Some([0.0; 4]),
-                        ..Default::default()
+                        );
                     }
-                    .into_node(),
-                );
-            }
 
-            Container::new(
-                Column {
-                    children: icons,
-                    ..Default::default()
+                    Container::<fission::Node>::lowered(
+                        Column {
+                            children: icons,
+                            ..Default::default()
+                        }
+                        .into_node(),
+                    )
+                    .width(48.0)
+                    .bg(bg)
+                    .flex_shrink(0.0)
                 }
-                .into_node(),
-            )
-            .width(48.0)
-            .bg(bg)
-            .flex_shrink(0.0)
-            .into_node()
+            };
+            node.into_node()
         })
     }
 }
 
 // ── Menu bar ─────────────────────────────────────────────────────────────────
 
+#[derive(Clone)]
 struct MenuBar;
 
 impl MenuBar {
@@ -271,7 +279,7 @@ impl Widget<EditorState> for MenuBar {
         ctx: &mut BuildCtx<EditorState>,
         view: &View<EditorState>,
     ) -> impl fission::IntoWidget<EditorState> {
-        fission::AnyWidget::from_node({
+        fission::core::view::internal_node_widget({
             let viewport = view.viewport_size();
             let flyout_width = (viewport.width - 80.0).clamp(180.0, 240.0);
 
@@ -492,7 +500,7 @@ impl Widget<EditorState> for MenuBar {
                 .into_node(),
             );
 
-            let bar = Container::new(
+            let bar = Container::<fission::Node>::lowered(
                 Row {
                     children: buttons,
                     align_items: fission::ir::op::AlignItems::Center,
@@ -549,7 +557,7 @@ impl Widget<EditorState> for MenuBar {
                 let flyout_left =
                     (left_px + 48.0).min((viewport.width - flyout_width - 16.0).max(8.0));
 
-                let flyout = Container::new(
+                let flyout = Container::<fission::Node>::lowered(
                     Column {
                         children: items,
                         gap: Some(0.0),
@@ -569,7 +577,7 @@ impl Widget<EditorState> for MenuBar {
                 let backdrop = GestureDetector {
                     on_tap: Some(dismiss_menu.clone()),
                     child: Box::new(
-                        Container::new(Spacer::default().into_node())
+                        Container::<fission::Node>::lowered(Spacer::default().into_node())
                             .bg(Color {
                                 r: 0,
                                 g: 0,
@@ -632,6 +640,7 @@ impl Widget<EditorState> for MenuBar {
 
 // ── Find / Replace bar ───────────────────────────────────────────────────────
 
+#[derive(Clone)]
 struct FindReplaceBar;
 
 impl Widget<EditorState> for FindReplaceBar {
@@ -640,9 +649,9 @@ impl Widget<EditorState> for FindReplaceBar {
         ctx: &mut BuildCtx<EditorState>,
         view: &View<EditorState>,
     ) -> impl fission::IntoWidget<EditorState> {
-        fission::AnyWidget::from_node({
+        fission::core::view::internal_node_widget({
             if !view.state.show_find_replace {
-                return fission::AnyWidget::from_node(
+                return fission::core::view::internal_node_widget(
                     Spacer {
                         height: Some(0.0),
                         ..Default::default()
@@ -728,7 +737,7 @@ impl Widget<EditorState> for FindReplaceBar {
                 format!("{} of {}", current, total)
             };
 
-            let find_input = Container::new(
+            let find_input = Container::<fission::Node>::lowered(
                 TextInput {
                     id: Some(fission::ir::NodeId::explicit("find_input")),
                     value: view.state.find_query.clone(),
@@ -741,7 +750,7 @@ impl Widget<EditorState> for FindReplaceBar {
             .flex_grow(1.0)
             .into_node();
 
-            let replace_input = Container::new(
+            let replace_input = Container::<fission::Node>::lowered(
                 TextInput {
                     id: Some(fission::ir::NodeId::explicit("replace_input")),
                     value: view.state.replace_query.clone(),
@@ -839,10 +848,10 @@ impl Widget<EditorState> for FindReplaceBar {
             }
             .into_node();
 
-            Container::new(
+            Container::<fission::Node>::lowered(
                 Row {
                     children: vec![
-                        Container::new(
+                        Container::<fission::Node>::lowered(
                             Row {
                                 children: vec![find_input, replace_input],
                                 align_items: fission::ir::op::AlignItems::Center,
@@ -855,7 +864,9 @@ impl Widget<EditorState> for FindReplaceBar {
                         .border_radius(3.0)
                         .flex_grow(1.0)
                         .into_node(),
-                        Container::new(match_text).padding_all(4.0).into_node(),
+                        Container::<fission::Node>::lowered(match_text)
+                            .padding_all(4.0)
+                            .into_node(),
                         btn_prev,
                         btn_next,
                         btn_replace,
@@ -878,6 +889,7 @@ impl Widget<EditorState> for FindReplaceBar {
 
 // ── Breadcrumb ───────────────────────────────────────────────────────────────
 
+#[derive(Clone)]
 struct Breadcrumb;
 
 impl Widget<EditorState> for Breadcrumb {
@@ -886,10 +898,10 @@ impl Widget<EditorState> for Breadcrumb {
         _ctx: &mut BuildCtx<EditorState>,
         view: &View<EditorState>,
     ) -> impl fission::IntoWidget<EditorState> {
-        fission::AnyWidget::from_node({
+        fission::core::view::internal_node_widget({
             // Only shown when a file is open
             if view.state.open_tabs.is_empty() || view.state.breadcrumb_path.is_empty() {
-                return fission::AnyWidget::from_node(
+                return fission::core::view::internal_node_widget(
                     Spacer {
                         height: Some(0.0),
                         ..Default::default()
@@ -913,7 +925,7 @@ impl Widget<EditorState> for Breadcrumb {
                 );
             }
 
-            Container::new(
+            Container::<fission::Node>::lowered(
                 Row {
                     children,
                     align_items: fission::ir::op::AlignItems::Center,
@@ -932,6 +944,7 @@ impl Widget<EditorState> for Breadcrumb {
 
 // ── Context menu (portal) ────────────────────────────────────────────────────
 
+#[derive(Clone)]
 struct ContextMenu;
 
 impl ContextMenu {
@@ -957,9 +970,9 @@ impl Widget<EditorState> for ContextMenu {
         ctx: &mut BuildCtx<EditorState>,
         view: &View<EditorState>,
     ) -> impl fission::IntoWidget<EditorState> {
-        fission::AnyWidget::from_node({
+        fission::core::view::internal_node_widget({
             if !view.state.context_menu_visible {
-                return fission::AnyWidget::from_node(
+                return fission::core::view::internal_node_widget(
                     Spacer {
                         height: Some(0.0),
                         ..Default::default()
@@ -1156,7 +1169,7 @@ impl Widget<EditorState> for ContextMenu {
             let clamped_left = cx.min((viewport.width - card_width - 16.0).max(8.0));
             let clamped_top = cy.min((viewport.height - 220.0).max(8.0));
 
-            let card = Container::new(
+            let card = Container::<fission::Node>::lowered(
                 VStack {
                     spacing: Some(0.0),
                     children: items,
@@ -1172,7 +1185,7 @@ impl Widget<EditorState> for ContextMenu {
             let backdrop = GestureDetector {
                 on_tap: Some(dismiss.clone()),
                 child: Box::new(
-                    Container::new(Spacer::default().into_node())
+                    Container::<fission::Node>::lowered(Spacer::default().into_node())
                         .bg(Color {
                             r: 0,
                             g: 0,
@@ -1236,6 +1249,7 @@ impl Widget<EditorState> for ContextMenu {
 
 // ── Main app ─────────────────────────────────────────────────────────────────
 
+#[derive(Clone)]
 struct EditorApp;
 
 impl Widget<EditorState> for EditorApp {
@@ -1244,7 +1258,7 @@ impl Widget<EditorState> for EditorApp {
         ctx: &mut BuildCtx<EditorState>,
         view: &View<EditorState>,
     ) -> impl fission::IntoWidget<EditorState> {
-        fission::AnyWidget::from_node({
+        fission::core::view::internal_node_widget({
             let _start_editor = ctx.bind(
                 EditorStarted {
                     root_path: PathBuf::from("."),
@@ -1432,20 +1446,44 @@ impl Widget<EditorState> for EditorApp {
                 .min((viewport.width - 160.0).clamp(180.0, 360.0));
 
             // ── Menu bar (topmost) ──
-            let menu_bar = MenuBar.build_node(ctx, view);
+            let menu_bar = MenuBar
+                .build(ctx, view)
+                .into_widget()
+                .lower_to_node(ctx, view);
 
             // ── Activity bar (leftmost strip) ──
-            let activity_bar = ActivityBar.build_node(ctx, view);
+            let activity_bar = ActivityBar
+                .build(ctx, view)
+                .into_widget()
+                .lower_to_node(ctx, view);
 
             // ── Sidebar (content depends on active section) ──
             let sidebar = if view.state.sidebar_visible {
                 let (header_text, panel_content) = match view.state.sidebar_section {
-                    SidebarSection::Explorer => ("EXPLORER", FileTree.build_node(ctx, view)),
-                    SidebarSection::Search => ("SEARCH", SearchPanel.build_node(ctx, view)),
-                    SidebarSection::Git => ("SOURCE CONTROL", GitPanel.build_node(ctx, view)),
+                    SidebarSection::Explorer => (
+                        "EXPLORER",
+                        FileTree
+                            .build(ctx, view)
+                            .into_widget()
+                            .lower_to_node(ctx, view),
+                    ),
+                    SidebarSection::Search => (
+                        "SEARCH",
+                        SearchPanel
+                            .build(ctx, view)
+                            .into_widget()
+                            .lower_to_node(ctx, view),
+                    ),
+                    SidebarSection::Git => (
+                        "SOURCE CONTROL",
+                        GitPanel
+                            .build(ctx, view)
+                            .into_widget()
+                            .lower_to_node(ctx, view),
+                    ),
                     SidebarSection::Extensions => (
                         "EXTENSIONS",
-                        Container::new(
+                        Container::<fission::Node>::lowered(
                             Text::new("No extensions installed")
                                 .size(12.0)
                                 .color(DIM_TEXT)
@@ -1457,7 +1495,7 @@ impl Widget<EditorState> for EditorApp {
                     ),
                 };
 
-                let header = Container::new(
+                let header = Container::<fission::Node>::lowered(
                     Text::new(header_text)
                         .size(11.0)
                         .color(Color {
@@ -1474,7 +1512,7 @@ impl Widget<EditorState> for EditorApp {
                 .flex_shrink(0.0)
                 .into_node();
 
-                Container::new(
+                Container::<fission::Node>::lowered(
                     Column {
                         children: vec![header, panel_content],
                         flex_grow: 1.0,
@@ -1496,7 +1534,7 @@ impl Widget<EditorState> for EditorApp {
 
             // 1px vertical divider between sidebar and editor
             let sidebar_divider = if view.state.sidebar_visible {
-                Container::new(Spacer::default().into_node())
+                Container::<fission::Node>::lowered(Spacer::default().into_node())
                     .width(1.0)
                     .bg(BORDER_COLOR)
                     .flex_shrink(0.0)
@@ -1510,10 +1548,22 @@ impl Widget<EditorState> for EditorApp {
             };
 
             // ── Editor area: tabs + breadcrumb + find/replace + surface ──
-            let tab_bar_node = TabBar.build_node(ctx, view);
-            let breadcrumb_node = Breadcrumb.build_node(ctx, view);
-            let find_replace_node = FindReplaceBar.build_node(ctx, view);
-            let editor_surface_node = EditorSurface.build_node(ctx, view);
+            let tab_bar_node = TabBar
+                .build(ctx, view)
+                .into_widget()
+                .lower_to_node(ctx, view);
+            let breadcrumb_node = Breadcrumb
+                .build(ctx, view)
+                .into_widget()
+                .lower_to_node(ctx, view);
+            let find_replace_node = FindReplaceBar
+                .build(ctx, view)
+                .into_widget()
+                .lower_to_node(ctx, view);
+            let editor_surface_node = EditorSurface
+                .build(ctx, view)
+                .into_widget()
+                .lower_to_node(ctx, view);
 
             let editor_area = Column {
                 children: vec![
@@ -1528,22 +1578,30 @@ impl Widget<EditorState> for EditorApp {
             .into_node();
 
             // 1px horizontal divider above terminal
-            let terminal_divider = Container::new(Spacer::default().into_node())
-                .height(1.0)
-                .bg(BORDER_COLOR)
-                .flex_shrink(0.0)
-                .into_node();
+            let terminal_divider =
+                Container::<fission::Node>::lowered(Spacer::default().into_node())
+                    .height(1.0)
+                    .bg(BORDER_COLOR)
+                    .flex_shrink(0.0)
+                    .into_node();
 
             // Center: editor area + terminal
             let center = Column {
                 children: if view.state.terminal_visible {
                     vec![
-                        Container::new(editor_area).flex_grow(1.0).into_node(),
+                        Container::<fission::Node>::lowered(editor_area)
+                            .flex_grow(1.0)
+                            .into_node(),
                         terminal_divider,
-                        TerminalPanel.build_node(ctx, view),
+                        TerminalPanel
+                            .build(ctx, view)
+                            .into_widget()
+                            .lower_to_node(ctx, view),
                     ]
                 } else {
-                    vec![Container::new(editor_area).flex_grow(1.0).into_node()]
+                    vec![Container::<fission::Node>::lowered(editor_area)
+                        .flex_grow(1.0)
+                        .into_node()]
                 },
                 flex_grow: 1.0,
                 ..Default::default()
@@ -1563,8 +1621,13 @@ impl Widget<EditorState> for EditorApp {
             let root = Column {
                 children: vec![
                     menu_bar,
-                    Container::new(main_layout).flex_grow(1.0).into_node(),
-                    StatusBar.build_node(ctx, view),
+                    Container::<fission::Node>::lowered(main_layout)
+                        .flex_grow(1.0)
+                        .into_node(),
+                    StatusBar
+                        .build(ctx, view)
+                        .into_widget()
+                        .lower_to_node(ctx, view),
                 ],
                 flex_grow: 1.0,
                 ..Default::default()
@@ -1572,9 +1635,18 @@ impl Widget<EditorState> for EditorApp {
             .into_node();
 
             // ── Overlays (portals) ──
-            CommandPalette.build_node(ctx, view);
-            ContextMenu.build_node(ctx, view);
-            completion_popup::CompletionPopup.build_node(ctx, view);
+            CommandPalette
+                .build(ctx, view)
+                .into_widget()
+                .lower_to_node(ctx, view);
+            ContextMenu
+                .build(ctx, view)
+                .into_widget()
+                .lower_to_node(ctx, view);
+            completion_popup::CompletionPopup
+                .build(ctx, view)
+                .into_widget()
+                .lower_to_node(ctx, view);
 
             root
         })

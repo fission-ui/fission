@@ -2,6 +2,7 @@ use super::state::DocsState;
 use fission::ir::{Role, Semantics};
 use fission::op::{AlignItems, Fill, FlexWrap, JustifyContent, TextAlign};
 use fission::prelude::*;
+use fission::IntoWidget;
 
 pub(super) fn site_semantics(identifier: impl Into<String>) -> Semantics {
     Semantics {
@@ -74,59 +75,61 @@ impl CenteredSection {
 impl Widget<DocsState> for CenteredSection {
     fn build(
         &self,
-        _ctx: &mut BuildCtx<DocsState>,
+        ctx: &mut BuildCtx<DocsState>,
         view: &View<DocsState>,
     ) -> impl fission::IntoWidget<DocsState> {
-        fission::AnyWidget::from_node({
-            let tokens = &view.env.theme.tokens;
-            Container::new(
-                Column {
-                    children: vec![
-                        Text::new(self.eyebrow)
-                            .size(tokens.typography.font_size_sm)
-                            .weight(tokens.typography.font_weight_bold)
-                            .color(tokens.colors.secondary)
+        fission::core::view::internal_node_widget({
+            {
+                let tokens = &view.env.theme.tokens;
+                Container::<fission::Node>::lowered(
+                    Column {
+                        children: vec![
+                            Text::new(self.eyebrow)
+                                .size(tokens.typography.font_size_sm)
+                                .weight(tokens.typography.font_weight_bold)
+                                .color(tokens.colors.secondary)
+                                .into_node(),
+                            Text::new(self.title)
+                                .size(tokens.typography.heading2_size)
+                                .family(tokens.typography.font_family_serif.clone())
+                                .line_height(
+                                    tokens.typography.heading2_size
+                                        * tokens.typography.line_height_heading,
+                                )
+                                .weight(tokens.typography.font_weight_bold)
+                                .color(tokens.colors.heading)
+                                .max_width(headline_width(tokens))
+                                .text_align(TextAlign::Center)
+                                .flex_shrink(1.0)
+                                .into_node(),
+                            Text::new(self.body)
+                                .size(tokens.typography.body_large_size)
+                                .line_height(
+                                    tokens.typography.body_large_size
+                                        * tokens.typography.line_height_relaxed,
+                                )
+                                .color(tokens.colors.text_secondary)
+                                .max_width(prose_width(tokens))
+                                .text_align(TextAlign::Center)
+                                .flex_shrink(1.0)
+                                .into_node(),
+                            Row {
+                                children: self.cards.clone(),
+                                gap: Some(tokens.spacing.m),
+                                wrap: FlexWrap::Wrap,
+                                justify_content: JustifyContent::Center,
+                                ..Default::default()
+                            }
                             .into_node(),
-                        Text::new(self.title)
-                            .size(tokens.typography.heading2_size)
-                            .family(tokens.typography.font_family_serif.clone())
-                            .line_height(
-                                tokens.typography.heading2_size
-                                    * tokens.typography.line_height_heading,
-                            )
-                            .weight(tokens.typography.font_weight_bold)
-                            .color(tokens.colors.heading)
-                            .max_width(headline_width(tokens))
-                            .text_align(TextAlign::Center)
-                            .flex_shrink(1.0)
-                            .into_node(),
-                        Text::new(self.body)
-                            .size(tokens.typography.body_large_size)
-                            .line_height(
-                                tokens.typography.body_large_size
-                                    * tokens.typography.line_height_relaxed,
-                            )
-                            .color(tokens.colors.text_secondary)
-                            .max_width(prose_width(tokens))
-                            .text_align(TextAlign::Center)
-                            .flex_shrink(1.0)
-                            .into_node(),
-                        Row {
-                            children: self.cards.clone(),
-                            gap: Some(tokens.spacing.m),
-                            wrap: FlexWrap::Wrap,
-                            justify_content: JustifyContent::Center,
-                            ..Default::default()
-                        }
-                        .into_node(),
-                    ],
-                    gap: Some(tokens.spacing.l),
-                    align_items: AlignItems::Center,
-                    ..Default::default()
-                }
-                .into_node(),
-            )
-            .into_node()
+                        ],
+                        gap: Some(tokens.spacing.l),
+                        align_items: AlignItems::Center,
+                        ..Default::default()
+                    }
+                    .into_node(),
+                )
+                .into_node()
+            }
         })
     }
 }
@@ -154,7 +157,7 @@ impl Widget<DocsState> for SectionHeader {
         _ctx: &mut BuildCtx<DocsState>,
         view: &View<DocsState>,
     ) -> impl fission::IntoWidget<DocsState> {
-        fission::AnyWidget::from_node({
+        fission::core::view::internal_node_widget({
             let tokens = &view.env.theme.tokens;
             semantic_column(
                 "site-home-section-header",
@@ -209,17 +212,19 @@ impl ShellSection {
 impl Widget<DocsState> for ShellSection {
     fn build(
         &self,
-        _ctx: &mut BuildCtx<DocsState>,
+        ctx: &mut BuildCtx<DocsState>,
         view: &View<DocsState>,
     ) -> impl fission::IntoWidget<DocsState> {
-        fission::AnyWidget::from_node({
-            let tokens = &view.env.theme.tokens;
-            Container::new(self.child.clone())
-                .padding_all(tokens.spacing.xl)
-                .bg_fill(Fill::Solid(tokens.colors.surface))
-                .border(tokens.colors.border, 1.0)
-                .border_radius(tokens.radii.xxl)
-                .into_node()
+        fission::core::view::internal_node_widget({
+            {
+                let tokens = &view.env.theme.tokens;
+                Container::<fission::Node>::lowered(self.child.clone())
+                    .padding_all(tokens.spacing.xl)
+                    .bg_fill(Fill::Solid(tokens.colors.surface))
+                    .border(tokens.colors.border, 1.0)
+                    .border_radius(tokens.radii.xxl)
+                    .into_node()
+            }
         })
     }
 }
@@ -254,15 +259,14 @@ impl Widget<DocsState> for ExternalNavLink {
         _ctx: &mut BuildCtx<DocsState>,
         view: &View<DocsState>,
     ) -> impl fission::IntoWidget<DocsState> {
-        fission::AnyWidget::from_node({
+        {
             let tokens = &view.env.theme.tokens;
             Text::new(self.label)
                 .size(tokens.typography.label_large_size)
                 .weight(tokens.typography.font_weight_semibold)
                 .color(tokens.colors.text_secondary)
                 .semantics_identifier(format!("markdown-link:{}", self.href))
-                .into_node()
-        })
+        }
     }
 }
 
@@ -272,15 +276,14 @@ impl Widget<DocsState> for NavLink {
         _ctx: &mut BuildCtx<DocsState>,
         view: &View<DocsState>,
     ) -> impl fission::IntoWidget<DocsState> {
-        fission::AnyWidget::from_node({
+        {
             let tokens = &view.env.theme.tokens;
             Text::new(self.label)
                 .size(tokens.typography.label_large_size)
                 .weight(tokens.typography.font_weight_semibold)
                 .color(tokens.colors.text_link)
                 .semantics_identifier(format!("site-route:{}", self.href))
-                .into_node()
-        })
+        }
     }
 }
 
@@ -293,15 +296,14 @@ impl Widget<DocsState> for ThemeToggle {
         _ctx: &mut BuildCtx<DocsState>,
         view: &View<DocsState>,
     ) -> impl fission::IntoWidget<DocsState> {
-        fission::AnyWidget::from_node({
+        {
             let tokens = &view.env.theme.tokens;
             Text::new("Theme")
                 .size(tokens.typography.label_large_size)
                 .weight(tokens.typography.font_weight_semibold)
                 .color(tokens.colors.text_link)
                 .semantics_identifier("site-theme-toggle")
-                .into_node()
-        })
+        }
     }
 }
 
@@ -314,7 +316,7 @@ impl Widget<DocsState> for SearchPill {
         _ctx: &mut BuildCtx<DocsState>,
         view: &View<DocsState>,
     ) -> impl fission::IntoWidget<DocsState> {
-        fission::AnyWidget::from_node({
+        fission::core::view::internal_node_widget({
             let tokens = &view.env.theme.tokens;
             semantic_row(
                 "site-search-trigger",
@@ -323,7 +325,7 @@ impl Widget<DocsState> for SearchPill {
                         .size(tokens.typography.label_large_size)
                         .color(tokens.colors.text_secondary)
                         .into_node(),
-                    Container::new(
+                    Container::<fission::Node>::lowered(
                         Text::new("Cmd K")
                             .size(tokens.typography.font_size_xs)
                             .family(tokens.typography.font_family_mono.clone())
@@ -364,42 +366,44 @@ impl Cta {
 impl Widget<DocsState> for Cta {
     fn build(
         &self,
-        _ctx: &mut BuildCtx<DocsState>,
+        ctx: &mut BuildCtx<DocsState>,
         view: &View<DocsState>,
     ) -> impl fission::IntoWidget<DocsState> {
-        fission::AnyWidget::from_node({
-            let tokens = &view.env.theme.tokens;
-            let (background, foreground, border) = if self.primary {
-                (
-                    tokens.colors.primary,
-                    tokens.colors.on_primary,
-                    tokens.colors.primary,
+        fission::core::view::internal_node_widget({
+            {
+                let tokens = &view.env.theme.tokens;
+                let (background, foreground, border) = if self.primary {
+                    (
+                        tokens.colors.primary,
+                        tokens.colors.on_primary,
+                        tokens.colors.primary,
+                    )
+                } else {
+                    (
+                        tokens.colors.surface_raised,
+                        tokens.colors.text_primary,
+                        tokens.colors.border,
+                    )
+                };
+                Container::<fission::Node>::lowered(
+                    Text::new(self.label)
+                        .size(tokens.typography.label_large_size)
+                        .weight(tokens.typography.font_weight_bold)
+                        .color(foreground)
+                        .semantics_identifier(format!("site-route:{}", self.href))
+                        .into_node(),
                 )
-            } else {
-                (
-                    tokens.colors.surface_raised,
-                    tokens.colors.text_primary,
-                    tokens.colors.border,
-                )
-            };
-            Container::new(
-                Text::new(self.label)
-                    .size(tokens.typography.label_large_size)
-                    .weight(tokens.typography.font_weight_bold)
-                    .color(foreground)
-                    .semantics_identifier(format!("site-route:{}", self.href))
-                    .into_node(),
-            )
-            .padding([
-                tokens.spacing.l,
-                tokens.spacing.l,
-                tokens.spacing.m,
-                tokens.spacing.m,
-            ])
-            .bg_fill(Fill::Solid(background))
-            .border(border, 1.0)
-            .border_radius(tokens.radii.full)
-            .into_node()
+                .padding([
+                    tokens.spacing.l,
+                    tokens.spacing.l,
+                    tokens.spacing.m,
+                    tokens.spacing.m,
+                ])
+                .bg_fill(Fill::Solid(background))
+                .border(border, 1.0)
+                .border_radius(tokens.radii.full)
+                .into_node()
+            }
         })
     }
 }
@@ -421,14 +425,13 @@ impl Widget<DocsState> for StatusText {
         _ctx: &mut BuildCtx<DocsState>,
         view: &View<DocsState>,
     ) -> impl fission::IntoWidget<DocsState> {
-        fission::AnyWidget::from_node({
+        {
             let tokens = &view.env.theme.tokens;
             Text::new(self.label)
                 .size(tokens.typography.font_size_sm)
                 .family(tokens.typography.font_family_mono.clone())
                 .color(tokens.colors.text_muted)
-                .into_node()
-        })
+        }
     }
 }
 
@@ -446,28 +449,30 @@ impl Pill {
 impl Widget<DocsState> for Pill {
     fn build(
         &self,
-        _ctx: &mut BuildCtx<DocsState>,
+        ctx: &mut BuildCtx<DocsState>,
         view: &View<DocsState>,
     ) -> impl fission::IntoWidget<DocsState> {
-        fission::AnyWidget::from_node({
-            let tokens = &view.env.theme.tokens;
-            Container::new(
-                Text::new(self.label)
-                    .size(tokens.typography.font_size_sm)
-                    .weight(tokens.typography.font_weight_bold)
-                    .color(tokens.colors.primary)
-                    .into_node(),
-            )
-            .padding([
-                tokens.spacing.m,
-                tokens.spacing.m,
-                tokens.spacing.s,
-                tokens.spacing.s,
-            ])
-            .bg_fill(Fill::Solid(tokens.colors.primary_subtle))
-            .border(tokens.colors.focus_ring, 1.0)
-            .border_radius(tokens.radii.full)
-            .into_node()
+        fission::core::view::internal_node_widget({
+            {
+                let tokens = &view.env.theme.tokens;
+                Container::<fission::Node>::lowered(
+                    Text::new(self.label)
+                        .size(tokens.typography.font_size_sm)
+                        .weight(tokens.typography.font_weight_bold)
+                        .color(tokens.colors.primary)
+                        .into_node(),
+                )
+                .padding([
+                    tokens.spacing.m,
+                    tokens.spacing.m,
+                    tokens.spacing.s,
+                    tokens.spacing.s,
+                ])
+                .bg_fill(Fill::Solid(tokens.colors.primary_subtle))
+                .border(tokens.colors.focus_ring, 1.0)
+                .border_radius(tokens.radii.full)
+                .into_node()
+            }
         })
     }
 }
@@ -487,52 +492,54 @@ impl CodeCard {
 impl Widget<DocsState> for CodeCard {
     fn build(
         &self,
-        _ctx: &mut BuildCtx<DocsState>,
+        ctx: &mut BuildCtx<DocsState>,
         view: &View<DocsState>,
     ) -> impl fission::IntoWidget<DocsState> {
-        fission::AnyWidget::from_node({
-            let tokens = &view.env.theme.tokens;
-            Container::new(
-                Column {
-                    children: vec![
-                        Text::new(self.label)
-                            .size(tokens.typography.font_size_xs)
-                            .weight(tokens.typography.font_weight_bold)
-                            .color(tokens.colors.text_muted)
+        fission::core::view::internal_node_widget({
+            {
+                let tokens = &view.env.theme.tokens;
+                Container::<fission::Node>::lowered(
+                    Column {
+                        children: vec![
+                            Text::new(self.label)
+                                .size(tokens.typography.font_size_xs)
+                                .weight(tokens.typography.font_weight_bold)
+                                .color(tokens.colors.text_muted)
+                                .into_node(),
+                            Row {
+                                children: vec![
+                                    Text::new("$")
+                                        .size(tokens.typography.font_size_sm)
+                                        .family(tokens.typography.font_family_mono.clone())
+                                        .color(tokens.colors.secondary)
+                                        .into_node(),
+                                    Text::new(self.command)
+                                        .size(tokens.typography.font_size_sm)
+                                        .line_height(
+                                            tokens.typography.font_size_sm
+                                                * tokens.typography.line_height_snug,
+                                        )
+                                        .family(tokens.typography.font_family_mono.clone())
+                                        .color(tokens.colors.text_primary)
+                                        .into_node(),
+                                ],
+                                gap: Some(tokens.spacing.s),
+                                align_items: AlignItems::Center,
+                                ..Default::default()
+                            }
                             .into_node(),
-                        Row {
-                            children: vec![
-                                Text::new("$")
-                                    .size(tokens.typography.font_size_sm)
-                                    .family(tokens.typography.font_family_mono.clone())
-                                    .color(tokens.colors.secondary)
-                                    .into_node(),
-                                Text::new(self.command)
-                                    .size(tokens.typography.font_size_sm)
-                                    .line_height(
-                                        tokens.typography.font_size_sm
-                                            * tokens.typography.line_height_snug,
-                                    )
-                                    .family(tokens.typography.font_family_mono.clone())
-                                    .color(tokens.colors.text_primary)
-                                    .into_node(),
-                            ],
-                            gap: Some(tokens.spacing.s),
-                            align_items: AlignItems::Center,
-                            ..Default::default()
-                        }
-                        .into_node(),
-                    ],
-                    gap: Some(tokens.spacing.s),
-                    ..Default::default()
-                }
-                .into_node(),
-            )
-            .padding_all(tokens.spacing.m)
-            .bg_fill(Fill::Solid(tokens.colors.surface_raised))
-            .border(tokens.colors.border_strong, 1.0)
-            .border_radius(tokens.radii.xl)
-            .into_node()
+                        ],
+                        gap: Some(tokens.spacing.s),
+                        ..Default::default()
+                    }
+                    .into_node(),
+                )
+                .padding_all(tokens.spacing.m)
+                .bg_fill(Fill::Solid(tokens.colors.surface_raised))
+                .border(tokens.colors.border_strong, 1.0)
+                .border_radius(tokens.radii.xl)
+                .into_node()
+            }
         })
     }
 }
@@ -570,11 +577,11 @@ impl Widget<DocsState> for LinkCard {
         ctx: &mut BuildCtx<DocsState>,
         view: &View<DocsState>,
     ) -> impl fission::IntoWidget<DocsState> {
-        fission::AnyWidget::from_node({
+        fission::core::view::internal_node_widget({
             let tokens = &view.env.theme.tokens;
             Card::new(
                 vec![
-                    Container::new(
+                    Container::<fission::Node>::lowered(
                         Text::new(self.eyebrow)
                             .size(tokens.typography.font_size_xs)
                             .weight(tokens.typography.font_weight_bold)
@@ -590,12 +597,20 @@ impl Widget<DocsState> for LinkCard {
                         .weight(tokens.typography.font_weight_bold)
                         .color(tokens.colors.heading)
                         .into_node(),
-                    Paragraph::new(self.body).build_node(ctx, view),
-                    NavLink::new(self.link, self.href).build_node(ctx, view),
+                    Paragraph::new(self.body)
+                        .build(ctx, view)
+                        .into_widget()
+                        .lower_to_node(ctx, view),
+                    NavLink::new(self.link, self.href)
+                        .build(ctx, view)
+                        .into_widget()
+                        .lower_to_node(ctx, view),
                 ],
                 compact_tile_width(tokens),
             )
-            .build_node(ctx, view)
+            .build(ctx, view)
+            .into_widget()
+            .lower_to_node(ctx, view)
         })
     }
 }
@@ -639,63 +654,71 @@ impl Widget<DocsState> for TargetRowCard {
         ctx: &mut BuildCtx<DocsState>,
         view: &View<DocsState>,
     ) -> impl fission::IntoWidget<DocsState> {
-        fission::AnyWidget::from_node({
-            let tokens = &view.env.theme.tokens;
-            Container::new(
-                Row {
-                    children: vec![
-                        Column {
-                            children: vec![
-                                Row {
-                                    children: vec![
-                                        Text::new(self.name)
-                                            .size(tokens.typography.font_size_lg)
-                                            .weight(tokens.typography.font_weight_bold)
-                                            .color(tokens.colors.heading)
-                                            .into_node(),
-                                        Text::new(self.status)
-                                            .size(tokens.typography.font_size_xs)
-                                            .weight(tokens.typography.font_weight_bold)
-                                            .color(tokens.colors.primary)
-                                            .into_node(),
-                                        Text::new(self.platforms)
-                                            .size(tokens.typography.font_size_sm)
-                                            .color(tokens.colors.text_muted)
-                                            .into_node(),
-                                    ],
-                                    gap: Some(tokens.spacing.s),
-                                    wrap: FlexWrap::Wrap,
-                                    align_items: AlignItems::Center,
-                                    ..Default::default()
-                                }
-                                .into_node(),
-                                Paragraph::new(self.body).build_node(ctx, view),
-                            ],
-                            gap: Some(tokens.spacing.s),
-                            flex_grow: 1.0,
-                            ..Default::default()
-                        }
-                        .into_node(),
-                        Text::new(self.command)
-                            .size(tokens.typography.font_size_sm)
-                            .family(tokens.typography.font_family_mono.clone())
-                            .color(tokens.colors.text_primary)
+        fission::core::view::internal_node_widget({
+            {
+                let tokens = &view.env.theme.tokens;
+                Container::<fission::Node>::lowered(
+                    Row {
+                        children: vec![
+                            Column {
+                                children: vec![
+                                    Row {
+                                        children: vec![
+                                            Text::new(self.name)
+                                                .size(tokens.typography.font_size_lg)
+                                                .weight(tokens.typography.font_weight_bold)
+                                                .color(tokens.colors.heading)
+                                                .into_node(),
+                                            Text::new(self.status)
+                                                .size(tokens.typography.font_size_xs)
+                                                .weight(tokens.typography.font_weight_bold)
+                                                .color(tokens.colors.primary)
+                                                .into_node(),
+                                            Text::new(self.platforms)
+                                                .size(tokens.typography.font_size_sm)
+                                                .color(tokens.colors.text_muted)
+                                                .into_node(),
+                                        ],
+                                        gap: Some(tokens.spacing.s),
+                                        wrap: FlexWrap::Wrap,
+                                        align_items: AlignItems::Center,
+                                        ..Default::default()
+                                    }
+                                    .into_node(),
+                                    Paragraph::new(self.body)
+                                        .build(ctx, view)
+                                        .into_widget()
+                                        .lower_to_node(ctx, view),
+                                ],
+                                gap: Some(tokens.spacing.s),
+                                flex_grow: 1.0,
+                                ..Default::default()
+                            }
                             .into_node(),
-                        NavLink::new(self.cta, self.href).build_node(ctx, view),
-                    ],
-                    gap: Some(tokens.spacing.l),
-                    wrap: FlexWrap::Wrap,
-                    align_items: AlignItems::Center,
-                    justify_content: JustifyContent::SpaceBetween,
-                    ..Default::default()
-                }
-                .into_node(),
-            )
-            .padding_all(tokens.spacing.l)
-            .bg_fill(Fill::Solid(tokens.colors.surface_raised))
-            .border(tokens.colors.border, 1.0)
-            .border_radius(tokens.radii.xl)
-            .into_node()
+                            Text::new(self.command)
+                                .size(tokens.typography.font_size_sm)
+                                .family(tokens.typography.font_family_mono.clone())
+                                .color(tokens.colors.text_primary)
+                                .into_node(),
+                            NavLink::new(self.cta, self.href)
+                                .build(ctx, view)
+                                .into_widget()
+                                .lower_to_node(ctx, view),
+                        ],
+                        gap: Some(tokens.spacing.l),
+                        wrap: FlexWrap::Wrap,
+                        align_items: AlignItems::Center,
+                        justify_content: JustifyContent::SpaceBetween,
+                        ..Default::default()
+                    }
+                    .into_node(),
+                )
+                .padding_all(tokens.spacing.l)
+                .bg_fill(Fill::Solid(tokens.colors.surface_raised))
+                .border(tokens.colors.border, 1.0)
+                .border_radius(tokens.radii.xl)
+                .into_node()
+            }
         })
     }
 }
@@ -728,7 +751,7 @@ impl Widget<DocsState> for ChartImageCard {
         _ctx: &mut BuildCtx<DocsState>,
         view: &View<DocsState>,
     ) -> impl fission::IntoWidget<DocsState> {
-        fission::AnyWidget::from_node({
+        fission::core::view::internal_node_widget({
             let tokens = &view.env.theme.tokens;
             let mut image_children = vec![Image::asset(self.image)
                 .size(
@@ -747,7 +770,7 @@ impl Widget<DocsState> for ChartImageCard {
             }
             Card::new(
                 vec![
-                    Container::new(
+                    Container::<fission::Node>::lowered(
                         Column {
                             children: image_children,
                             gap: Some(tokens.spacing.xs),
@@ -768,7 +791,9 @@ impl Widget<DocsState> for ChartImageCard {
                 ],
                 chart_tile_width(tokens),
             )
-            .build_node(_ctx, view)
+            .build(_ctx, view)
+            .into_widget()
+            .lower_to_node(_ctx, view)
         })
     }
 }
@@ -787,22 +812,24 @@ impl Chip {
 impl Widget<DocsState> for Chip {
     fn build(
         &self,
-        _ctx: &mut BuildCtx<DocsState>,
+        ctx: &mut BuildCtx<DocsState>,
         view: &View<DocsState>,
     ) -> impl fission::IntoWidget<DocsState> {
-        fission::AnyWidget::from_node({
-            let tokens = &view.env.theme.tokens;
-            Container::new(
-                Text::new(self.label)
-                    .size(tokens.typography.font_size_xs)
-                    .weight(tokens.typography.font_weight_bold)
-                    .color(tokens.colors.surface_sunken)
-                    .into_node(),
-            )
-            .padding([tokens.spacing.s, tokens.spacing.s, 2.0, 2.0])
-            .bg_fill(Fill::Solid(tokens.colors.on_surface))
-            .border_radius(tokens.radii.full)
-            .into_node()
+        fission::core::view::internal_node_widget({
+            {
+                let tokens = &view.env.theme.tokens;
+                Container::<fission::Node>::lowered(
+                    Text::new(self.label)
+                        .size(tokens.typography.font_size_xs)
+                        .weight(tokens.typography.font_weight_bold)
+                        .color(tokens.colors.surface_sunken)
+                        .into_node(),
+                )
+                .padding([tokens.spacing.s, tokens.spacing.s, 2.0, 2.0])
+                .bg_fill(Fill::Solid(tokens.colors.on_surface))
+                .border_radius(tokens.radii.full)
+                .into_node()
+            }
         })
     }
 }
@@ -850,11 +877,11 @@ impl Widget<DocsState> for ExampleCard {
         ctx: &mut BuildCtx<DocsState>,
         view: &View<DocsState>,
     ) -> impl fission::IntoWidget<DocsState> {
-        fission::AnyWidget::from_node({
+        fission::core::view::internal_node_widget({
             let tokens = &view.env.theme.tokens;
             Card::new(
                 vec![
-                    Container::new(
+                    Container::<fission::Node>::lowered(
                         Column {
                             children: vec![
                                 Text::new(self.tag)
@@ -883,13 +910,28 @@ impl Widget<DocsState> for ExampleCard {
                         .family(tokens.typography.font_family_mono.clone())
                         .color(tokens.colors.text_primary)
                         .into_node(),
-                    Paragraph::new(self.body).build_node(ctx, view),
-                    Paragraph::new(self.feature_a).build_node(ctx, view),
-                    Paragraph::new(self.feature_b).build_node(ctx, view),
+                    Paragraph::new(self.body)
+                        .build(ctx, view)
+                        .into_widget()
+                        .lower_to_node(ctx, view),
+                    Paragraph::new(self.feature_a)
+                        .build(ctx, view)
+                        .into_widget()
+                        .lower_to_node(ctx, view),
+                    Paragraph::new(self.feature_b)
+                        .build(ctx, view)
+                        .into_widget()
+                        .lower_to_node(ctx, view),
                     Row {
                         children: vec![
-                            Cta::new("Open guide", self.guide, true).build_node(ctx, view),
-                            Cta::new("Reference", self.reference, false).build_node(ctx, view),
+                            Cta::new("Open guide", self.guide, true)
+                                .build(ctx, view)
+                                .into_widget()
+                                .lower_to_node(ctx, view),
+                            Cta::new("Reference", self.reference, false)
+                                .build(ctx, view)
+                                .into_widget()
+                                .lower_to_node(ctx, view),
                         ],
                         gap: Some(tokens.spacing.s),
                         wrap: FlexWrap::Wrap,
@@ -899,7 +941,9 @@ impl Widget<DocsState> for ExampleCard {
                 ],
                 tile_width(tokens),
             )
-            .build_node(ctx, view)
+            .build(ctx, view)
+            .into_widget()
+            .lower_to_node(ctx, view)
         })
     }
 }
@@ -921,7 +965,7 @@ impl Widget<DocsState> for Paragraph {
         _ctx: &mut BuildCtx<DocsState>,
         view: &View<DocsState>,
     ) -> impl fission::IntoWidget<DocsState> {
-        fission::AnyWidget::from_node({
+        {
             let tokens = &view.env.theme.tokens;
             Text::new(self.body)
                 .size(tokens.typography.body_medium_size)
@@ -930,8 +974,7 @@ impl Widget<DocsState> for Paragraph {
                 )
                 .color(tokens.colors.text_secondary)
                 .flex_shrink(1.0)
-                .into_node()
-        })
+        }
     }
 }
 
@@ -950,26 +993,28 @@ impl Card {
 impl Widget<DocsState> for Card {
     fn build(
         &self,
-        _ctx: &mut BuildCtx<DocsState>,
+        ctx: &mut BuildCtx<DocsState>,
         view: &View<DocsState>,
     ) -> impl fission::IntoWidget<DocsState> {
-        fission::AnyWidget::from_node({
-            let tokens = &view.env.theme.tokens;
-            Container::new(
-                Column {
-                    children: self.children.clone(),
-                    gap: Some(tokens.spacing.m),
-                    ..Default::default()
-                }
-                .into_node(),
-            )
-            .width(self.width)
-            .flex_shrink(1.0)
-            .padding_all(tokens.spacing.l)
-            .bg_fill(Fill::Solid(tokens.colors.surface_raised))
-            .border(tokens.colors.border, 1.0)
-            .border_radius(tokens.radii.xl)
-            .into_node()
+        fission::core::view::internal_node_widget({
+            {
+                let tokens = &view.env.theme.tokens;
+                Container::<fission::Node>::lowered(
+                    Column {
+                        children: self.children.clone(),
+                        gap: Some(tokens.spacing.m),
+                        ..Default::default()
+                    }
+                    .into_node(),
+                )
+                .width(self.width)
+                .flex_shrink(1.0)
+                .padding_all(tokens.spacing.l)
+                .bg_fill(Fill::Solid(tokens.colors.surface_raised))
+                .border(tokens.colors.border, 1.0)
+                .border_radius(tokens.radii.xl)
+                .into_node()
+            }
         })
     }
 }

@@ -103,13 +103,13 @@ Wire the user-facing control with the normal Fission action pattern. This exampl
 struct PasskeySignInButton;
 
 impl Widget<AppState> for PasskeySignInButton {
-    fn build(&self, view: &View<AppState>, ctx: &mut BuildCtx<AppState>) -> Node {
+    fn build(&self, ctx: &mut BuildCtx<AppState>, view: &View<AppState>) -> impl IntoWidget<AppState> {
         let run = with_reducer!(ctx, SignInWithPasskey, on_sign_in_with_passkey);
 
         Button::new("Sign in with passkey")
             .disabled(false)
             .on_press(run)
-            .build(view, ctx)
+            
     }
 }
 ```

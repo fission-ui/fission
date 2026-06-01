@@ -1,4 +1,4 @@
-use fission_core::ui::{Column, Container, Row, Text};
+use fission_core::ui::{Column, Container, Node, Row, Text};
 use fission_core::{AppState, BuildCtx, View, Widget};
 use fission_test::TestHarness;
 
@@ -14,6 +14,7 @@ fn text_wrap_increases_layout_height() {
     // We assert that when the text is width-constrained below its full width, its
     // layout height grows beyond a single line.
 
+    #[derive(Clone)]
     struct Root;
     impl Widget<State> for Root {
         fn build(
@@ -21,19 +22,19 @@ fn text_wrap_increases_layout_height() {
             _ctx: &mut BuildCtx<State>,
             _view: &View<State>,
         ) -> impl fission_core::IntoWidget<State> {
-            fission_core::AnyWidget::from_node({
+            fission_core::view::internal_node_widget({
                 let long = "This is a very long subject line that should wrap into multiple lines";
-                Container::new(
-                    Row::default()
+                Container::<Node>::lowered(
+                    Row::<Node>::default()
                         .children(vec![
-                            Container::new(
+                            Container::<Node>::lowered(
                                 fission_core::ui::widgets::spacer::Spacer::default().into_node(),
                             )
                             .width(40.0)
                             .height(40.0)
                             .into_node(),
-                            Container::new(
-                                Column::default()
+                            Container::<Node>::lowered(
+                                Column::<Node>::default()
                                     .children(vec![
                                         Text::new(long).max_width(120.0).into_node(),
                                         Text::new("Preview").into_node(),

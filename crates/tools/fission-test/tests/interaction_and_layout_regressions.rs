@@ -1,4 +1,5 @@
 use fission_core::ui::{Container, Text};
+use fission_core::IntoWidget;
 use fission_core::{reduce_with, AppState, BuildCtx, ReducerContext, View, Widget};
 use fission_test::TestHarness;
 use fission_widgets::{NumberInput, SplitDirection, SplitView};
@@ -26,6 +27,7 @@ fn ignore_increment(
 
 #[test]
 fn test_stepper_button_layout() {
+    #[derive(Clone)]
     struct StepperTest;
     impl Widget<State> for StepperTest {
         fn build(
@@ -33,8 +35,8 @@ fn test_stepper_button_layout() {
             ctx: &mut BuildCtx<State>,
             _view: &View<State>,
         ) -> impl fission_core::IntoWidget<State> {
-            fission_core::AnyWidget::from_node({
-                Container::new(
+            fission_core::view::internal_node_widget({
+                Container::<fission_core::ui::Node>::lowered(
                     NumberInput {
                         value: 9.0,
                         on_increment: Some(
@@ -45,7 +47,9 @@ fn test_stepper_button_layout() {
                         ),
                         ..Default::default()
                     }
-                    .build_node(ctx, _view),
+                    .build(ctx, _view)
+                    .into_widget()
+                    .lower_to_node(ctx, _view),
                 )
                 .into_node()
             })
@@ -82,6 +86,7 @@ fn test_stepper_button_layout() {
 #[test]
 #[ignore] // FIXME: SplitView layout stretch issue
 fn test_email_list_width() {
+    #[derive(Clone)]
     struct InboxLayout;
     impl Widget<State> for InboxLayout {
         fn build(
@@ -89,34 +94,46 @@ fn test_email_list_width() {
             _ctx: &mut BuildCtx<State>,
             _view: &View<State>,
         ) -> impl fission_core::IntoWidget<State> {
-            fission_core::AnyWidget::from_node({
+            fission_core::view::internal_node_widget({
                 SplitView {
                     id: fission_core::WidgetNodeId::explicit("split"),
                     direction: SplitDirection::Horizontal,
                     first: Box::new(
-                        Container::new(Text::new("Sidebar").into_node())
-                            .width(200.0)
-                            .into_node(),
+                        Container::<fission_core::ui::Node>::lowered(
+                            Text::new("Sidebar").into_node(),
+                        )
+                        .width(200.0)
+                        .into_node(),
                     ),
                     second: Box::new(
                         SplitView {
                             id: fission_core::WidgetNodeId::explicit("split_inner"),
                             direction: fission_widgets::SplitDirection::Horizontal,
                             first: Box::new(
-                                Container::new(Text::new("List").into_node()).into_node(),
+                                Container::<fission_core::ui::Node>::lowered(
+                                    Text::new("List").into_node(),
+                                )
+                                .into_node(),
                             ),
                             second: Box::new(
-                                Container::new(Text::new("Detail").into_node()).into_node(),
+                                Container::<fission_core::ui::Node>::lowered(
+                                    Text::new("Detail").into_node(),
+                                )
+                                .into_node(),
                             ),
                             split_ratio: 0.3,
                             on_resize: None,
                         }
-                        .build_node(_ctx, _view),
+                        .build(_ctx, _view)
+                        .into_widget()
+                        .lower_to_node(_ctx, _view),
                     ),
                     split_ratio: 0.2,
                     on_resize: None,
                 }
-                .build_node(_ctx, _view)
+                .build(_ctx, _view)
+                .into_widget()
+                .lower_to_node(_ctx, _view)
             })
         }
     }
@@ -157,6 +174,7 @@ fn test_modal_backdrop_dismiss() {
     use fission_core::reduce_with;
     use fission_widgets::Modal;
 
+    #[derive(Clone)]
     struct ModalTest;
     impl Widget<State> for ModalTest {
         fn build(
@@ -164,7 +182,7 @@ fn test_modal_backdrop_dismiss() {
             ctx: &mut BuildCtx<State>,
             view: &View<State>,
         ) -> impl fission_core::IntoWidget<State> {
-            fission_core::AnyWidget::from_node({
+            fission_core::view::internal_node_widget({
                 Modal {
                     id: fission_core::WidgetNodeId::explicit("test_modal"),
                     title: "Test".into(),
@@ -181,7 +199,9 @@ fn test_modal_backdrop_dismiss() {
                     actions: vec![],
                     width: Some(300.0),
                 }
-                .build_node(ctx, view)
+                .build(ctx, view)
+                .into_widget()
+                .lower_to_node(ctx, view)
             })
         }
     }
@@ -224,6 +244,7 @@ fn test_modal_close_button_dismiss() {
     use fission_core::reduce_with;
     use fission_widgets::Modal;
 
+    #[derive(Clone)]
     struct ModalTest;
     impl Widget<State> for ModalTest {
         fn build(
@@ -231,7 +252,7 @@ fn test_modal_close_button_dismiss() {
             ctx: &mut BuildCtx<State>,
             view: &View<State>,
         ) -> impl fission_core::IntoWidget<State> {
-            fission_core::AnyWidget::from_node({
+            fission_core::view::internal_node_widget({
                 Modal {
                     id: fission_core::WidgetNodeId::explicit("test_modal"),
                     title: "Test".into(),
@@ -248,7 +269,9 @@ fn test_modal_close_button_dismiss() {
                     actions: vec![],
                     width: Some(300.0),
                 }
-                .build_node(ctx, view)
+                .build(ctx, view)
+                .into_widget()
+                .lower_to_node(ctx, view)
             })
         }
     }

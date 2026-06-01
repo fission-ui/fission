@@ -11,7 +11,10 @@ use fission::widgets::{
     Accordion, AccordionItem, Alert, AlertKind, AspectRatio, Avatar, Card, Code, Divider, HStack,
     Hero, Icon, Image, Kbd, Radio, SimpleGrid, Spinner, Tag, Timeline, TimelineItem, VStack, Wrap,
 };
+use fission::IntoWidget;
 use serde_json;
+
+#[derive(Clone)]
 
 pub struct EmailDetail {
     pub folder: String,
@@ -24,7 +27,7 @@ impl Widget<InboxState> for EmailDetail {
         ctx: &mut BuildCtx<InboxState>,
         view: &View<InboxState>,
     ) -> impl fission::IntoWidget<InboxState> {
-        fission::AnyWidget::from_node({
+        fission::core::view::internal_node_widget({
             let tokens = &view.env.theme.tokens;
             let t = |key: &str| {
                 view.env
@@ -36,8 +39,8 @@ impl Widget<InboxState> for EmailDetail {
             let email = if let Some(email) = view.state.emails.iter().find(|e| e.id == self.id) {
                 email
             } else {
-                return fission::AnyWidget::from_node(
-                    Container::new(
+                return fission::core::view::internal_node_widget(
+                    Container::<fission::Node>::lowered(
                         Text::new(TextContent::Key("email.not_found".into())).into_node(),
                     )
                     .padding_all(24.0)
@@ -135,7 +138,7 @@ impl Widget<InboxState> for EmailDetail {
             let section_gap = 16.0;
 
             // ── 1. Back button ──────────────────────────────────────────
-            let back_button = Container::new(
+            let back_button = Container::<fission::Node>::lowered(
                 Button {
                     variant: ButtonVariant::Ghost,
                     child: Some(Box::new(
@@ -164,13 +167,15 @@ impl Widget<InboxState> for EmailDetail {
             .into_node();
 
             // ── 2. External sender banner ───────────────────────────────
-            let external_banner = Container::new(
+            let external_banner = Container::<fission::Node>::lowered(
                 Alert {
                     kind: AlertKind::Warning,
                     title: t("alert.external_sender.title"),
                     description: Some(t("alert.external_sender.desc")),
                 }
-                .build_node(ctx, view),
+                .build(ctx, view)
+                .into_widget()
+                .lower_to_node(ctx, view),
             )
             .into_node();
 
@@ -178,7 +183,7 @@ impl Widget<InboxState> for EmailDetail {
             let subject_row = HStack {
                 spacing: Some(12.0),
                 children: vec![
-                    Container::new(
+                    Container::<fission::Node>::lowered(
                         Hero {
                             tag: format!("email_subject_{}", email.id),
                             child: Box::new(
@@ -190,7 +195,9 @@ impl Widget<InboxState> for EmailDetail {
                                 .into(),
                             ),
                         }
-                        .build_node(ctx, view),
+                        .build(ctx, view)
+                        .into_widget()
+                        .lower_to_node(ctx, view),
                     )
                     .flex_grow(1.0)
                     .into_node(),
@@ -212,7 +219,9 @@ impl Widget<InboxState> for EmailDetail {
                     .into_node(),
                 ],
             }
-            .build_node(ctx, view);
+            .build(ctx, view)
+            .into_widget()
+            .lower_to_node(ctx, view);
 
             // ── 4. Sender metadata row ─────────────────────────────────
             let sender_row = HStack {
@@ -223,7 +232,9 @@ impl Widget<InboxState> for EmailDetail {
                         size: Some(40.0),
                         ..Default::default()
                     }
-                    .build_node(ctx, view),
+                    .build(ctx, view)
+                    .into_widget()
+                    .lower_to_node(ctx, view),
                     VStack {
                         spacing: Some(2.0),
                         children: vec![
@@ -234,10 +245,14 @@ impl Widget<InboxState> for EmailDetail {
                                 .into_node(),
                         ],
                     }
-                    .build_node(ctx, view),
+                    .build(ctx, view)
+                    .into_widget()
+                    .lower_to_node(ctx, view),
                 ],
             }
-            .build_node(ctx, view);
+            .build(ctx, view)
+            .into_widget()
+            .lower_to_node(ctx, view);
 
             // ── 5. Tags row ────────────────────────────────────────────
             let tags_row = if !email.labels.is_empty() {
@@ -252,11 +267,15 @@ impl Widget<InboxState> for EmailDetail {
                                 label: label.clone(),
                                 on_close: None,
                             }
-                            .build_node(ctx, view)
+                            .build(ctx, view)
+                            .into_widget()
+                            .lower_to_node(ctx, view)
                         })
                         .collect(),
                 }
-                .build_node(ctx, view)
+                .build(ctx, view)
+                .into_widget()
+                .lower_to_node(ctx, view)
             } else {
                 // Empty container when no tags
                 Container::default().into_node()
@@ -275,7 +294,7 @@ impl Widget<InboxState> for EmailDetail {
                             })
                         ),
                     )),
-                    content: Container::new(
+                    content: Container::<fission::Node>::lowered(
                         Text {
                             content: TextContent::Literal(format!(
                                 "Date: {}\nTo: {}\nCc: {}",
@@ -293,16 +312,20 @@ impl Widget<InboxState> for EmailDetail {
                     .into_node(),
                 }],
             }
-            .build_node(ctx, view);
+            .build(ctx, view)
+            .into_widget()
+            .lower_to_node(ctx, view);
 
             // ── 7. Divider between header and body ─────────────────────
             let header_divider = Divider {
                 orientation: fission::widgets::divider::Orientation::Horizontal,
             }
-            .build_node(ctx, view);
+            .build(ctx, view)
+            .into_widget()
+            .lower_to_node(ctx, view);
 
             // ── 8. Email body ──────────────────────────────────────────
-            let email_body = Container::new(
+            let email_body = Container::<fission::Node>::lowered(
                 Text {
                     content: TextContent::Literal(latest.body.clone()),
                     font_size: Some(14.0),
@@ -318,7 +341,7 @@ impl Widget<InboxState> for EmailDetail {
             .into_node();
 
             // ── 9. Attachments section ─────────────────────────────────
-            let attachments_section = Container::new(
+            let attachments_section = Container::<fission::Node>::lowered(
                 VStack {
                     spacing: Some(12.0),
                     children: vec![
@@ -333,14 +356,18 @@ impl Widget<InboxState> for EmailDetail {
                                     color: None,
                                     animated: true,
                                 }
-                                .build_node(ctx, view),
+                                .build(ctx, view)
+                                .into_widget()
+                                .lower_to_node(ctx, view),
                                 Text::new(TextContent::Key("email.scanning_attachments".into()))
                                     .size(12.0)
                                     .color(tokens.colors.text_secondary)
                                     .into_node(),
                             ],
                         }
-                        .build_node(ctx, view),
+                        .build(ctx, view)
+                        .into_widget()
+                        .lower_to_node(ctx, view),
                         SimpleGrid {
                             min_child_width: 120.0,
                             gap: Some(8.0),
@@ -353,7 +380,9 @@ impl Widget<InboxState> for EmailDetail {
                                             .into_node(),
                                     ),
                                 }
-                                .build_node(ctx, view),
+                                .build(ctx, view)
+                                .into_widget()
+                                .lower_to_node(ctx, view),
                                 AspectRatio {
                                     ratio: 4.0 / 3.0,
                                     child: Box::new(
@@ -362,7 +391,9 @@ impl Widget<InboxState> for EmailDetail {
                                             .into_node(),
                                     ),
                                 }
-                                .build_node(ctx, view),
+                                .build(ctx, view)
+                                .into_widget()
+                                .lower_to_node(ctx, view),
                                 AspectRatio {
                                     ratio: 16.0 / 9.0,
                                     child: Box::new(
@@ -372,16 +403,24 @@ impl Widget<InboxState> for EmailDetail {
                                             loop_playback: false,
                                             ..Default::default()
                                         }
-                                        .build_node(ctx, view),
+                                        .build(ctx, view)
+                                        .into_widget()
+                                        .lower_to_node(ctx, view),
                                     ),
                                 }
-                                .build_node(ctx, view),
+                                .build(ctx, view)
+                                .into_widget()
+                                .lower_to_node(ctx, view),
                             ],
                         }
-                        .build_node(ctx, view),
+                        .build(ctx, view)
+                        .into_widget()
+                        .lower_to_node(ctx, view),
                     ],
                 }
-                .build_node(ctx, view),
+                .build(ctx, view)
+                .into_widget()
+                .lower_to_node(ctx, view),
             )
             .padding_all(12.0)
             .bg(tokens.colors.surface)
@@ -392,7 +431,7 @@ impl Widget<InboxState> for EmailDetail {
             // ── 10. Power user tip card ────────────────────────────────
             let power_tip = Card {
                 child: Box::new(
-                    Container::new(
+                    Container::<fission::Node>::lowered(
                         VStack {
                             spacing: Some(8.0),
                             children: vec![
@@ -402,29 +441,41 @@ impl Widget<InboxState> for EmailDetail {
                                 Code {
                                     text: "label:important after:2025/01/01".into(),
                                 }
-                                .build_node(ctx, view),
+                                .build(ctx, view)
+                                .into_widget()
+                                .lower_to_node(ctx, view),
                                 HStack {
                                     spacing: Some(6.0),
                                     children: vec![
-                                        Kbd { text: "g".into() }.build_node(ctx, view),
-                                        Kbd { text: "i".into() }.build_node(ctx, view),
+                                        Kbd { text: "g".into() }
+                                            .build(ctx, view)
+                                            .into_widget()
+                                            .lower_to_node(ctx, view),
+                                        Kbd { text: "i".into() }
+                                            .build(ctx, view)
+                                            .into_widget()
+                                            .lower_to_node(ctx, view),
                                         Text::new("to jump to Inbox").size(12.0).into_node(),
                                     ],
                                 }
                                 .into_node(),
                             ],
                         }
-                        .build_node(ctx, view),
+                        .build(ctx, view)
+                        .into_widget()
+                        .lower_to_node(ctx, view),
                     )
                     .padding_all(12.0)
                     .into_node(),
                 ),
                 ..Default::default()
             }
-            .build_node(ctx, view);
+            .build(ctx, view)
+            .into_widget()
+            .lower_to_node(ctx, view);
 
             // ── 11. History section ────────────────────────────────────
-            let history_section = Container::new(
+            let history_section = Container::<fission::Node>::lowered(
                 VStack {
                     spacing: Some(8.0),
                     children: vec![
@@ -451,11 +502,15 @@ impl Widget<InboxState> for EmailDetail {
                                     })
                                     .collect(),
                             }
-                            .build_node(ctx, view)
+                            .build(ctx, view)
+                            .into_widget()
+                            .lower_to_node(ctx, view)
                         },
                     ],
                 }
-                .build_node(ctx, view),
+                .build(ctx, view)
+                .into_widget()
+                .lower_to_node(ctx, view),
             )
             .padding_all(12.0)
             .into_node();
@@ -464,10 +519,12 @@ impl Widget<InboxState> for EmailDetail {
             let reply_divider = Divider {
                 orientation: fission::widgets::divider::Orientation::Horizontal,
             }
-            .build_node(ctx, view);
+            .build(ctx, view)
+            .into_widget()
+            .lower_to_node(ctx, view);
 
             // ── 13. Reply mode selector ────────────────────────────────
-            let reply_mode_selector = Container::new(
+            let reply_mode_selector = Container::<fission::Node>::lowered(
                 VStack {
                     spacing: Some(8.0),
                     children: vec![
@@ -510,16 +567,20 @@ impl Widget<InboxState> for EmailDetail {
                                 .into_node(),
                             ],
                         }
-                        .build_node(ctx, view),
+                        .build(ctx, view)
+                        .into_widget()
+                        .lower_to_node(ctx, view),
                     ],
                 }
-                .build_node(ctx, view),
+                .build(ctx, view)
+                .into_widget()
+                .lower_to_node(ctx, view),
             )
             .padding_all(8.0)
             .into_node();
 
             // ── 14. Reply compose area ─────────────────────────────────
-            let reply_area = Container::new(
+            let reply_area = Container::<fission::Node>::lowered(
                 VStack {
                     spacing: Some(12.0),
                     children: vec![
@@ -562,10 +623,14 @@ impl Widget<InboxState> for EmailDetail {
                                 .into_node(),
                             ],
                         }
-                        .build_node(ctx, view),
+                        .build(ctx, view)
+                        .into_widget()
+                        .lower_to_node(ctx, view),
                     ],
                 }
-                .build_node(ctx, view),
+                .build(ctx, view)
+                .into_widget()
+                .lower_to_node(ctx, view),
             )
             .padding_all(16.0)
             .bg(tokens.colors.surface)
@@ -593,15 +658,19 @@ impl Widget<InboxState> for EmailDetail {
                     reply_area,
                 ],
             }
-            .build_node(ctx, view);
+            .build(ctx, view)
+            .into_widget()
+            .lower_to_node(ctx, view);
 
             // Wrap the whole thing in a Scroll so it scrolls when content
             // is taller than the viewport, then put it in a flex-growing
             // Container with padding.
-            Container::new(
+            Container::<fission::Node>::lowered(
                 Scroll {
                     child: Some(Box::new(
-                        Container::new(content).padding_all(24.0).into_node(),
+                        Container::<fission::Node>::lowered(content)
+                            .padding_all(24.0)
+                            .into_node(),
                     )),
                     show_scrollbar: true,
                     flex_grow: 1.0,

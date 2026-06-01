@@ -1,5 +1,6 @@
 use crate::{render_ir_to_html_with_styles, CssVariableMap, HtmlRenderOptions, StyleRegistry};
 use anyhow::{anyhow, Context, Result};
+use fission_core::IntoWidget;
 use fission_core::{
     ActionEnvelope, ActionId, AppState, BuildCtx, Env, LoweringContext, RuntimeState, View, Widget,
 };
@@ -96,7 +97,7 @@ where
             .transpose()?
             .unwrap_or_default();
 
-        let (_node, mut registry) = self.build_node_and_registry();
+        let (_node, mut registry) = self.build_tree_and_registry();
         registry.dispatch(
             &mut self.state,
             &ActionEnvelope {
@@ -109,7 +110,7 @@ where
     }
 
     fn render_bridge_output(&mut self, sequence: u64) -> Result<String> {
-        let (node, _registry) = self.build_node_and_registry();
+        let (node, _registry) = self.build_tree_and_registry();
         let runtime = RuntimeState::default();
         let mut env = Env::default();
         env.theme = self.theme.clone();
@@ -160,7 +161,7 @@ where
         .to_string())
     }
 
-    fn build_node_and_registry(
+    fn build_tree_and_registry(
         &self,
     ) -> (
         fission_core::Node,
@@ -171,7 +172,12 @@ where
         env.theme = self.theme.clone();
         let view = View::new(&self.state, &runtime, &env, None);
         let mut ctx = BuildCtx::<S>::new();
-        let node = self.widget.clone().build_node(&mut ctx, &view);
+        let node = self
+            .widget
+            .clone()
+            .build(&mut ctx, &view)
+            .into_widget()
+            .lower_to_node(&mut ctx, &view);
         (node, ctx.registry)
     }
 }
@@ -304,19 +310,9 @@ mod tests {
             ctx: &mut BuildCtx<CounterState>,
             view: &View<CounterState>,
         ) -> impl fission_core::IntoWidget<CounterState> {
-            fission_core::AnyWidget::from_node({
-                let action = ctx.bind(Increment, reduce_with!(increment));
-                Button {
-                    child: Some(Box::new(
-                        Text::new(format!("{} clicks", view.state.count))
-                            .color(Color::BLACK)
-                            .into_node(),
-                    )),
-                    on_press: Some(action),
-                    ..Default::default()
-                }
-                .into_node()
-            })
+            let action = ctx.bind(Increment, reduce_with!(increment));
+            Button::new(Text::new(format!("{} clicks", view.state.count)).color(Color::BLACK))
+                .on_press(action)
         }
     }
 

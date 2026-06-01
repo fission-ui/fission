@@ -7,6 +7,7 @@ use crate::theme::UiPalette;
 use fission::ir::op::{AlignItems, JustifyContent};
 use fission::ir::NodeId;
 use fission::prelude::*;
+use fission::IntoWidget;
 
 const NAV_SCROLL_NODE_ID: &str = "cli_ui_nav_scroll";
 
@@ -21,7 +22,7 @@ impl Widget<UiState> for AppShell {
         ctx: &mut BuildCtx<UiState>,
         view: &View<UiState>,
     ) -> impl fission::IntoWidget<UiState> {
-        fission::AnyWidget::from_node({
+        fission::core::view::internal_node_widget({
             let palette = UiPalette::for_mode(view.state.theme_mode);
             let viewport = view.env.viewport_size;
             let density = UiDensity::new(view.state.compact_mode);
@@ -34,11 +35,14 @@ impl Widget<UiState> for AppShell {
             let content_w =
                 (width - sidebar_w - outer_padding[0] - outer_padding[1] - body_gap).max(48.0);
 
-            Container::new(
+            Container::<Node>::lowered(
                 Column {
                     gap: Some(density.shell_gap()),
                     children: vec![
-                        AppHeader.build_node(ctx, view),
+                        AppHeader
+                            .build(ctx, view)
+                            .into_widget()
+                            .lower_to_node(ctx, view),
                         Row {
                             gap: Some(body_gap),
                             align_items: AlignItems::Stretch,
@@ -47,8 +51,10 @@ impl Widget<UiState> for AppShell {
                                     width: sidebar_w,
                                     height: metrics.body_h,
                                 }
-                                .build_node(ctx, view),
-                                Container::new(self.content.clone())
+                                .build(ctx, view)
+                                .into_widget()
+                                .lower_to_node(ctx, view),
+                                Container::<Node>::lowered(self.content.clone())
                                     .width(content_w)
                                     .height(metrics.body_h)
                                     .padding(density.content_padding())
@@ -63,7 +69,9 @@ impl Widget<UiState> for AppShell {
                             width: width - outer_padding[0] - outer_padding[1],
                             height: metrics.footer_h,
                         }
-                        .build_node(ctx, view),
+                        .build(ctx, view)
+                        .into_widget()
+                        .lower_to_node(ctx, view),
                     ],
                     ..Default::default()
                 }
@@ -87,11 +95,11 @@ impl Widget<UiState> for AppHeader {
         ctx: &mut BuildCtx<UiState>,
         view: &View<UiState>,
     ) -> impl fission::IntoWidget<UiState> {
-        fission::AnyWidget::from_node({
+        fission::core::view::internal_node_widget({
             let palette = UiPalette::for_mode(view.state.theme_mode);
             let density = UiDensity::new(view.state.compact_mode);
             let toggle = with_reducer!(ctx, ToggleTheme, toggle_theme);
-            Container::new(
+            Container::<Node>::lowered(
                 Row {
                     justify_content: JustifyContent::SpaceBetween,
                     align_items: AlignItems::Center,
@@ -121,7 +129,9 @@ impl Widget<UiState> for AppHeader {
                                 ActionButton::new("Switch theme", toggle)
                                     .tone(ButtonTone::Neutral)
                                     .width(16.0)
-                                    .build_node(ctx, view),
+                                    .build(ctx, view)
+                                    .into_widget()
+                                    .lower_to_node(ctx, view),
                                 Text::new("q / Esc / Ctrl-C asks to exit")
                                     .color(palette.accent_text)
                                     .into_node(),
@@ -155,7 +165,7 @@ impl Widget<UiState> for Sidebar {
         ctx: &mut BuildCtx<UiState>,
         view: &View<UiState>,
     ) -> impl fission::IntoWidget<UiState> {
-        fission::AnyWidget::from_node({
+        fission::core::view::internal_node_widget({
             let palette = UiPalette::for_mode(view.state.theme_mode);
             let density = UiDensity::new(view.state.compact_mode);
             let padding = density.sidebar_padding();
@@ -192,7 +202,7 @@ impl Widget<UiState> for Sidebar {
                 }
                 .into_node(),
             );
-            Container::new(
+            Container::<Node>::lowered(
                 Scroll {
                     id: Some(scroll_id),
                     direction: FlexDirection::Column,
@@ -236,5 +246,7 @@ fn route_button(
     ActionButton::new(route.title(), action)
         .tone(tone)
         .width(width)
-        .build_node(ctx, view)
+        .build(ctx, view)
+        .into_widget()
+        .lower_to_node(ctx, view)
 }

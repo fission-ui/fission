@@ -6,6 +6,7 @@ use crate::routes::UiRoute;
 use crate::state::{target_label, UiState};
 use crate::theme::UiPalette;
 use fission::prelude::*;
+use fission::IntoWidget;
 
 #[derive(Clone)]
 pub struct DashboardScreen;
@@ -16,7 +17,7 @@ impl Widget<UiState> for DashboardScreen {
         ctx: &mut BuildCtx<UiState>,
         view: &View<UiState>,
     ) -> impl fission::IntoWidget<UiState> {
-        fission::AnyWidget::from_node({
+        fission::core::view::internal_node_widget({
             let palette = UiPalette::for_mode(view.state.theme_mode);
             let refresh = with_reducer!(ctx, RequestCommand(UiCommand::Refresh), request_command);
             let doctor = with_reducer!(ctx, Navigate(UiRoute::Doctor), navigate);
@@ -47,32 +48,49 @@ impl Widget<UiState> for DashboardScreen {
                         gap: Some(2.0),
                         children: vec![
                             KeyValueRow::new("Project", view.state.project_name.clone())
-                                .build_node(ctx, view),
+                                .build(ctx, view)
+                                .into_widget()
+                                .lower_to_node(ctx, view),
                             KeyValueRow::new("Theme", view.state.theme_mode.label())
-                                .build_node(ctx, view),
+                                .build(ctx, view)
+                                .into_widget()
+                                .lower_to_node(ctx, view),
                         ],
                         ..Default::default()
                     }
                     .into_node(),
-                    KeyValueRow::new("Targets", target_summary).build_node(ctx, view),
+                    KeyValueRow::new("Targets", target_summary)
+                        .build(ctx, view)
+                        .into_widget()
+                        .lower_to_node(ctx, view),
                     Row {
                         gap: Some(1.0),
                         children: vec![
                             ActionButton::new("Refresh", refresh)
                                 .tone(ButtonTone::Neutral)
-                                .build_node(ctx, view),
+                                .build(ctx, view)
+                                .into_widget()
+                                .lower_to_node(ctx, view),
                             ActionButton::new("Check setup", doctor)
                                 .tone(ButtonTone::Primary)
-                                .build_node(ctx, view),
+                                .build(ctx, view)
+                                .into_widget()
+                                .lower_to_node(ctx, view),
                             ActionButton::new("Run app", run)
                                 .tone(ButtonTone::Success)
-                                .build_node(ctx, view),
+                                .build(ctx, view)
+                                .into_widget()
+                                .lower_to_node(ctx, view),
                             ActionButton::new("Build", build)
                                 .tone(ButtonTone::Neutral)
-                                .build_node(ctx, view),
+                                .build(ctx, view)
+                                .into_widget()
+                                .lower_to_node(ctx, view),
                             ActionButton::new("Project setup", project)
                                 .tone(ButtonTone::Neutral)
-                                .build_node(ctx, view),
+                                .build(ctx, view)
+                                .into_widget()
+                                .lower_to_node(ctx, view),
                         ],
                         ..Default::default()
                     }
@@ -85,7 +103,9 @@ impl Widget<UiState> for DashboardScreen {
                         selectable: false,
                         max_rows: 7,
                     }
-                    .build_node(ctx, view),
+                    .build(ctx, view)
+                    .into_widget()
+                    .lower_to_node(ctx, view),
                 ],
                 ..Default::default()
             }

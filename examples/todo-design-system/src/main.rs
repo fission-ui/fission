@@ -1,4 +1,5 @@
 use fission::prelude::*;
+use fission::IntoWidget;
 
 include!(concat!(env!("OUT_DIR"), "/todo_design_system.rs"));
 
@@ -83,6 +84,7 @@ fn set_theme_mode(state: &mut TodoState, mode: DesignMode) {
     state.theme_mode = mode;
 }
 
+#[derive(Clone)]
 struct TodoApp;
 
 impl Widget<TodoState> for TodoApp {
@@ -91,7 +93,7 @@ impl Widget<TodoState> for TodoApp {
         ctx: &mut BuildCtx<TodoState>,
         view: &View<TodoState>,
     ) -> impl fission::IntoWidget<TodoState> {
-        fission::AnyWidget::from_node({
+        fission::core::view::internal_node_widget({
             let colors = &view.env.theme.tokens.colors;
             let spacing = &view.env.theme.tokens.spacing;
             let done_count = view.state.items.iter().filter(|item| item.done).count();
@@ -105,7 +107,7 @@ impl Widget<TodoState> for TodoApp {
             for item in &view.state.items {
                 let toggle = with_reducer!(ctx, ToggleTodo(item.id), toggle_todo);
                 todo_rows.push(
-                    Container::new(
+                    Container::<Node>::lowered(
                         Row {
                             gap: Some(12.0),
                             children: vec![
@@ -196,7 +198,7 @@ impl Widget<TodoState> for TodoApp {
                                     tone: BadgeTone::Success,
                                     ..Default::default()
                                 }
-                                .build_node(ctx, view),
+                                .build(ctx, view).into_widget().lower_to_node(ctx, view),
                             ],
                             ..Default::default()
                         }
@@ -245,9 +247,9 @@ impl Widget<TodoState> for TodoApp {
             ),
             ..Default::default()
         }
-        .build_node(ctx, view);
+        .build(ctx, view).into_widget().lower_to_node(ctx, view);
 
-            Container::new(content)
+            Container::<Node>::lowered(content)
                 .bg(colors.background)
                 .padding_all(spacing.xl)
                 .into_node()

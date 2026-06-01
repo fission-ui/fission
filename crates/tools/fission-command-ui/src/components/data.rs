@@ -5,6 +5,7 @@ use crate::state::{all_targets, target_label, UiDevice, UiState};
 use crate::theme::UiPalette;
 use fission::ir::op::AlignItems;
 use fission::prelude::*;
+use fission::IntoWidget;
 use fission_command_core::Target;
 
 #[derive(Clone)]
@@ -28,7 +29,7 @@ impl Widget<UiState> for KeyValueRow {
         _ctx: &mut BuildCtx<UiState>,
         view: &View<UiState>,
     ) -> impl fission::IntoWidget<UiState> {
-        fission::AnyWidget::from_node({
+        fission::core::view::internal_node_widget({
             let palette = UiPalette::for_mode(view.state.theme_mode);
             Row {
                 gap: Some(1.0),
@@ -60,7 +61,7 @@ impl Widget<UiState> for TargetPicker {
         ctx: &mut BuildCtx<UiState>,
         view: &View<UiState>,
     ) -> impl fission::IntoWidget<UiState> {
-        fission::AnyWidget::from_node({
+        fission::core::view::internal_node_widget({
             let targets = if self.configured_only && !view.state.targets.is_empty() {
                 view.state.targets.clone()
             } else {
@@ -92,7 +93,9 @@ fn target_button(target: Target, ctx: &mut BuildCtx<UiState>, view: &View<UiStat
             ButtonTone::Neutral
         })
         .width(18.0)
-        .build_node(ctx, view)
+        .build(ctx, view)
+        .into_widget()
+        .lower_to_node(ctx, view)
 }
 
 #[derive(Clone)]
@@ -108,7 +111,7 @@ impl Widget<UiState> for DeviceTable {
         ctx: &mut BuildCtx<UiState>,
         view: &View<UiState>,
     ) -> impl fission::IntoWidget<UiState> {
-        fission::AnyWidget::from_node({
+        fission::core::view::internal_node_widget({
             let palette = UiPalette::for_mode(view.state.theme_mode);
             let mut rows = vec![Row {
                 gap: Some(1.0),

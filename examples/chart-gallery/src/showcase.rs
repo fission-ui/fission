@@ -9,6 +9,7 @@ use fission::charts::{
 use fission::core::op::Color;
 use fission::core::ui::{Column, Container, Node, Row, Scroll, Text};
 use fission::core::{BuildCtx, View, Widget};
+use fission::IntoWidget;
 
 pub(crate) fn build_showcase(
     ctx: &mut BuildCtx<GalleryState>,
@@ -301,7 +302,7 @@ pub(crate) fn build_showcase(
     ];
 
     children.push(
-        Container::new(
+        Container::<Node>::lowered(
             Text::new("Use the sidebar to inspect the single-chart examples. The overview intentionally renders several chart families together so visual regressions are obvious.")
                 .size(13.0)
                 .color(rgb(148, 163, 184))
@@ -341,12 +342,12 @@ fn chart_card(
     chart_height: f32,
     accent: Color,
 ) -> Node {
-    Container::new(
+    Container::<Node>::lowered(
         Column {
             children: vec![
                 Row {
                     children: vec![
-                        Container::new(Text::new("").into_node())
+                        Container::<Node>::lowered(Text::new("").into_node())
                             .width(8.0)
                             .height(32.0)
                             .border_radius(8.0)
@@ -370,7 +371,9 @@ fn chart_card(
                 }
                 .into_node(),
                 configure_chart(chart, view, (width - 32.0).max(260.0), chart_height)
-                    .build_node(ctx, view),
+                    .build(ctx, view)
+                    .into_widget()
+                    .lower_to_node(ctx, view),
             ],
             gap: Some(12.0),
             ..Default::default()
@@ -386,7 +389,7 @@ fn chart_card(
 }
 
 fn metric_card(title: &str, value: &str, detail: &str, accent: Color, width: f32) -> Node {
-    Container::new(
+    Container::<Node>::lowered(
         Column {
             children: vec![
                 Text::new(title).size(12.0).color(accent).into_node(),

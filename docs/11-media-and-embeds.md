@@ -14,7 +14,7 @@ The system is designed for:
 - **cross-platform shells** (desktop/mobile/web).
 
 This spec assumes the authoring and lowering model defined in:
-- `Widget<S>::build(...) -> Node`,
+- `Widget<S>::build(...) -> impl IntoWidget<S>`,
 - automatic lowering via `Lower`,
 - optional custom lowering via `Node::Custom(CustomNode)` + `LowerDyn`.
 

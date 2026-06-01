@@ -11,6 +11,7 @@ use crate::components::{
 use crate::state::{UiDevice, UiState};
 use crate::theme::UiPalette;
 use fission::prelude::*;
+use fission::IntoWidget;
 
 #[derive(Clone)]
 pub struct RunScreen;
@@ -27,7 +28,7 @@ impl Widget<UiState> for RunScreen {
         ctx: &mut BuildCtx<UiState>,
         view: &View<UiState>,
     ) -> impl fission::IntoWidget<UiState> {
-        fission::AnyWidget::from_node({
+        fission::core::view::internal_node_widget({
             ExecutionScreen {
             title: "Run",
             description: "Launch the selected target on the selected device and attach output unless detach is enabled.",
@@ -39,7 +40,7 @@ impl Widget<UiState> for RunScreen {
             show_no_open: true,
             show_headless: true,
         }
-        .build_node(ctx, view)
+        .build(ctx, view).into_widget().lower_to_node(ctx, view)
         })
     }
 }
@@ -50,7 +51,7 @@ impl Widget<UiState> for BuildScreen {
         ctx: &mut BuildCtx<UiState>,
         view: &View<UiState>,
     ) -> impl fission::IntoWidget<UiState> {
-        fission::AnyWidget::from_node({
+        fission::core::view::internal_node_widget({
             ExecutionScreen {
                 title: "Build",
                 description: "Build the selected target without launching it.",
@@ -62,7 +63,9 @@ impl Widget<UiState> for BuildScreen {
                 show_no_open: false,
                 show_headless: false,
             }
-            .build_node(ctx, view)
+            .build(ctx, view)
+            .into_widget()
+            .lower_to_node(ctx, view)
         })
     }
 }
@@ -73,7 +76,7 @@ impl Widget<UiState> for TestScreen {
         ctx: &mut BuildCtx<UiState>,
         view: &View<UiState>,
     ) -> impl fission::IntoWidget<UiState> {
-        fission::AnyWidget::from_node({
+        fission::core::view::internal_node_widget({
             ExecutionScreen {
                 title: "Test",
                 description: "Run the generated smoke test for the selected target.",
@@ -85,7 +88,9 @@ impl Widget<UiState> for TestScreen {
                 show_no_open: false,
                 show_headless: true,
             }
-            .build_node(ctx, view)
+            .build(ctx, view)
+            .into_widget()
+            .lower_to_node(ctx, view)
         })
     }
 }
@@ -109,7 +114,7 @@ impl Widget<UiState> for ExecutionScreen {
         ctx: &mut BuildCtx<UiState>,
         view: &View<UiState>,
     ) -> impl fission::IntoWidget<UiState> {
-        fission::AnyWidget::from_node({
+        fission::core::view::internal_node_widget({
             let palette = UiPalette::for_mode(view.state.theme_mode);
             let action = with_reducer!(ctx, RequestCommand(self.command.clone()), request_command);
             let mut sections = vec![
@@ -118,9 +123,13 @@ impl Widget<UiState> for ExecutionScreen {
                     gap: Some(2.0),
                     children: vec![
                         KeyValueRow::new("Target", view.state.selected_target_label())
-                            .build_node(ctx, view),
+                            .build(ctx, view)
+                            .into_widget()
+                            .lower_to_node(ctx, view),
                         KeyValueRow::new("Device", view.state.selected_device_label())
-                            .build_node(ctx, view),
+                            .build(ctx, view)
+                            .into_widget()
+                            .lower_to_node(ctx, view),
                     ],
                     ..Default::default()
                 }
@@ -128,7 +137,9 @@ impl Widget<UiState> for ExecutionScreen {
                 TargetPicker {
                     configured_only: true,
                 }
-                .build_node(ctx, view),
+                .build(ctx, view)
+                .into_widget()
+                .lower_to_node(ctx, view),
             ];
 
             if self.show_devices {
@@ -143,7 +154,9 @@ impl Widget<UiState> for ExecutionScreen {
                         selectable: true,
                         max_rows: 7,
                     }
-                    .build_node(ctx, view),
+                    .build(ctx, view)
+                    .into_widget()
+                    .lower_to_node(ctx, view),
                 );
             }
 
@@ -155,7 +168,9 @@ impl Widget<UiState> for ExecutionScreen {
                 ActionButton::new(self.primary_label, action)
                     .tone(ButtonTone::Primary)
                     .width(26.0)
-                    .build_node(ctx, view),
+                    .build(ctx, view)
+                    .into_widget()
+                    .lower_to_node(ctx, view),
             );
 
             Column {
@@ -182,7 +197,9 @@ fn network_fields(ctx: &mut BuildCtx<UiState>, view: &View<UiState>) -> Node {
                 host,
             )
             .width(24.0)
-            .build_node(ctx, view),
+            .build(ctx, view)
+            .into_widget()
+            .lower_to_node(ctx, view),
             FormTextField::new(
                 "cli_ui_run_port",
                 "Port",
@@ -191,7 +208,9 @@ fn network_fields(ctx: &mut BuildCtx<UiState>, view: &View<UiState>) -> Node {
                 port,
             )
             .width(12.0)
-            .build_node(ctx, view),
+            .build(ctx, view)
+            .into_widget()
+            .lower_to_node(ctx, view),
         ],
         ..Default::default()
     }
@@ -213,20 +232,39 @@ fn option_toggles(
 ) -> Node {
     let mut toggles = Vec::new();
     let release = with_reducer!(ctx, ToggleRelease, toggle_release);
-    toggles.push(TogglePill::new("Release", view.state.release, release).build_node(ctx, view));
+    toggles.push(
+        TogglePill::new("Release", view.state.release, release)
+            .build(ctx, view)
+            .into_widget()
+            .lower_to_node(ctx, view),
+    );
 
     if screen.show_detach {
         let detach = with_reducer!(ctx, ToggleDetach, toggle_detach);
-        toggles.push(TogglePill::new("Detach", view.state.detach, detach).build_node(ctx, view));
+        toggles.push(
+            TogglePill::new("Detach", view.state.detach, detach)
+                .build(ctx, view)
+                .into_widget()
+                .lower_to_node(ctx, view),
+        );
     }
     if screen.show_no_open {
         let no_open = with_reducer!(ctx, ToggleNoOpen, toggle_no_open);
-        toggles.push(TogglePill::new("No open", view.state.no_open, no_open).build_node(ctx, view));
+        toggles.push(
+            TogglePill::new("No open", view.state.no_open, no_open)
+                .build(ctx, view)
+                .into_widget()
+                .lower_to_node(ctx, view),
+        );
     }
     if screen.show_headless {
         let headless = with_reducer!(ctx, ToggleHeadless, toggle_headless);
-        toggles
-            .push(TogglePill::new("Headless", view.state.headless, headless).build_node(ctx, view));
+        toggles.push(
+            TogglePill::new("Headless", view.state.headless, headless)
+                .build(ctx, view)
+                .into_widget()
+                .lower_to_node(ctx, view),
+        );
     }
 
     Row {

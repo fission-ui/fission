@@ -18,7 +18,7 @@ impl Widget<UiState> for OutputPanel {
         ctx: &mut BuildCtx<UiState>,
         view: &View<UiState>,
     ) -> impl fission::IntoWidget<UiState> {
-        fission::AnyWidget::from_node({
+        fission::core::view::internal_node_widget({
             let palette = UiPalette::for_mode(view.state.theme_mode);
             let density = UiDensity::new(view.state.compact_mode);
             let log_height = density.output_log_height(self.height);
@@ -51,7 +51,7 @@ impl Widget<UiState> for OutputPanel {
                 CommandStatus::Ok => palette.success,
                 CommandStatus::Failed => palette.error,
             };
-            Container::new(
+            Container::<Node>::lowered(
                 Column {
                     gap: Some(0.0),
                     children: vec![

@@ -5,7 +5,9 @@ use crate::components::ui::{
 };
 use crate::model::*;
 use fission::prelude::*;
+use fission::IntoWidget;
 
+#[derive(Clone)]
 pub struct VerifyPanel;
 
 impl Widget<FieldInspectorState> for VerifyPanel {
@@ -14,7 +16,7 @@ impl Widget<FieldInspectorState> for VerifyPanel {
         ctx: &mut BuildCtx<FieldInspectorState>,
         view: &View<FieldInspectorState>,
     ) -> impl fission::IntoWidget<FieldInspectorState> {
-        fission::AnyWidget::from_node({
+        fission::core::view::internal_node_widget({
             let order = view.state.selected_order();
             let scan_barcode = with_reducer!(ctx, VerifyWithBarcode, on_verify_with_barcode);
             let scan_nfc = with_reducer!(ctx, VerifyWithNfc, on_verify_with_nfc);
@@ -51,6 +53,7 @@ impl Widget<FieldInspectorState> for VerifyPanel {
     }
 }
 
+#[derive(Clone)]
 pub struct EvidencePanel;
 
 impl Widget<FieldInspectorState> for EvidencePanel {
@@ -59,7 +62,7 @@ impl Widget<FieldInspectorState> for EvidencePanel {
         ctx: &mut BuildCtx<FieldInspectorState>,
         view: &View<FieldInspectorState>,
     ) -> impl fission::IntoWidget<FieldInspectorState> {
-        fission::AnyWidget::from_node({
+        fission::core::view::internal_node_widget({
             let capture = with_reducer!(ctx, CaptureEvidencePhoto, on_capture_evidence_photo);
             let torch = with_reducer!(ctx, ToggleTorch, on_toggle_torch);
             let record = with_reducer!(ctx, RecordVoiceNote, on_record_voice_note);
@@ -134,6 +137,7 @@ impl Widget<FieldInspectorState> for EvidencePanel {
     }
 }
 
+#[derive(Clone)]
 pub struct SensorsPanel;
 
 impl Widget<FieldInspectorState> for SensorsPanel {
@@ -142,7 +146,7 @@ impl Widget<FieldInspectorState> for SensorsPanel {
         ctx: &mut BuildCtx<FieldInspectorState>,
         view: &View<FieldInspectorState>,
     ) -> impl fission::IntoWidget<FieldInspectorState> {
-        fission::AnyWidget::from_node({
+        fission::core::view::internal_node_widget({
             let scan = with_reducer!(ctx, ScanSensors, on_scan_sensors);
             let read = with_reducer!(ctx, ReadSensor, on_read_sensor);
             let connect = view.state.bluetooth_devices.first().map(|device| {
@@ -191,6 +195,7 @@ impl Widget<FieldInspectorState> for SensorsPanel {
     }
 }
 
+#[derive(Clone)]
 pub struct SecurityPanel;
 
 impl Widget<FieldInspectorState> for SecurityPanel {
@@ -199,7 +204,7 @@ impl Widget<FieldInspectorState> for SecurityPanel {
         ctx: &mut BuildCtx<FieldInspectorState>,
         view: &View<FieldInspectorState>,
     ) -> impl fission::IntoWidget<FieldInspectorState> {
-        fission::AnyWidget::from_node({
+        fission::core::view::internal_node_widget({
             let unlock = with_reducer!(ctx, SecureUnlock, on_secure_unlock);
             let register = with_reducer!(ctx, RegisterPasskey, on_register_passkey);
             let auth = with_reducer!(ctx, AuthenticatePasskey, on_authenticate_passkey);
@@ -236,6 +241,7 @@ impl Widget<FieldInspectorState> for SecurityPanel {
     }
 }
 
+#[derive(Clone)]
 pub struct ReviewPanel;
 
 impl Widget<FieldInspectorState> for ReviewPanel {
@@ -244,7 +250,7 @@ impl Widget<FieldInspectorState> for ReviewPanel {
         ctx: &mut BuildCtx<FieldInspectorState>,
         view: &View<FieldInspectorState>,
     ) -> impl fission::IntoWidget<FieldInspectorState> {
-        fission::AnyWidget::from_node({
+        fission::core::view::internal_node_widget({
             let copy = with_reducer!(ctx, CopyReportSummary, on_copy_report_summary);
             let reminder = with_reducer!(ctx, ScheduleReminder, on_schedule_reminder);
             let vol_down = with_reducer!(
@@ -288,7 +294,7 @@ impl Widget<FieldInspectorState> for ReviewPanel {
                         ],
                         ..Default::default()
                     }.into_node(),
-                    ActivityLog.build_node(ctx, view),
+                    ActivityLog.build(ctx, view).into_widget().lower_to_node(ctx, view),
                 ],
                 ..Default::default()
             }.into_node(),
@@ -368,7 +374,7 @@ fn evidence_photo(view: &View<FieldInspectorState>) -> Node {
             .semantic_label(order.asset.name)
             .into_node()
     };
-    Container::new(image)
+    Container::<Node>::lowered(image)
         .bg(view.env.theme.tokens.colors.background)
         .border_radius(18.0)
         .into_node()

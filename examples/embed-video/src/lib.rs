@@ -13,40 +13,32 @@ impl Widget<VideoEmbedState> for VideoEmbedApp {
         _ctx: &mut BuildCtx<VideoEmbedState>,
         view: &View<VideoEmbedState>,
     ) -> impl fission::IntoWidget<VideoEmbedState> {
-        fission::AnyWidget::from_node({
+        {
             let tokens = &view.env.theme.tokens.colors;
             Container::new(
-                Column {
-                    gap: Some(16.0),
-                    children: vec![
-                        Text::new("Video embed").size(28.0).into_node(),
+                Column::new()
+                    .gap(Some(16.0))
+                    .child(Text::new("Video embed").size(28.0))
+                    .child(
                         Text::new("A bounded host-backed video surface.")
                             .size(14.0)
-                            .color(tokens.text_secondary)
-                            .into_node(),
-                        Container::new(
-                            Video {
-                                id: Some(WidgetNodeId::explicit("embed-video.demo")),
-                                source: concat!(env!("CARGO_MANIFEST_DIR"), "/assets/demo.mp4")
-                                    .into(),
-                                width: Some(480.0),
-                                height: Some(270.0),
-                                autoplay: true,
-                                loop_playback: true,
-                            }
-                            .build_node(_ctx, view),
-                        )
+                            .color(tokens.text_secondary),
+                    )
+                    .child(
+                        Container::new(Video {
+                            id: Some(WidgetNodeId::explicit("embed-video.demo")),
+                            source: concat!(env!("CARGO_MANIFEST_DIR"), "/assets/demo.mp4").into(),
+                            width: Some(480.0),
+                            height: Some(270.0),
+                            autoplay: true,
+                            loop_playback: true,
+                        })
                         .width(480.0)
                         .height(270.0)
-                        .border(tokens.border, 1.0)
-                        .into_node(),
-                    ],
-                    ..Default::default()
-                }
-                .into_node(),
+                        .border(tokens.border, 1.0),
+                    ),
             )
             .padding_all(32.0)
-            .into_node()
-        })
+        }
     }
 }

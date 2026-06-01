@@ -7,6 +7,7 @@ use crate::components::{ActionButton, ButtonTone, FormTextField, KeyValueRow};
 use crate::state::UiState;
 use crate::theme::UiPalette;
 use fission::prelude::*;
+use fission::IntoWidget;
 
 #[derive(Clone)]
 pub struct SettingsScreen;
@@ -17,7 +18,7 @@ impl Widget<UiState> for SettingsScreen {
         ctx: &mut BuildCtx<UiState>,
         view: &View<UiState>,
     ) -> impl fission::IntoWidget<UiState> {
-        fission::AnyWidget::from_node({
+        fission::core::view::internal_node_widget({
             let palette = UiPalette::for_mode(view.state.theme_mode);
             let set_limit_input = with_reducer!(
                 ctx,
@@ -37,7 +38,9 @@ impl Widget<UiState> for SettingsScreen {
                             ButtonTone::Neutral
                         })
                         .width(16.0)
-                        .build_node(ctx, view)
+                        .build(ctx, view)
+                        .into_widget()
+                        .lower_to_node(ctx, view)
                 })
                 .collect::<Vec<_>>();
 
@@ -58,7 +61,7 @@ impl Widget<UiState> for SettingsScreen {
                         "Comfortable".to_string()
                     },
                 )
-                .build_node(ctx, view),
+                .build(ctx, view).into_widget().lower_to_node(ctx, view),
                 ActionButton::new(
                     if view.state.compact_mode {
                         "Use comfortable spacing"
@@ -69,12 +72,12 @@ impl Widget<UiState> for SettingsScreen {
                 )
                 .tone(ButtonTone::Neutral)
                 .width(28.0)
-                .build_node(ctx, view),
+                .build(ctx, view).into_widget().lower_to_node(ctx, view),
                 KeyValueRow::new(
                     "Scrollback",
                     format!("{} lines", view.state.scrollback_limit),
                 )
-                .build_node(ctx, view),
+                .build(ctx, view).into_widget().lower_to_node(ctx, view),
                 FormTextField::new(
                     "cli_ui_scrollback_limit",
                     "Scrollback lines",
@@ -83,7 +86,7 @@ impl Widget<UiState> for SettingsScreen {
                     set_limit_input,
                 )
                 .width(28.0)
-                .build_node(ctx, view),
+                .build(ctx, view).into_widget().lower_to_node(ctx, view),
                 Row {
                     gap: Some(1.0),
                     children: presets,

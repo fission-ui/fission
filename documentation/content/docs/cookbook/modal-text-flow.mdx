@@ -141,7 +141,7 @@ Now render the outer screen and the button that opens the modal.
 pub struct ComposeScreen;
 
 impl Widget<ComposeState> for ComposeScreen {
-    fn build(&self, ctx: &mut BuildCtx<ComposeState>, view: &View<ComposeState>) -> Node {
+    fn build(&self, ctx: &mut BuildCtx<ComposeState>, view: &View<ComposeState>) -> impl IntoWidget<ComposeState> {
         let open_modal = ctx.bind(
             SetShowComposeModal(true),
             reduce_with!(on_set_show_compose_modal),

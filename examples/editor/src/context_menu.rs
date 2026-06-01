@@ -4,13 +4,16 @@ use fission::core::ui::{Button, ButtonContentAlign, ButtonVariant, Container, Ge
 use fission::core::{ActionEnvelope, BuildCtx, reduce_with, PortalLayer, View, Widget, WidgetNodeId};
 use fission::widgets::{VStack, Spacer};
 
+#[derive(Clone)]
 pub struct ContextMenu;
 
 impl Widget<EditorState> for ContextMenu {
-    fn build(&self, ctx: &mut BuildCtx<EditorState>, view: &View<EditorState>) -> impl fission::IntoWidget<EditorState>  {
-        fission::AnyWidget::from_node({
+    fn build(&self, ctx: &mut BuildCtx<EditorState>, view: &View<EditorState>) -> impl fission::IntoWidget<EditorState> {
+        fission::core::view::internal_node_widget({
+
+        
         if !view.state.context_menu_visible {
-            return fission::AnyWidget::from_node(Spacer { height: Some(0.0), ..Default::default() }.into_node());
+            return fission::core::view::internal_node_widget(Spacer { height: Some(0.0), ..Default::default() }.into_node());
         }
 
         let bg = Color { r: 45, g: 45, b: 46, a: 255 };
@@ -31,7 +34,7 @@ impl Widget<EditorState> for ContextMenu {
                 variant: ButtonVariant::Ghost,
                 content_align: ButtonContentAlign::Start,
                 child: Some(Box::new(
-                    Container::new(
+                    Container::<fission::Node>::lowered(
                         fission::widgets::HStack {
                             spacing: Some(0.0),
                             children: vec![
@@ -49,7 +52,7 @@ impl Widget<EditorState> for ContextMenu {
         };
 
         let separator = || -> Node {
-            Container::new(Spacer::default().into_node())
+            Container::<fission::Node>::lowered(Spacer::default().into_node())
                 .height(1.0)
                 .bg(border)
                 .into_node()
@@ -179,7 +182,7 @@ impl Widget<EditorState> for ContextMenu {
             items.push(menu_item("Go to Definition", "F12", go_to_def));
         }
 
-        let menu_card = Container::new(
+        let menu_card = Container::<fission::Node>::lowered(
             VStack { spacing: Some(0.0), children: items }.into_node(),
         )
         .bg(bg)
@@ -194,7 +197,7 @@ impl Widget<EditorState> for ContextMenu {
         let backdrop = GestureDetector {
             on_tap: Some(dismiss.clone()),
             child: Box::new(
-                Container::new(Spacer::default().into_node())
+                Container::<fission::Node>::lowered(Spacer::default().into_node())
                     .bg(Color { r: 0, g: 0, b: 0, a: 1 }) // Nearly transparent
                     .flex_grow(1.0)
                     .into_node(),
@@ -202,7 +205,7 @@ impl Widget<EditorState> for ContextMenu {
             ..Default::default()
         }.into_node();
 
-        let overlay = Container::new(
+        let overlay = Container::<fission::Node>::lowered(
             ZStack {
                 children: vec![
                     Positioned {
@@ -232,6 +235,8 @@ impl Widget<EditorState> for ContextMenu {
         ctx.register_portal_with_layer(PortalLayer::Flyout, Some(WidgetNodeId::explicit("context_menu")), positioned_root);
 
         Spacer { height: Some(0.0), ..Default::default() }.into_node()
+    
+        
     
         })
     }

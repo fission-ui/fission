@@ -5,6 +5,7 @@ use crate::components::{ActionButton, ButtonTone, DeviceTable, KeyValueRow, Targ
 use crate::state::{UiDevice, UiState};
 use crate::theme::UiPalette;
 use fission::prelude::*;
+use fission::IntoWidget;
 
 #[derive(Clone)]
 pub struct LogsScreen;
@@ -15,7 +16,7 @@ impl Widget<UiState> for LogsScreen {
         ctx: &mut BuildCtx<UiState>,
         view: &View<UiState>,
     ) -> impl fission::IntoWidget<UiState> {
-        fission::AnyWidget::from_node({
+        fission::core::view::internal_node_widget({
             let palette = UiPalette::for_mode(view.state.theme_mode);
             let snapshot = with_reducer!(
                 ctx,
@@ -35,8 +36,8 @@ impl Widget<UiState> for LogsScreen {
                 Row {
                     gap: Some(2.0),
                     children: vec![
-                        KeyValueRow::new("Target", view.state.selected_target_label()).build_node(ctx, view),
-                        KeyValueRow::new("Device", view.state.selected_device_label()).build_node(ctx, view),
+                        KeyValueRow::new("Target", view.state.selected_target_label()).build(ctx, view).into_widget().lower_to_node(ctx, view),
+                        KeyValueRow::new("Device", view.state.selected_device_label()).build(ctx, view).into_widget().lower_to_node(ctx, view),
                     ],
                     ..Default::default()
                 }
@@ -44,24 +45,24 @@ impl Widget<UiState> for LogsScreen {
                 TargetPicker {
                     configured_only: true,
                 }
-                .build_node(ctx, view),
+                .build(ctx, view).into_widget().lower_to_node(ctx, view),
                 DeviceTable {
                     devices: current_target_devices(view),
                     selectable: true,
                     max_rows: 7,
                 }
-                .build_node(ctx, view),
+                .build(ctx, view).into_widget().lower_to_node(ctx, view),
                 Row {
                     gap: Some(1.0),
                     children: vec![
                         ActionButton::new("Read logs", snapshot)
                             .tone(ButtonTone::Primary)
                             .width(18.0)
-                            .build_node(ctx, view),
+                            .build(ctx, view).into_widget().lower_to_node(ctx, view),
                         ActionButton::new("Follow logs", follow)
                             .tone(ButtonTone::Warning)
                             .width(18.0)
-                            .build_node(ctx, view),
+                            .build(ctx, view).into_widget().lower_to_node(ctx, view),
                     ],
                     ..Default::default()
                 }

@@ -13,6 +13,7 @@ use fission::core::op::Color;
 use fission::core::ui::{Button, ButtonVariant, Column, Container, Node, Row, Scroll, Text};
 use fission::core::{reduce_with, with_reducer, ActionEnvelope, ActionId, BuildCtx, View, Widget};
 
+#[derive(Clone)]
 pub(crate) struct GalleryApp;
 
 impl Widget<GalleryState> for GalleryApp {
@@ -21,11 +22,11 @@ impl Widget<GalleryState> for GalleryApp {
         ctx: &mut BuildCtx<GalleryState>,
         view: &View<GalleryState>,
     ) -> impl fission::IntoWidget<GalleryState> {
-        fission::AnyWidget::from_node({
+        fission::core::view::internal_node_widget({
             let viewport_width = view.viewport_size().width.max(0.0);
 
             if let Ok(slug) = std::env::var("FISSION_CHART_DOC_SLUG") {
-                return fission::AnyWidget::from_node(build_doc_capture_view(
+                return fission::core::view::internal_node_widget(build_doc_capture_view(
                     ctx,
                     view,
                     &slug,
@@ -84,7 +85,7 @@ fn build_doc_capture_view(
         view.state.data_scale,
     )
     .unwrap_or_else(|| {
-        Container::new(
+        Container::<Node>::lowered(
             Text::new(format!("Unknown chart doc slug: {slug}"))
                 .color(Color::WHITE)
                 .into_node(),
@@ -92,7 +93,7 @@ fn build_doc_capture_view(
         .into_node()
     });
 
-    Container::new(chart)
+    Container::<Node>::lowered(chart)
         .padding_all(24.0)
         .bg(rgb(10, 14, 24))
         .flex_grow(1.0)
@@ -175,7 +176,7 @@ fn build_sidebar(view: &View<GalleryState>, select_chart_id: ActionId, sidebar_w
         );
     }
 
-    Container::new(
+    Container::<Node>::lowered(
         Scroll {
             direction: fission::core::FlexDirection::Column,
             child: Some(Box::new(
@@ -315,7 +316,7 @@ fn build_content(view: &View<GalleryState>, chart_node: Node, controls: Node) ->
         "Interactive Demo"
     };
 
-    Container::new(
+    Container::<Node>::lowered(
         Column {
             children: vec![
                 Row {
