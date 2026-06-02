@@ -13,31 +13,28 @@ use fission::prelude::*;
 
 pub struct OverviewPanel;
 
-impl Widget<FieldInspectorState> for OverviewPanel {
-    fn build(
-        &self,
-        ctx: &mut BuildCtx<FieldInspectorState>,
-        view: &View<FieldInspectorState>,
-    ) -> Node {
-        let order = view.state.selected_order();
+impl From<OverviewPanel> for Widget {
+    fn from(_component: OverviewPanel) -> Self {
+        let (ctx, view) = fission::build::current::<FieldInspectorState>();
+        let order = view.state().selected_order();
         let start = with_reducer!(ctx, StartInspection, on_start_inspection);
         let weather_ok = with_reducer!(ctx, WeatherLoaded, on_weather_loaded);
         let weather_err = with_reducer!(ctx, WeatherFailed, on_weather_failed);
-        let request = view.state.weather_request();
-        let snapshot = view.state.weather.clone();
-        let weather = FutureBuilder::new(
+        let request = view.state().weather_request();
+        let snapshot = view.state().weather.clone();
+        let weather = FutureBuilder::<FieldInspectorState, _>::new(
             ResourceKey::new("field-inspector.weather"),
             WEATHER_JOB,
             request.clone(),
-            snapshot,
+            snapshot.clone(),
             |ctx, view, snapshot| weather_card(ctx, view, snapshot),
         )
         .deps(request)
         .on_ok(weather_ok)
         .on_err(weather_err)
-        .build(ctx, view);
+        .into();
 
-        let (complete, total) = view.state.checklist_progress();
+        let (complete, total) = view.state().checklist_progress();
         let heading = Column {
             gap: Some(7.0),
             flex_grow: 1.0,
@@ -53,9 +50,9 @@ impl Widget<FieldInspectorState> for OverviewPanel {
             ],
             ..Default::default()
         }
-        .into_node();
+        .into();
         let start_button = action_button(
-            if view.state.started {
+            if view.state().started {
                 "Refresh checks"
             } else {
                 "Start inspection"
@@ -69,7 +66,7 @@ impl Widget<FieldInspectorState> for OverviewPanel {
                 children: vec![heading],
                 ..Default::default()
             }
-            .into_node()
+            .into()
         } else {
             Row {
                 gap: Some(12.0),
@@ -77,7 +74,7 @@ impl Widget<FieldInspectorState> for OverviewPanel {
                 align_items: ir_op::AlignItems::Start,
                 ..Default::default()
             }
-            .into_node()
+            .into()
         };
 
         let asset_image_width = usable_width(view, if is_compact(view) { 96.0 } else { 0.0 })
@@ -91,15 +88,12 @@ impl Widget<FieldInspectorState> for OverviewPanel {
             .size(asset_image_width, asset_image_height)
             .fit(ir_op::ImageFit::Cover)
             .semantic_label(order.asset.name)
-            .into_node();
+            .into();
         let asset_details = Column {
             gap: Some(6.0),
             flex_grow: 1.0,
             children: vec![
-                Text::new(order.asset.name)
-                    .size(18.0)
-                    .weight(900)
-                    .into_node(),
+                Text::new(order.asset.name).size(18.0).weight(900).into(),
                 muted_text(view, order.asset.kind),
                 body_text(
                     view,
@@ -111,7 +105,7 @@ impl Widget<FieldInspectorState> for OverviewPanel {
             ],
             ..Default::default()
         }
-        .into_node();
+        .into();
         let asset_block = if is_compact(view) {
             Column {
                 gap: Some(12.0),
@@ -119,7 +113,7 @@ impl Widget<FieldInspectorState> for OverviewPanel {
                 align_items: ir_op::AlignItems::Start,
                 ..Default::default()
             }
-            .into_node()
+            .into()
         } else {
             Row {
                 gap: Some(14.0),
@@ -127,7 +121,7 @@ impl Widget<FieldInspectorState> for OverviewPanel {
                 align_items: ir_op::AlignItems::Start,
                 ..Default::default()
             }
-            .into_node()
+            .into()
         };
 
         let hero = panel_card(
@@ -149,23 +143,22 @@ impl Widget<FieldInspectorState> for OverviewPanel {
                 ],
                 ..Default::default()
             }
-            .into_node(),
+            .into(),
         );
 
         Column {
             gap: Some(18.0),
-            children: vec![hero, weather, CapabilityOverview.build(ctx, view)],
+            children: vec![hero, weather, CapabilityOverview.into()],
             ..Default::default()
         }
-        .into_node()
+        .into()
     }
 }
-
 fn weather_card(
-    ctx: &mut BuildCtx<FieldInspectorState>,
-    view: &View<FieldInspectorState>,
+    _ctx: BuildCtxHandle<FieldInspectorState>,
+    view: ViewHandle<FieldInspectorState>,
     snapshot: &AsyncSnapshot<crate::api::WeatherSummary, crate::api::ApiError>,
-) -> Node {
+) -> Widget {
     let content = if let Some(weather) = snapshot.data() {
         responsive_grid(
             view,
@@ -186,12 +179,12 @@ fn weather_card(
         Row {
             gap: Some(12.0),
             children: vec![
-                CircularProgress::default().build(ctx, view),
+                CircularProgress::default().into(),
                 body_text(view, "Loading live site weather from Open-Meteo..."),
             ],
             ..Default::default()
         }
-        .into_node()
+        .into()
     };
 
     panel_card(
@@ -207,7 +200,7 @@ fn weather_card(
                             flex_grow: 1.0,
                             ..Default::default()
                         }
-                        .into_node(),
+                        .into(),
                         status_pill(
                             view,
                             if snapshot.has_data() {
@@ -224,11 +217,11 @@ fn weather_card(
                     ],
                     ..Default::default()
                 }
-                .into_node(),
+                .into(),
                 content,
             ],
             ..Default::default()
         }
-        .into_node(),
+        .into(),
     )
 }

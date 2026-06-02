@@ -6,26 +6,23 @@ use fission::prelude::*;
 
 pub struct WorkOrderRail;
 
-impl Widget<FieldInspectorState> for WorkOrderRail {
-    fn build(
-        &self,
-        ctx: &mut BuildCtx<FieldInspectorState>,
-        view: &View<FieldInspectorState>,
-    ) -> Node {
+impl From<WorkOrderRail> for Widget {
+    fn from(_component: WorkOrderRail) -> Self {
+        let (ctx, view) = fission::build::current::<FieldInspectorState>();
         let compact = is_compact(view);
         let rows = view
-            .state
+            .state()
             .orders
             .iter()
             .map(|order| {
-                let selected = order.id == view.state.selected_order_id;
+                let selected = order.id == view.state().selected_order_id;
                 let action = with_reducer!(ctx, SelectOrder(order.id.to_string()), on_select_order);
                 let state = if selected {
                     CapabilityState::Ready
                 } else {
                     CapabilityState::Idle
                 };
-                let card = Column {
+                let card: Widget = Column {
                     gap: Some(8.0),
                     children: vec![
                         Row {
@@ -34,24 +31,24 @@ impl Widget<FieldInspectorState> for WorkOrderRail {
                                 Text::new(order.id)
                                     .size(14.0)
                                     .weight(900)
-                                    .color(view.env.theme.tokens.colors.text_primary)
-                                    .into_node(),
+                                    .color(view.env().theme.tokens.colors.text_primary)
+                                    .into(),
                                 Spacer {
                                     flex_grow: 1.0,
                                     ..Default::default()
                                 }
-                                .into_node(),
+                                .into(),
                                 status_pill(view, order.priority, state),
                             ],
                             ..Default::default()
                         }
-                        .into_node(),
+                        .into(),
                         Text::new(order.title)
                             .size(if compact { 14.0 } else { 15.0 })
                             .line_height(if compact { 19.0 } else { 21.0 })
                             .weight(800)
-                            .color(view.env.theme.tokens.colors.text_primary)
-                            .into_node(),
+                            .color(view.env().theme.tokens.colors.text_primary)
+                            .into(),
                         muted_text(view, format!("{} - {}", order.site, order.due)),
                         small_button(
                             if selected { "Selected" } else { "Open" },
@@ -65,18 +62,18 @@ impl Widget<FieldInspectorState> for WorkOrderRail {
                     ],
                     ..Default::default()
                 }
-                .into_node();
+                .into();
                 let mut container = Container::new(card)
                     .bg(if selected {
-                        view.env.theme.tokens.colors.primary.with_alpha(26)
+                        view.env().theme.tokens.colors.primary.with_alpha(26)
                     } else {
-                        view.env.theme.tokens.colors.background.with_alpha(140)
+                        view.env().theme.tokens.colors.background.with_alpha(140)
                     })
                     .border(
                         if selected {
-                            view.env.theme.tokens.colors.primary
+                            view.env().theme.tokens.colors.primary
                         } else {
-                            view.env.theme.tokens.colors.border.with_alpha(120)
+                            view.env().theme.tokens.colors.border.with_alpha(120)
                         },
                         1.0,
                     )
@@ -85,7 +82,7 @@ impl Widget<FieldInspectorState> for WorkOrderRail {
                 if compact {
                     container = container.width(220.0);
                 }
-                container.into_node()
+                container.into()
             })
             .collect();
 
@@ -93,24 +90,24 @@ impl Widget<FieldInspectorState> for WorkOrderRail {
             Scroll {
                 direction: FlexDirection::Row,
                 show_scrollbar: true,
-                child: Some(Box::new(
+                child: Some(
                     Row {
                         gap: Some(12.0),
                         children: rows,
                         ..Default::default()
                     }
-                    .into_node(),
-                )),
+                    .into(),
+                ),
                 ..Default::default()
             }
-            .into_node()
+            .into()
         } else {
             Column {
                 gap: Some(12.0),
                 children: rows,
                 ..Default::default()
             }
-            .into_node()
+            .into()
         };
 
         panel_card(
@@ -124,7 +121,7 @@ impl Widget<FieldInspectorState> for WorkOrderRail {
                 ],
                 ..Default::default()
             }
-            .into_node(),
+            .into(),
         )
     }
 }
