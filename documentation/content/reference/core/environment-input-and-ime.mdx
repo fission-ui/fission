@@ -17,7 +17,7 @@ The clipboard and input method editor contracts sit beside those two types becau
 
 ## `Env`
 
-`Env` is the read-only environment bundle exposed to widgets through `View`.
+`Env` is the read-only environment bundle exposed to widgets through `ViewHandle`.
 
 Today, the public fields include:
 
@@ -32,7 +32,7 @@ Today, the public fields include:
 
 Use `Env` for shared presentation and host-context values, not for durable product state.
 
-A widget should read environment through `View`, for example with `view.viewport_size()`, `view.theme()`, or `view.env.locale`.
+A widget should read environment through `ViewHandle`, for example with `view.viewport_size()`, `view.theme()`, or `view.env.locale`.
 
 ## How `Env` reaches the app
 
@@ -40,7 +40,7 @@ Desktop currently exposes public `with_env(...)` and `with_sync_env(...)` builde
 
 Use `with_env(...)` when you want to seed a prepared environment, such as an environment that already contains translation bundles.
 
-Use `with_sync_env(...)` when values in `AppState` should be mirrored into `Env`, such as a user-selected locale or theme mode.
+Use `with_sync_env(...)` when values in `GlobalState` should be mirrored into `Env`, such as a user-selected locale or theme mode.
 
 The important contract is that environment remains explicit and shell-managed, not hidden behind global process state.
 

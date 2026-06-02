@@ -5,13 +5,13 @@ description: The reference contract for theme values, design systems, locale, an
 
 # Theming and internationalization
 
-This page is the reference contract for the app-wide presentation values that widgets read during `build()`.
+This page is the reference contract for the app-wide presentation values that widgets read during component conversion.
 
 Theming controls how the interface looks: color, typography, spacing, radius, elevation, motion, chart palettes, and component-level styling.
 
 Internationalization, often shortened to i18n, controls how the interface supports multiple languages and locale-sensitive text selection.
 
-Both systems flow through `Env`. Widgets read the current environment through `View`, which means theme and locale are explicit inputs to rendering rather than hidden global state.
+Both systems flow through `Env`. Widgets read the current environment through `ViewHandle`, which means theme and locale are explicit inputs to rendering rather than hidden global state.
 
 ## Theme types
 
@@ -53,7 +53,7 @@ Use a preset when it matches the platform or brand direction you want. Copy it i
 
 ## Environment flow
 
-`Env` carries the active theme, internationalization registry, locale, and other app-wide presentation context. During `build()`, widgets can read those values through `view.env` or convenience helpers such as `view.theme()`.
+`Env` carries the active theme, internationalization registry, locale, and other app-wide presentation context. During component conversion, widgets can read those values through `view.env` or convenience helpers such as `view.theme()`.
 
 Desktop exposes both `with_env(...)` and `with_sync_env(...)`. Mobile and web expose `with_sync_env(...)`.
 
@@ -82,11 +82,11 @@ DesktopApp::new(MyApp)
 
 Fission does not force a particular translation file format. YAML, JSON, TOML, Fluent, gettext-style catalogs, or generated Rust can all work if the app ultimately provides `TranslationBundle` values.
 
-The recommended simple path is to keep translation files in the repository, load them with `include_str!`, parse them at startup, add them to `env.i18n`, and store the current locale choice in `AppState`.
+The recommended simple path is to keep translation files in the repository, load them with `include_str!`, parse them at startup, add them to `env.i18n`, and store the current locale choice in `GlobalState`.
 
 ## Practical rules
 
-Keep durable user choices such as locale preference, theme mode, and selected brand variant in `AppState`.
+Keep durable user choices such as locale preference, theme mode, and selected brand variant in `GlobalState`.
 
 Keep loaded theme objects and translation bundles in `Env` because widgets need them as app-wide presentation context.
 

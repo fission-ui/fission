@@ -1,31 +1,46 @@
 ---
 title: State system
-description: The reference contract for AppState, Action, reducers, ReducerContext, and selectors.
+description: The reference contract for GlobalState, Action, reducers, ReducerContext, and selectors.
 ---
 
 # State system
 
 The state system is the behavioral backbone of a Fission app.
 
-This page is the reference version of that model. Use it when you want to confirm the contract for `AppState`, typed `Action` values, reducers, `ReducerContext`, or selectors without re-reading the more narrative Learn pages.
+This page is the reference version of that model. Use it when you want to confirm the contract for `GlobalState`, typed `Action` values, reducers, `ReducerContext`, or selectors without re-reading the more narrative Learn pages.
 
 ## The core contract at a glance
 
 | Piece | Contract | Purpose |
 | --- | --- | --- |
-| `AppState` | Your durable application data model | Holds the product data the user interface describes and reducers update |
+| `GlobalState` | Your durable application data model | Holds the product data the user interface describes and reducers update |
 | `Action` | A typed, serializable intent value with a stable `ActionId` | Describes what happened in app terms |
 | reducer | A function that updates state in response to an action | Centralizes state changes in one explicit path |
 | `ReducerContext` | Reducer-time access to effect emission and action input metadata | Lets reducers request outside work and inspect returned input |
 | `Selector<S>` | A derived read-only view computation | Keeps larger widgets from scattering raw state reads everywhere |
 
-## `AppState`
+## `GlobalState`
 
-`AppState` is the trait implemented by the application state type managed by the runtime.
+`GlobalState` is the trait implemented by the application state type managed by the runtime.
 
-In practice, your state is usually an ordinary Rust struct, and `impl AppState for MyState {}` marks it as the app's shared state model.
+In practice, your state is usually an ordinary Rust struct. For larger apps, prefer deriving `FissionGlobalState`; it implements `GlobalState` and generates a typed read-only view API for nested fields.
 
-What belongs in `AppState`? Durable product truth. Text the user is editing, the selected screen, whether a save is in progress, the current locale preference, loaded data, error states, and other user-visible product state all fit here.
+```rust
+#[derive(Debug, Default, Clone, FissionGlobalState)]
+pub struct ShopState {
+    pub cart: CartState,
+    pub session: SessionState,
+}
+
+#[derive(Debug, Default, Clone, FissionStateView)]
+pub struct CartState {
+    pub items: Vec<CartItem>,
+}
+```
+
+If you do not need generated views, `impl GlobalState for MyState {}` is still valid.
+
+What belongs in `GlobalState`? Durable product truth. Text the user is editing, the selected screen, whether a save is in progress, the current locale preference, loaded data, error states, and other user-visible product state all fit here.
 
 What does not belong there? Runtime-owned details such as current animation interpolation values, platform clipboard implementations, or other framework-managed interaction state.
 
@@ -58,7 +73,7 @@ That gives Fission its clear one-way flow:
 1. widgets emit actions,
 2. the runtime dispatches them,
 3. reducers update state,
-4. widgets rebuild from the new state.
+4. widgets reconvert from the new state.
 
 Reducers should stay deterministic and explicit. They may request effects through `ReducerContext`, but they should not become ad hoc side-effect containers.
 
@@ -78,15 +93,32 @@ Do not treat `ReducerContext` as long-lived storage. It exists only while the re
 
 Two binding patterns matter most in ordinary app code.
 
-Use `with_reducer!(ctx, action, handler)` inside `build()` when the action wiring is local to the widget tree. This is the most common pattern for buttons, text fields, and local interactions.
+Use `with_reducer!(ctx, action, handler)` inside `component conversion` when the action wiring is local to the widget tree. This is the most common pattern for buttons, text fields, and local interactions.
 
 Use `ActionRegistry` and shell-side registration when reducers should be registered in a more centralized startup-style path.
 
 The important architectural point is the same either way: state still changes through explicit reducer functions, not through hidden widget mutation.
 
-## Selectors
+## Generated state views and selectors
 
-A selector is a read-only derived computation from `View`.
+Generated state views give build code a typed path through app state without string lookup or reflection:
+
+```rust
+let (_, view) = fission::build::current::<ShopState>();
+let cart_count = view.global().cart().items().map(|items| items.len()).get();
+```
+
+Use `#[derive(FissionStateView)]` on nested state structs you want to traverse this way. Scalar and collection fields return a `ValueView`, which borrows the field and only clones if you call `get()`.
+
+For a one-off read, use a closure selector:
+
+```rust
+let cart_count = view.select(|state| state.cart.items.len());
+```
+
+For reusable derived view models, implement `Selector<S>` and call `view.select_with::<YourSelector>()`.
+
+A selector is a read-only derived computation from `ViewHandle`.
 
 Publicly, `Selector<S>` exists so widgets can ask for exactly the view model they need instead of reaching into raw state fields everywhere. That becomes increasingly valuable as screens grow.
 
@@ -94,11 +126,11 @@ Use a selector when a widget needs formatted text, derived booleans, grouped dat
 
 Do not use a selector to hide side effects or mutate state. A selector is a read operation only.
 
-In small examples, direct `view.state` reads are often fine. In larger apps, selectors help keep build code cleaner and make data dependencies easier to test.
+In small examples, direct `view.state()` reads are often fine. In larger apps, selectors help keep build code cleaner and make data dependencies easier to test.
 
 ## A useful mental model for this page
 
-`AppState` holds the durable data.
+`GlobalState` holds the durable data.
 
 `Action` describes what happened.
 
@@ -112,4 +144,4 @@ If you remember that shape, most of the reference pages around widgets, resource
 
 ## Related reference pages
 
-For async work and reducer-side effect emission, continue to [Commands, services, and jobs](/reference/core/commands-services-jobs) and [Resources and capabilities](/reference/core/resources-and-capabilities). For the widget-side contract that reads from this state system, see [Widget trait](/reference/core/widget-trait).
+For async work and reducer-side effect emission, continue to [Commands, services, and jobs](/reference/core/commands-services-jobs) and [Resources and capabilities](/reference/core/resources-and-capabilities). For the widget-side contract that reads from this state system, see [Widget authoring boundary](/reference/core/widget-trait).

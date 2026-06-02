@@ -96,7 +96,7 @@ Use reverse-DNS names such as `com.example.payment.start` for application-specif
 
 ## Resources
 
-A resource is a runtime-managed declaration collected during `build()` through `BuildCtx.resources`.
+A resource is a runtime-managed declaration collected during component conversion through `BuildCtxHandle` resource methods.
 
 Instead of saying "start this work right now because one reducer fired," a resource says "this work should exist while the current widget tree says it should exist."
 
@@ -136,7 +136,7 @@ These names are short, but the intent matters. Policy is not decoration. It is h
 
 The runtime reconciles resources by comparing the key, declaration kind, dependency payload, and policy.
 
-That is why resource declarations are safe to make during a pure `build()` method. Declaring a resource does not perform the work immediately. It gives the runtime the information it needs to start, preserve, restart, or stop the resource after the build phase.
+That is why resource declarations are safe to make during a pure `component conversion` method. Declaring a resource does not perform the work immediately. It gives the runtime the information it needs to start, preserve, restart, or stop the resource after the conversion phase.
 
 ## Choosing between capabilities and resources
 
@@ -150,4 +150,4 @@ If you are deciding between a reducer effect and a resource, ask whether the wor
 
 ## Related reference pages
 
-For reducer-side jobs, services, and commands, continue to [Commands, services, and jobs](/reference/core/commands-services-jobs). For built-in device and host capability groups, see [Platform capabilities](/reference/core/platform-capabilities/). For the build-side contract that declares resources, pair this page with [Widget trait](/reference/core/widget-trait). For the broader async teaching guide, see [Resources and async](/docs/guides/resources-and-async).
+For reducer-side jobs, services, and commands, continue to [Commands, services, and jobs](/reference/core/commands-services-jobs). For built-in device and host capability groups, see [Platform capabilities](/reference/core/platform-capabilities/). For the component conversion contract that declares resources, pair this page with [Widget authoring boundary](/reference/core/widget-trait). For the broader async teaching guide, see [Resources and async](/docs/guides/resources-and-async).

@@ -198,7 +198,7 @@ Client-side search is optional. When enabled, the build writes a local search in
 | `default_route_mode` | string | No | app default | Route mode applied to routes declared through the default server route helper. Accepted values are `static`, `server`, `dynamic`, `server_private`, `private`, `revalidated`, `client_app`, and `client`. `dynamic` is an alias for `server`; `private` is an alias for `server_private`. |
 | `render_pass_limit` | integer | No | `4` | Maximum render passes allowed while jobs/resources settle before the server returns HTML. `fission server check`, `fission server serve`, and the server binary read this value. |
 
-Route modes are intentionally explicit. Use `server_private` for pages that depend on a session or user, `server` for request-rendered public pages, and `revalidated` for public pages that can be cached and rebuilt after a TTL. Fission rejects a revalidated page if the rendered HTML contains signed server action forms, because action tokens are request-specific.
+Route modes are intentionally explicit. Use `server_private` for pages that depend on a session or user, `server` for request-rendered public pages, and `revalidated` for public pages that can be cached and reconverted after a TTL. Fission rejects a revalidated page if the rendered HTML contains signed server action forms, because action tokens are request-specific.
 
 ### `[server.http]`
 
