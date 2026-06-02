@@ -2,6 +2,31 @@
 
 Procedural macros for the Fission UI framework.
 
+## `#[fission_component]`
+
+`#[fission_component]` marks a struct as a v2 authoring component. Ordinary
+fields remain props, while `#[local_state]` fields become typed accessors used
+from `impl From<Component> for Widget`.
+
+```rust
+use fission::prelude::*;
+
+#[fission_component]
+struct Counter {
+    title: String,
+
+    #[local_state(default = 0)]
+    count: i32,
+}
+
+impl From<Counter> for Widget {
+    fn from(counter: Counter) -> Widget {
+        let count = counter.count();
+        Text::new(format!("{}: {}", counter.title, count.get())).into()
+    }
+}
+```
+
 ## `#[fission_reducer]`
 
 `#[fission_reducer]` is the recommended application-level shortcut for the common case where an action exists only to call one reducer.
@@ -50,6 +75,29 @@ fn set_scale(state: &mut CanvasState, value: f32) {
 }
 ```
 
+## `#[derive(FissionGlobalState)]` and `#[derive(FissionStateView)]`
+
+`FissionGlobalState` marks the root app state and generates a typed read-only view for build code. `FissionStateView` does the same for nested state structs.
+
+```rust
+use fission::prelude::*;
+
+#[derive(Debug, Default, Clone, FissionGlobalState)]
+struct ShopState {
+    cart: CartState,
+}
+
+#[derive(Debug, Default, Clone, FissionStateView)]
+struct CartState {
+    items: Vec<String>,
+}
+
+let (_, view) = fission::build::current::<ShopState>();
+let count = view.global().cart().items().map(|items| items.len()).get();
+```
+
+Use `#[fission(skip_view)]` on fields that should not appear in the generated view. The derive does not use runtime reflection or string lookup; generated methods call typed Rust accessors.
+
 ## `#[fission_action]`
 
 `#[fission_action]` remains the manual action definition tool. Use it when an action is shared by multiple reducers, exported as part of your public API, documented independently, or constructed in places where you want the action type spelled out explicitly.
@@ -81,7 +129,3 @@ struct SetScale(f32);
 ## `#[derive(Action)]`
 
 The derive macro remains available for lower-level crates that want to choose their own serialization and comparison derives explicitly. Application code should normally prefer `#[fission_reducer]` for one-reducer actions or `#[fission_action]` for manually declared actions.
-
-## `#[derive(Widget)]`
-
-Reserved derive macro for future widget code generation. Currently a no-op that produces an empty token stream.
