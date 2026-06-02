@@ -1,14 +1,14 @@
 use crate::model::EditorState;
 use fission::core::op::Color;
-use fission::core::ui::{Container, Icon, Node, Text};
-use fission::core::{BuildCtx, View, Widget};
+use fission::core::ui::{Container, Icon, Text, Widget};
 use fission::icons::material;
 use fission::widgets::{HStack, Spacer};
 
 pub struct StatusBar;
 
-impl Widget<EditorState> for StatusBar {
-    fn build(&self, _ctx: &mut BuildCtx<EditorState>, view: &View<EditorState>) -> Node {
+impl From<StatusBar> for Widget {
+    fn from(_component: StatusBar) -> Self {
+        let (_ctx, view) = fission::build::current::<EditorState>();
         let bg = Color {
             r: 37,
             g: 37,
@@ -45,11 +45,11 @@ impl Widget<EditorState> for StatusBar {
                     Icon::svg(material::notification::account_tree::round())
                         .size(14.0)
                         .color(text_color)
-                        .into_node(),
-                    Text::new("main").size(12.0).color(text_color).into_node(),
+                        .into(),
+                    Text::new("main").size(12.0).color(text_color).into(),
                 ],
             }
-            .into_node(),
+            .into(),
         );
 
         items.push(
@@ -57,19 +57,19 @@ impl Widget<EditorState> for StatusBar {
                 width: Some(16.0),
                 ..Default::default()
             }
-            .into_node(),
+            .into(),
         );
 
         // Diagnostics summary
         let error_count: usize = view
-            .state
+            .state()
             .diagnostics
             .values()
             .flat_map(|d| d.iter())
             .filter(|d| d.severity == crate::model::DiagSeverity::Error)
             .count();
         let warn_count: usize = view
-            .state
+            .state()
             .diagnostics
             .values()
             .flat_map(|d| d.iter())
@@ -87,21 +87,21 @@ impl Widget<EditorState> for StatusBar {
                         } else {
                             text_color
                         })
-                        .into_node(),
+                        .into(),
                     Text::new(error_count.to_string())
                         .size(12.0)
                         .color(text_color)
-                        .into_node(),
+                        .into(),
                 ],
             }
-            .into_node(),
+            .into(),
         );
         items.push(
             Spacer {
                 width: Some(8.0),
                 ..Default::default()
             }
-            .into_node(),
+            .into(),
         );
         items.push(
             HStack {
@@ -114,14 +114,14 @@ impl Widget<EditorState> for StatusBar {
                         } else {
                             text_color
                         })
-                        .into_node(),
+                        .into(),
                     Text::new(warn_count.to_string())
                         .size(12.0)
                         .color(text_color)
-                        .into_node(),
+                        .into(),
                 ],
             }
-            .into_node(),
+            .into(),
         );
 
         items.push(
@@ -129,11 +129,11 @@ impl Widget<EditorState> for StatusBar {
                 width: Some(16.0),
                 ..Default::default()
             }
-            .into_node(),
+            .into(),
         );
 
         // Active file info
-        if let Some((_tab, buf)) = view.state.active_buffer() {
+        if let Some((_tab, buf)) = view.state().active_buffer() {
             items.push(
                 Text::new(format!(
                     "Ln {}, Col {}",
@@ -142,7 +142,7 @@ impl Widget<EditorState> for StatusBar {
                 ))
                 .size(12.0)
                 .color(text_color)
-                .into_node(),
+                .into(),
             );
 
             items.push(
@@ -150,14 +150,14 @@ impl Widget<EditorState> for StatusBar {
                     width: Some(16.0),
                     ..Default::default()
                 }
-                .into_node(),
+                .into(),
             );
 
             items.push(
                 Text::new(buf.language.display_name())
                     .size(12.0)
                     .color(text_color)
-                    .into_node(),
+                    .into(),
             );
 
             items.push(
@@ -165,24 +165,24 @@ impl Widget<EditorState> for StatusBar {
                     width: Some(16.0),
                     ..Default::default()
                 }
-                .into_node(),
+                .into(),
             );
 
-            items.push(Text::new("UTF-8").size(12.0).color(text_color).into_node());
+            items.push(Text::new("UTF-8").size(12.0).color(text_color).into());
 
             items.push(
                 Spacer {
                     width: Some(16.0),
                     ..Default::default()
                 }
-                .into_node(),
+                .into(),
             );
 
             items.push(
                 Text::new(buf.mode_label())
                     .size(12.0)
                     .color(text_color)
-                    .into_node(),
+                    .into(),
             );
 
             items.push(
@@ -190,15 +190,10 @@ impl Widget<EditorState> for StatusBar {
                     width: Some(16.0),
                     ..Default::default()
                 }
-                .into_node(),
+                .into(),
             );
 
-            items.push(
-                Text::new("Spaces: 4")
-                    .size(12.0)
-                    .color(text_color)
-                    .into_node(),
-            );
+            items.push(Text::new("Spaces: 4").size(12.0).color(text_color).into());
         }
 
         items.push(
@@ -206,30 +201,22 @@ impl Widget<EditorState> for StatusBar {
                 flex_grow: 1.0,
                 ..Default::default()
             }
-            .into_node(),
+            .into(),
         );
 
         // Status message
-        if let Some(msg) = &view.state.status_message {
-            items.push(
-                Text::new(msg.clone())
-                    .size(12.0)
-                    .color(text_color)
-                    .into_node(),
-            );
+        if let Some(msg) = &view.state().status_message {
+            items.push(Text::new(msg.clone()).size(12.0).color(text_color).into());
         }
 
-        Container::new(
-            HStack {
-                spacing: Some(0.0),
-                children: items,
-            }
-            .into_node(),
-        )
+        Container::new(HStack {
+            spacing: Some(0.0),
+            children: items,
+        })
         .bg(bg)
         .height(26.0)
         .padding_all(4.0)
         .flex_shrink(0.0)
-        .into_node()
+        .into()
     }
 }

@@ -1,4 +1,4 @@
-use fission::core::{AppState, JobRef, JobSpec};
+use fission::core::{GlobalState, JobRef, JobSpec};
 use fission::prelude::fission_action;
 use fission::widgets::{TerminalLaunchConfig, TerminalSession};
 use serde::{Deserialize, Serialize};
@@ -170,6 +170,7 @@ const LARGE_FILE_LIMIT: u64 = 64 * 1024 * 1024;
 const HUGE_FILE_PREVIEW_BYTES: usize = 1_048_576;
 const HUGE_FILE_SCAN_BYTES: usize = 64 * 1024;
 const HUGE_LINE_CHECKPOINT_STRIDE: usize = 2_048;
+#[allow(dead_code)]
 const HUGE_WINDOW_CONTEXT_LINES: usize = 48;
 
 // --- State ---
@@ -340,7 +341,7 @@ impl Default for EditorState {
     }
 }
 
-impl AppState for EditorState {}
+impl GlobalState for EditorState {}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TabInfo {
@@ -353,6 +354,7 @@ pub struct TabInfo {
 pub struct FileBuffer {
     pub buffer: fission::text_engine::TextBuffer,
     pub language: Language,
+    #[allow(dead_code)]
     pub wrap_mode: WrapMode,
     pub document_mode: DocumentMode,
     pub backing: DocumentBacking,
@@ -531,6 +533,7 @@ fn copy_range(
     Ok(())
 }
 
+#[allow(dead_code)]
 impl FileWindowSource {
     pub fn new(path: String, size_bytes: u64) -> Self {
         Self {
@@ -994,6 +997,7 @@ impl FileBuffer {
         self.set_selection_offsets(offset, offset);
     }
 
+    #[allow(dead_code)]
     pub fn preedit_range(&self) -> Option<(usize, usize)> {
         self.preedit.as_ref().map(|preedit| preedit.range)
     }
@@ -1014,6 +1018,7 @@ impl FileBuffer {
         display
     }
 
+    #[allow(dead_code)]
     pub fn display_offsets(&self) -> (usize, usize) {
         if let Some(preedit) = &self.preedit {
             let start = preedit.range.0;
@@ -1026,6 +1031,7 @@ impl FileBuffer {
         self.preedit = None;
     }
 
+    #[allow(dead_code)]
     pub fn set_preedit(&mut self, text: String) {
         if text.is_empty() {
             self.preedit = None;
@@ -1177,6 +1183,7 @@ pub struct ToggleTreeNode(pub String);
 pub struct SelectTreeNode(pub String);
 
 #[fission_action]
+#[allow(dead_code)]
 pub struct ApplyEditorEdit {
     pub range_start: usize,
     pub range_end: usize,
@@ -1186,6 +1193,11 @@ pub struct ApplyEditorEdit {
 }
 
 #[fission_action]
+#[serde(transparent)]
+pub struct UpdateEditorDocument(pub String);
+
+#[fission_action]
+#[allow(dead_code)]
 pub struct SetEditorPreedit {
     pub text: String,
 }
@@ -1222,6 +1234,7 @@ pub struct ShowMenuStatus(pub String);
 pub struct SetBottomPanelTab(pub BottomPanelTab);
 
 #[fission_action]
+#[allow(dead_code)]
 pub struct ShowContextStatus(pub String);
 
 #[fission_action]
@@ -1323,6 +1336,7 @@ pub struct RenameFile {
 pub struct StartRename(pub String);
 
 #[fission_action]
+#[allow(dead_code)]
 pub struct ConfirmRename;
 
 #[fission_action]
@@ -1366,9 +1380,11 @@ pub struct UpdateCursorPosition {
 /// Action dispatched by the editor render node to update the model's scroll
 /// position so that scroll-follows-cursor works.
 #[fission_action(no_eq)]
+#[allow(dead_code)]
 pub struct UpdateScrollY(pub f32);
 
 #[fission_action]
+#[allow(dead_code)]
 pub struct ShiftActiveFileWindow {
     pub forward: bool,
 }
@@ -1650,6 +1666,7 @@ impl EditorState {
         Some((tab, buf))
     }
 
+    #[allow(dead_code)]
     pub fn shift_active_file_window(&mut self, forward: bool) {
         let Some(path) = self
             .open_tabs

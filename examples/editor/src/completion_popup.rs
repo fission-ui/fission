@@ -3,12 +3,10 @@
 use crate::model::*;
 use fission::core::op::Color;
 use fission::core::ui::{
-    Button, ButtonContentAlign, ButtonVariant, Container, GestureDetector, Node, Positioned,
-    Scroll, Text, ZStack,
+    Button, ButtonContentAlign, ButtonVariant, Container, GestureDetector, Positioned, Scroll,
+    Text, Widget, ZStack,
 };
-use fission::core::{
-    reduce_with, ActionEnvelope, BuildCtx, FlexDirection, PortalLayer, View, Widget, WidgetNodeId,
-};
+use fission::core::{reduce_with, ActionEnvelope, FlexDirection, PortalLayer, WidgetId};
 use fission::widgets::{HStack, Spacer, VStack};
 
 pub struct CompletionPopup;
@@ -73,14 +71,15 @@ fn kind_color(kind: &str) -> Color {
     }
 }
 
-impl Widget<EditorState> for CompletionPopup {
-    fn build(&self, ctx: &mut BuildCtx<EditorState>, view: &View<EditorState>) -> Node {
-        if !view.state.show_completions || view.state.completions.is_empty() {
+impl From<CompletionPopup> for Widget {
+    fn from(_component: CompletionPopup) -> Self {
+        let (ctx, view) = fission::build::current::<EditorState>();
+        if !view.state().show_completions || view.state().completions.is_empty() {
             return Spacer {
                 height: Some(0.0),
                 ..Default::default()
             }
-            .into_node();
+            .into();
         }
 
         let dismiss = ctx.bind(
@@ -157,10 +156,10 @@ impl Widget<EditorState> for CompletionPopup {
         let popup_width = (viewport.width - 80.0).clamp(220.0, 360.0);
         let popup_height = (viewport.height * 0.28).clamp(120.0, 220.0);
 
-        let selected_idx = view.state.selected_completion;
+        let selected_idx = view.state().selected_completion;
 
         let mut items = Vec::new();
-        for (i, completion) in view.state.completions.iter().enumerate() {
+        for (i, completion) in view.state().completions.iter().enumerate() {
             let icon_text = kind_icon(&completion.kind);
             let icon_color = kind_color(&completion.kind);
             let is_selected = i == selected_idx;
@@ -169,47 +168,39 @@ impl Widget<EditorState> for CompletionPopup {
                 spacing: Some(6.0),
                 children: vec![
                     // Kind badge
-                    Container::new(
-                        Text::new(icon_text)
-                            .size(10.0)
-                            .color(icon_color)
-                            .into_node(),
-                    )
-                    .width(20.0)
-                    .into_node(),
+                    Container::new(Text::new(icon_text).size(10.0).color(icon_color))
+                        .width(20.0)
+                        .into(),
                     // Label
                     Text::new(completion.label.as_str())
                         .size(12.0)
                         .color(text_color)
-                        .into_node(),
+                        .into(),
                     // Spacer between label and detail
                     Spacer {
                         flex_grow: 1.0,
                         ..Default::default()
                     }
-                    .into_node(),
+                    .into(),
                     // Detail (if present), truncated
                     if let Some(detail) = &completion.detail {
                         let truncated: String = detail.chars().take(30).collect();
-                        Text::new(truncated)
-                            .size(11.0)
-                            .color(detail_color)
-                            .into_node()
+                        Text::new(truncated).size(11.0).color(detail_color).into()
                     } else {
                         Spacer {
                             width: Some(0.0),
                             ..Default::default()
                         }
-                        .into_node()
+                        .into()
                     },
                 ],
             }
-            .into_node();
+            .into();
 
             let mut btn_container = Button {
                 variant: ButtonVariant::Ghost,
                 content_align: ButtonContentAlign::Start,
-                child: Some(Box::new(row)),
+                child: Some(row),
                 on_press: Some(ActionEnvelope {
                     id: select_id,
                     payload: serde_json::to_vec(&SelectCompletion(i)).unwrap(),
@@ -218,11 +209,11 @@ impl Widget<EditorState> for CompletionPopup {
                 padding: Some([2.0, 4.0, 2.0, 4.0]),
                 ..Default::default()
             }
-            .into_node();
+            .into();
 
             // Highlight the selected item
             if is_selected {
-                btn_container = Container::new(btn_container).bg(selected_bg).into_node();
+                btn_container = Container::new(btn_container).bg(selected_bg).into();
             }
 
             items.push(btn_container);
@@ -230,95 +221,87 @@ impl Widget<EditorState> for CompletionPopup {
 
         // Compute position near cursor. Use the hover_position as a rough proxy
         // for cursor screen location; the editor surface can set this more precisely.
-        let (popup_x, popup_y) = view.state.hover_position;
+        let (popup_x, popup_y) = view.state().hover_position;
         // Offset slightly below the cursor line
         let popup_y = (popup_y + 18.0).min((viewport.height - popup_height - 16.0).max(8.0));
         let popup_x = popup_x.min((viewport.width - popup_width - 16.0).max(8.0));
 
-        let list = Container::new(
-            Scroll {
-                direction: FlexDirection::Column,
-                child: Some(Box::new(
-                    VStack {
-                        spacing: Some(0.0),
-                        children: items,
-                    }
-                    .into_node(),
-                )),
-                show_scrollbar: true,
-                flex_grow: 1.0,
-                flex_shrink: 1.0,
-                ..Default::default()
-            }
-            .into_node(),
-        )
+        let list = Container::new(Scroll {
+            direction: FlexDirection::Column,
+            child: Some(
+                VStack {
+                    spacing: Some(0.0),
+                    children: items,
+                }
+                .into(),
+            ),
+            show_scrollbar: true,
+            flex_grow: 1.0,
+            flex_shrink: 1.0,
+            ..Default::default()
+        })
         .bg(bg)
         .border(border_color, 1.0)
         .border_radius(4.0)
         .max_height(popup_height)
         .width(popup_width)
-        .into_node();
+        .into();
 
         let positioned_popup = Positioned {
             left: Some(popup_x),
             top: Some(popup_y),
-            child: Some(Box::new(list)),
+            child: Some(list),
             ..Default::default()
         }
-        .into_node();
+        .into();
 
         // Transparent backdrop to dismiss on tap outside
         let backdrop = GestureDetector {
             on_tap: Some(dismiss.clone()),
-            child: Box::new(
-                Container::new(Spacer::default().into_node())
-                    .bg(Color {
-                        r: 0,
-                        g: 0,
-                        b: 0,
-                        a: 0,
-                    })
-                    .flex_grow(1.0)
-                    .into_node(),
-            ),
+            child: Container::new(Spacer::default())
+                .bg(Color {
+                    r: 0,
+                    g: 0,
+                    b: 0,
+                    a: 0,
+                })
+                .flex_grow(1.0)
+                .into(),
             ..Default::default()
         }
-        .into_node();
+        .into();
 
-        let overlay = Container::new(
-            ZStack {
-                children: vec![
-                    Positioned {
-                        left: Some(0.0),
-                        right: Some(0.0),
-                        top: Some(0.0),
-                        bottom: Some(0.0),
-                        child: Some(Box::new(backdrop)),
-                        ..Default::default()
-                    }
-                    .into_node(),
-                    positioned_popup,
-                ],
-                ..Default::default()
-            }
-            .into_node(),
-        )
+        let overlay = Container::new(ZStack {
+            children: vec![
+                Positioned {
+                    left: Some(0.0),
+                    right: Some(0.0),
+                    top: Some(0.0),
+                    bottom: Some(0.0),
+                    child: Some(backdrop),
+                    ..Default::default()
+                }
+                .into(),
+                positioned_popup,
+            ],
+            ..Default::default()
+        })
         .flex_grow(1.0)
-        .into_node();
+        .into();
 
         let portal_root = Positioned {
             left: Some(0.0),
             right: Some(0.0),
             top: Some(0.0),
             bottom: Some(0.0),
-            child: Some(Box::new(overlay)),
+            child: Some(overlay),
             ..Default::default()
         }
-        .into_node();
+        .into();
 
         ctx.register_portal_with_layer(
             PortalLayer::Flyout,
-            Some(WidgetNodeId::explicit("completion_popup")),
+            Some(WidgetId::explicit("completion_popup")),
             portal_root,
         );
 
@@ -326,6 +309,6 @@ impl Widget<EditorState> for CompletionPopup {
             height: Some(0.0),
             ..Default::default()
         }
-        .into_node()
+        .into()
     }
 }

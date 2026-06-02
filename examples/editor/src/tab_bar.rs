@@ -1,22 +1,23 @@
 use crate::model::{CloseTab, EditorState, SelectTab};
 use fission::core::op::Color;
-use fission::core::ui::{Button, ButtonContentAlign, ButtonVariant, Container, Node, Text};
-use fission::core::{reduce_with, ActionEnvelope, BuildCtx, View, Widget};
+use fission::core::ui::{Button, ButtonContentAlign, ButtonVariant, Container, Text, Widget};
+use fission::core::{reduce_with, ActionEnvelope};
 use fission::widgets::{HStack, Spacer};
 use serde_json;
 
 pub struct TabBar;
 
-impl Widget<EditorState> for TabBar {
-    fn build(&self, ctx: &mut BuildCtx<EditorState>, view: &View<EditorState>) -> Node {
-        let _tokens = &view.env.theme.tokens;
+impl From<TabBar> for Widget {
+    fn from(_component: TabBar) -> Self {
+        let (ctx, view) = fission::build::current::<EditorState>();
+        let _tokens = &view.env().theme.tokens;
 
-        if view.state.open_tabs.is_empty() {
+        if view.state().open_tabs.is_empty() {
             return Spacer {
                 height: Some(0.0),
                 ..Default::default()
             }
-            .into_node();
+            .into();
         }
 
         let select_id = ctx
@@ -43,8 +44,8 @@ impl Widget<EditorState> for TabBar {
             .id;
 
         let mut tab_nodes = Vec::new();
-        for (i, tab) in view.state.open_tabs.iter().enumerate() {
-            let is_active = i == view.state.active_tab;
+        for (i, tab) in view.state().open_tabs.iter().enumerate() {
+            let is_active = i == view.state().active_tab;
             let bg = if is_active {
                 Color {
                     r: 30,
@@ -88,22 +89,16 @@ impl Widget<EditorState> for TabBar {
                 a: 255,
             };
             let top_border = if is_active {
-                Container::new(
-                    Spacer {
-                        ..Default::default()
-                    }
-                    .into_node(),
-                )
+                Container::new(Spacer {
+                    ..Default::default()
+                })
                 .height(2.0)
                 .bg(accent_color)
-                .into_node()
+                .into()
             } else {
-                Container::new(
-                    Spacer {
-                        ..Default::default()
-                    }
-                    .into_node(),
-                )
+                Container::new(Spacer {
+                    ..Default::default()
+                })
                 .height(2.0)
                 .bg(Color {
                     r: 0,
@@ -111,16 +106,16 @@ impl Widget<EditorState> for TabBar {
                     b: 0,
                     a: 0,
                 })
-                .into_node()
+                .into()
             };
 
-            let tab_content = HStack {
+            let tab_content: Widget = HStack {
                 spacing: Some(6.0),
                 children: vec![
-                    Text::new(title).size(12.0).color(text_color).into_node(),
+                    Text::new(title).size(12.0).color(text_color).into(),
                     Button {
                         variant: ButtonVariant::Ghost,
-                        child: Some(Box::new(
+                        child: Some(
                             Text::new("×")
                                 .size(14.0)
                                 .color(Color {
@@ -129,8 +124,8 @@ impl Widget<EditorState> for TabBar {
                                     b: 160,
                                     a: 255,
                                 })
-                                .into_node(),
-                        )),
+                                .into(),
+                        ),
                         on_press: Some(ActionEnvelope {
                             id: close_id,
                             payload: serde_json::to_vec(&CloseTab(i)).unwrap(),
@@ -140,10 +135,10 @@ impl Widget<EditorState> for TabBar {
                         padding: Some([0.0; 4]),
                         ..Default::default()
                     }
-                    .into_node(),
+                    .into(),
                 ],
             }
-            .into_node();
+            .into();
 
             let tab_with_accent = fission::core::ui::Column {
                 children: vec![
@@ -152,17 +147,17 @@ impl Widget<EditorState> for TabBar {
                         .bg(bg)
                         .padding_all(6.0)
                         .flex_grow(1.0)
-                        .into_node(),
+                        .into(),
                 ],
                 ..Default::default()
             }
-            .into_node();
+            .into();
 
             tab_nodes.push(
                 Button {
                     variant: ButtonVariant::Ghost,
                     content_align: ButtonContentAlign::Start,
-                    child: Some(Box::new(tab_with_accent)),
+                    child: Some(tab_with_accent),
                     on_press: Some(ActionEnvelope {
                         id: select_id,
                         payload: serde_json::to_vec(&SelectTab(i)).unwrap(),
@@ -171,27 +166,24 @@ impl Widget<EditorState> for TabBar {
                     padding: Some([0.0; 4]),
                     ..Default::default()
                 }
-                .into_node(),
+                .into(),
             );
         }
 
-        Container::new(
-            fission::core::ui::Scroll {
-                direction: fission::ir::op::FlexDirection::Row,
-                show_scrollbar: true,
-                flex_grow: 1.0,
-                flex_shrink: 0.0,
-                child: Some(Box::new(
-                    HStack {
-                        spacing: Some(0.0),
-                        children: tab_nodes,
-                    }
-                    .into_node(),
-                )),
-                ..Default::default()
-            }
-            .into_node(),
-        )
+        Container::new(fission::core::ui::Scroll {
+            direction: fission::op::FlexDirection::Row,
+            show_scrollbar: true,
+            flex_grow: 1.0,
+            flex_shrink: 0.0,
+            child: Some(
+                HStack {
+                    spacing: Some(0.0),
+                    children: tab_nodes,
+                }
+                .into(),
+            ),
+            ..Default::default()
+        })
         .height(35.0)
         .min_height(35.0)
         .bg(Color {
@@ -210,6 +202,6 @@ impl Widget<EditorState> for TabBar {
             1.0,
         )
         .flex_shrink(0.0)
-        .into_node()
+        .into()
     }
 }

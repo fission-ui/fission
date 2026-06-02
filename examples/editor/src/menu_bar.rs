@@ -1,13 +1,14 @@
 use crate::model::*;
 use fission::core::op::Color;
-use fission::core::ui::{Button, ButtonContentAlign, ButtonVariant, Container, GestureDetector, Node, Positioned, Text, ZStack};
-use fission::core::{ActionEnvelope, BuildCtx, reduce_with, PortalLayer, View, Widget, WidgetNodeId};
+use fission::core::ui::{Button, ButtonContentAlign, ButtonVariant, Container, GestureDetector, Widget, Positioned, Text, ZStack};
+use fission::core::{ActionEnvelope, BuildCtxHandle, reduce_with, PortalLayer, ViewHandle, WidgetId};
 use fission::widgets::{HStack, VStack, Spacer};
 
 pub struct MenuBar;
 
-impl Widget<EditorState> for MenuBar {
-    fn build(&self, ctx: &mut BuildCtx<EditorState>, view: &View<EditorState>) -> Node {
+impl From<MenuBar> for Widget {
+    fn from(component: MenuBar) -> Self {
+        let (ctx, view) = fission::build::current::<EditorState>();
         let bg = Color { r: 51, g: 51, b: 51, a: 255 };
         let text_color = Color { r: 204, g: 204, b: 204, a: 255 };
         let active_bg = Color { r: 70, g: 70, b: 70, a: 255 };
@@ -27,17 +28,17 @@ impl Widget<EditorState> for MenuBar {
 
         let mut menu_buttons = Vec::new();
         for menu_name in &menus {
-            let is_active = view.state.active_menu.as_deref() == Some(menu_name);
+            let is_active = view.state().active_menu.as_deref() == Some(menu_name);
             let item_bg = if is_active { active_bg } else { bg };
 
             menu_buttons.push(
                 Button {
                     variant: ButtonVariant::Ghost,
-                    child: Some(Box::new(
+                    child: Some(
                         Container::new(
-                            Text::new(*menu_name).size(12.0).color(text_color).into_node(),
-                        ).bg(item_bg).padding_all(6.0).into_node(),
-                    )),
+                            Text::new(*menu_name).size(12.0).color(text_color),
+                        ).bg(item_bg).padding_all(6.0).into(),
+                    ),
                     on_press: Some(ActionEnvelope {
                         id: set_menu_id,
                         payload: serde_json::to_vec(&SetActiveMenu(Some(menu_name.to_string()))).unwrap(),
@@ -45,34 +46,34 @@ impl Widget<EditorState> for MenuBar {
                     height: Some(28.0),
                     padding: Some([0.0; 4]),
                     ..Default::default()
-                }.into_node(),
+                }.into(),
             );
         }
 
-        menu_buttons.push(Spacer { flex_grow: 1.0, ..Default::default() }.into_node());
+        menu_buttons.push(Spacer { flex_grow: 1.0, ..Default::default() }.into());
 
         let bar = Container::new(
             HStack {
                 spacing: Some(0.0),
                 children: menu_buttons,
-            }.into_node(),
+            },
         )
         .bg(bg)
         .height(28.0)
         .flex_shrink(0.0)
-        .into_node();
+        .into();
 
         // If a menu is active, render the dropdown as a portal
-        if let Some(active) = &view.state.active_menu {
-            self.render_dropdown(ctx, view, active);
+        if let Some(active) = &view.state().active_menu {
+            component.render_dropdown(ctx, view, active);
         }
 
         bar
+
     }
 }
-
 impl MenuBar {
-    fn render_dropdown(&self, ctx: &mut BuildCtx<EditorState>, view: &View<EditorState>, menu: &str) {
+    fn render_dropdown(&self, ctx: BuildCtxHandle<EditorState>, view: ViewHandle<EditorState>, menu: &str) {
         let bg = Color { r: 45, g: 45, b: 46, a: 255 };
         let border = Color { r: 69, g: 69, b: 69, a: 255 };
         let text_color = Color { r: 204, g: 204, b: 204, a: 255 };
@@ -83,33 +84,33 @@ impl MenuBar {
             reduce_with!((|s: &mut EditorState, _, _| s.active_menu = None)),
         );
 
-        let menu_item = |label: &str, shortcut: &str, action: ActionEnvelope| -> Node {
+        let menu_item = |label: &str, shortcut: &str, action: ActionEnvelope| -> Widget {
             Button {
                 variant: ButtonVariant::Ghost,
                 content_align: ButtonContentAlign::Start,
-                child: Some(Box::new(
+                child: Some(
                     Container::new(
                         HStack {
                             spacing: Some(0.0),
                             children: vec![
-                                Text::new(label).size(12.0).color(text_color).flex_grow(1.0).into_node(),
-                                Text::new(shortcut).size(11.0).color(dim).into_node(),
+                                Text::new(label).size(12.0).color(text_color).flex_grow(1.0).into(),
+                                Text::new(shortcut).size(11.0).color(dim).into(),
                             ],
-                        }.into_node(),
-                    ).width(220.0).into_node(),
-                )),
+                        },
+                    ).width(220.0).into(),
+                ),
                 on_press: Some(action),
                 height: Some(26.0),
                 padding: Some([4.0, 8.0, 0.0, 0.0]),
                 ..Default::default()
-            }.into_node()
+            }.into()
         };
 
-        let separator = || -> Node {
-            Container::new(Spacer::default().into_node())
+        let separator = || -> Widget {
+            Container::new(Spacer::default())
                 .height(1.0)
                 .bg(border)
-                .into_node()
+                .into()
         };
 
         // Build actions
@@ -174,7 +175,7 @@ impl MenuBar {
             s.active_menu = None;
         })));
 
-        let items: Vec<Node> = match menu {
+        let items: Vec<Widget> = match menu {
             "File" => vec![
                 menu_item("New File", "Ctrl+N", new_file),
                 menu_item("New Folder", "", new_folder),
@@ -221,53 +222,52 @@ impl MenuBar {
         };
 
         let dropdown = Container::new(
-            VStack { spacing: Some(0.0), children: items }.into_node(),
+            VStack { spacing: Some(0.0), children: items },
         )
         .bg(bg)
         .border(border, 1.0)
         .border_radius(4.0)
         .padding_all(4.0)
-        .into_node();
+        .into();
 
         // Backdrop to dismiss
         let backdrop = GestureDetector {
             on_tap: Some(dismiss.clone()),
-            child: Box::new(
-                Container::new(Spacer::default().into_node())
+            child:
+                Container::new(Spacer::default())
                     .bg(Color { r: 0, g: 0, b: 0, a: 1 })
                     .flex_grow(1.0)
-                    .into_node(),
-            ),
+                    .into(),
             ..Default::default()
-        }.into_node();
+        }.into();
 
         let overlay = Container::new(
             ZStack {
                 children: vec![
                     Positioned {
                         left: Some(0.0), right: Some(0.0), top: Some(0.0), bottom: Some(0.0),
-                        child: Some(Box::new(backdrop)),
+                        child: Some(backdrop),
                         ..Default::default()
-                    }.into_node(),
+                    }.into(),
                     Positioned {
                         left: Some(x_offset),
                         top: Some(28.0), // Below menu bar
-                        child: Some(Box::new(dropdown)),
+                        child: Some(dropdown),
                         ..Default::default()
-                    }.into_node(),
+                    }.into(),
                 ],
                 ..Default::default()
-            }.into_node(),
+            },
         )
         .flex_grow(1.0)
-        .into_node();
+        .into();
 
         let positioned_root = Positioned {
             left: Some(0.0), right: Some(0.0), top: Some(0.0), bottom: Some(0.0),
-            child: Some(Box::new(overlay)),
+            child: Some(overlay),
             ..Default::default()
-        }.into_node();
+        }.into();
 
-        ctx.register_portal_with_layer(PortalLayer::Flyout, Some(WidgetNodeId::explicit("menu_dropdown")), positioned_root);
+        ctx.register_portal_with_layer(PortalLayer::Flyout, Some(WidgetId::explicit("menu_dropdown")), positioned_root);
     }
 }

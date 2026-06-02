@@ -1,15 +1,16 @@
 use crate::model::*;
 use fission::core::op::Color;
-use fission::core::ui::{Button, ButtonContentAlign, ButtonVariant, Container, GestureDetector, Node, Positioned, Text, ZStack};
-use fission::core::{ActionEnvelope, BuildCtx, reduce_with, PortalLayer, View, Widget, WidgetNodeId};
+use fission::core::ui::{Button, ButtonContentAlign, ButtonVariant, Container, GestureDetector, Widget, Positioned, Text, ZStack};
+use fission::core::{ActionEnvelope, BuildCtxHandle, reduce_with, PortalLayer, ViewHandle, WidgetId};
 use fission::widgets::{VStack, Spacer};
 
 pub struct ContextMenu;
 
-impl Widget<EditorState> for ContextMenu {
-    fn build(&self, ctx: &mut BuildCtx<EditorState>, view: &View<EditorState>) -> Node {
-        if !view.state.context_menu_visible {
-            return Spacer { height: Some(0.0), ..Default::default() }.into_node();
+impl From<ContextMenu> for Widget {
+    fn from(component: ContextMenu) -> Self {
+        let (ctx, view) = fission::build::current::<EditorState>();
+        if !view.state().context_menu_visible {
+            return Spacer { height: Some(0.0), ..Default::default() }.into();
         }
 
         let bg = Color { r: 45, g: 45, b: 46, a: 255 };
@@ -25,38 +26,38 @@ impl Widget<EditorState> for ContextMenu {
             })),
         );
 
-        let menu_item = |label: &str, shortcut: &str, action: ActionEnvelope| -> Node {
+        let menu_item = |label: &str, shortcut: &str, action: ActionEnvelope| -> Widget {
             Button {
                 variant: ButtonVariant::Ghost,
                 content_align: ButtonContentAlign::Start,
-                child: Some(Box::new(
+                child: Some(
                     Container::new(
                         fission::widgets::HStack {
                             spacing: Some(0.0),
                             children: vec![
-                                Text::new(label).size(12.0).color(text_color).flex_grow(1.0).into_node(),
-                                Text::new(shortcut).size(11.0).color(dim).into_node(),
+                                Text::new(label).size(12.0).color(text_color).flex_grow(1.0).into(),
+                                Text::new(shortcut).size(11.0).color(dim).into(),
                             ],
-                        }.into_node(),
-                    ).width(200.0).into_node(),
-                )),
+                        },
+                    ).width(200.0).into(),
+                ),
                 on_press: Some(action),
                 height: Some(26.0),
                 padding: Some([4.0, 8.0, 0.0, 0.0]),
                 ..Default::default()
-            }.into_node()
+            }.into()
         };
 
-        let separator = || -> Node {
-            Container::new(Spacer::default().into_node())
+        let separator = || -> Widget {
+            Container::new(Spacer::default())
                 .height(1.0)
                 .bg(border)
-                .into_node()
+                .into()
         };
 
         let mut items = Vec::new();
 
-        if let Some(target) = &view.state.context_menu_target {
+        if let Some(target) = &view.state().context_menu_target {
             // File tree context menu
             let target_clone = target.clone();
 
@@ -179,57 +180,57 @@ impl Widget<EditorState> for ContextMenu {
         }
 
         let menu_card = Container::new(
-            VStack { spacing: Some(0.0), children: items }.into_node(),
+            VStack { spacing: Some(0.0), children: items },
         )
         .bg(bg)
         .border(border, 1.0)
         .border_radius(4.0)
         .padding_all(4.0)
-        .into_node();
+        .into();
 
-        let (x, y) = view.state.context_menu_position;
+        let (x, y) = view.state().context_menu_position;
 
         // Backdrop to dismiss
         let backdrop = GestureDetector {
             on_tap: Some(dismiss.clone()),
-            child: Box::new(
-                Container::new(Spacer::default().into_node())
+            child:
+                Container::new(Spacer::default())
                     .bg(Color { r: 0, g: 0, b: 0, a: 1 }) // Nearly transparent
                     .flex_grow(1.0)
-                    .into_node(),
-            ),
+                    .into(),
             ..Default::default()
-        }.into_node();
+        }.into();
 
         let overlay = Container::new(
             ZStack {
                 children: vec![
                     Positioned {
                         left: Some(0.0), right: Some(0.0), top: Some(0.0), bottom: Some(0.0),
-                        child: Some(Box::new(backdrop)),
+                        child: Some(backdrop),
                         ..Default::default()
-                    }.into_node(),
+                    }.into(),
                     Positioned {
                         left: Some(x),
                         top: Some(y),
-                        child: Some(Box::new(menu_card)),
+                        child: Some(menu_card),
                         ..Default::default()
-                    }.into_node(),
+                    }.into(),
                 ],
                 ..Default::default()
-            }.into_node(),
+            },
         )
         .flex_grow(1.0)
-        .into_node();
+        .into();
 
         let positioned_root = Positioned {
             left: Some(0.0), right: Some(0.0), top: Some(0.0), bottom: Some(0.0),
-            child: Some(Box::new(overlay)),
+            child: Some(overlay),
             ..Default::default()
-        }.into_node();
+        }.into();
 
-        ctx.register_portal_with_layer(PortalLayer::Flyout, Some(WidgetNodeId::explicit("context_menu")), positioned_root);
+        ctx.register_portal_with_layer(PortalLayer::Flyout, Some(WidgetId::explicit("context_menu")), positioned_root);
 
-        Spacer { height: Some(0.0), ..Default::default() }.into_node()
+        Spacer { height: Some(0.0), ..Default::default() }.into()
+
     }
 }

@@ -4,18 +4,19 @@ use crate::model::{
 };
 use fission::core::op::Color;
 use fission::core::ui::{
-    Button, ButtonContentAlign, ButtonVariant, Container, GestureDetector, Node, Text, TextInput,
+    Button, ButtonContentAlign, ButtonVariant, Container, GestureDetector, Text, TextInput, Widget,
 };
-use fission::core::{reduce_with, ActionEnvelope, BuildCtx, View, Widget};
+use fission::core::{reduce_with, ActionEnvelope, ViewHandle};
 use fission::widgets::{HStack, Icon, Spacer, VStack};
 use serde_json;
 
 pub struct FileTree;
 
-impl Widget<EditorState> for FileTree {
-    fn build(&self, ctx: &mut BuildCtx<EditorState>, view: &View<EditorState>) -> Node {
-        let tokens = &view.env.theme.tokens;
-        let entries = &view.state.cached_tree_entries;
+impl From<FileTree> for Widget {
+    fn from(_component: FileTree) -> Self {
+        let (ctx, view) = fission::build::current::<EditorState>();
+        let tokens = &view.env().theme.tokens;
+        let entries = &view.state().cached_tree_entries;
 
         // --- Bind actions ---
 
@@ -159,7 +160,7 @@ impl Widget<EditorState> for FileTree {
 
         // --- Toolbar row ---
 
-        let root_path_str = view.state.root_path.to_string_lossy().to_string();
+        let root_path_str = view.state().root_path.to_string_lossy().to_string();
 
         let new_file_action = ActionEnvelope {
             id: create_file_id,
@@ -180,66 +181,63 @@ impl Widget<EditorState> for FileTree {
 
         let icon_color = tokens.colors.text_secondary;
 
-        let toolbar = Container::new(
-            HStack {
-                spacing: Some(2.0),
-                children: vec![
-                    Spacer {
-                        flex_grow: 1.0,
-                        ..Default::default()
-                    }
-                    .into_node(),
-                    Button {
-                        variant: ButtonVariant::Ghost,
-                        on_press: Some(new_file_action),
-                        child: Some(Box::new(
-                            Icon::svg(fission::icons::material::content::add::round())
-                                .size(18.0)
-                                .color(icon_color)
-                                .into_node(),
-                        )),
-                        width: Some(24.0),
-                        height: Some(24.0),
-                        padding: Some([0.0; 4]),
-                        ..Default::default()
-                    }
-                    .into_node(),
-                    Button {
-                        variant: ButtonVariant::Ghost,
-                        on_press: Some(new_folder_action),
-                        child: Some(Box::new(
-                            Icon::svg(fission::icons::material::file::create_new_folder::round())
-                                .size(18.0)
-                                .color(icon_color)
-                                .into_node(),
-                        )),
-                        width: Some(24.0),
-                        height: Some(24.0),
-                        padding: Some([0.0; 4]),
-                        ..Default::default()
-                    }
-                    .into_node(),
-                    Button {
-                        variant: ButtonVariant::Ghost,
-                        on_press: Some(refresh_action),
-                        child: Some(Box::new(
-                            Icon::svg(fission::icons::material::navigation::refresh::round())
-                                .size(18.0)
-                                .color(icon_color)
-                                .into_node(),
-                        )),
-                        width: Some(24.0),
-                        height: Some(24.0),
-                        padding: Some([0.0; 4]),
-                        ..Default::default()
-                    }
-                    .into_node(),
-                ],
-            }
-            .into_node(),
-        )
+        let toolbar = Container::new(HStack {
+            spacing: Some(2.0),
+            children: vec![
+                Spacer {
+                    flex_grow: 1.0,
+                    ..Default::default()
+                }
+                .into(),
+                Button {
+                    variant: ButtonVariant::Ghost,
+                    on_press: Some(new_file_action),
+                    child: Some(
+                        Icon::svg(fission::icons::material::content::add::round())
+                            .size(18.0)
+                            .color(icon_color)
+                            .into(),
+                    ),
+                    width: Some(24.0),
+                    height: Some(24.0),
+                    padding: Some([0.0; 4]),
+                    ..Default::default()
+                }
+                .into(),
+                Button {
+                    variant: ButtonVariant::Ghost,
+                    on_press: Some(new_folder_action),
+                    child: Some(
+                        Icon::svg(fission::icons::material::file::create_new_folder::round())
+                            .size(18.0)
+                            .color(icon_color)
+                            .into(),
+                    ),
+                    width: Some(24.0),
+                    height: Some(24.0),
+                    padding: Some([0.0; 4]),
+                    ..Default::default()
+                }
+                .into(),
+                Button {
+                    variant: ButtonVariant::Ghost,
+                    on_press: Some(refresh_action),
+                    child: Some(
+                        Icon::svg(fission::icons::material::navigation::refresh::round())
+                            .size(18.0)
+                            .color(icon_color)
+                            .into(),
+                    ),
+                    width: Some(24.0),
+                    height: Some(24.0),
+                    padding: Some([0.0; 4]),
+                    ..Default::default()
+                }
+                .into(),
+            ],
+        })
         .padding_all(4.0)
-        .into_node();
+        .into();
 
         // --- Tree rows ---
 
@@ -259,51 +257,47 @@ impl Widget<EditorState> for FileTree {
         }
 
         let tree_scroll = fission::core::ui::Scroll {
-            id: Some(fission::ir::NodeId::explicit("file_tree_scroll")),
-            direction: fission::ir::op::FlexDirection::Column,
+            id: Some(fission::WidgetId::explicit("file_tree_scroll")),
+            direction: fission::op::FlexDirection::Column,
             show_scrollbar: true,
             flex_grow: 1.0,
             flex_shrink: 1.0,
-            child: Some(Box::new(
+            child: Some(
                 VStack {
                     spacing: Some(0.0),
                     children: rows,
                 }
-                .into_node(),
-            )),
+                .into(),
+            ),
             ..Default::default()
         }
-        .into_node();
+        .into();
 
         // --- Compose toolbar + tree ---
 
-        Container::new(
-            VStack {
-                spacing: Some(0.0),
-                children: vec![toolbar, tree_scroll],
-            }
-            .into_node(),
-        )
+        Container::new(VStack {
+            spacing: Some(0.0),
+            children: vec![toolbar, tree_scroll],
+        })
         .bg(tokens.colors.surface)
         .flex_grow(1.0)
-        .into_node()
+        .into()
     }
 }
-
 fn build_tree_rows(
     entry: &FileEntry,
     depth: usize,
-    rows: &mut Vec<Node>,
-    view: &View<EditorState>,
+    rows: &mut Vec<Widget>,
+    view: ViewHandle<EditorState>,
     toggle_id: fission::core::ActionId,
     open_id: fission::core::ActionId,
     select_id: fission::core::ActionId,
     context_menu_id: fission::core::ActionId,
     rename_input_action: &ActionEnvelope,
 ) {
-    let tokens = &view.env.theme.tokens;
-    let is_expanded = view.state.tree_expanded.contains(&entry.path);
-    let is_selected = view.state.tree_selected.as_deref() == Some(&entry.path);
+    let tokens = &view.env().theme.tokens;
+    let is_expanded = view.state().tree_expanded.contains(&entry.path);
+    let is_selected = view.state().tree_selected.as_deref() == Some(&entry.path);
 
     // IntelliJ-style: colored icons, compact rows
     let icon_color = if entry.is_dir {
@@ -376,83 +370,76 @@ fn build_tree_rows(
     };
 
     // Check if this entry is being renamed
-    let is_renaming = view.state.renaming_path.as_deref() == Some(&entry.path);
+    let is_renaming = view.state().renaming_path.as_deref() == Some(&entry.path);
 
     // Build the name column: either a TextInput (renaming) or a Text label
     let name_node = if is_renaming {
         TextInput {
-            id: Some(fission::ir::NodeId::explicit("rename_input")),
-            value: view.state.rename_input.clone(),
+            id: Some(fission::WidgetId::explicit("rename_input")),
+            value: view.state().rename_input.clone(),
             placeholder: Some("New name".into()),
             on_change: Some(rename_input_action.clone()),
             ..Default::default()
         }
-        .into_node()
+        .into()
     } else {
         Text::new(entry.name.clone())
             .size(13.0)
             .color(tokens.colors.text_primary)
             .flex_grow(1.0)
-            .into_node()
+            .into()
     };
 
     // Build the row content
-    let row_content = Container::new(
-        HStack {
-            spacing: Some(4.0),
-            children: vec![
-                // Indentation spacer
-                Spacer {
-                    width: Some(indent),
-                    ..Default::default()
-                }
-                .into_node(),
-                // Fixed-width chevron container (12px) for consistent alignment
-                Container::new(
-                    Text::new(chevron)
-                        .size(11.0)
-                        .color(tokens.colors.text_secondary)
-                        .into_node(),
-                )
-                .width(12.0)
-                .into_node(),
-                // File/folder icon
-                Icon::svg(file_icon)
-                    .size(16.0)
-                    .color(icon_color)
-                    .into_node(),
-                // File/folder name (or rename TextInput)
-                name_node,
-            ],
-        }
-        .into_node(),
-    )
+    let row_content = Container::new(HStack {
+        spacing: Some(4.0),
+        children: vec![
+            // Indentation spacer
+            Spacer {
+                width: Some(indent),
+                ..Default::default()
+            }
+            .into(),
+            // Fixed-width chevron container (12px) for consistent alignment
+            Container::new(
+                Text::new(chevron)
+                    .size(11.0)
+                    .color(tokens.colors.text_secondary),
+            )
+            .width(12.0)
+            .into(),
+            // File/folder icon
+            Icon::svg(file_icon).size(16.0).color(icon_color).into(),
+            // File/folder name (or rename TextInput)
+            name_node,
+        ],
+    })
     .bg(bg)
     .padding_all(2.0)
-    .into_node();
+    .into();
 
     let row = if is_renaming {
-        Container::new(row_content).height(24.0).into_node()
+        Container::new(row_content).height(24.0).into()
     } else {
         // Wrap in a Button for tap handling, then wrap that in GestureDetector for long-press
         let button_row = Button {
             variant: ButtonVariant::Ghost,
             content_align: ButtonContentAlign::Start,
             on_press: Some(tap_action),
-            child: Some(Box::new(row_content)),
+            child: Some(row_content),
             height: Some(24.0),
             padding: Some([0.0; 4]),
             ..Default::default()
         }
-        .into_node();
+        .into();
 
         // GestureDetector wraps the entire row to capture right-click for context menu
         GestureDetector {
             on_secondary_click: Some(long_press_action),
-            child: Box::new(button_row),
+            child: button_row,
             ..Default::default()
         }
-        .into_node()
+        .into()
     };
 
     rows.push(row);
