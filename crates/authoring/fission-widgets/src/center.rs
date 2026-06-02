@@ -1,5 +1,4 @@
-use fission_core::ui::{Align, Node};
-use fission_core::{BuildCtx, View, Widget};
+use fission_core::ui::{Align, Widget};
 use serde::{Deserialize, Serialize};
 
 /// Centers its child both horizontally and vertically within the available space.
@@ -7,11 +6,13 @@ use serde::{Deserialize, Serialize};
 /// A convenience wrapper around [`Align`](fission_core::ui::Align).
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Center {
-    pub child: Box<Node>,
+    pub child: Widget,
 }
 
-impl<S: fission_core::AppState> Widget<S> for Center {
-    fn build(&self, _ctx: &mut BuildCtx<S>, _view: &View<S>) -> Node {
-        Align::new(*self.child.clone()).into_node()
+impl From<Center> for Widget {
+    fn from(component: Center) -> Self {
+        let this = &component;
+
+        Align::new(this.child.clone()).into()
     }
 }
