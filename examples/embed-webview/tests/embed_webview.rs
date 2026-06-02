@@ -1,11 +1,11 @@
 use embed_webview::{WebViewEmbedApp, WebViewEmbedState, WEBVIEW_DEMO_URL};
-use fission::prelude::WidgetNodeId;
+use fission::prelude::WidgetId;
 use fission_test::prelude::DisplayOp;
 use fission_test::TestHarness;
 
 #[test]
 fn webview_example_renders_a_surface_embed_and_syncs_web_state() {
-    let widget_id = WidgetNodeId::explicit("embed-webview.demo");
+    let widget_id = WidgetId::explicit("embed-webview.demo");
     let mut harness = TestHarness::new(WebViewEmbedState).with_root_widget(WebViewEmbedApp);
 
     harness.pump().expect("pump webview example");

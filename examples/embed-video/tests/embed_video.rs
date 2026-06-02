@@ -1,11 +1,11 @@
 use embed_video::{VideoEmbedApp, VideoEmbedState};
-use fission::prelude::WidgetNodeId;
+use fission::prelude::WidgetId;
 use fission_test::prelude::DisplayOp;
 use fission_test::TestHarness;
 
 #[test]
 fn video_example_renders_a_surface_embed_and_syncs_video_state() {
-    let widget_id = WidgetNodeId::explicit("embed-video.demo");
+    let widget_id = WidgetId::explicit("embed-video.demo");
     let mut harness = TestHarness::new(VideoEmbedState).with_root_widget(VideoEmbedApp);
 
     harness.pump().expect("pump video example");

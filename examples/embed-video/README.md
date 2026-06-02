@@ -21,7 +21,7 @@ cargo run -p embed-video
 
 - `Video` widget source, autoplay, looping, width, and height fields.
 - Host-backed media surface composition inside `Container` and `Column`.
-- Stable widget identity through `WidgetNodeId::explicit(...)`.
+- Stable widget identity through `WidgetId::explicit(...)`.
 - Themed borders around embedded content.
 
 ## Learning path
