@@ -16,11 +16,11 @@ use fission::prelude::*;
 use std::collections::HashSet;
 
 let node = TreeView {
-    items: view.state.sidebar_tree.clone(),
-    expanded_ids: view.state.expanded_tree_ids.clone(),
-    selected_id: view.state.selected_tree_id.clone(),
+    items: view.state().sidebar_tree.clone(),
+    expanded_ids: view.state().expanded_tree_ids.clone(),
+    selected_id: view.state().selected_tree_id.clone(),
 }
-.build(ctx, view);
+.into();
 ```
 
 ## Field table

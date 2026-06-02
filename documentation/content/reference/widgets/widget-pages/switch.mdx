@@ -15,7 +15,7 @@ Use it when the user is turning a behavior on or off right now, such as enabling
 use fission::core::ui::Switch;
 
 let node = Switch {
-checked: view.state.notifications_enabled,
+checked: view.state().notifications_enabled,
 on_toggle: Some(ctx.bind(
     ToggleNotifications,
     reduce_with!((|state: &mut SettingsState, _action: ToggleNotifications, _| {
@@ -24,7 +24,7 @@ on_toggle: Some(ctx.bind(
 )),
 ..Default::default()
 }
-.into_node();
+.into();
 ```
 
 As with other controlled widgets, the switch only reflects `checked`. The reducer owns the state transition.
@@ -33,7 +33,7 @@ As with other controlled widgets, the switch only reflects `checked`. The reduce
 
 | Field | Type | Meaning | Notes / default behavior |
 | --- | --- | --- | --- |
-| `id` | `Option<NodeId>` | Stable node identity. | Defaults to `None`. |
+| `id` | `Option<WidgetId>` | Stable node identity. | Defaults to `None`. |
 | `checked` | `bool` | Whether the switch is currently on. | Defaults to `false`. |
 | `on_toggle` | `Option<ActionEnvelope>` | Action dispatched when the switch is pressed. | Defaults to `None`. |
 
@@ -41,7 +41,7 @@ As with other controlled widgets, the switch only reflects `checked`. The reduce
 
 `Switch` lowers a semantic switch role with the current checked state. That makes it a better accessibility match than styling a generic button to look like a switch.
 
-The action flow is straightforward: press the switch, dispatch `on_toggle`, update the boolean in the reducer, rebuild with the new `checked` value.
+The action flow is straightforward: press the switch, dispatch `on_toggle`, update the boolean in the reducer, reconvert with the new `checked` value.
 
 ## Specific advice
 

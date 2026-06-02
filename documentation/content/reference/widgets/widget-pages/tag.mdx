@@ -18,7 +18,7 @@ let node = Tag {
     label: "Unread only".into(),
     on_close: Some(clear_unread_filter_action),
 }
-.build(ctx, view);
+.into();
 ```
 
 When `on_close` is absent, the same widget becomes a simple non-removable label chip.

@@ -32,10 +32,10 @@ Do not use it for decorative motion or lightweight transitions. For those cases,
 This example shows a help video with an explicit play control.
 
 ```rust
-use fission::core::WidgetNodeId;
+use fission::WidgetId;
 use fission::core::ui::{Button, Text, Video};
 
-let video_id = WidgetNodeId::explicit("welcome_video");
+let video_id = WidgetId::explicit("welcome_video");
 let controls = ctx.video_controls(video_id);
 
 let player = Video {
@@ -46,14 +46,14 @@ let player = Video {
     autoplay: false,
     loop_playback: false,
 }
-.build(ctx, view);
+.into();
 
 let play_button = Button {
-    child: Some(Box::new(Text::new("Play video").into_node())),
+    child: Some(Text::new("Play video").into()),
     on_press: Some(controls.play()),
     ..Default::default()
 }
-.into_node();
+.into();
 ```
 
 The useful part here is the separation of responsibilities.
@@ -64,7 +64,7 @@ The useful part here is the separation of responsibilities.
 
 | Field | Type | Meaning | Notes and default behavior |
 | --- | --- | --- | --- |
-| `id` | `Option<WidgetNodeId>` | Stable identity for this video surface and its control actions. | Defaults to an id derived from `source`. Provide an explicit id when you need predictable controls or multiple instances of the same source. |
+| `id` | `Option<WidgetId>` | Stable identity for this video surface and its control actions. | Defaults to an id derived from `source`. Provide an explicit id when you need predictable controls or multiple instances of the same source. |
 | `source` | `String` | Video media source path or web address string. | Required. The backend ultimately decides how that source is resolved. The checked-in winit video backend currently expects local filesystem media paths. |
 | `width` | `Option<f32>` | Requested layout width. | Defaults to `None`. |
 | `height` | `Option<f32>` | Requested layout height. | Defaults to `None`. |
@@ -73,7 +73,7 @@ The useful part here is the separation of responsibilities.
 
 ## Runtime behavior
 
-During `build()`, `Video` registers a `VideoRegistration` through `BuildCtx`. The runtime then synchronizes that registration into `runtime.video.states`, where it tracks playback status, current position, duration, playback rate, volume, mute state, looping preference, and pending seeks.
+During component conversion, `Video` registers a `VideoRegistration` through `BuildCtxHandle`. The runtime then synchronizes that registration into `runtime.video.states`, where it tracks playback status, current position, duration, playback rate, volume, mute state, looping preference, and pending seeks.
 
 Control actions such as play, pause, stop, seek, set rate, set volume, and set muted are handled in the runtime rather than in your own reducer.
 

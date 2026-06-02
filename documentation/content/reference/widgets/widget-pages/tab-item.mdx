@@ -26,7 +26,7 @@ let item = TabItem {
 | Field | Type | Meaning | Notes / default behavior |
 | --- | --- | --- | --- |
 | `title` | `String` | Visible label for the tab button. | Required. |
-| `content` | `Node` | Panel content for this tab. | Required. Only the active tab's content is shown. |
+| `content` | `Widget` | Panel content for this tab. | Required. Only the active tab's content is shown. |
 | `on_press` | `Option<ActionEnvelope>` | Action fired when the tab is chosen. | Defaults to `None`. Usually sets the active index in state. |
 
 ## Specific advice

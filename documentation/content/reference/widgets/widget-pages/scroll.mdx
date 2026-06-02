@@ -15,34 +15,34 @@ Use `Scroll` when building the whole child subtree is acceptable. Do not use it 
 
 ```rust
 use fission::core::ui::{Column, Scroll, Text};
-use fission::ir::op::FlexDirection;
+use fission::op::FlexDirection;
 
 let node = Scroll {
     direction: FlexDirection::Column,
     flex_grow: 1.0,
-    child: Some(Box::new(
+    child: Some(
         Column {
             gap: Some(16.0),
             children: vec![
-                Text::new("Section 1").into_node(),
-                Text::new("Section 2").into_node(),
-                Text::new("Section 3").into_node(),
+                Text::new("Section 1").into(),
+                Text::new("Section 2").into(),
+                Text::new("Section 3").into(),
             ],
             ..Default::default()
         }
-        .into_node(),
-    )),
+        .into(),
+    ),
     ..Default::default()
 }
-.into_node();
+.into();
 ```
 
 ## Field table
 
 | Field | Type | Meaning | Notes / default behavior |
 | --- | --- | --- | --- |
-| `id` | `Option<NodeId>` | Stable node identity used for scroll offset tracking. | Defaults to `None`. |
-| `child` | `Option<Box<Node>>` | The scrollable content. | Defaults to `None`. |
+| `id` | `Option<WidgetId>` | Stable node identity used for scroll offset tracking. | Defaults to `None`. |
+| `child` | `Option<Widget>` | The scrollable content. | Defaults to `None`. |
 | `direction` | `FlexDirection` | Scroll axis. | Defaults to `FlexDirection::Column`, which means vertical scrolling. |
 | `width` | `Option<f32>` | Fixed viewport width. | Defaults to `None`. |
 | `height` | `Option<f32>` | Fixed viewport height. | Defaults to `None`. |

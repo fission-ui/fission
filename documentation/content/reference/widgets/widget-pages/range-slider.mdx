@@ -14,15 +14,15 @@ Conceptually it represents a range between `start` and `end` inside a `[min, max
 ```rust
 use fission::prelude::*;
 
-let node = RangeSlider {
-start: 10.0,
-end: 40.0,
-min: 0.0,
-max: 100.0,
-on_change: None,
-id: None,
+let range_slider: Widget = RangeSlider {
+    start: 10.0,
+    end: 40.0,
+    min: 0.0,
+    max: 100.0,
+    on_change: None,
+    id: None,
 }
-.build(ctx, view);
+.into();
 ```
 
 This is a good way to show a selected range today, especially inside filter summaries or mockups of a richer future control.
@@ -31,7 +31,7 @@ This is a good way to show a selected range today, especially inside filter summ
 
 | Field | Type | Meaning | Notes / default behavior |
 | --- | --- | --- | --- |
-| `id` | `Option<NodeId>` | Stable node identity for the custom lowerer. | Defaults to `None`. |
+| `id` | `Option<WidgetId>` | Stable identity for inspection, testing, and future interaction plumbing. | Defaults to `None`. |
 | `start` | `f32` | Lower bound of the displayed range. | Required. Expected to be within `[min, max]`. |
 | `end` | `f32` | Upper bound of the displayed range. | Required. Expected to be within `[min, max]`. |
 | `min` | `f32` | Minimum domain value. | Required. |
@@ -40,7 +40,7 @@ This is a good way to show a selected range today, especially inside filter summ
 
 ## Current behavior
 
-`RangeSlider` lowers to a custom visual node. It does not currently expose slider semantics, drag handling, or reducer callbacks the way [`Slider`](/reference/widgets/slider) does. In other words, it looks like a range slider, but it is not yet a finished interactive range editor.
+`RangeSlider` currently behaves as a custom visual widget. It does not expose slider semantics, drag handling, or reducer callbacks the way [`Slider`](/reference/widgets/slider) does. In other words, it looks like a range slider, but it is not yet a finished interactive range editor.
 
 ## Specific advice
 
@@ -48,5 +48,4 @@ Treat `RangeSlider` as a visual indicator unless you are extending the implement
 
 ## Related
 
-[`Slider`](/reference/widgets/slider), [`NumberInput`](/reference/widgets/number-input), [`DateRangePicker`](/reference/widgets/date-range-picker), and [`CustomNode`](/reference/widgets/custom-node).
-
+[`Slider`](/reference/widgets/slider), [`NumberInput`](/reference/widgets/number-input), [`DateRangePicker`](/reference/widgets/date-range-picker), and [`TextInput`](/reference/widgets/text-input).

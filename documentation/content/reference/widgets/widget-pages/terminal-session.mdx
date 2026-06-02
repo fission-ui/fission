@@ -62,7 +62,7 @@ These are the methods most app authors interact with directly.
 
 | Method | Type | Meaning | Notes and default behavior |
 | --- | --- | --- | --- |
-| `spawn(config)` | `fn(TerminalLaunchConfig) -> Result<Arc<TerminalSession>>` | Starts a new terminal session and launches the configured program. | Uses a pseudo-terminal under the hood. Call this outside `build()`, usually from startup logic or an effect path. |
+| `spawn(config)` | `fn(TerminalLaunchConfig) -> Result<Arc<TerminalSession>>` | Starts a new terminal session and launches the configured program. | Uses a pseudo-terminal under the hood. Call this outside `component conversion`, usually from startup logic or an effect path. |
 | `id()` | `fn() -> u64` | Returns the runtime session identifier. | Useful for diagnostics, logs, or matching tabs to sessions. |
 | `take_dirty()` | `fn() -> bool` | Tells you whether the session changed and needs another redraw. | Commonly polled from a timer resource so terminal output can trigger fresh frames. |
 | `title()` | `fn() -> String` | Returns the current terminal title. | Useful for tab labels or pane headings if the running program updates its title. |
@@ -86,11 +86,11 @@ There are also lower-level selection helpers such as `begin_selection`, `update_
 | `TerminalSession` | The running process, terminal buffer, cursor, selection, scrollback, and low-level terminal input and output | Your product decisions about which pane is active or whether the terminal should be shown |
 | `TerminalView` | The per-frame visual description of the terminal surface | The long-lived process lifetime |
 
-This separation is what keeps `build()` pure. Your widget tree can describe "show this terminal pane here" without also launching processes or reading terminal bytes during rendering.
+This separation is what keeps `component conversion` pure. Your widget tree can describe "show this terminal pane here" without also launching processes or reading terminal bytes during rendering.
 
 ## Practical advice
 
-Create the session once and reuse it. If you recreate it every time the user interface rebuilds, you will keep restarting the underlying process and lose the terminal history.
+Create the session once and reuse it. If you recreate it every time the user interface reconversions, you will keep restarting the underlying process and lose the terminal history.
 
 Expect redraw scheduling to be explicit. A terminal can change because the running program prints output even when your app state does not change. That is why checked-in examples poll `take_dirty()` from a timer-style resource and trigger another frame when the session says it changed.
 

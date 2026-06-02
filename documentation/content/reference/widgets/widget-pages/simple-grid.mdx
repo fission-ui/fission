@@ -21,12 +21,12 @@ let node = SimpleGrid {
     min_child_width: 220.0,
     gap: Some(16.0),
     children: vec![
-        Text::new("Card A").into_node(),
-        Text::new("Card B").into_node(),
-        Text::new("Card C").into_node(),
+        Text::new("Card A").into(),
+        Text::new("Card B").into(),
+        Text::new("Card C").into(),
     ],
 }
-.build(ctx, view);
+.into();
 ```
 
 ## Field table
@@ -35,7 +35,7 @@ let node = SimpleGrid {
 | --- | --- | --- | --- |
 | `min_child_width` | `f32` | Minimum width each child should try to keep. | Required. Each child is wrapped in a container with this minimum width. |
 | `gap` | `Option<f32>` | Spacing between children. | Defaults to `None`. |
-| `children` | `Vec<Node>` | Items to place in the wrapping grid. | Defaults to an empty list. |
+| `children` | `Vec<Widget>` | Items to place in the wrapping grid. | Defaults to an empty list. |
 
 ## Layout behavior
 

@@ -20,18 +20,18 @@ use fission::prelude::*;
 let node = VStack {
     spacing: Some(12.0),
     children: vec![
-        Text::new("Title").into_node(),
-        Text::new("Body copy").into_node(),
+        Text::new("Title").into(),
+        Text::new("Body copy").into(),
     ],
 }
-.into_node();
+.into();
 ```
 
 ## Field table
 
 | Field | Type | Meaning | Notes / default behavior |
 | --- | --- | --- | --- |
-| `children` | `Vec<Node>` | Child nodes laid out vertically. | Defaults to an empty list. |
+| `children` | `Vec<Widget>` | Child nodes laid out vertically. | Defaults to an empty list. |
 | `spacing` | `Option<f32>` | Gap between children. | Defaults to `None`. Maps to `Column.gap`. |
 
 ## Behavior and advice

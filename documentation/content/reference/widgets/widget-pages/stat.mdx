@@ -16,10 +16,10 @@ use fission::prelude::*;
 
 let node = Stat {
     label: "Open issues".into(),
-    value: view.state.open_issue_count.to_string(),
+    value: view.state().open_issue_count.to_string(),
     help_text: Some("Updated 2 minutes ago".into()),
 }
-.build(ctx, view);
+.into();
 ```
 
 ## Field table

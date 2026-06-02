@@ -15,12 +15,12 @@ A toast is brief, so the kind has to do a lot of work quickly. It helps the user
 use fission::prelude::*;
 
 let node = Toast {
-    id: WidgetNodeId::explicit("sync_done_toast"),
+    id: WidgetId::explicit("sync_done_toast"),
     kind: ToastKind::Success,
     message: "Synced 12 files".into(),
     on_close: Some(dismiss_toast_action),
 }
-.build(ctx, view);
+.into();
 ```
 
 ## Choice table

@@ -15,26 +15,26 @@ Use `Row` when sibling order flows horizontally. Do not use it for vertical sect
 
 ```rust
 use fission::core::ui::{Row, Text};
-use fission::ir::op::AlignItems;
+use fission::op::AlignItems;
 
 let node = Row {
     gap: Some(10.0),
     align_items: AlignItems::Center,
     children: vec![
-        Text::new("Status").into_node(),
-        Text::new("Connected").into_node(),
+        Text::new("Status").into(),
+        Text::new("Connected").into(),
     ],
     ..Default::default()
 }
-.into_node();
+.into();
 ```
 
 ## Field table
 
 | Field | Type | Meaning | Notes / default behavior |
 | --- | --- | --- | --- |
-| `id` | `Option<NodeId>` | Stable node identity. | Defaults to `None`. |
-| `children` | `Vec<Node>` | Child nodes laid out from left to right. | Defaults to an empty list. |
+| `id` | `Option<WidgetId>` | Stable node identity. | Defaults to `None`. |
+| `children` | `Vec<Widget>` | Child nodes laid out from left to right. | Defaults to an empty list. |
 | `semantics` | `Option<Semantics>` | Optional accessibility semantics wrapper. | When present, the lowered row is wrapped in a semantics node. |
 | `flex_grow` | `f32` | How much extra space the row absorbs from its parent. | Defaults to `0.0`. |
 | `flex_shrink` | `f32` | How much the row may shrink when space is tight. | Defaults to `1.0`. |

@@ -15,19 +15,19 @@ Use it when the app needs to acknowledge something quickly without interrupting 
 use fission::prelude::*;
 
 let node = Toast {
-    id: WidgetNodeId::explicit("reply_sent_toast"),
+    id: WidgetId::explicit("reply_sent_toast"),
     kind: ToastKind::Success,
     message: "Reply sent".into(),
     on_close: Some(dismiss_reply_sent_toast_action),
 }
-.build(ctx, view);
+.into();
 ```
 
 ## Field table
 
 | Field | Type | Meaning | Notes / default behavior |
 | --- | --- | --- | --- |
-| `id` | `WidgetNodeId` | Stable toast identity. | Present in the public struct, but the checked-in widget does not currently use it internally. It is still useful in surrounding app state and overlay lists. |
+| `id` | `WidgetId` | Stable toast identity. | Present in the public struct, but the checked-in widget does not currently use it internally. It is still useful in surrounding app state and overlay lists. |
 | `kind` | `ToastKind` | Severity and visual tone of the message. | Required. Controls icon and accent treatment. |
 | `message` | `String` | Main toast text. | Required. Keep it short. |
 | `on_close` | `Option<ActionEnvelope>` | Action fired when the close button is pressed. | Defaults to `None`. |

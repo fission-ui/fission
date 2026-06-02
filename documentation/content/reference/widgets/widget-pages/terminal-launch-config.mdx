@@ -69,7 +69,7 @@ Do not treat this struct as long-lived terminal state. Once the terminal session
 
 ## Specific guidance
 
-Create terminal sessions from a reducer, startup action, or another explicit application event. Do not call `TerminalSession::spawn(...)` from `build()`. Starting a terminal process is long-lived host work, not a pure user interface description.
+Create terminal sessions from a reducer, startup action, or another explicit application event. Do not call `TerminalSession::spawn(...)` from `component conversion`. Starting a terminal process is long-lived host work, not a pure user interface description.
 
 If the user can choose the starting folder or program, keep those choices in app state and build the `TerminalLaunchConfig` from that state when it is time to launch the session.
 

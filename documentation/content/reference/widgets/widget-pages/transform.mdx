@@ -24,19 +24,19 @@ let matrix = [
 ];
 
 let node = Transform::new(
-    Text::new("Translated visually").into_node(),
+    Text::new("Translated visually").into(),
     matrix,
 )
-.into_node();
+.into();
 ```
 
 ## Field table
 
 | Field | Type | Meaning | Notes / default behavior |
 | --- | --- | --- | --- |
-| `id` | `Option<NodeId>` | Stable node identity. | Defaults to `None`. |
+| `id` | `Option<WidgetId>` | Stable node identity. | Defaults to `None`. |
 | `transform` | `[f32; 16]` | Raw 4x4 transform matrix. | Defaults to the identity matrix. |
-| `child` | `Box<Node>` | The transformed child. | Required. `Default` uses an empty spacer child. |
+| `child` | `Widget` | The transformed child. | Required. `Default` uses an empty spacer child. |
 
 ## Behavior and advice
 

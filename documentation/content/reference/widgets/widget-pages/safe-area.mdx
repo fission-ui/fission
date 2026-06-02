@@ -17,28 +17,28 @@ Use `SafeArea` near the root of full-screen screens or overlays that should resp
 use fission::core::ui::{Column, SafeArea, Text};
 
 let node = SafeArea {
-    child: Box::new(
+    child: 
         Column {
             gap: Some(12.0),
             children: vec![
-                Text::new("Messages").into_node(),
-                Text::new("Compose").into_node(),
+                Text::new("Messages").into(),
+                Text::new("Compose").into(),
             ],
             ..Default::default()
         }
-        .into_node(),
-    ),
+        .into(),
+    ,
     ..Default::default()
 }
-.into_node();
+.into();
 ```
 
 ## Field table
 
 | Field | Type | Meaning | Notes / default behavior |
 | --- | --- | --- | --- |
-| `id` | `Option<NodeId>` | Stable node identity. | Defaults to `None`. |
-| `child` | `Box<Node>` | The content that should be padded away from unsafe edges. | Required. `Default` uses an empty spacer child. |
+| `id` | `Option<WidgetId>` | Stable node identity. | Defaults to `None`. |
+| `child` | `Widget` | The content that should be padded away from unsafe edges. | Required. `Default` uses an empty spacer child. |
 
 ## Mobile and responsive behavior
 

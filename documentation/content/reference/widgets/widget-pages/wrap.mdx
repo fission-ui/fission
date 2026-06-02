@@ -15,19 +15,19 @@ Use `Wrap` when wrapping behavior is the important part of the layout. Do not us
 
 ```rust
 use fission::core::ui::Text;
-use fission::ir::op::FlexDirection;
+use fission::op::FlexDirection;
 use fission::prelude::*;
 
 let node = Wrap {
     direction: FlexDirection::Row,
     spacing: Some(8.0),
     children: vec![
-        Text::new("Design").into_node(),
-        Text::new("Performance").into_node(),
-        Text::new("Accessibility").into_node(),
+        Text::new("Design").into(),
+        Text::new("Performance").into(),
+        Text::new("Accessibility").into(),
     ],
 }
-.build(ctx, view);
+.into();
 ```
 
 ## Field table
@@ -36,7 +36,7 @@ let node = Wrap {
 | --- | --- | --- | --- |
 | `direction` | `FlexDirection` | Whether the flow starts as a row or a column. | Defaults to `FlexDirection::Row`. |
 | `spacing` | `Option<f32>` | Gap between items. | Defaults to `None`. |
-| `children` | `Vec<Node>` | Items that participate in the flow layout. | Defaults to an empty list. |
+| `children` | `Vec<Widget>` | Items that participate in the flow layout. | Defaults to an empty list. |
 
 ## Layout behavior
 

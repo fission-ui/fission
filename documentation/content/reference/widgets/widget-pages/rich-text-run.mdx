@@ -20,7 +20,7 @@ let node = RichText::new(vec![
         .weight(700)
         .color(view.env.theme.tokens.colors.error),
 ])
-.into_node();
+.into();
 ```
 
 This keeps the style change local to the important word without forcing the entire line to share the same emphasis.

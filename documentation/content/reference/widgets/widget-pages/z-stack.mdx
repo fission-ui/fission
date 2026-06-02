@@ -18,26 +18,26 @@ use fission::core::ui::{Positioned, Text, ZStack};
 
 let node = ZStack {
     children: vec![
-        Text::new("Base layer").into_node(),
+        Text::new("Base layer").into(),
         Positioned {
             bottom: Some(8.0),
             right: Some(8.0),
-            child: Some(Box::new(Text::new("Badge").into_node())),
+            child: Some(Text::new("Badge").into()),
             ..Default::default()
         }
-        .into_node(),
+        .into(),
     ],
     ..Default::default()
 }
-.into_node();
+.into();
 ```
 
 ## Field table
 
 | Field | Type | Meaning | Notes / default behavior |
 | --- | --- | --- | --- |
-| `id` | `Option<NodeId>` | Stable node identity. | Defaults to `None`. |
-| `children` | `Vec<Node>` | Layered children, painted in order. | Defaults to an empty list. First child is bottom, last child is top. |
+| `id` | `Option<WidgetId>` | Stable node identity. | Defaults to `None`. |
+| `children` | `Vec<Widget>` | Layered children, painted in order. | Defaults to an empty list. First child is bottom, last child is top. |
 
 ## Layout behavior
 

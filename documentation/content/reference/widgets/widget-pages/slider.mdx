@@ -15,7 +15,7 @@ It is a good fit for volumes, percentages, zoom levels, opacity, and other value
 use fission::core::ui::Slider;
 
 let node = Slider {
-value: view.state.volume,
+value: view.state().volume,
 min: 0.0,
 max: 1.0,
 on_change: Some(ctx.bind(
@@ -24,7 +24,7 @@ on_change: Some(ctx.bind(
 )),
 ..Default::default()
 }
-.into_node();
+.into();
 ```
 
 The `0.0` in `SetVolume(0.0)` is just a shape placeholder. When the user drags, the runtime replaces that payload with the real `f32` value under the pointer.
@@ -33,7 +33,7 @@ The `0.0` in `SetVolume(0.0)` is just a shape placeholder. When the user drags, 
 
 | Field | Type | Meaning | Notes / default behavior |
 | --- | --- | --- | --- |
-| `id` | `Option<NodeId>` | Stable node identity. | Defaults to `None`. |
+| `id` | `Option<WidgetId>` | Stable node identity. | Defaults to `None`. |
 | `value` | `f32` | Current slider value. | Defaults to `0.0`. Values are rendered relative to `min` and `max`. |
 | `min` | `f32` | Minimum value in the domain. | Defaults to `0.0`. |
 | `max` | `f32` | Maximum value in the domain. | Defaults to `1.0`. |

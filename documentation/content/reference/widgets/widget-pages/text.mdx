@@ -17,7 +17,7 @@ use fission::core::ui::{Text, TextContent};
 let title = Text::new(TextContent::Key("settings.profile_title".into()))
     .size(20.0)
     .weight(700)
-    .into_node();
+    .into();
 ```
 
 `Text::new(...)` is the most beginner-friendly entry point because it gives you a text widget with wrapping already enabled.
@@ -26,7 +26,7 @@ let title = Text::new(TextContent::Key("settings.profile_title".into()))
 
 | Field | Type | Meaning | Notes / default behavior |
 | --- | --- | --- | --- |
-| `id` | `Option<NodeId>` | Stable node identity. | Defaults to `None`. |
+| `id` | `Option<WidgetId>` | Stable node identity. | Defaults to `None`. |
 | `content` | `TextContent` | The text source to render. | Use `Literal(...)` for direct strings or `Key(...)` for translated lookup. |
 | `semantics` | `Option<Semantics>` | Optional wrapper semantics for the text block. | Defaults to `None`. Builder helpers can also attach labels and actions. |
 

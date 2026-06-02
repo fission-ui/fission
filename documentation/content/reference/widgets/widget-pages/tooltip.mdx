@@ -14,32 +14,30 @@ Fission keeps the state model straightforward here. The widget can become visibl
 ## Example
 
 ```rust
-use fission::core::WidgetNodeId;
+use fission::WidgetId;
 use fission::core::ui::{Button, Text};
 use fission::prelude::*;
 
 let help = Tooltip {
-    id: WidgetNodeId::explicit("save_tooltip"),
-    child: Box::new(
-        Button {
-            child: Some(Box::new(Text::new("Save").into_node())),
-            on_press: Some(save_changes),
-            ..Default::default()
-        }
-        .build(ctx, view),
-    ),
+    id: WidgetId::explicit("save_tooltip"),
+    child: Button {
+        child: Some(Text::new("Save").into()),
+        on_press: Some(save_changes),
+        ..Default::default()
+    }
+    .into(),
     text: "Save your draft without publishing".into(),
     is_visible: false,
 }
-.build(ctx, view);
+.into();
 ```
 
 ## Field table
 
 | Field | Type | Meaning | Notes / default behavior |
 | --- | --- | --- | --- |
-| `id` | `WidgetNodeId` | Stable identity for the trigger anchor and portal entry. | Required. The widget derives its hover anchor from this id. |
-| `child` | `Box<Node>` | Trigger content rendered inline. | Required. This is the thing the tooltip is attached to. |
+| `id` | `WidgetId` | Stable identity for the trigger anchor and portal entry. | Required. The widget derives its hover anchor from this id. |
+| `child` | `Widget` | Trigger content rendered inline. | Required. This is the thing the tooltip is attached to. |
 | `text` | `String` | Tooltip message text. | Required. Keep it short. The current implementation caps width at `220.0` logical pixels. |
 | `is_visible` | `bool` | Force the tooltip visible even without hover. | Defaults to `false`. Useful for demos, audits, or non-hover-driven reveal logic. |
 

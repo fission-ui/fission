@@ -40,10 +40,10 @@ let direction = if is_wide_layout {
 };
 
 SplitView {
-    id: WidgetNodeId::explicit("mail_split"),
+    id: WidgetId::explicit("mail_split"),
     direction,
-    first: Box::new(mail_list.into_node()),
-    second: Box::new(message_detail.into_node()),
+    first: mail_list.into(),
+    second: message_detail.into(),
     split_ratio: 0.35,
     on_resize: None,
 }
@@ -51,7 +51,7 @@ SplitView {
 
 The important idea is not the `if` expression itself. It is the product decision behind it. On a wide window, a list and detail view can comfortably sit side by side. On a narrow host, stacking them top to bottom may preserve readability better. `SplitDirection` is the lever that expresses that decision.
 
-If your direction changes at runtime, keep that responsive rule in ordinary app logic or a layout-aware helper such as [`LayoutBuilder`](/reference/widgets/layout-builder). `SplitDirection` should stay the result of the decision, not the place where the decision logic lives.
+If your direction changes at runtime, keep that responsive rule in ordinary app logic or a named component. `SplitDirection` should stay the result of the decision, not the place where the decision logic lives.
 
 ## Specific advice
 
@@ -63,4 +63,4 @@ If you need panes that can fully collapse, reorder, or navigate independently, a
 
 ## Related
 
-[`SplitView`](/reference/widgets/split-view), [`LayoutBuilder`](/reference/widgets/layout-builder), [`Row`](/reference/widgets/row), and [`Column`](/reference/widgets/column).
+[`SplitView`](/reference/widgets/split-view), [`Row`](/reference/widgets/row), and [`Column`](/reference/widgets/column).

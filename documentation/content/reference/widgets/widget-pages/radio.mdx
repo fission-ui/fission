@@ -21,7 +21,7 @@ let nodes = view
 .enumerate()
 .map(|(index, label)| {
     Radio {
-        checked: view.state.selected_shipping_index == index,
+        checked: view.state().selected_shipping_index == index,
         label: Some(label.clone()),
         on_select: Some(ActionEnvelope {
             id: set_shipping_method_id,
@@ -29,7 +29,7 @@ let nodes = view
         }),
         ..Default::default()
     }
-    .into_node()
+    .into()
 })
 .collect::<Vec<_>>();
 ```
@@ -40,7 +40,7 @@ Every radio in the group emits a concrete selection action. The reducer stores t
 
 | Field | Type | Meaning | Notes / default behavior |
 | --- | --- | --- | --- |
-| `id` | `Option<NodeId>` | Stable node identity. | Defaults to `None`. |
+| `id` | `Option<WidgetId>` | Stable node identity. | Defaults to `None`. |
 | `checked` | `bool` | Whether this option is the selected one. | Defaults to `false`. |
 | `on_select` | `Option<ActionEnvelope>` | Action fired when the radio is chosen. | Defaults to `None`. |
 | `label` | `Option<String>` | Visible text shown next to the radio indicator. | Defaults to `None`. |

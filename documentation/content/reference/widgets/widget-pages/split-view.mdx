@@ -9,7 +9,7 @@ slug: /widgets/split-view
 
 It is a good fit for desktop-style layouts such as sidebar plus content, editor plus inspector, or top pane plus bottom pane. The widget keeps the code honest about the fact that the screen has two coordinated regions rather than one long flow of content.
 
-Use `SplitView` when the product really has two panes that share space. Do not use it as a substitute for general responsiveness. If the layout sometimes wants two panes and sometimes wants one vertical flow, make that breakpoint choice outside `SplitView`, often with [`LayoutBuilder`](/reference/widgets/layout-builder).
+Use `SplitView` when the product really has two panes that share space. Do not use it as a substitute for general responsiveness. If the layout sometimes wants two panes and sometimes wants one vertical flow, make that breakpoint choice in a named component before constructing `SplitView`.
 
 ## Example
 
@@ -18,24 +18,24 @@ use fission::core::ui::Text;
 use fission::prelude::*;
 
 let node = SplitView {
-    id: fission::core::WidgetNodeId::explicit("mail_shell"),
+    id: fission::WidgetId::explicit("mail_shell"),
     direction: SplitDirection::Horizontal,
-    first: Box::new(Text::new("Folders").into_node()),
-    second: Box::new(Text::new("Message list").into_node()),
+    first: Text::new("Folders").into(),
+    second: Text::new("Message list").into(),
     split_ratio: 0.28,
     on_resize: None,
 }
-.build(ctx, view);
+.into();
 ```
 
 ## Field table
 
 | Field | Type | Meaning | Notes / default behavior |
 | --- | --- | --- | --- |
-| `id` | `WidgetNodeId` | Stable identity for the split surface. | Required. |
+| `id` | `WidgetId` | Stable identity for the split surface. | Required. |
 | `direction` | `SplitDirection` | Whether the panes are left/right or top/bottom. | Required. |
-| `first` | `Box<Node>` | Content of the first pane. | Required. |
-| `second` | `Box<Node>` | Content of the second pane. | Required. |
+| `first` | `Widget` | Content of the first pane. | Required. |
+| `second` | `Widget` | Content of the second pane. | Required. |
 | `split_ratio` | `f32` | Share of space given to the first pane. | Clamped by the current implementation to `0.1..=0.9`. |
 | `on_resize` | `Option<ActionEnvelope>` | Reserved callback field for resize interaction. | Present in the public type, but the current checked-in implementation does not wire live dragging through this field yet. |
 
@@ -53,4 +53,4 @@ If the app needs real responsive adaptation between one-pane and two-pane layout
 
 ## Related
 
-[`SplitDirection`](/reference/widgets/split-direction), [`LayoutBuilder`](/reference/widgets/layout-builder), [`Row`](/reference/widgets/row), and [`Column`](/reference/widgets/column).
+[`SplitDirection`](/reference/widgets/split-direction), [`Row`](/reference/widgets/row), and [`Column`](/reference/widgets/column).

@@ -7,7 +7,7 @@ slug: /widgets/text-input
 
 `TextInput` is the main text-editing widget in Fission.
 
-It covers ordinary single-line fields, multiline editors, password fields, syntax-highlighted editing, and input method editor composition. The important architectural rule is the same in every case: the widget does not own your product text. Your app state owns the text, the runtime delivers editing events, reducers update state, and the next `build()` pass renders the new value.
+It covers ordinary single-line fields, multiline editors, password fields, syntax-highlighted editing, and input method editor composition. The important architectural rule is the same in every case: the widget does not own your product text. Your app state owns the text, the runtime delivers editing events, reducers update state, and the next `component conversion` pass renders the new value.
 
 ## Example
 
@@ -15,7 +15,7 @@ It covers ordinary single-line fields, multiline editors, password fields, synta
 use fission::core::ui::TextInput;
 
 let node = TextInput {
-value: view.state.email.clone(),
+value: view.state().email.clone(),
 label: Some("Email address".into()),
 placeholder: Some("name@example.com".into()),
 on_change: Some(ctx.bind(
@@ -26,7 +26,7 @@ on_submit: Some(save_email_action),
 width: Some(320.0),
 ..Default::default()
 }
-.into_node();
+.into();
 ```
 
 The empty string inside `SetEmail(String::new())` is only a placeholder so `ctx.bind(...)` knows the action type. When the user edits the field, the runtime replaces the payload with the current `String` before dispatching the action.
@@ -35,7 +35,7 @@ The empty string inside `SetEmail(String::new())` is only a placeholder so `ctx.
 
 | Field | Type | Meaning | Notes / default behavior |
 | --- | --- | --- | --- |
-| `id` | `Option<NodeId>` | Stable identity for focus, selection, and runtime edit state. | Defaults to `None`. Give important fields stable ids. |
+| `id` | `Option<WidgetId>` | Stable identity for focus, selection, and runtime edit state. | Defaults to `None`. Give important fields stable ids. |
 | `value` | `String` | Current text value. | Controlled by app state. |
 | `label` | `Option<TextContent>` | Semantic and visual label text. | Defaults to `None`. Use this for accessibility instead of relying only on placeholders. |
 | `placeholder` | `Option<TextContent>` | Hint text shown when the field is empty. | Defaults to `None`. |
@@ -62,8 +62,8 @@ The empty string inside `SetEmail(String::new())` is only a placeholder so `ctx.
 | `max_lines` | `Option<usize>` | Maximum visible line count for multiline fields. | Defaults to `None`. |
 | `obscure_text` | `bool` | Whether the field masks characters. | Defaults to `false`. Useful for passwords. |
 | `obscuring_character` | `char` | Character used when masking text. | Defaults to the implementation's bullet masking character. |
-| `prefix` | `Option<Box<Node>>` | Leading decoration inside the field. | Defaults to `None`. |
-| `suffix` | `Option<Box<Node>>` | Trailing decoration inside the field. | Defaults to `None`. |
+| `prefix` | `Option<Widget>` | Leading decoration inside the field. | Defaults to `None`. |
+| `suffix` | `Option<Widget>` | Trailing decoration inside the field. | Defaults to `None`. |
 | `on_cursor_change` | `Option<ActionEnvelope>` | Action fired when caret or selection anchor changes. | The runtime sends a `CursorChanged` payload. |
 
 ## Advanced editor and input table
@@ -84,13 +84,13 @@ The empty string inside `SetEmail(String::new())` is only a placeholder so `ctx.
 
 ## How text, actions, and input method editor state work together
 
-`TextInput` is a controlled widget. The runtime handles low-level editing details such as caret movement, selection, clipboard operations, and input method editor composition, then dispatches higher-level events back into your reducer loop. Your reducer updates the text in `AppState`, and `build()` passes that value back in.
+`TextInput` is a controlled widget. The runtime handles low-level editing details such as caret movement, selection, clipboard operations, and input method editor composition, then dispatches higher-level events back into your reducer loop. Your reducer updates the text in `GlobalState`, and `component conversion` passes that value back in.
 
-This is why `build()` stays pure even for rich text entry. The widget describes the field, the runtime manages the live editing mechanics, and state remains explicit.
+This is why `component conversion` stays pure even for rich text entry. The widget describes the field, the runtime manages the live editing mechanics, and state remains explicit.
 
 ## Specific advice
 
-Use a real label for accessibility; placeholder text is not a good substitute because it disappears once typing begins. Keep expensive parsing or validation out of the raw keystroke path unless you truly need it on every change. If a field needs stable focus or selection behavior across rebuilds, give it a stable `id`.
+Use a real label for accessibility; placeholder text is not a good substitute because it disappears once typing begins. Keep expensive parsing or validation out of the raw keystroke path unless you truly need it on every change. If a field needs stable focus or selection behavior across reconversions, give it a stable `id`.
 
 ## Related
 

@@ -16,9 +16,9 @@ use fission::prelude::*;
 
 let node = Stepper {
     steps: vec!["Account".into(), "Profile".into(), "Confirm".into()],
-    active_index: view.state.current_step,
+    active_index: view.state().current_step,
 }
-.build(ctx, view);
+.into();
 ```
 
 ## Field table

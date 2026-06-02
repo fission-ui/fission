@@ -16,14 +16,14 @@ use fission::prelude::*;
 use std::sync::Arc;
 
 let node = TimePicker {
-hour: view.state.start_hour,
-minute: view.state.start_minute,
+hour: view.state().start_hour,
+minute: view.state().start_minute,
 on_change: Some(Arc::new(move |hour, minute| ActionEnvelope {
     id: set_start_time_id,
     payload: serde_json::to_vec(&SetStartTime { hour, minute }).unwrap(),
 })),
 }
-.build(ctx, view);
+.into();
 ```
 
 The reducer receives both parts together, which makes it easy to keep the state consistent.

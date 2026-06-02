@@ -15,7 +15,7 @@ Use it when several sections belong to the same level of navigation and users sh
 use fission::prelude::*;
 
 let node = Tabs {
-    active_index: view.state.active_settings_tab,
+    active_index: view.state().active_settings_tab,
     items: vec![
         TabItem {
             title: "General".into(),
@@ -29,7 +29,7 @@ let node = Tabs {
         },
     ],
 }
-.build(ctx, view);
+.into();
 ```
 
 ## Field table

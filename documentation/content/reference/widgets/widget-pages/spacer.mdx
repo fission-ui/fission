@@ -18,24 +18,24 @@ use fission::core::ui::{Row, Spacer, Text};
 
 let node = Row {
     children: vec![
-        Text::new("Back").into_node(),
+        Text::new("Back").into(),
         Spacer {
             flex_grow: 1.0,
             ..Default::default()
         }
-        .into_node(),
-        Text::new("Save").into_node(),
+        .into(),
+        Text::new("Save").into(),
     ],
     ..Default::default()
 }
-.into_node();
+.into();
 ```
 
 ## Field table
 
 | Field | Type | Meaning | Notes / default behavior |
 | --- | --- | --- | --- |
-| `id` | `Option<NodeId>` | Stable node identity. | Defaults to `None`. |
+| `id` | `Option<WidgetId>` | Stable node identity. | Defaults to `None`. |
 | `width` | `Option<f32>` | Fixed width. | Defaults to `None`. |
 | `height` | `Option<f32>` | Fixed height. | Defaults to `None`. |
 | `flex_grow` | `f32` | Extra space this spacer should absorb. | Defaults to `0.0`. Set this above zero for push-apart behavior. |

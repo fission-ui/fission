@@ -28,7 +28,7 @@ let terminal = TerminalView::new(session.clone(), panel_width, panel_height)
     .font_size(13.0)
     .line_height(18.0)
     .padding(10.0, 10.0)
-    .build(ctx, view);
+    .into();
 ```
 
 The important idea is that `session` is the already-running terminal session and `TerminalView` is the visible terminal pane built around it.
@@ -48,7 +48,7 @@ If you are new to Rust, `session.clone()` here does not copy the whole terminal 
 
 ## How it behaves at runtime
 
-During `build()`, `TerminalView` tells the session to resize itself for the current viewport. That is how the terminal knows how many rows and columns should fit in the available space.
+During component conversion, `TerminalView` tells the session to resize itself for the current viewport. That is how the terminal knows how many rows and columns should fit in the available space.
 
 After that, the widget returns a custom render object. In beginner terms, that means a lower-level drawing and interaction object that can do terminal-specific work ordinary widgets do not need. It handles keyboard input, pointer selection, clipboard copy and paste, and terminal scrolling while the session keeps the actual process and terminal state alive.
 

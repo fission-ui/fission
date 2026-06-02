@@ -17,13 +17,13 @@ use std::sync::Arc;
 
 let node = SegmentedControl {
 options: vec!["All".into(), "Unread".into(), "Flagged".into()],
-selected_index: view.state.filter_mode,
+selected_index: view.state().filter_mode,
 on_change: Some(Arc::new(move |index| ActionEnvelope {
     id: set_filter_mode_id,
     payload: serde_json::to_vec(&SetFilterMode(index)).unwrap(),
 })),
 }
-.build(ctx, view);
+.into();
 ```
 
 Each segment is just a button under the hood. The selected segment is derived from state on every build.
@@ -38,9 +38,9 @@ Each segment is just a button under the hood. The selected segment is derived fr
 
 ## How it fits the state loop
 
-The closure returns an `ActionEnvelope` for the chosen index. When the user presses a segment, that action is dispatched, the reducer updates the selected index in `AppState`, and the next build re-renders the control with the new active segment.
+The closure returns an `ActionEnvelope` for the chosen index. When the user presses a segment, that action is dispatched, the reducer updates the selected index in `GlobalState`, and the next build re-renders the control with the new active segment.
 
-Because the closure runs during `build()` to prepare per-segment actions, keep it cheap and deterministic. It should package data, not do work.
+Because the closure runs during component conversion to prepare per-segment actions, keep it cheap and deterministic. It should package data, not do work.
 
 ## Specific advice
 

@@ -34,28 +34,28 @@ Do not use it just because a team already has some HTML lying around. If the scr
 This example shows a help panel that opens product documentation inside the app while keeping the chosen page in app state.
 
 ```rust
-use fission::core::WidgetNodeId;
+use fission::WidgetId;
 use fission::prelude::*;
 
 let help_panel = WebView {
-    id: WidgetNodeId::explicit("help_docs"),
-    url: view.state.help_url.clone(),
+    id: WidgetId::explicit("help_docs"),
+    url: view.state().help_url.clone(),
     user_agent: None,
     width: Some(480.0),
     height: Some(320.0),
 }
-.build(ctx, view);
+.into();
 ```
 
 The important part is not the `clone()` call. It is the ownership model behind it.
 
-`view.state.help_url` lives in app state, which means your reducers stay in charge of which page the user should see. `WebView` then hands that desired web address to the runtime. The embedded browser surface is host-managed, but the product decision about what should be shown remains explicit in your own app model.
+`view.state().help_url` lives in app state, which means your reducers stay in charge of which page the user should see. `WebView` then hands that desired web address to the runtime. The embedded browser surface is host-managed, but the product decision about what should be shown remains explicit in your own app model.
 
 ## Field reference
 
 | Field | Type | Meaning | Notes and default behavior |
 | --- | --- | --- | --- |
-| `id` | `WidgetNodeId` | Stable identity for the embedded browser node. | Required. The runtime uses it as the key in `runtime.web.states`. |
+| `id` | `WidgetId` | Stable identity for the embedded browser node. | Required. The runtime uses it as the key in `runtime.web.states`. |
 | `url` | `String` | The page the embedded surface should load. | Required. When the runtime sees this value change, it updates the registered web state and marks it as loading. |
 | `user_agent` | `Option<String>` | Optional custom user-agent string for the embedded surface. | Defaults to `None`. The runtime stores the requested value with the registration. |
 | `width` | `Option<f32>` | Requested layout width for the embedded surface. | Use `Some(...)` for a fixed-size panel. Use `None` when the parent layout should decide the width. |
@@ -77,7 +77,7 @@ Those boundaries bring trade-offs. `WebView` is useful when embedding web conten
 
 The current checked-in support is best understood as a defined runtime boundary with partial host support.
 
-The public widget exists. The build path registers the web surface with `BuildCtx::register_web_view(...)`. The runtime syncs that registration into `runtime.web.states` and tracks the requested web address and related metadata fields.
+The public widget exists. The conversion path registers the web surface with `BuildCtxHandle::register_web_view(...)`. The runtime syncs that registration into `runtime.web.states` and tracks the requested web address and related metadata fields.
 
 What is not yet present to the same degree is a fully implemented shell-side embedded browser surface and control loop across the checked-in shells. In other words, the runtime contract is there, but the host implementation for this specific embedded surface is not yet as complete as more mature paths such as ordinary widget rendering.
 

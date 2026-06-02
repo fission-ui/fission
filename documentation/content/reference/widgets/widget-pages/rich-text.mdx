@@ -21,7 +21,7 @@ let node = RichText::new(vec![
         .color(view.env.theme.tokens.colors.primary),
 ])
 .max_lines(1)
-.into_node();
+.into();
 ```
 
 This keeps one logical sentence together while still giving the status word special emphasis.
@@ -30,7 +30,7 @@ This keeps one logical sentence together while still giving the status word spec
 
 | Field | Type | Meaning | Notes / default behavior |
 | --- | --- | --- | --- |
-| `id` | `Option<NodeId>` | Stable node identity. | Defaults to `None`. |
+| `id` | `Option<WidgetId>` | Stable node identity. | Defaults to `None`. |
 | `runs` | `Vec<RichTextRun>` | The styled runs that make up the text block. | `RichText::new(...)` fills this for you. |
 | `inline_widgets` | `Vec<InlineWidgetSpan>` | Inline widgets embedded in the text flow. | Usually produced through `RichText::from_spans(...)`, not built manually. |
 | `annotations` | `Vec<RichTextAnnotation>` | Advanced semantic and interaction annotations over byte ranges. | Usually generated from span builders rather than authored by hand. |
