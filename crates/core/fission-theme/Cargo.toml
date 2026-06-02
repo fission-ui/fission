@@ -1,6 +1,6 @@
 [package]
 name = "fission-theme"
-version = "0.3.0"
+version = "0.4.0"
 edition = "2021"
 license = "MIT"
 repository = "https://github.com/worka-ai/fission"
@@ -19,8 +19,8 @@ homepage = "https://fission.rs"
 documentation = "https://fission.rs"
 readme = "README.md"
 [dependencies]
-fission-ir = { path = "../fission-ir", version = "0.3.0" }
+fission-ir = { path = "../fission-ir", version = "0.4.0" }
 serde = { version = "1.0", features = ["derive"] }
 
 [build-dependencies]
-fission-design-system-codegen = { path = "../../tools/fission-design-system-codegen", version = "0.3.0" }
+fission-design-system-codegen = { path = "../../tools/fission-design-system-codegen", version = "0.4.0" }

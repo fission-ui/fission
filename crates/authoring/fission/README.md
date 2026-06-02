@@ -15,7 +15,7 @@ This crate is the public facade. Application code should normally depend on `fis
 
 ```toml
 [dependencies]
-fission = { version = "0.3.0", features = ["desktop"] }
+fission = { version = "0.4.0", features = ["desktop"] }
 ```
 
 For the full developer workflow, install the Fission command:
