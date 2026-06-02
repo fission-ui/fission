@@ -108,7 +108,7 @@
 
   function boot(){
     document.querySelectorAll('.fission-site-doc-sidebar').forEach(initSidebar);
-    document.querySelectorAll('.fission-site-doc-nav,.fission-site-main-nav').forEach(initNav);
+    document.querySelectorAll('.fission-site-doc-nav,.fission-site-main-nav,.fission-site-mobile-global-menu').forEach(initNav);
   }
   if(document.readyState==='loading'){
     document.addEventListener('DOMContentLoaded',boot,{once:true});

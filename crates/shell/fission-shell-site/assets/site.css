@@ -240,14 +240,27 @@ img, svg { max-width: 100%; }
   overflow: hidden;
 }
 
-.fission-site-doc-layout > .fission-site-row {
+.fission-site-blog-layout {
+  height: calc(100vh - 4.75rem);
+  overflow: hidden;
+}
+
+.fission-site-doc-header {
+  display: block;
+  width: 100% !important;
+  max-width: 100% !important;
+}
+
+.fission-site-doc-layout > .fission-site-row,
+.fission-site-blog-layout > .fission-site-row {
   height: 100%;
   align-items: stretch;
 }
 
 .fission-site-doc-sidebar,
 .fission-site-doc-main,
-.fission-site-doc-toc {
+.fission-site-doc-toc,
+.fission-site-blog-rail {
   max-height: 100%;
   overflow-y: auto;
   overscroll-behavior: auto;
@@ -255,7 +268,8 @@ img, svg { max-width: 100%; }
 }
 
 .fission-site-doc-sidebar,
-.fission-site-doc-toc {
+.fission-site-doc-toc,
+.fission-site-blog-rail {
   position: sticky;
   top: 0;
   align-self: stretch;
@@ -265,6 +279,40 @@ img, svg { max-width: 100%; }
 .fission-site-doc-main {
   min-width: 0;
   flex: 1 1 0;
+}
+
+.fission-site-blog-layout .fission-site-doc-main > .fission-site-column {
+  align-items: stretch;
+}
+
+.fission-site-blog-layout .fission-site-doc-main > .fission-site-column > .fission-site-box {
+  max-width: min(100%, 58rem);
+}
+
+.fission-site-blog-index,
+.fission-site-blog-post {
+  width: 100%;
+}
+
+.fission-site-blog-featured-card,
+.fission-site-blog-card,
+.fission-site-blog-adjacent-posts {
+  max-width: 100%;
+}
+
+.fission-site-blog-card:hover,
+.fission-site-blog-featured-card:hover {
+  border-color: color-mix(in srgb, var(--fs-color-primary) 45%, var(--fs-color-border));
+  box-shadow: 0 1rem 2.4rem rgba(0, 0, 0, 0.2);
+}
+
+.fission-site-blog-taxonomy {
+  flex-wrap: wrap !important;
+}
+
+.fission-site-blog-rail-section .fission-site-rich-text span,
+.fission-site-blog-rail-section .fission-site-text {
+  white-space: normal !important;
 }
 
 .fission-site-nav-item {
@@ -289,20 +337,39 @@ img, svg { max-width: 100%; }
 .fission-site-nav-menu {
   display: none;
   position: absolute;
-  top: calc(100% + 0.55rem);
+  top: 100%;
   left: 0;
   z-index: 1002;
   min-width: 15rem;
-  padding: 0.55rem;
+  padding: 0.7rem 0.55rem 0.55rem;
   border: 1px solid color-mix(in srgb, var(--fs-color-border) 82%, transparent);
   border-radius: 0.85rem;
   background: color-mix(in srgb, var(--fs-color-surface) 96%, transparent);
   box-shadow: 0 1rem 2.5rem rgba(0, 0, 0, 0.22);
 }
 
+.fission-site-nav-menu::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: -0.75rem;
+  height: 0.75rem;
+}
+
 .fission-site-nav-menu .fission-site-nav-menu {
-  top: -0.55rem;
-  left: calc(100% + 0.45rem);
+  top: -0.7rem;
+  left: 100%;
+  padding-left: 0.75rem;
+}
+
+.fission-site-nav-menu .fission-site-nav-menu::before {
+  top: 0;
+  bottom: 0;
+  left: -0.75rem;
+  right: auto;
+  width: 0.75rem;
+  height: auto;
 }
 
 .fission-site-nav-menu > .fission-site-column {
@@ -354,7 +421,7 @@ img, svg { max-width: 100%; }
 }
 
 .fission-site-sidebar-item[data-fission-site-sidebar-has-children="true"]::after {
-  content: "›";
+  content: "▸";
   position: absolute;
   top: 50%;
   right: 0.65rem;
@@ -370,22 +437,94 @@ img, svg { max-width: 100%; }
 }
 
 @media (max-width: 960px) {
+  .fission-site-box:has(> .fission-site-doc-header) {
+    padding: 0.75rem 1rem !important;
+  }
+
   .fission-site-doc-layout {
     min-height: calc(100vh - 4.75rem);
     height: auto;
     overflow: visible;
   }
 
-  .fission-site-doc-layout > .fission-site-row {
+  .fission-site-blog-layout {
+    min-height: calc(100vh - 4.75rem);
+    height: auto;
+    overflow: visible;
+  }
+
+  .fission-site-doc-layout > .fission-site-row,
+  .fission-site-blog-layout > .fission-site-row {
     height: auto;
     flex-direction: column;
     align-items: stretch;
   }
 
   .fission-site-doc-header > .fission-site-row {
-    justify-content: flex-start !important;
+    display: flex !important;
+    flex-wrap: nowrap !important;
+    justify-content: space-between !important;
     align-items: center !important;
-    gap: 0.75rem !important;
+    gap: 0.55rem !important;
+    width: 100% !important;
+  }
+
+  .fission-site-doc-header > .fission-site-row > * {
+    min-width: 0 !important;
+    flex: 0 0 auto !important;
+  }
+
+  .fission-site-doc-header .fission-site-route-link > .fission-site-row {
+    min-width: 7rem !important;
+    max-width: min(11rem, 36vw) !important;
+    overflow: hidden !important;
+    flex-wrap: nowrap !important;
+  }
+
+  .fission-site-doc-header .fission-site-sidebar-toggle {
+    display: inline-flex !important;
+    min-width: max-content !important;
+    height: 2.35rem;
+    align-items: center !important;
+    white-space: nowrap !important;
+  }
+
+  .fission-site-doc-header .fission-site-route-link > .fission-site-row,
+  .fission-site-doc-header .fission-site-sidebar-toggle > .fission-site-row {
+    flex-wrap: nowrap !important;
+    white-space: nowrap !important;
+  }
+
+  .fission-site-doc-header .fission-site-route-link .fission-site-text-run,
+  .fission-site-doc-header .fission-site-sidebar-toggle .fission-site-text-run {
+    white-space: nowrap !important;
+  }
+
+  .fission-site-doc-header .fission-site-theme-toggle,
+  .fission-site-doc-header .fission-site-search-trigger {
+    display: grid !important;
+    flex: 0 0 2.35rem !important;
+    width: 2.35rem !important;
+    height: 2.35rem !important;
+    place-items: center;
+    padding: 0 !important;
+    line-height: 1;
+  }
+
+  .fission-site-doc-header .fission-site-theme-toggle > *,
+  .fission-site-doc-header .fission-site-search-trigger > * {
+    display: none !important;
+  }
+
+  .fission-site-doc-header .fission-site-theme-toggle::before {
+    content: "◐";
+    font-size: 1rem;
+  }
+
+  .fission-site-doc-header .fission-site-search-trigger::before {
+    content: "⌕";
+    font-size: 1.08rem;
+    font-weight: 800;
   }
 
   .fission-site-root > .fission-site-column > .fission-site-box:first-child {
@@ -397,7 +536,8 @@ img, svg { max-width: 100%; }
   }
 
   .fission-site-doc-main,
-  .fission-site-doc-toc {
+  .fission-site-doc-toc,
+  .fission-site-blog-rail {
     position: static;
     max-height: none;
     overflow: visible;
@@ -424,6 +564,22 @@ img, svg { max-width: 100%; }
   .fission-site-doc-main .fission-site-rich-text,
   .fission-site-doc-main .fission-site-rich-text span {
     white-space: normal !important;
+  }
+
+  .fission-site-blog-post-title .fission-site-text-run,
+  .fission-site-blog-index-title .fission-site-text-run {
+    font-size: clamp(2.2rem, 10vw, 3.2rem) !important;
+    line-height: 1.02 !important;
+    white-space: normal !important;
+  }
+
+  .fission-site-blog-taxonomy .fission-site-rich-text span {
+    white-space: nowrap !important;
+  }
+
+  .fission-site-blog-post .fission-site-code-block code {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
   }
 
   .fission-site-sidebar-toggle {
@@ -484,15 +640,31 @@ img, svg { max-width: 100%; }
   .fission-site-doc-toc {
     display: none;
   }
+
+  .fission-site-blog-rail {
+    display: none;
+  }
 }
 
 @media (max-width: 760px) {
-  .fission-site-root .fission-site-row {
-    flex-wrap: wrap;
+  .fission-site-doc-header > .fission-site-row {
+    flex-wrap: nowrap !important;
   }
 
-  .fission-site-root .fission-site-box {
-    width: auto !important;
+  .fission-site-doc-main .fission-site-box,
+  .fission-site-doc-sidebar .fission-site-box,
+  .fission-site-doc-toc .fission-site-box,
+  .fission-site-blog-rail .fission-site-box,
+  .fission-site-blog-index .fission-site-box,
+  .fission-site-blog-post .fission-site-box {
+    max-width: 100% !important;
+  }
+
+  .fission-site-blog-index,
+  .fission-site-blog-post,
+  .fission-site-blog-featured-card,
+  .fission-site-blog-card {
+    width: 100% !important;
     max-width: 100% !important;
   }
 

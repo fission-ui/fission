@@ -916,21 +916,21 @@ impl HtmlRenderer<'_> {
             if identifier == "site-theme-toggle" {
                 let children = self.render_children(&node.children, &HashSet::new())?;
                 return Ok(format!(
-                    "<button class=\"fission-site-node fission-site-theme-toggle\" type=\"button\" data-fission-theme-toggle data-fission-node=\"{}\">{children}</button>",
+                    "<button class=\"fission-site-node fission-site-theme-toggle\" type=\"button\" aria-label=\"Toggle color theme\" data-fission-theme-toggle data-fission-node=\"{}\">{children}</button>",
                     node.id
                 ));
             }
             if identifier == "site-search-trigger" {
                 let children = self.render_children(&node.children, &HashSet::new())?;
                 return Ok(format!(
-                    "<button class=\"fission-site-node fission-site-search-trigger\" type=\"button\" data-fission-search-trigger data-fission-node=\"{}\">{children}</button>",
+                    "<button class=\"fission-site-node fission-site-search-trigger\" type=\"button\" aria-label=\"Search documentation\" data-fission-search-trigger data-fission-node=\"{}\">{children}</button>",
                     node.id
                 ));
             }
             if identifier == "site-sidebar-toggle" {
                 let children = self.render_children(&node.children, &HashSet::new())?;
                 return Ok(format!(
-                    "<button class=\"fission-site-node fission-site-sidebar-toggle\" type=\"button\" aria-expanded=\"false\" data-fission-sidebar-toggle data-fission-node=\"{}\">{children}</button>",
+                    "<button class=\"fission-site-node fission-site-sidebar-toggle\" type=\"button\" aria-label=\"Open documentation navigation\" aria-expanded=\"false\" data-fission-sidebar-toggle data-fission-node=\"{}\">{children}</button>",
                     node.id
                 ));
             }
