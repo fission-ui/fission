@@ -31,9 +31,24 @@ This is usually the best layer for geometry assertions, semantic assertions, and
 
 `fission-test-driver` is the live test client and protocol surface for running apps.
 
-Important public types include `LiveTestClient`, `TestCommand`, `TestResponse`, `SemanticNode`, and `TextItem`.
+Important public types include `LiveTestClient`, `TestCommand`, `TestResponse`, `SemanticNode`, and `TextItem`. Development builds also use this channel for FDTP snapshots through `GetDevtoolsSnapshot`, which returns the current widget tree, Core IR, layout, semantics, and performance payload when the shell has produced them.
 
 Use this layer when a real shell matters, such as end-to-end interaction in a real presented app, screenshots, or shell-managed window behavior.
+
+For manual inspection, run the app with `fission run --devtools`. The CLI sets the development environment variables for you:
+
+```sh
+fission run --project-dir my-app --devtools --performance-overlay
+```
+
+Then attach from another terminal:
+
+```sh
+fission devtools tree --port 9876
+fission devtools perf --port 9876
+```
+
+The widget tree inspector shows the concrete `Widget` values produced by component conversion before lowering. The performance command shows the latest frame sample: renderer, frame time, derived frames per second, widget count, Core IR node count, layout node count, and the slowest known stage where the shell can report it. Use `fission devtools snapshot --pretty` when you need the complete JSON payload for a bug report or automated tooling.
 
 ### Target smoke validation
 

@@ -85,11 +85,29 @@ When visual output changes intentionally, update the screenshot through the docu
 
 ## 7. Debug through inspectable boundaries
 
-Fission's developer tools should expose widget trees, Core IR, layout boxes, semantics, reducer/action history, logs, resource calls, frame timing, screenshots, device output, and release receipts.
+Fission's developer tools expose the same boundaries the runtime uses internally. In a development run you can inspect the authored widget tree, the lowered Core IR, layout boxes, semantics, screenshots, device output, and frame timing without adding debug-only callbacks to your app.
 
 The principle is simple: if the runtime can see a boundary, developers should be able to inspect it.
 
 Do not add hidden callbacks just to make debugging easier. Keep reducers explicit, host work named, resources typed, and shell behavior observable. That gives tools a stable surface to inspect and keeps the production app understandable.
+
+Start an inspectable run with:
+
+```sh
+fission run --project-dir my-app --devtools --performance-overlay
+```
+
+`--devtools` opens the development control channel. `--performance-overlay` draws a small frame timing panel inside the running app. The overlay is useful when you are checking whether a change regressed frame time, node counts, or the active renderer.
+
+Once the app is running, you can inspect it from another terminal:
+
+```sh
+fission devtools tree --port 9876
+fission devtools perf --port 9876
+fission devtools snapshot --port 9876 --pretty --output .fission/devtools/frame.json
+```
+
+Use `tree` when the question is "what did my components produce?", `perf` when the question is "what happened in the last frame?", and `snapshot` when you want the complete FDTP payload for an IDE plugin, test artifact, or future visual inspector. The snapshot includes frame-scoped references so tooling can correlate widget structure, Core IR, layout, semantics, and performance for the same render.
 
 ## A practical test stack for one feature
 

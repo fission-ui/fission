@@ -43,6 +43,7 @@ Fission exposes these public command-line interface entry points:
 | `fission build` | Builds a target without launching it | Before sharing an artifact with someone else |
 | `fission test` | Runs the generated platform smoke test | Before merging target-specific work |
 | `fission logs` | Attaches to logs for a running or detached target where supported | When you launched with `--detach` or need to reconnect |
+| `fission devtools` | Inspects widget trees, frame performance, and FDTP snapshots from a development app | When debugging a running app started with `fission run --devtools` |
 | `fission site routes` | Lists generated custom and content site routes | Before checking navigation or publishing a static site |
 | `fission site check` | Renders all static site routes and validates links without writing the final site | In pull-request validation for site content |
 | `fission site build` | Builds the static site into the configured output directory | Before publishing documentation or marketing pages |
@@ -281,10 +282,24 @@ Lists launchable desktop, web, Android, and iOS devices known to the command-lin
 ### `fission run`
 
 ```sh
-fission run [--target <target>] [--device <id>] [--project-dir <dir>] [--release] [--detach]
+fission run [--target <target>] [--device <id>] [--project-dir <dir>] [--release] [--detach] [--devtools] [--performance-overlay]
 ```
 
 Builds, launches, and attaches to the selected target. Web also accepts `--host`, `--port`, and `--no-open`. Mobile targets also accept `--headless`.
+
+Use `--devtools` during development when you want the running app to expose FDTP snapshots for inspection. The command sets `FISSION_DEVTOOLS=1` and `FISSION_TEST_CONTROL_PORT=<port>` for the launched app. The default devtools port is `9876`; override it with `--devtools-port <port>` if another process is using that port. Add `--performance-overlay` to draw the runtime frame timing overlay inside the app.
+
+### `fission devtools`
+
+```sh
+fission devtools capabilities [--json]
+fission devtools tree [--port <port>] [--json]
+fission devtools perf [--port <port>] [--json]
+fission devtools snapshot [--port <port>] [--pretty] [--output <file>]
+fission devtools env [--port <port>] [--performance-overlay]
+```
+
+Inspects a running development app. Start the app with `fission run --devtools`, then use `tree` for the authored widget tree, `perf` for the latest frame timing sample, or `snapshot` for the complete FDTP frame payload. `env` prints the environment variables for shells or scripts that launch an app without going through `fission run`.
 
 ### `fission build`
 

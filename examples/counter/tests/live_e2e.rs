@@ -20,6 +20,44 @@ fn launch_counter(control_port: u16) -> Child {
         .expect("failed to launch counter")
 }
 
+fn launch_counter_with_devtools(control_port: u16) -> Child {
+    let bin =
+        std::env::var("CARGO_BIN_EXE_counter").unwrap_or_else(|_| "target/debug/counter".into());
+    Command::new(bin)
+        .env("FISSION_TEST_CONTROL_PORT", control_port.to_string())
+        .env("FISSION_DEVTOOLS", "1")
+        .env("FISSION_DEVTOOLS_PERFORMANCE_OVERLAY", "1")
+        .env("FISSION_BACKGROUND_TEST", "1")
+        .spawn()
+        .expect("failed to launch counter")
+}
+
+#[test]
+#[ignore]
+fn devtools_snapshot_exposes_widget_tree_and_performance() {
+    let control_port = reserve_control_port();
+    let mut child = launch_counter_with_devtools(control_port);
+    let client = LiveTestClient::connect(control_port);
+    client
+        .wait_for_ready(15_000)
+        .expect("counter did not start");
+    client.wait(500).expect("initial frame wait");
+    client.pump().expect("render devtools frame");
+
+    let snapshot = client
+        .get_devtools_snapshot()
+        .expect("devtools snapshot should be readable");
+    let tree = snapshot.widget_tree.expect("widget tree snapshot");
+    assert!(tree.nodes.iter().any(|node| node.kind == "Button"));
+    assert!(tree.nodes.iter().any(|node| node.kind == "Text"));
+    let performance = snapshot.performance.expect("performance sample");
+    assert!(performance.total_ms >= 0.0);
+    assert!(performance.widget_count > 0);
+
+    client.quit().expect("quit");
+    let _ = child.wait();
+}
+
 #[test]
 #[ignore]
 fn show_modal_visibly_dims_the_background() {
