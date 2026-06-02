@@ -43,6 +43,7 @@ impl From<DocsFooter> for Widget {
                                 ),
                                 ("Terminal UI", "/docs/guides/terminal-user-interfaces/"),
                                 ("Static sites", "/docs/guides/static-sites/"),
+                                ("Server sites", "/docs/guides/server-sites/"),
                                 ("Packaging", "/docs/build-and-package/overview/"),
                             ],
                         )

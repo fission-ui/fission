@@ -6,13 +6,14 @@ tags:
   - release
   - docs
   - platform
+categories:
+  - Releases
 ---
 
 Fission 0.2.0 expanded the project from a desktop-focused UI foundation into a broader application platform. The release added the first serious charting system, mobile and web target scaffolding, typed host capabilities, richer text and input behavior, a documentation site, local search, and the first release-lifecycle command surface.
 
 The goal was not to add isolated features. It was to make more of the application lifecycle first class.
 
-{/* truncate */}
 
 The charting work started with `fission-charts` and grew into a native chart gallery with mathematical layout algorithms, datasets, interaction configuration, 3D scene support, and a wide catalog of chart families. That work matters because data-heavy applications need charts that feel like part of the framework rather than embedded screenshots or foreign widgets.
 
@@ -33,4 +34,3 @@ Fission 0.2.0 is the release where the project became visibly cross-platform and
 The practical test for `Fission 0.2.0: charts, platforms, capabilities, docs, and release tooling` is whether it makes a real app less risky to build. The implementation work matters because it gives developers a shorter path from idea to running software, a clearer way to diagnose failure, and fewer hidden platform-specific assumptions.
 
 If you are evaluating Fission, use the release as a checklist rather than a marketing claim: create or open an app, run the documented command, inspect the generated files, and add one small test around the behavior you plan to depend on. The framework should make that path explicit. When it does not, the documentation or tooling needs to improve until the risk is visible and actionable.
-

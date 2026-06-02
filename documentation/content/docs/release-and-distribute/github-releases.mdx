@@ -1,0 +1,49 @@
+---
+title: GitHub Releases
+description: Publish packaged Fission artifacts to GitHub Releases with the gh CLI.
+---
+
+# GitHub Releases
+
+GitHub Releases are useful when you want to distribute binaries, installers, archives, server packages, or a zipped static site from the repository that owns the project.
+
+Fission uses the `gh` CLI for this provider so authentication is consistent with the GitHub Pages workflow. If the developer or CI runner is already authenticated with `gh`, Fission can reuse that session.
+
+## 1. Package first
+
+```bash
+fission package --project-dir . --target macos --format pkg --release
+```
+
+Use any target and format that produces an `artifact-manifest.json`: `.exe`, `.msi`, `.msix`, `.pkg`, `.ipa`, `.apk`, `.aab`, `.run`, terminal binaries, Docker metadata, or a zipped static site artifact.
+
+## 2. Configure the release
+
+[`fission.toml`](/reference/config/fission-toml/) should hold stable provider facts and paths to long release notes, not the full notes text.
+
+```toml
+[[releases]]
+version = "1.2.3"
+notes = "release-content/metadata/1.2.3/notes/en-US.md"
+
+[distribution.github_releases.production]
+owner = "example"
+repo = "my-app"
+tag_prefix = "v"
+```
+
+## 3. Publish the assets
+
+```bash
+fission distribute \
+  --project-dir . \
+  --provider github-releases \
+  --artifact target/fission/release/macos/pkg/artifact-manifest.json \
+  --deploy v1.2.3
+```
+
+The command should create or update the release, upload every asset listed in the manifest, and write a receipt under `target/fission/distribution/`.
+
+## 4. Verify the release
+
+Open the release page, confirm the tag, notes, asset names, file sizes, and checksums. If a release is retried, the receipt and manifest should make it clear what was uploaded and whether replacement was intentional.

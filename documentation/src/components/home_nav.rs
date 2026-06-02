@@ -10,39 +10,6 @@ struct NavItem {
     children: &'static [NavItem],
 }
 
-const BLOG_POSTS: &[NavItem] = &[
-    NavItem {
-        label: "Introducing Fission",
-        href: "/blog/2026-04-25-introducing-fission/",
-        children: &[],
-    },
-    NavItem {
-        label: "Fission 0.1.0",
-        href: "/blog/2026-04-25-fission-0-1-0/",
-        children: &[],
-    },
-    NavItem {
-        label: "Site built with Fission",
-        href: "/blog/welcome/",
-        children: &[],
-    },
-    NavItem {
-        label: "Fission 0.2.0",
-        href: "/blog/2026-05-26-fission-0-2-0/",
-        children: &[],
-    },
-    NavItem {
-        label: "Fission 0.3.0",
-        href: "/blog/2026-05-29-fission-0-3-0/",
-        children: &[],
-    },
-    NavItem {
-        label: "Fission 0.4.0",
-        href: "/blog/2026-06-02-fission-0-4-0-authoring-api/",
-        children: &[],
-    },
-];
-
 const PRODUCT_CHILDREN: &[NavItem] = &[
     NavItem {
         label: "Platform overview",
@@ -57,6 +24,11 @@ const PRODUCT_CHILDREN: &[NavItem] = &[
     NavItem {
         label: "Static sites",
         href: "/product/static-sites/",
+        children: &[],
+    },
+    NavItem {
+        label: "Server-rendered sites",
+        href: "/product/server-rendered-sites/",
         children: &[],
     },
     NavItem {
@@ -86,8 +58,8 @@ const PRODUCT_CHILDREN: &[NavItem] = &[
     },
     NavItem {
         label: "Blog",
-        href: "/blog/welcome/",
-        children: BLOG_POSTS,
+        href: "/blog/",
+        children: &[],
     },
 ];
 
@@ -124,6 +96,90 @@ const NAV_ITEMS: &[NavItem] = &[
     },
 ];
 
+const MOBILE_MENU_CHILDREN: &[NavItem] = &[
+    NavItem {
+        label: "Platform overview",
+        href: "/product/overview/",
+        children: &[],
+    },
+    NavItem {
+        label: "Cross-platform apps",
+        href: "/product/cross-platform-apps/",
+        children: &[],
+    },
+    NavItem {
+        label: "Static sites",
+        href: "/product/static-sites/",
+        children: &[],
+    },
+    NavItem {
+        label: "Server-rendered sites",
+        href: "/product/server-rendered-sites/",
+        children: &[],
+    },
+    NavItem {
+        label: "Terminal apps",
+        href: "/product/terminal-apps/",
+        children: &[],
+    },
+    NavItem {
+        label: "Charts",
+        href: "/product/charts/",
+        children: &[],
+    },
+    NavItem {
+        label: "Production lifecycle",
+        href: "/product/production-lifecycle/",
+        children: &[],
+    },
+    NavItem {
+        label: "Developer tools",
+        href: "/product/developer-tools/",
+        children: &[],
+    },
+    NavItem {
+        label: "Design systems",
+        href: "/product/design-systems/",
+        children: &[],
+    },
+    NavItem {
+        label: "Blog",
+        href: "/blog/",
+        children: &[],
+    },
+    NavItem {
+        label: "Setup",
+        href: "/docs/learn/quickstart/",
+        children: &[],
+    },
+    NavItem {
+        label: "Learn",
+        href: "/docs/learn/overview/",
+        children: &[],
+    },
+    NavItem {
+        label: "Build",
+        href: "/docs/build-and-package/overview/",
+        children: &[],
+    },
+    NavItem {
+        label: "Test",
+        href: "/docs/test-and-debug/overview/",
+        children: &[],
+    },
+    NavItem {
+        label: "Publish",
+        href: "/docs/release-and-distribute/overview/",
+        children: &[],
+    },
+];
+
+const MOBILE_NAV_ITEMS: &[NavItem] = &[NavItem {
+    label: "Menu",
+    href: "/product/overview/",
+    children: MOBILE_MENU_CHILDREN,
+}];
+
 #[derive(Clone, Debug)]
 pub(super) struct HomePageNav;
 
@@ -132,6 +188,11 @@ impl From<HomePageNav> for Widget {
         let (_ctx, view) = fission::build::current::<DocsState>();
         let tokens = &view.env().theme.tokens;
         let nav_items = NAV_ITEMS
+            .iter()
+            .enumerate()
+            .map(|(index, item)| nav_item(item, 0, index, tokens))
+            .collect::<Vec<_>>();
+        let mobile_nav_items = MOBILE_NAV_ITEMS
             .iter()
             .enumerate()
             .map(|(index, item)| nav_item(item, 0, index, tokens))
@@ -156,6 +217,17 @@ impl From<HomePageNav> for Widget {
                     JustifyContent::Start,
                 ),
                 Row {
+                    children: mobile_nav_items,
+                    gap: Some(tokens.spacing.s),
+                    justify_content: JustifyContent::End,
+                    align_items: AlignItems::Center,
+                    semantics: Some(super::home_widgets::site_semantics(
+                        "site-mobile-global-menu",
+                    )),
+                    ..Default::default()
+                }
+                .into(),
+                Row {
                     children: nav_items,
                     gap: Some(tokens.spacing.l),
                     justify_content: JustifyContent::End,
@@ -174,13 +246,15 @@ impl From<HomePageNav> for Widget {
                     gap: Some(tokens.spacing.m),
                     justify_content: JustifyContent::End,
                     align_items: AlignItems::Center,
+                    semantics: Some(super::home_widgets::site_semantics("site-home-actions")),
                     ..Default::default()
                 }
                 .into(),
             ],
             justify_content: JustifyContent::SpaceBetween,
             align_items: AlignItems::Center,
-            wrap: FlexWrap::Wrap,
+            wrap: FlexWrap::NoWrap,
+            semantics: Some(super::home_widgets::site_semantics("site-home-header")),
             ..Default::default()
         })
         .padding([
@@ -205,7 +279,7 @@ fn nav_item(item: &NavItem, depth: usize, index: usize, tokens: &fission::theme:
         .into()];
     if has_children {
         label_children.push(
-            Text::new(if depth == 0 { "v" } else { ">" })
+            Text::new(if depth == 0 { "▾" } else { "▸" })
                 .size(tokens.typography.font_size_xs)
                 .weight(tokens.typography.font_weight_bold)
                 .color(tokens.colors.text_muted)

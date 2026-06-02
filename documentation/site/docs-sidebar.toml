@@ -306,6 +306,36 @@ href = "/docs/build-and-package/overview/"
 level = 2
 
 [[items]]
+title = "Desktop packages"
+href = "/docs/build-and-package/desktop-packages/"
+level = 2
+
+[[items]]
+title = "Mobile packages"
+href = "/docs/build-and-package/mobile-packages/"
+level = 2
+
+[[items]]
+title = "Web packages"
+href = "/docs/build-and-package/web-packages/"
+level = 2
+
+[[items]]
+title = "Terminal packages"
+href = "/docs/build-and-package/terminal-packages/"
+level = 2
+
+[[items]]
+title = "Static site packages"
+href = "/docs/build-and-package/static-site-packages/"
+level = 2
+
+[[items]]
+title = "Server site packages"
+href = "/docs/build-and-package/server-site-packages/"
+level = 2
+
+[[items]]
 title = "Release and distribute"
 href = "/docs/release-and-distribute/overview/"
 level = 1
@@ -314,6 +344,36 @@ group = true
 [[items]]
 title = "Release overview"
 href = "/docs/release-and-distribute/overview/"
+level = 2
+
+[[items]]
+title = "Release content"
+href = "/docs/release-and-distribute/release-content/"
+level = 2
+
+[[items]]
+title = "GitHub Releases"
+href = "/docs/release-and-distribute/github-releases/"
+level = 2
+
+[[items]]
+title = "Static hosting"
+href = "/docs/release-and-distribute/static-hosting/"
+level = 2
+
+[[items]]
+title = "App stores"
+href = "/docs/release-and-distribute/app-stores/"
+level = 2
+
+[[items]]
+title = "Docker registries"
+href = "/docs/release-and-distribute/docker-registries/"
+level = 2
+
+[[items]]
+title = "Object storage"
+href = "/docs/release-and-distribute/object-storage/"
 level = 2
 
 [[items]]

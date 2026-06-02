@@ -16,11 +16,6 @@ cd docs-site
 fission add-target site --project-dir .
 ```
 
-Set the site fields in [`fission.toml`](/reference/config/fission-toml/):
-
-```toml
-targets = ["site"]
-
 ## Finished state and checks
 
 By the end of `Build a documentation site`, you should have a runnable change, not just a set of snippets. Run the command shown in the page, exercise the feature once manually, and add or update the smallest test that protects the behavior.
@@ -31,6 +26,12 @@ By the end of `Build a documentation site`, you should have a runnable change, n
 | Behavior | The screen, package, server route, or test flow described by the recipe is visible and responds to input. |
 | Failure path | At least one denied, missing, invalid, or empty case renders a useful message instead of silently doing nothing. |
 | Next link | The reference page linked from the recipe explains the exact fields, commands, or types used here. |
+
+
+Set the site fields in [`fission.toml`](/reference/config/fission-toml/):
+
+```toml
+targets = ["site"]
 
 [app]
 name = "docs-site"

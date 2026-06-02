@@ -5,14 +5,14 @@ description: Reference documentation for the Fission command-line interface, inc
 
 # Command-line interface overview
 
-The Fission command-line interface is the tool you use to put a new Fission app on disk, connect that shared app to real platform hosts, and keep the daily development loop consistent across desktop, web, Android, and iOS.
+The Fission command-line interface is the tool you use to put a new Fission app on disk, connect that shared app to real platform hosts, and keep the daily development loop consistent across desktop, web, Android, iOS, terminal, static site, and server-rendered site targets.
 
-That distinction matters. Fission's core architecture lives in your shared Rust code: your app state, actions, reducers, widgets, and effects. The command-line interface does not replace that architecture. Its job is narrower and more concrete. It gives you a correct starting scaffold, records which targets your app supports, generates the host folders that let the shared app run on desktop, web, Android, and iOS, and then gives you one place to discover devices, run the app, attach logs, build artifacts, and run smoke tests.
+That distinction matters. Fission's core architecture lives in your shared Rust code: your app state, actions, reducers, widgets, and effects. The command-line interface does not replace that architecture. Its job is narrower and more concrete. It gives you a correct starting scaffold, records which targets your app supports, generates the host folders that let the shared app run on desktop, web, Android, iOS, terminal, static site, and server-rendered site targets, and then gives you one place to discover devices, run the app, attach logs, build artifacts, and run smoke tests.
 
 If you are learning Fission, think of the command-line interface as the bridge between two layers:
 
 - your shared app model, which stays the same across platforms, and
-- the shell hosts, which package and launch that shared app in a desktop window, a browser page, an Android app, or an iOS app bundle.
+- the shell hosts, which package and launch that shared app in a desktop window, a browser page, an Android app, an iOS app bundle, a terminal surface, static HTML output, or a server-rendered web process.
 
 This page explains how to use that bridge well.
 
@@ -22,7 +22,7 @@ Most teams meet the command-line interface at two moments.
 
 The first moment is the start of a project. You run `fission init` when you want a fresh app with the expected file layout, a starter application, an initial desktop host, and a [`fission.toml`](/reference/config/fission-toml/) manifest that records project metadata and target choices.
 
-The second moment is when your shared app is ready to run in another host. At that point, you use `fission add-target` to generate the extra platform folder for web, Android, or iOS, or to add a specific desktop target if needed. The important idea is that you are not rewriting your app for each platform. You are generating the host wrapper around the same shared app model.
+The second moment is when your shared app is ready to run in another host. At that point, you use `fission add-target` to generate the extra platform folder for web, Android, iOS, terminal, static site, or server, or to add a specific desktop target if needed. The important idea is that you are not rewriting your app for each platform. You are generating the host wrapper around the same shared app model.
 
 After that, the command-line interface becomes part of the normal development loop. You can ask it which devices are available, choose a device by id, run the app, attach to logs, build without launching, or run the generated smoke test. That keeps the workflow close to the app instead of forcing every developer on the team to memorize different shell scripts for each platform.
 

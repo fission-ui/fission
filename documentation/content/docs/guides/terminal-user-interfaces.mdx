@@ -1,6 +1,6 @@
 ---
 title: Terminal user interfaces
-description: Build terminal applications with the same Fission widget, reducer, and shell model used by desktop, web, mobile, and static site targets.
+description: Build terminal applications with the same Fission widget, reducer, and shell model used by desktop, web, mobile, static site, and server-rendered site targets.
 ---
 
 # Terminal user interfaces
@@ -20,6 +20,9 @@ It is not the right target for highly visual interfaces, freeform graphics, medi
 Use the Fission facade crate and enable the terminal shell feature for tools that need terminal rendering.
 
 ```toml
+[dependencies]
+fission = { path = "../crates/authoring/fission", features = ["terminal-shell"] }
+```
 
 ## What you should have working
 
@@ -34,10 +37,6 @@ After this guide, you should be able to explain where `Terminal user interfaces`
 | A platform feature reports unsupported | Confirm the target has the capability in `fission.toml` and the shell registered the provider. |
 | The page works on one target but not another | Run `fission doctor`, then inspect target-specific configuration and feature flags. |
 | Tests are hard to write | Split the product rule into a reducer test first, then add a UI or shell smoke test for the integration. |
-
-[dependencies]
-fission = { path = "../crates/authoring/fission", features = ["terminal-shell"] }
-```
 
 The public API is available through the facade, so app code should use `fission::terminal::TerminalApp` or import from the prelude when appropriate. You should not depend directly on the internal shell crate unless you are working on Fission itself.
 
@@ -160,4 +159,4 @@ The CLI has a route smoke test that creates the UI state, renders each route, an
 
 ## Where to go next
 
-Read [Platform shells, command-line interface, and testing](/docs/guides/platform-shells-cli-and-testing/) for the broader shell model. Read [Testing and diagnostics](/docs/guides/testing-and-diagnostics/) for the general testing strategy. If you want to build static documentation or marketing sites instead of terminal tools, continue to [Static sites](/docs/guides/static-sites/).
+Read [Platform shells, command-line interface, and testing](/docs/guides/platform-shells-cli-and-testing/) for the broader shell model. Read [Testing and diagnostics](/docs/guides/testing-and-diagnostics/) for the general testing strategy. If you want to build static documentation or marketing sites instead of terminal tools, continue to [Static sites](/docs/guides/static-sites/). If the site needs request-time data, sessions, signed actions, cache revalidation, workers, or islands, continue to [Server-rendered sites](/docs/guides/server-sites/).

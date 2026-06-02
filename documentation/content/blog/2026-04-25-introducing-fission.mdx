@@ -5,13 +5,14 @@ authors:
 tags:
   - announcement
   - architecture
+categories:
+  - Project
 ---
 
 Fission is a Rust application platform for building production user interfaces across desktop, web, mobile, terminal, static-site, and server-rendered targets from one explicit app model.
 
 The project starts from a practical observation: most application bugs are not caused by a missing button widget. They come from state living in too many places, side effects starting at surprising times, platform code leaking into product code, and tests that cannot reproduce the path a user took. Fission is designed to make those risks visible and controllable.
 
-{/* truncate */}
 
 The core model is intentionally direct. Product data lives in state. User intent travels as typed actions. Reducers update state. Widgets describe the interface from the current inputs. The runtime lowers that description into layout, semantics, display lists, and host output. Shells connect the same product model to real platforms.
 
@@ -36,4 +37,3 @@ If you are new to the project, start with the guided documentation at [fission.r
 The practical test for `Introducing Fission` is whether it makes a real app less risky to build. The implementation work matters because it gives developers a shorter path from idea to running software, a clearer way to diagnose failure, and fewer hidden platform-specific assumptions.
 
 If you are evaluating Fission, use the release as a checklist rather than a marketing claim: create or open an app, run the documented command, inspect the generated files, and add one small test around the behavior you plan to depend on. The framework should make that path explicit. When it does not, the documentation or tooling needs to improve until the risk is visible and actionable.
-

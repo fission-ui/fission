@@ -17,6 +17,11 @@ Start with a Fission project that has the `site` target enabled.
 ```toml
 targets = ["site"]
 
+[app]
+name = "my-docs"
+app_id = "com.example.my_docs"
+```
+
 ## What you should have working
 
 After this guide, you should be able to explain where `Static site content routes` fits in the Fission lifecycle, identify the file or component you changed, run the relevant `fission` command, and verify the result in a real target or test. If any of those pieces are missing, treat the page as unfinished work: add the smallest runnable example, then add the diagnostic step that proves it works.
@@ -30,11 +35,6 @@ After this guide, you should be able to explain where `Static site content route
 | A platform feature reports unsupported | Confirm the target has the capability in `fission.toml` and the shell registered the provider. |
 | The page works on one target but not another | Run `fission doctor`, then inspect target-specific configuration and feature flags. |
 | Tests are hard to write | Split the product rule into a reducer test first, then add a UI or shell smoke test for the integration. |
-
-[app]
-name = "my-docs"
-app_id = "com.example.my_docs"
-```
 
 If the project already exists, this is the safe command path:
 

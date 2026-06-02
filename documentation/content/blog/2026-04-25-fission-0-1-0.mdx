@@ -5,13 +5,14 @@ authors:
 tags:
   - release
   - architecture
+categories:
+  - Releases
 ---
 
 Fission 0.1.0 is the first publishable foundation for the framework. It is not only a version number on crates.io; it is the point where the core runtime, layout engine, rendering path, facade crate, examples, and test infrastructure became coherent enough to treat as a real starting line.
 
 The focus of this release was proving that a Rust-first UI stack can keep a deterministic app model while still rendering real, interactive applications.
 
-{/* truncate */}
 
 The biggest architectural work landed in layout and rendering. Fission moved to a constraint-based layout engine, hardened text measurement, flex behavior, intrinsic sizing, overlay identity, and scroll handling. That gave the framework a predictable path from authored widgets to layout snapshots and display lists. On desktop, the rendering path matured around GPU-backed drawing and better frame scheduling, with fixes for paint ordering, cached text layout, screenshots, and high-frequency animation behavior.
 
@@ -30,4 +31,3 @@ The result is a foundation release: layout, rendering, input, examples, facade e
 The practical test for `Fission 0.1.0: the first publishable foundation` is whether it makes a real app less risky to build. The implementation work matters because it gives developers a shorter path from idea to running software, a clearer way to diagnose failure, and fewer hidden platform-specific assumptions.
 
 If you are evaluating Fission, use the release as a checklist rather than a marketing claim: create or open an app, run the documented command, inspect the generated files, and add one small test around the behavior you plan to depend on. The framework should make that path explicit. When it does not, the documentation or tooling needs to improve until the risk is visible and actionable.
-

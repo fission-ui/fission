@@ -1,0 +1,37 @@
+---
+title: Static hosting
+description: Publish Fission static sites to GitHub Pages and other static hosts.
+---
+
+# Static hosting
+
+Static hosting publishes generated site files. It is the right path for documentation, marketing pages, reference pages, blogs, and static app bundles.
+
+## 1. Build or package the site
+
+```bash
+fission site check --project-dir documentation --release
+fission package --project-dir documentation --target site --format static --release
+```
+
+Use the static artifact manifest for publishing. It records files, hashes, MIME types, route metadata, and validation results.
+
+## 2. Publish to GitHub Pages
+
+```bash
+fission publish \
+  --project-dir documentation \
+  --provider github-pages \
+  --artifact target/fission/release/site/static/artifact-manifest.json \
+  --site production
+```
+
+The provider configuration can include repository, deployment mode, branch, project or user site mode, custom domain, HTTPS enforcement, and workflow name.
+
+## 3. Publish to other static providers
+
+Cloud/static providers should use explicit provider configuration, authenticated provider tooling where required, and a receipt after upload. For object-store-backed static hosting, use the object storage provider page because cache headers, content types, public links, and prefixes matter.
+
+## 4. Verify the deployed URL
+
+Check the home page, a content page, a reference page, search assets, favicon, sitemap, robots file, canonical URL, custom domain, and a broken-link sample. A static publish is incomplete until the public URL serves the same files the manifest described.

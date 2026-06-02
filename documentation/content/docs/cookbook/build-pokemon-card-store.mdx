@@ -13,17 +13,6 @@ This cookbook recreates the structure of the Pokémon Card Store example. The go
 ```toml
 targets = ["server"]
 
-## Finished state and checks
-
-By the end of `Build a server-rendered store`, you should have a runnable change, not just a set of snippets. Run the command shown in the page, exercise the feature once manually, and add or update the smallest test that protects the behavior.
-
-| Check | Expected result |
-| --- | --- |
-| Build | `cargo check` or the relevant `fission` command finishes without target-specific configuration errors. |
-| Behavior | The screen, package, server route, or test flow described by the recipe is visible and responds to input. |
-| Failure path | At least one denied, missing, invalid, or empty case renders a useful message instead of silently doing nothing. |
-| Next link | The reference page linked from the recipe explains the exact fields, commands, or types used here. |
-
 [app]
 name = "pokemon-card-store"
 app_id = "ai.worka.fission.examples.pokemon-card-store"
@@ -45,6 +34,18 @@ bridge = "generated"
 separate_artifacts = true
 preload = "route"
 ```
+
+## Finished state and checks
+
+By the end of `Build a server-rendered store`, you should have a runnable change, not just a set of snippets. Run the command shown in the page, exercise the feature once manually, and add or update the smallest test that protects the behavior.
+
+| Check | Expected result |
+| --- | --- |
+| Build | `cargo check` or the relevant `fission` command finishes without target-specific configuration errors. |
+| Behavior | The screen, package, server route, or test flow described by the recipe is visible and responds to input. |
+| Failure path | At least one denied, missing, invalid, or empty case renders a useful message instead of silently doing nothing. |
+| Next link | The reference page linked from the recipe explains the exact fields, commands, or types used here. |
+
 
 The route mode says the storefront is rendered per session, which is the right default for a cart. The worker and island settings say browser artifacts should be generated separately rather than bundled into one large file. Before production, add `[server.sessions]` with a signed cookie secret as described in [Server security](/docs/guides/server-site-security/).
 

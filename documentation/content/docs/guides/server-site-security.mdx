@@ -35,6 +35,12 @@ These protections are framework-level guard rails. You still need product tests 
 `ServerPrivate` routes receive an opaque session id through `ctx.session.id()`. Use that id as a key into your own server-side store. Do not put user data inside the cookie.
 
 ```toml
+[server.sessions]
+cookie_name = "shop_session"
+signing_key_env = "SHOP_SESSION_SECRET"
+secure = true
+same_site = "lax"
+```
 
 ## What you should have working
 
@@ -49,13 +55,6 @@ After this guide, you should be able to explain where `Server security` fits in 
 | A platform feature reports unsupported | Confirm the target has the capability in `fission.toml` and the shell registered the provider. |
 | The page works on one target but not another | Run `fission doctor`, then inspect target-specific configuration and feature flags. |
 | Tests are hard to write | Split the product rule into a reducer test first, then add a UI or shell smoke test for the integration. |
-
-[server.sessions]
-cookie_name = "shop_session"
-signing_key_env = "SHOP_SESSION_SECRET"
-secure = true
-same_site = "lax"
-```
 
 In local HTTP development, `secure = false` is acceptable. In production HTTPS deployments, set `secure = true` and provide `SHOP_SESSION_SECRET` through your process manager, container platform, or CI secret store. Use `same_site = "strict"` for apps that never need cross-site form or identity-provider flows. Use `same_site = "none"` only when cross-site embedding or auth redirects require it; Fission requires `secure = true` for that mode.
 

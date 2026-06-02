@@ -1,0 +1,32 @@
+---
+title: Docker registries
+description: Publish Fission server and static-site Docker images.
+---
+
+# Docker registries
+
+Docker registry publishing is for Fission server-rendered sites and static sites packaged as container images.
+
+## 1. Package the image
+
+```bash
+fission package --project-dir examples/pokemon-card-store --target server --format docker-image --release
+```
+
+The package step should build or prepare the image with the tags configured in [`fission.toml`](/reference/config/fission-toml/).
+
+## 2. Authenticate with the registry
+
+Use the Docker-compatible registry authentication flow for the target registry. Fission should not store registry passwords in plain text. Use the Docker CLI session, CI secrets, environment references, operating-system key stores, or the Fission credential vault.
+
+## 3. Publish tags
+
+```bash
+fission publish \
+  --project-dir examples/pokemon-card-store \
+  --provider docker-registry \
+  --artifact target/fission/release/server/docker-image/artifact-manifest.json \
+  --site production
+```
+
+The receipt should record image tags, digests where available, registry host, pushed byte counts, and provider output.

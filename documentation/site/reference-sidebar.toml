@@ -5,13 +5,13 @@ level = 0
 
 [[items]]
 title = "Core runtime"
-href = "/reference/core/widget-trait/"
+href = "/reference/core/widget-authoring-boundary/"
 level = 0
 group = true
 
 [[items]]
-title = "Widget trait"
-href = "/reference/core/widget-trait/"
+title = "Widget authoring boundary"
+href = "/reference/core/widget-authoring-boundary/"
 level = 1
 
 [[items]]

@@ -1,0 +1,32 @@
+---
+title: Terminal packages
+description: Package terminal Fission apps and command tools.
+---
+
+# Terminal packages
+
+A terminal Fission app is still a real app, but its host is a terminal rather than a native window or browser canvas. Packaging usually produces a command-line binary plus any metadata, completions, or installer format your distribution path needs.
+
+## 1. Check the terminal target
+
+```bash
+fission readiness package --project-dir . --target terminal --format binary
+```
+
+Readiness should confirm the terminal shell feature, target platform, binary name, version, and any release metadata used by your package workflow.
+
+## 2. Package the binary
+
+```bash
+fission package --project-dir . --target terminal --format binary --release
+```
+
+The package should include the built command and an artifact manifest. If you distribute through GitHub Releases, package managers, or an internal object store, publish the manifest-backed artifact rather than a guessed path under `target/release`.
+
+## 3. Verify terminal behavior
+
+Run the packaged command in a real terminal on the target operating system. Check keyboard navigation, mouse support, scrollback, dialogs, color contrast, compact mode, and behavior when the terminal is resized.
+
+## Next steps
+
+Read [Terminal user interfaces](/docs/guides/terminal-user-interfaces/) for the app model and [GitHub Releases](/docs/release-and-distribute/github-releases/) for binary distribution.

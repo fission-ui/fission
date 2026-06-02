@@ -121,6 +121,9 @@ Because the public `TranslationBundle` type expects a Rust map of messages, you 
 Add `serde_yaml` to your app:
 
 ```toml
+[dependencies]
+serde_yaml = "0.9"
+```
 
 ## What you should have working
 
@@ -135,10 +138,6 @@ After this guide, you should be able to explain where `Theming and international
 | A platform feature reports unsupported | Confirm the target has the capability in `fission.toml` and the shell registered the provider. |
 | The page works on one target but not another | Run `fission doctor`, then inspect target-specific configuration and feature flags. |
 | Tests are hard to write | Split the product rule into a reducer test first, then add a UI or shell smoke test for the integration. |
-
-[dependencies]
-serde_yaml = "0.9"
-```
 
 You do not need to think of this as "Fission requires YAML." It does not. Fission only requires that you eventually provide a `HashMap<String, String>` inside a `TranslationBundle`. This guide uses YAML because it is approachable for human-edited translation files.
 

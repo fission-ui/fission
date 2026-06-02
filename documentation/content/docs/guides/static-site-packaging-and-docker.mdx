@@ -45,6 +45,11 @@ fission publish \
 A static site can also be packaged into an OCI/Docker image. Fission generates a Docker context containing the rendered site and a small Rust static-file server. The server adapter is configured in [`fission.toml`](/reference/config/fission-toml/).
 
 ```toml
+[package.docker]
+adapter = "axum"
+port = 8080
+tags = ["ghcr.io/example/my-docs:1.0.0", "ghcr.io/example/my-docs:latest"]
+```
 
 ## What you should have working
 
@@ -59,12 +64,6 @@ After this guide, you should be able to explain where `Package static sites` fit
 | A platform feature reports unsupported | Confirm the target has the capability in `fission.toml` and the shell registered the provider. |
 | The page works on one target but not another | Run `fission doctor`, then inspect target-specific configuration and feature flags. |
 | Tests are hard to write | Split the product rule into a reducer test first, then add a UI or shell smoke test for the integration. |
-
-[package.docker]
-adapter = "axum"
-port = 8080
-tags = ["ghcr.io/example/my-docs:1.0.0", "ghcr.io/example/my-docs:latest"]
-```
 
 Then package the image:
 

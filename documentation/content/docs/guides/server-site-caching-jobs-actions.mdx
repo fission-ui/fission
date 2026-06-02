@@ -44,6 +44,12 @@ Fission includes the normalized query string, app identity, locale, theme finger
 The default cache is an in-process Moka cache. It is appropriate for local development, single-process services, and simple deployments.
 
 ```toml
+[server.cache]
+provider = "moka"
+max_capacity = 10000
+ttl = "5m"
+stale_while_revalidate = "1m"
+```
 
 ## What you should have working
 
@@ -58,13 +64,6 @@ After this guide, you should be able to explain where `Server caching, jobs, and
 | A platform feature reports unsupported | Confirm the target has the capability in `fission.toml` and the shell registered the provider. |
 | The page works on one target but not another | Run `fission doctor`, then inspect target-specific configuration and feature flags. |
 | Tests are hard to write | Split the product rule into a reducer test first, then add a UI or shell smoke test for the integration. |
-
-[server.cache]
-provider = "moka"
-max_capacity = 10000
-ttl = "5m"
-stale_while_revalidate = "1m"
-```
 
 For multi-process deployments, use Redis or a pipeline. The Redis URL should normally come from an environment variable rather than `fission.toml`.
 

@@ -6,13 +6,14 @@ tags:
   - release
   - platform
   - server
+categories:
+  - Releases
 ---
 
 Fission 0.3.0 made the framework more useful for real products by improving media loading, native capability providers, platform launch behavior, GPU-first web rendering, iOS safe-area handling, static and server site workflows, Docker packaging, and security controls.
 
 This release is best understood as a productization pass. It closed gaps that appear when examples stop being demos and start behaving like app surfaces a user can actually exercise.
 
-{/* truncate */}
 
 Image handling moved from a simple widget field toward typed image sources and renderer-managed loading. Remote images, loading behavior, error behavior, cache policy, intrinsic sizing, and renderer refresh paths became part of the model. The product browser example used real remote data to prove this path and expose layout issues that would not show up in a toy counter.
 
@@ -33,4 +34,3 @@ Fission 0.3.0 is the release where the platform story became significantly more 
 The practical test for `Fission 0.3.0: async images, native capabilities, GPU-first web and server rendering` is whether it makes a real app less risky to build. The implementation work matters because it gives developers a shorter path from idea to running software, a clearer way to diagnose failure, and fewer hidden platform-specific assumptions.
 
 If you are evaluating Fission, use the release as a checklist rather than a marketing claim: create or open an app, run the documented command, inspect the generated files, and add one small test around the behavior you plan to depend on. The framework should make that path explicit. When it does not, the documentation or tooling needs to improve until the risk is visible and actionable.
-

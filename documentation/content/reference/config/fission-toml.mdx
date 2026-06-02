@@ -17,6 +17,11 @@ Most app projects need only this at the start:
 ```toml
 targets = ["linux", "macos", "windows"]
 
+[app]
+name = "my-app"
+app_id = "com.example.my_app"
+```
+
 ## Contract completeness checklist
 
 Use this checklist when wiring `fission.toml manifest` into an app or shell implementation.
@@ -33,10 +38,6 @@ Use this checklist when wiring `fission.toml manifest` into an app or shell impl
 
 Treat failures as product states, not surprises. A Fission app should be able to tell the user whether the problem is missing configuration, missing provider support, denied permission, unavailable hardware, invalid input, expired credentials, or a transient host error. Reducers should update state from typed results and keep retry buttons idempotent so pressing them twice cannot corrupt state or duplicate unsafe work.
 
-[app]
-name = "my-app"
-app_id = "com.example.my_app"
-```
 
 `fission init` writes this file for you. `fission add-target` and `fission add-capability` update it idempotently.
 
@@ -131,7 +132,7 @@ The current documentation manifest also contains `locales` and `pretty_urls`. Th
 
 ### `[[site.nav]]`
 
-Each `[[site.nav]]` entry adds one top-level navigation link to the generated documentation template. A link can also contain nested `children`, which the static-site shell renders as dropdown menus. Nested children can continue recursively, so a top-level product menu can contain a Blog item, and Blog can contain individual post links.
+Each `[[site.nav]]` entry adds one top-level navigation link to the generated documentation template. A link can also contain nested `children`, which the static-site shell renders as dropdown menus. Nested children can continue recursively, so a top-level product menu can contain a Resources item, and Resources can contain a Documentation item. Keep blog navigation on the blog landing page itself rather than stuffing every post into the global header.
 
 | Field | Type | Required | Meaning |
 | --- | --- | --- | --- |
@@ -151,15 +152,17 @@ title = "Platform overview"
 href = "/product/overview/"
 
 [[site.nav.children]]
-title = "Blog"
-href = "/blog/welcome/"
+title = "Resources"
+href = "/docs/intro/"
 
 [[site.nav.children.children]]
-title = "Fission 0.4.0"
-href = "/blog/2026-06-02-fission-0-4-0-authoring-api/"
+title = "Documentation"
+href = "/docs/intro/"
 ```
 
 The dropdown is generated from data, not from hand-written HTML. Keep `href` on parent items even when they have children, because keyboard users and search engines still need a normal destination for the parent item. The menu can nest beyond three levels, but a production navigation should stay shallow enough that users can scan it quickly.
+
+Blog navigation is generated from content metadata instead of global dropdown children. When a `[[site.routes]]` entry uses `path = "/blog"`, the static-site shell generates `/blog/` if you have not provided a Markdown file for it. That landing page lists recent posts, categories, and tags. Individual posts also get older/newer post links unless a post disables them in front matter.
 
 ### `[[site.routes]]`
 
@@ -182,6 +185,41 @@ path = "/reference"
 source = "content/reference"
 template = "fission::site::documentation"
 sidebar = "site/reference-sidebar.toml"
+```
+
+### Content route front matter
+
+Markdown and MDX files may start with front matter. The static-site shell reads these fields before rendering the page body.
+
+| Field | Type | Required | Default | Meaning |
+| --- | --- | --- | --- | --- |
+| `title` | string | No | File stem converted to title case | Page title used in headings, browser metadata, search, sidebars, and blog lists. |
+| `description` | string | No | none | Page summary used in SEO metadata, search excerpts, and generated blog landing entries. |
+| `authors` | array of strings | No | `[]` | Author identifiers for blog and release posts. |
+| `tags` | array of strings | No | `[]` | Topic labels used by the generated blog landing page, blog sidebar taxonomy, and article chips. |
+| `categories` | array of strings | No | `[]` | Higher-level group labels used by the generated blog landing page, blog sidebar taxonomy, and article chips. |
+| `show_adjacent_posts` | boolean | No | `true` for blog posts, `false` otherwise | Shows older/newer post links below a blog article. |
+| `prev_next` | boolean | No | same as `show_adjacent_posts` | Alias accepted for authors who prefer shorter front matter. |
+
+Example:
+
+```mdx
+---
+title: Fission 0.4.0
+description: A release note for the authoring API update.
+authors:
+  - fission
+categories:
+  - Releases
+tags:
+  - release
+  - authoring
+show_adjacent_posts: true
+---
+
+# Fission 0.4.0
+
+Write the post body here.
 ```
 
 ### `[[site.elements]]`

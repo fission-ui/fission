@@ -35,7 +35,7 @@ The two-year plan rotates through these pillars so the channel does not become r
 | Apps | Fission can build complete products, not only isolated controls. |
 | Charts | Fission can handle serious dashboards and data-heavy UI. |
 | Platform capabilities | Desktop, web, Android, and iOS apps can access host capabilities through a consistent Rust API. |
-| Shells | Desktop, mobile, web, terminal, and static site targets are first-class outcomes. |
+| Shells | Desktop, mobile, web, terminal, static site, and server-rendered site targets are first-class outcomes. |
 | Production lifecycle | The CLI supports setup, running, testing, packaging, release, and publishing workflows. |
 
 ## Two-year schedule
@@ -145,7 +145,7 @@ The dates assume a weekly cadence starting in June 2026. If a week slips, keep t
 | 99 | 2028-04-17 | Capstone: mobile layout | Product launch planner | How the same app adapts to phone-size screens without becoming a separate product. | Planned |
 | 100 | 2028-04-24 | Capstone: web and static companion site | Product launch planner | How the app target and static documentation/landing target can share Fission concepts. | Planned |
 | 101 | 2028-05-01 | Capstone: tests and diagnostics | Product launch planner | How to add coverage for reducers, widgets, routing, semantics, and flows. | Planned |
-| 102 | 2028-05-08 | Capstone: package every target | Product launch planner | How to prepare desktop, web, Android, iOS, terminal, and static outputs. | Planned |
+| 102 | 2028-05-08 | Capstone: package every target | Product launch planner | How to prepare desktop, web, Android, iOS, terminal, static, and server-rendered outputs. | Planned |
 | 103 | 2028-05-15 | Capstone: release and publish | Product launch planner | How to run readiness checks, generate artifacts, publish releases, and verify output. | Planned |
 | 104 | 2028-05-22 | Two years of Fission apps | Showcase reel | What the example library proves and where new viewers should start. | Planned |
 

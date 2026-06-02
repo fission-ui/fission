@@ -54,20 +54,6 @@ A site project is just a Fission project with the `site` target enabled.
 ```toml
 targets = ["site"]
 
-## What you should have working
-
-After this guide, you should be able to explain where `Static sites` fits in the Fission lifecycle, identify the file or component you changed, run the relevant `fission` command, and verify the result in a real target or test. If any of those pieces are missing, treat the page as unfinished work: add the smallest runnable example, then add the diagnostic step that proves it works.
-
-## Common mistakes to check
-
-| Symptom | What to check first |
-| --- | --- |
-| The app compiles but nothing changes | Confirm the component is actually used by the route or shell target you are running. |
-| An action fires but state does not update | Confirm the reducer is registered with the same action value that the UI dispatches. |
-| A platform feature reports unsupported | Confirm the target has the capability in `fission.toml` and the shell registered the provider. |
-| The page works on one target but not another | Run `fission doctor`, then inspect target-specific configuration and feature flags. |
-| Tests are hard to write | Split the product rule into a reducer test first, then add a UI or shell smoke test for the integration. |
-
 [app]
 name = "my-docs"
 app_id = "com.example.my-docs"
@@ -84,6 +70,20 @@ asset_dirs = ["static"]
 generate_sitemap = true
 generate_robots = true
 ```
+
+## What you should have working
+
+After this guide, you should be able to explain where `Static sites` fits in the Fission lifecycle, identify the file or component you changed, run the relevant `fission` command, and verify the result in a real target or test. If any of those pieces are missing, treat the page as unfinished work: add the smallest runnable example, then add the diagnostic step that proves it works.
+
+## Common mistakes to check
+
+| Symptom | What to check first |
+| --- | --- |
+| The app compiles but nothing changes | Confirm the component is actually used by the route or shell target you are running. |
+| An action fires but state does not update | Confirm the reducer is registered with the same action value that the UI dispatches. |
+| A platform feature reports unsupported | Confirm the target has the capability in `fission.toml` and the shell registered the provider. |
+| The page works on one target but not another | Run `fission doctor`, then inspect target-specific configuration and feature flags. |
+| Tests are hard to write | Split the product rule into a reducer test first, then add a UI or shell smoke test for the integration. |
 
 The `entry` value tells the command-line interface that this project has a Rust site app. When it is present, `fission site build` runs the project's own site builder so custom routes, custom footers, theme choices, and content transforms are included. When it is absent, Fission can still build a content-only site from the configured content routes.
 
@@ -192,15 +192,52 @@ title = "Platform overview"
 href = "/product/overview/"
 
 [[site.nav.children]]
-title = "Blog"
-href = "/blog/welcome/"
+title = "Resources"
+href = "/docs/intro/"
 
 [[site.nav.children.children]]
-title = "Fission 0.4.0"
-href = "/blog/2026-06-02-fission-0-4-0-authoring-api/"
+title = "Documentation"
+href = "/docs/intro/"
 ```
 
 Parent items should still have an `href`. That means the menu works both as a dropdown and as a normal navigation path for users, crawlers, and browsers without JavaScript. The implementation supports recursive children, but keep production menus shallow unless the information architecture genuinely needs deeper nesting.
+
+## Blog navigation
+
+Blogs should not put every post into the global header. Register the blog as a normal content route and let the documentation template generate the blog navigation from the post metadata.
+
+```toml
+[[site.routes]]
+kind = "content"
+path = "/blog"
+source = "content/blog"
+template = "fission::site::documentation"
+sidebar = "site/blog-sidebar.toml"
+```
+
+If the blog route exists and you do not provide a `content/blog/index.mdx`, the static-site shell generates `/blog/` automatically. That page lists recent posts, categories, and tags, so the header only needs a single Blog link.
+
+Use front matter to describe each post:
+
+```mdx
+---
+title: Fission 0.4.0
+description: A release note for the authoring API update.
+authors:
+  - fission
+categories:
+  - Releases
+tags:
+  - release
+  - authoring
+---
+
+# Fission 0.4.0
+
+Write the post body here.
+```
+
+Generated blog articles show category and tag chips above the body. They also show older/newer post links below the article. Set `show_adjacent_posts: false` in a post's front matter when a standalone announcement should not link into the release-note sequence.
 
 ## Sidebars
 

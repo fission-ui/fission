@@ -1,6 +1,6 @@
 ---
 title: Targets
-description: The reference contract for generated target hosts, checked-in smoke paths, and practical expectations across desktop, web, Android, and iOS.
+description: The reference contract for generated target hosts, checked-in smoke paths, and practical expectations across desktop, web, Android, iOS, static site, and server-rendered site output.
 ---
 
 # Targets
@@ -104,6 +104,10 @@ Use desktop heavily when the question is mostly about shared runtime behavior an
 Use web when browser hosting, browser layout, browser packaging, or browser-specific behavior matters.
 
 Use Android and iOS when mobile packaging, mobile layout, simulator or emulator launch, or other mobile host behavior matters.
+
+Use the site target when the output must be crawlable static HTML for documentation, marketing, reference, or blog pages.
+
+Use the server target when the page needs request-time data, sessions, signed actions, cache revalidation, progressive workers, or focused browser islands.
 
 Use the checked-in smoke examples and generated target folders together. The examples prove the repository's current host paths, and the generated folders show how that host shape reaches your own project.
 

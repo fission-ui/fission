@@ -16,7 +16,7 @@ pretty_urls = true
 generate_sitemap = true
 generate_robots = true
 title = "Fission"
-description = "Build, test, package, and release production Rust apps across desktop, mobile, web, terminal, and static site targets."
+description = "Build, test, package, and release production Rust apps across desktop, mobile, web, terminal, static site, and server-rendered site targets."
 logo = "/img/fission-mark.svg"
 favicon = "/img/fission-mark.svg"
 asset_dirs = ["static"]
@@ -60,6 +60,10 @@ title = "Static sites"
 href = "/product/static-sites/"
 
 [[site.nav.children]]
+title = "Server-rendered sites"
+href = "/product/server-rendered-sites/"
+
+[[site.nav.children]]
 title = "Terminal apps"
 href = "/product/terminal-apps/"
 
@@ -81,31 +85,7 @@ href = "/product/design-systems/"
 
 [[site.nav.children]]
 title = "Blog"
-href = "/blog/welcome/"
-
-[[site.nav.children.children]]
-title = "Introducing Fission"
-href = "/blog/2026-04-25-introducing-fission/"
-
-[[site.nav.children.children]]
-title = "Fission 0.1.0"
-href = "/blog/2026-04-25-fission-0-1-0/"
-
-[[site.nav.children.children]]
-title = "The Fission site is built with Fission"
-href = "/blog/welcome/"
-
-[[site.nav.children.children]]
-title = "Fission 0.2.0"
-href = "/blog/2026-05-26-fission-0-2-0/"
-
-[[site.nav.children.children]]
-title = "Fission 0.3.0"
-href = "/blog/2026-05-29-fission-0-3-0/"
-
-[[site.nav.children.children]]
-title = "Fission 0.4.0"
-href = "/blog/2026-06-02-fission-0-4-0-authoring-api/"
+href = "/blog/"
 
 [[site.nav]]
 title = "Setup"

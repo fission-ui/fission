@@ -68,6 +68,12 @@ fn main() {
 Add the generator as a build dependency:
 
 ```toml title="Cargo.toml"
+[dependencies]
+fission = { path = "../../crates/authoring/fission", default-features = false, features = ["desktop"] }
+
+[build-dependencies]
+fission-design-system-codegen = { path = "../../crates/tools/fission-design-system-codegen" }
+```
 
 ## What you should have working
 
@@ -82,13 +88,6 @@ After this guide, you should be able to explain where `Design system` fits in th
 | A platform feature reports unsupported | Confirm the target has the capability in `fission.toml` and the shell registered the provider. |
 | The page works on one target but not another | Run `fission doctor`, then inspect target-specific configuration and feature flags. |
 | Tests are hard to write | Split the product rule into a reducer test first, then add a UI or shell smoke test for the integration. |
-
-[dependencies]
-fission = { path = "../../crates/authoring/fission", default-features = false, features = ["desktop"] }
-
-[build-dependencies]
-fission-design-system-codegen = { path = "../../crates/tools/fission-design-system-codegen" }
-```
 
 The generated code uses the public Fission theme API. Your application still imports Fission normally:
 

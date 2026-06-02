@@ -75,6 +75,10 @@ The title and description are route metadata. They become part of the generated 
 A serious site normally has a shared header and footer. Put those in reusable widgets or configure them through the site app. Use the design system and theme rather than hard-coded colors when possible, then use `css_files` only for site-specific overrides.
 
 ```toml
+[site]
+css_files = ["site/overrides.css"]
+asset_dirs = ["static"]
+```
 
 ## What you should have working
 
@@ -89,11 +93,6 @@ After this guide, you should be able to explain where `Static site custom pages`
 | A platform feature reports unsupported | Confirm the target has the capability in `fission.toml` and the shell registered the provider. |
 | The page works on one target but not another | Run `fission doctor`, then inspect target-specific configuration and feature flags. |
 | Tests are hard to write | Split the product rule into a reducer test first, then add a UI or shell smoke test for the integration. |
-
-[site]
-css_files = ["site/overrides.css"]
-asset_dirs = ["static"]
-```
 
 Generated CSS is written before user CSS. That means your override file can fine-tune spacing, responsive behavior, or product-specific visuals without replacing the static renderer.
 

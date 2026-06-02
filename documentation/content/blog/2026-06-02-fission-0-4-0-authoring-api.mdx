@@ -6,13 +6,14 @@ tags:
   - release
   - architecture
   - authoring
+categories:
+  - Releases
 ---
 
 Fission 0.4.0 is the authoring API release. It changes how application and library authors write widgets, how state is accessed during component conversion, and how local retained state is modeled. The work is tracked in [PR #63](https://github.com/worka-ai/fission/pull/63).
 
-The short version is this: authored components are now ordinary Rust structs that convert into `Widget` with `impl From<Component> for Widget`. The old public widget-trait shape is gone. The framework keeps the closed internal `Widget` representation, but authoring code no longer teaches language models or developers to implement a public `Widget` trait or return internal node-like forms.
+The short version is this: authored components are now ordinary Rust structs that convert into `Widget` with `impl From<Component> for Widget`. The old public widget-authoring-boundary shape is gone. The framework keeps the closed internal `Widget` representation, but authoring code no longer teaches language models or developers to implement a public `Widget` trait or return internal node-like forms.
 
-{/* truncate */}
 
 The motivation came from a real documentation and code-generation problem. Fission wants examples, docs, generated components, and third-party crates to teach one clear shape. A component should look like a Rust value. It can have props. It can be composed into parent child slots. When it needs state or runtime wiring, it asks the current build scope for handles. When it is done, it returns a `Widget` tree.
 
@@ -93,7 +94,7 @@ The documentation was updated to match. The runtime model now introduces compone
 
 For existing code, the migration is conceptually straightforward even though it can touch many files:
 
-1. Replace public widget-trait implementations with `impl From<Component> for Widget`.
+1. Replace public widget-authoring-boundary implementations with `impl From<Component> for Widget`.
 2. Replace build arguments with `let (ctx, view) = fission::build::current::<State>();` inside conversion.
 3. Convert child slots to `Widget`, `Option<Widget>`, or `Vec<Widget>` and use `.into()` or `widgets![...]` at composition boundaries.
 4. Move UI-local retained fields to `#[fission_component]` and `#[local_state(default = ...)]` where appropriate.
@@ -107,4 +108,3 @@ The payoff is a smaller and clearer public API surface. Components are Rust stru
 The practical test for `Fission 0.4.0: a cleaner authoring model for production Rust UI` is whether it makes a real app less risky to build. The implementation work matters because it gives developers a shorter path from idea to running software, a clearer way to diagnose failure, and fewer hidden platform-specific assumptions.
 
 If you are evaluating Fission, use the release as a checklist rather than a marketing claim: create or open an app, run the documented command, inspect the generated files, and add one small test around the behavior you plan to depend on. The framework should make that path explicit. When it does not, the documentation or tooling needs to improve until the risk is visible and actionable.
-
