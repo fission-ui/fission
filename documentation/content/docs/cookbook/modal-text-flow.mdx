@@ -25,7 +25,7 @@ We want a screen with a button called **Compose**. Pressing it should open a mod
 
 That may sound ordinary, but this is exactly where explicit state pays off. Instead of scattering modal logic across widget-local variables, you can describe the whole flow in one predictable model.
 
-## Step 1: keep modal state and text state in `AppState`
+## Step 1: keep modal state and text state in `GlobalState`
 
 The first rule is simple: if the user can see it or lose it, it should usually live in app state.
 
@@ -44,7 +44,7 @@ pub struct ComposeState {
     pub status_message: String,
 }
 
-impl AppState for ComposeState {}
+impl GlobalState for ComposeState {}
 ```
 
 This is the right starting point because the modal is part of product behavior, not just a visual flourish. If the modal is open, that matters to the user. If the draft body changes, that definitely matters to the user.
@@ -140,8 +140,9 @@ Now render the outer screen and the button that opens the modal.
 ```rust
 pub struct ComposeScreen;
 
-impl Widget<ComposeState> for ComposeScreen {
-    fn build(&self, ctx: &mut BuildCtx<ComposeState>, view: &View<ComposeState>) -> Node {
+impl From<ComposeScreen> for Widget {
+    fn from(component: ComposeScreen) -> Self {
+        let (ctx, view) = fission::build::current::<ComposeState>();
         let open_modal = ctx.bind(
             SetShowComposeModal(true),
             reduce_with!(on_set_show_compose_modal),
@@ -156,15 +157,15 @@ impl Widget<ComposeState> for ComposeScreen {
             children: vec![
                 Button {
                     on_press: Some(open_modal),
-                    child: Some(Box::new(Text::new("Compose").into_node())),
+                    child: Some(Text::new("Compose").into()),
                     ..Default::default()
                 }
-                .into_node(),
-                Text::new(view.state.status_message.clone()).into_node(),
+                .into(),
+                Text::new(view.state().status_message.clone()).into(),
             ],
             ..Default::default()
         }
-        .into_node();
+        .into();
 
         // The modal will be added in the next step.
         content
@@ -198,37 +199,37 @@ let modal_fields = Column {
     gap: Some(10.0),
     children: vec![
         TextInput {
-            value: view.state.draft_to.clone(),
+            value: view.state().draft_to.clone(),
             placeholder: Some("To".into()),
             on_change: Some(set_to),
             ..Default::default()
         }
-        .into_node(),
+        .into(),
         TextInput {
-            value: view.state.draft_subject.clone(),
+            value: view.state().draft_subject.clone(),
             placeholder: Some("Subject".into()),
             on_change: Some(set_subject),
             ..Default::default()
         }
-        .into_node(),
+        .into(),
         TextInput {
-            value: view.state.draft_body.clone(),
+            value: view.state().draft_body.clone(),
             placeholder: Some("Write your message".into()),
             on_change: Some(set_body),
             multiline: true,
             height: Some(180.0),
             ..Default::default()
         }
-        .into_node(),
+        .into(),
     ],
     ..Default::default()
 }
-.into_node();
+.into();
 ```
 
 This is the essential text flow in Fission.
 
-The input widget does not keep the authoritative text by itself. It shows the current value from `view.state`. When the user edits the field, the widget emits the bound action. The reducer updates state. The next build reads the new value and renders it back into the field.
+The input widget does not keep the authoritative text by itself. It shows the current value from `view.state()`. When the user edits the field, the widget emits the bound action. The reducer updates state. The next conversion pass reads the new value and renders it back into the field.
 
 If you know web user interface, this should feel like a deliberately explicit controlled-input pattern.
 
@@ -243,9 +244,9 @@ let apply = ctx.bind(
 );
 
 let modal = Modal {
-    id: WidgetNodeId::explicit("compose_modal"),
+    id: WidgetId::explicit("compose_modal"),
     title: "Compose message".to_string(),
-    is_open: view.state.show_compose_modal,
+    is_open: view.state().show_compose_modal,
     on_dismiss: Some(close_modal.clone()),
     width: Some(640.0),
     actions: vec![
@@ -260,9 +261,9 @@ let modal = Modal {
             is_primary: true,
         },
     ],
-    content: Box::new(modal_fields),
+    content: modal_fields,
 }
-.build(ctx, view);
+.into();
 ```
 
 Then return both the screen content and the modal in the widget tree.
@@ -273,12 +274,12 @@ Column {
     children: vec![content, modal],
     ..Default::default()
 }
-.into_node()
+.into()
 ```
 
 The important part is not just that a modal appears. It is that the modal follows the same explicit architecture as the rest of the app.
 
-Open state lives in `AppState`.
+Open state lives in `GlobalState`.
 
 Dismissal is an action.
 
@@ -302,7 +303,7 @@ let modal_content = FocusScope {
     is_barrier: true,
     children: vec![modal_fields],
 }
-.into_node();
+.into();
 ```
 
 Then use `modal_content` as the modal's `content`.

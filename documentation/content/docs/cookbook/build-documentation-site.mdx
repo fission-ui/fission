@@ -102,25 +102,25 @@ use fission::site::{build_from_cli, FissionSite};
 
 #[derive(Default)]
 struct SiteState;
-impl AppState for SiteState {}
+impl GlobalState for SiteState {}
 
 #[derive(Clone)]
 struct HomePage;
 
-impl Widget<SiteState> for HomePage {
-    fn build(&self, _ctx: &mut BuildCtx<SiteState>, _view: &View<SiteState>) -> Node {
+impl From<HomePage> for Widget {
+    fn from(component: HomePage) -> Self {
         Column {
             gap: Some(18.0),
             children: vec![
                 Text::new("Documentation people can actually use")
                     .size(48.0)
                     .weight(FontWeight::Bold)
-                    .into_node(),
-                Text::new("A custom Fission page rendered to static HTML.").into_node(),
+                    .into(),
+                Text::new("A custom Fission page rendered to static HTML.").into(),
             ],
             ..Default::default()
         }
-        .into_node()
+        .into()
     }
 }
 

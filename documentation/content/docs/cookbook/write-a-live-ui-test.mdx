@@ -33,7 +33,7 @@ A live interface test answers those questions because it exercises the host plus
 
 The test itself runs at the host level because it launches a real app process and talks to the host test server.
 
-The app logic inside that process is still the same deterministic Fission logic you use everywhere else. When the test taps a button, the host turns that into input, the runtime dispatches the bound action, reducers update state, and `build()` re-renders from the new state.
+The app logic inside that process is still the same deterministic Fission logic you use everywhere else. When the test taps a button, the host turns that into input, the runtime dispatches the bound action, reducers update state, and `component conversion` re-renders from the new state.
 
 That combination is why live tests are powerful. They verify the real integration surface without abandoning the deterministic architecture underneath.
 
@@ -105,7 +105,7 @@ client.assert_text_visible("Count: 1").expect("count updated");
 
 This proves more than a reducer test alone.
 
-It proves the button rendered, the semantic text lookup found it, the host delivered the tap, the runtime dispatched the bound action, the reducer updated state, and the screen rebuilt with the new value.
+It proves the button rendered, the semantic text lookup found it, the host delivered the tap, the runtime dispatched the bound action, the reducer updated state, and the screen reconverted with the new value.
 
 That is the full stack.
 

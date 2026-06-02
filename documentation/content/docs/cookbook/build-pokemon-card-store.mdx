@@ -86,20 +86,21 @@ The route can ask for the catalog during rendering. The server shell drains the 
 #[derive(Clone)]
 pub struct StoreHomePage;
 
-impl Widget<StoreState> for StoreHomePage {
-    fn build(&self, _ctx: &mut BuildCtx<StoreState>, view: &View<StoreState>) -> Node {
+impl From<StoreHomePage> for Widget {
+    fn from(component: StoreHomePage) -> Self {
+        let (_, view) = fission::build::current::<StoreState>();
         Column {
             gap: Some(24.0),
             children: vec![
                 Text::new("Pokémon Card Store")
                     .size(44.0)
                     .weight(FontWeight::Bold)
-                    .into_node(),
-                CardGrid::new(view.state().products.clone()).into_node(),
+                    .into(),
+                CardGrid::new(view.state().products.clone()).into(),
             ],
             ..Default::default()
         }
-        .into_node()
+        .into()
     }
 }
 ```

@@ -142,11 +142,11 @@ On iOS, validate safe-area behavior, smaller viewport assumptions, text entry fl
 
 After target generation, the important architectural truth is unchanged.
 
-`AppState` is still shared.
+`GlobalState` is still shared.
 
 Your reducers are still shared.
 
-Your widgets still build from `View` and `BuildCtx`.
+Your components still convert with `ViewHandle` and `BuildCtxHandle`.
 
 Your selectors still derive shared view data.
 
