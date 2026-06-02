@@ -1,6 +1,6 @@
 use fission_core::{
-    ActionRegistry, AppState, CapabilityInvocationPayload, DeepLink, DeepLinkConfig,
-    DeepLinkReceived, Effect, Effects, NotificationId, NotificationRequest, NotificationResponse,
+    ActionRegistry, CapabilityInvocationPayload, DeepLink, DeepLinkConfig, DeepLinkReceived,
+    Effect, Effects, GlobalState, NotificationId, NotificationRequest, NotificationResponse,
     NotificationResponseReceived, SHOW_NOTIFICATION,
 };
 use fission_core::{BarcodeFormat, BarcodeScanRequest, SCAN_BARCODE};
@@ -17,7 +17,7 @@ use fission_core::{WifiScanRequest, SCAN_WIFI_NETWORKS};
 
 #[derive(Debug, Default)]
 struct TestState;
-impl AppState for TestState {}
+impl GlobalState for TestState {}
 
 #[test]
 fn notification_convenience_builder_emits_capability_effect() {

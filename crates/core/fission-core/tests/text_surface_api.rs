@@ -1,11 +1,11 @@
 use fission_core::env::{Env, RuntimeState, TextSelectionHandleKind};
-use fission_core::lowering::LoweringContext;
+use fission_core::internal::InternalLoweringCx;
 use fission_core::ui::widgets::text::{RichTextChild, RichTextSpan, TextScaler, WidgetSpan};
 use fission_core::ui::widgets::text_input::{
     DragStartBehavior, SpellCheckConfiguration, TextAlignVertical, TextContextMenuAction,
     TextInputRuntimeConfig, TextMagnifierConfiguration, TextUndoController,
 };
-use fission_core::ui::{Button, Container, Node, RichText, RichTextRun, Spacer, Text, TextInput};
+use fission_core::ui::{Button, Container, RichText, RichTextRun, Spacer, Text, TextInput, Widget};
 use fission_core::{ActionEnvelope, ActionId};
 use fission_ir::op::{
     decode_inline_widget_marker, Color, Fill, LayoutOp, MouseCursor, Op, PaintOp,
@@ -14,46 +14,46 @@ use fission_ir::op::{
 use fission_ir::semantics::ActionTrigger;
 use fission_ir::{CoreIR, FlexDirection};
 
-fn lower_node(node: Node) -> CoreIR {
+fn lower_node(node: Widget) -> CoreIR {
     let env = Env::default();
     let runtime = RuntimeState::default();
-    let mut cx = LoweringContext::new(&env, &runtime, None, None);
-    let root = node.lower(&mut cx);
+    let mut cx = InternalLoweringCx::new(&env, &runtime, None, None);
+    let root = fission_core::internal::lower_widget(&node, &mut cx);
     cx.ir.root = Some(root);
     cx.ir
 }
 
-fn lower_node_with_runtime(node: Node, runtime: RuntimeState) -> CoreIR {
+fn lower_node_with_runtime(node: Widget, runtime: RuntimeState) -> CoreIR {
     let env = Env::default();
-    let mut cx = LoweringContext::new(&env, &runtime, None, None);
-    let root = node.lower(&mut cx);
+    let mut cx = InternalLoweringCx::new(&env, &runtime, None, None);
+    let root = fission_core::internal::lower_widget(&node, &mut cx);
     cx.ir.root = Some(root);
     cx.ir
 }
 
 fn test_text_input_selection_handle_id(
-    input_id: fission_ir::NodeId,
+    input_id: fission_ir::WidgetId,
     kind: TextSelectionHandleKind,
-) -> fission_ir::NodeId {
+) -> fission_ir::WidgetId {
     let suffix = match kind {
         TextSelectionHandleKind::Caret => 0,
         TextSelectionHandleKind::Start => 1,
         TextSelectionHandleKind::End => 2,
     };
-    fission_ir::NodeId::derived(input_id.as_u128(), &[900, suffix])
+    fission_ir::WidgetId::derived(input_id.as_u128(), &[900, suffix])
 }
 
 fn test_text_input_toolbar_button_id(
-    input_id: fission_ir::NodeId,
+    input_id: fission_ir::WidgetId,
     action: TextContextMenuAction,
-) -> fission_ir::NodeId {
+) -> fission_ir::WidgetId {
     let suffix = match action {
         TextContextMenuAction::Copy => 0,
         TextContextMenuAction::Cut => 1,
         TextContextMenuAction::Paste => 2,
         TextContextMenuAction::SelectAll => 3,
     };
-    fission_ir::NodeId::derived(input_id.as_u128(), &[901, suffix])
+    fission_ir::WidgetId::derived(input_id.as_u128(), &[901, suffix])
 }
 
 fn paint_ops(ir: &CoreIR) -> impl Iterator<Item = &PaintOp> {
@@ -70,7 +70,7 @@ fn layout_ops(ir: &CoreIR) -> impl Iterator<Item = &LayoutOp> {
     })
 }
 
-fn rich_text_annotations(ir: &CoreIR) -> Option<(fission_ir::NodeId, &Vec<RichTextAnnotation>)> {
+fn rich_text_annotations(ir: &CoreIR) -> Option<(fission_ir::WidgetId, &Vec<RichTextAnnotation>)> {
     ir.nodes.iter().find_map(|(id, node)| match &node.op {
         Op::Paint(PaintOp::DrawRichText { .. }) => {
             ir.custom_render_objects
@@ -102,7 +102,7 @@ fn advanced_text_styles_lower_to_rich_text() {
             .italic(true)
             .line_height(24.0)
             .letter_spacing(0.5)
-            .into_node(),
+            .into(),
     );
 
     let runs = paint_ops(&ir)
@@ -130,7 +130,7 @@ fn rich_text_widget_lowers_multiple_runs() {
                 .italic(true)
                 .text_scaler(TextScaler::linear(1.25)),
         ])
-        .into_node(),
+        .into(),
     );
 
     let runs = paint_ops(&ir)
@@ -160,16 +160,13 @@ fn container_background_fill_accepts_gradients() {
     };
 
     let ir = lower_node(
-        Container::new(
-            Spacer {
-                width: Some(40.0),
-                height: Some(12.0),
-                ..Default::default()
-            }
-            .into_node(),
-        )
+        Container::new(Spacer {
+            width: Some(40.0),
+            height: Some(12.0),
+            ..Default::default()
+        })
         .bg_fill(gradient.clone())
-        .into_node(),
+        .into(),
     );
 
     let fill = paint_ops(&ir)
@@ -211,12 +208,12 @@ fn button_background_fill_and_text_override_lower() {
 
     let ir = lower_node(
         Button {
-            child: Some(Box::new(Text::new("Continue").into_node())),
+            child: Some(Text::new("Continue").into()),
             background_fill: Some(gradient.clone()),
             text_color: Some(Color::WHITE),
             ..Default::default()
         }
-        .into_node(),
+        .into(),
     );
 
     let fill = paint_ops(&ir)
@@ -252,11 +249,11 @@ fn text_input_supports_decorations_and_typography_overrides() {
             font_weight: Some(500),
             line_height: Some(22.0),
             letter_spacing: Some(0.25),
-            prefix: Some(Box::new(Text::new("@").into_node())),
-            suffix: Some(Box::new(Text::new(".com").into_node())),
+            prefix: Some(Text::new("@").into()),
+            suffix: Some(Text::new(".com").into()),
             ..Default::default()
         }
-        .into_node(),
+        .into(),
     );
 
     assert!(layout_ops(&ir).any(|op| matches!(
@@ -370,7 +367,7 @@ fn text_input_lowers_cursor_and_semantics_overrides() {
             scroll_padding: Some([12.0, 13.0, 14.0, 15.0]),
             ..Default::default()
         }
-        .into_node(),
+        .into(),
     );
 
     let semantics = ir
@@ -526,7 +523,7 @@ fn text_lowers_paragraph_controls_for_alignment_and_ellipsis() {
             .overflow(TextOverflow::Ellipsis)
             .strut_line_height(24.0)
             .text_height_behavior(height_behavior)
-            .into_node(),
+            .into(),
     );
 
     let paragraph = paint_ops(&ir)
@@ -582,7 +579,7 @@ fn rich_text_lowers_paragraph_controls_for_line_capping() {
         .overflow(TextOverflow::Clip)
         .strut_line_height(28.0)
         .text_height_behavior(height_behavior)
-        .into_node(),
+        .into(),
     );
 
     let paragraph = paint_ops(&ir)
@@ -626,7 +623,7 @@ fn text_lowers_longest_line_width_basis() {
     let ir = lower_node(
         Text::new("Width basis")
             .text_width_basis(TextWidthBasis::LongestLine)
-            .into_node(),
+            .into(),
     );
 
     let paragraph = paint_ops(&ir)
@@ -647,7 +644,7 @@ fn rich_text_lowers_longest_line_width_basis() {
     let ir = lower_node(
         RichText::new(vec![RichTextRun::new("Width basis")])
             .text_width_basis(TextWidthBasis::LongestLine)
-            .into_node(),
+            .into(),
     );
 
     let paragraph = paint_ops(&ir)
@@ -675,9 +672,9 @@ fn nested_rich_text_spans_flatten_styles_in_order() {
                     a: 255,
                 })
                 .weight(600)
-                .child(RichTextSpan::new("world").italic(true)),
+                .children([RichTextSpan::new("world").italic(true)]),
         )
-        .into_node(),
+        .into(),
     );
 
     let runs = paint_ops(&ir)
@@ -724,8 +721,7 @@ fn rich_text_inline_widgets_lower_marker_runs_and_child_nodes() {
                         width: Some(18.0),
                         height: Some(10.0),
                         ..Default::default()
-                    }
-                    .into_node(),
+                    },
                     18.0,
                     10.0,
                 )
@@ -733,7 +729,7 @@ fn rich_text_inline_widgets_lower_marker_runs_and_child_nodes() {
             ),
             RichTextChild::from(RichTextSpan::new(" after")),
         ])
-        .into_node(),
+        .into(),
     );
 
     let (paint_node_id, runs) = ir
@@ -772,9 +768,9 @@ fn rich_text_span_semantics_labels_wrap_accessible_text() {
         RichText::from_span(
             RichTextSpan::new("FYI")
                 .semantics_label("For your information")
-                .child(RichTextSpan::new("!")),
+                .children([RichTextSpan::new("!")]),
         )
-        .into_node(),
+        .into(),
     );
 
     let semantics = ir
@@ -801,15 +797,13 @@ fn rich_text_span_interactions_lower_to_annotation_sidecar() {
             RichTextSpan::new("Read ")
                 .on_tap(tap.clone())
                 .mouse_cursor(MouseCursor::Pointer)
-                .child(
-                    RichTextSpan::new("docs")
-                        .semantics_label("documentation")
-                        .semantics_identifier("docs-link")
-                        .on_hover_enter(hover_enter.clone())
-                        .on_secondary_click(secondary.clone()),
-                ),
+                .children([RichTextSpan::new("docs")
+                    .semantics_label("documentation")
+                    .semantics_identifier("docs-link")
+                    .on_hover_enter(hover_enter.clone())
+                    .on_secondary_click(secondary.clone())]),
         )
-        .into_node(),
+        .into(),
     );
 
     let runs = paint_ops(&ir)
@@ -859,7 +853,7 @@ fn rich_text_run_spell_out_lowers_to_annotation_sidecar() {
             RichTextRun::new("NASA").spell_out(true),
             RichTextRun::new(" launch"),
         ])
-        .into_node(),
+        .into(),
     );
 
     let runs = paint_ops(&ir)
@@ -883,9 +877,9 @@ fn rich_text_span_spell_out_preserves_nested_overrides() {
         RichText::from_span(
             RichTextSpan::new("Call ")
                 .spell_out(true)
-                .child(RichTextSpan::new("911").spell_out(false)),
+                .children([RichTextSpan::new("911").spell_out(false)]),
         )
-        .into_node(),
+        .into(),
     );
 
     let (_, annotations) = rich_text_annotations(&ir).expect("annotation sidecar");
@@ -914,7 +908,7 @@ fn text_semantics_actions_keep_text_role_and_focusability() {
             .on_tap(tap.clone())
             .on_hover_enter(hover.clone())
             .on_secondary_click(secondary.clone())
-            .into_node(),
+            .into(),
     );
 
     let semantics = ir
@@ -957,7 +951,7 @@ fn text_locale_scale_selection_and_identifier_lower_to_rich_text() {
             })
             .selection_text_color(Color::WHITE)
             .semantics_identifier("hero-copy")
-            .into_node(),
+            .into(),
     );
 
     let runs = paint_ops(&ir)
@@ -1003,10 +997,12 @@ fn rich_text_identifier_and_locale_propagate_from_nested_spans() {
             RichTextSpan::new("")
                 .locale("en-GB")
                 .semantics_identifier("nested-copy")
-                .child(RichTextSpan::new("Hello ").text_scaler(TextScaler::linear(1.5)))
-                .child(RichTextSpan::new("world")),
+                .children([
+                    RichTextSpan::new("Hello ").text_scaler(TextScaler::linear(1.5)),
+                    RichTextSpan::new("world"),
+                ]),
         )
-        .into_node(),
+        .into(),
     );
 
     let runs = paint_ops(&ir)
@@ -1045,7 +1041,7 @@ fn rich_text_run_semantics_metadata_surfaces_without_nested_spans() {
             RichTextRun::new(" now"),
         ])
         .on_hover_exit(hover_exit.clone())
-        .into_node(),
+        .into(),
     );
 
     let semantics = ir
@@ -1070,11 +1066,7 @@ fn rich_text_run_semantics_metadata_surfaces_without_nested_spans() {
 
 #[test]
 fn text_semantics_label_builder_sets_label() {
-    let ir = lower_node(
-        Text::new("Visible")
-            .semantics_label("Screen reader")
-            .into_node(),
-    );
+    let ir = lower_node(Text::new("Visible").semantics_label("Screen reader").into());
 
     let semantics = ir
         .nodes
@@ -1092,7 +1084,7 @@ fn text_semantics_label_builder_sets_label() {
 
 #[test]
 fn focused_text_input_lowers_toolbar_handles_and_magnifier_overlays() {
-    let input_id = fission_ir::NodeId::derived(88, &[0]);
+    let input_id = fission_ir::WidgetId::derived(88, &[0]);
     let mut runtime = RuntimeState::default();
     runtime.interaction.set_focused(Some(input_id));
     let state = runtime.text_edit.get_mut_or_default(input_id);
@@ -1108,7 +1100,7 @@ fn focused_text_input_lowers_toolbar_handles_and_magnifier_overlays() {
 
     let ir = lower_node_with_runtime(
         TextInput {
-            id: Some(input_id),
+            id: Some(input_id.into()),
             value: "abcdefghij".into(),
             magnifier_configuration: TextMagnifierConfiguration {
                 diameter: 72.0,
@@ -1116,7 +1108,7 @@ fn focused_text_input_lowers_toolbar_handles_and_magnifier_overlays() {
             },
             ..Default::default()
         }
-        .into_node(),
+        .into(),
         runtime,
     );
 

@@ -1,5 +1,6 @@
+use fission_core::internal::BuildCtx;
 use fission_core::{
-    with_reducer, AppState, BuildCtx, JobRef, JobResource, ReducerContext, ResourceKey, Runtime,
+    with_reducer, GlobalState, JobRef, JobResource, ReducerContext, ResourceKey, Runtime,
     TimerResource,
 };
 use serde::{Deserialize, Serialize};
@@ -10,7 +11,7 @@ struct TestState {
     last_payload: String,
 }
 
-impl AppState for TestState {}
+impl GlobalState for TestState {}
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 struct TickPayload {

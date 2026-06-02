@@ -1,11 +1,11 @@
 use fission_core::registry::WebRegistration;
 use fission_core::Runtime;
-use fission_core::WidgetNodeId;
+use fission_core::WidgetId;
 
 #[test]
 fn runtime_syncs_webview_registrations_and_prunes_removed_nodes() {
-    let first = WidgetNodeId::explicit("web.first");
-    let second = WidgetNodeId::explicit("web.second");
+    let first = WidgetId::explicit("web.first");
+    let second = WidgetId::explicit("web.second");
     let mut runtime = Runtime::default();
 
     runtime.sync_web_nodes(&[

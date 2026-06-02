@@ -1,6 +1,6 @@
 use crate::env::{Env, RuntimeState};
-use crate::lowering::LoweringContext;
-use crate::ui::traits::Lower;
+use crate::internal::InternalLower;
+use crate::lowering::InternalLoweringCx;
 use crate::ui::widgets::clip::Clip;
 use crate::ui::widgets::container::Container;
 use fission_ir::{LayoutOp, Op};
@@ -12,11 +12,11 @@ fn test_clip_lowering() {
 
     let clip = Clip {
         path: Some("M 0 0 L 100 0 L 100 100 L 0 100 Z".into()),
-        child: Box::new(Container::default().into_node()),
+        child: Container::default().into(),
         ..Default::default()
     };
 
-    let mut cx = LoweringContext::new(&env, &runtime_state, None, None);
+    let mut cx = InternalLoweringCx::new(&env, &runtime_state, None, None);
     let root_id = clip.lower(&mut cx);
 
     let node = cx.ir.nodes.get(&root_id).unwrap();

@@ -1,6 +1,6 @@
 use crate::env::{Env, RuntimeState, WindowInsets};
-use crate::lowering::{build_layout_tree, LoweringContext};
-use crate::ui::traits::Lower;
+use crate::internal::InternalLower;
+use crate::lowering::{build_layout_tree, InternalLoweringCx};
 use crate::ui::widgets::container::Container;
 use crate::ui::widgets::safe_area::SafeArea;
 use fission_layout::{LayoutEngine, LayoutSize};
@@ -19,11 +19,11 @@ fn test_safe_area_layout() {
 
     // SafeArea wrapping a child that has a fixed size
     let safe_area = SafeArea {
-        child: Box::new(Container::default().width(100.0).height(100.0).into_node()),
+        child: Container::default().width(100.0).height(100.0).into(),
         ..Default::default()
     };
 
-    let mut cx = LoweringContext::new(&env, &runtime_state, None, None);
+    let mut cx = InternalLoweringCx::new(&env, &runtime_state, None, None);
     let root_id = safe_area.lower(&mut cx);
 
     let input_nodes = build_layout_tree(&cx.ir, &env);

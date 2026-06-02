@@ -6,7 +6,7 @@ use fission_core::input::gesture::GestureController;
 use fission_core::input::{ControllerContext, InputController};
 use fission_core::scrollbar::scrollbar_geometry_for_node;
 use fission_core::Runtime;
-use fission_ir::{CompositeStyle, CoreIR, CoreNode, FlexDirection, LayoutOp, NodeId, Op};
+use fission_ir::{CompositeStyle, CoreIR, CoreNode, FlexDirection, LayoutOp, Op, WidgetId};
 use fission_layout::{LayoutNodeGeometry, LayoutPoint, LayoutRect, LayoutSize, LayoutSnapshot};
 use std::sync::Arc;
 
@@ -84,8 +84,8 @@ fn dragging_scrollbar_thumb_updates_scroll_offset_directly() {
 
 #[test]
 fn dragging_nested_scrollbar_uses_visual_pointer_coordinates() {
-    let parent = NodeId::derived(82, &[0]);
-    let child = NodeId::derived(82, &[1]);
+    let parent = WidgetId::derived(82, &[0]);
+    let child = WidgetId::derived(82, &[1]);
     let mut ir = CoreIR::new();
     ir.add_node(
         child,
@@ -231,8 +231,8 @@ fn wheel_scroll_on_horizontal_scrollbar_rail_updates_scroll_offset() {
     assert!(runtime.runtime_state.scroll.get_offset(scroll) > 0.0);
 }
 
-fn scroll_tree(direction: FlexDirection) -> (CoreIR, LayoutSnapshot, NodeId) {
-    let scroll = NodeId::derived(81, &[1]);
+fn scroll_tree(direction: FlexDirection) -> (CoreIR, LayoutSnapshot, WidgetId) {
+    let scroll = WidgetId::derived(81, &[1]);
     let mut ir = CoreIR::default();
     ir.nodes.insert(
         scroll,
