@@ -12,8 +12,10 @@ use crate::site::{
     SitePageElementPlacement, SiteRenderContext,
 };
 use anyhow::{bail, Context, Result};
+use fission_core::internal::BuildCtx;
+use fission_core::internal::InternalLoweringCx;
 use fission_core::ui::Column;
-use fission_core::{BuildCtx, Env, LoweringContext, Node, RuntimeState, View, Widget};
+use fission_core::{Env, RuntimeState, View, Widget};
 use fission_layout::LayoutSize;
 use fission_theme::DesignMode;
 use serde::Deserialize;
@@ -472,7 +474,7 @@ fn render_footer_node(
     options: &SiteBuildOptions,
     site: &FissionSite,
     route_path: &str,
-) -> Result<Option<Node>> {
+) -> Result<Option<Widget>> {
     let Some(footer) = &site.footer else {
         return Ok(None);
     };
@@ -484,7 +486,7 @@ fn render_footer_node(
     Ok(Some(footer(&ctx)?))
 }
 
-fn append_footer(node: Node, footer: Option<Node>) -> Node {
+fn append_footer(node: Widget, footer: Option<Widget>) -> Widget {
     let Some(footer) = footer else {
         return node;
     };
@@ -492,7 +494,7 @@ fn append_footer(node: Node, footer: Option<Node>) -> Node {
         children: vec![node, footer],
         ..Default::default()
     }
-    .into_node()
+    .into()
 }
 
 fn copy_asset_dirs(options: &SiteBuildOptions) -> Result<()> {
@@ -733,10 +735,8 @@ fn render_route(
         route,
         all_routes: routes,
     };
-    let node = append_footer(
-        page.build(&mut build_ctx, &view),
-        render_footer_node(options, site, &route.path)?,
-    );
+    let page_node = fission_core::build::enter(&mut build_ctx, &view, || page.into());
+    let node = append_footer(page_node, render_footer_node(options, site, &route.path)?);
     render_node_to_html(
         node,
         &format!("{} | {}", route.title, options.site_title),
@@ -752,7 +752,7 @@ fn render_route(
 }
 
 fn render_node_to_html(
-    node: Node,
+    node: Widget,
     title: &str,
     description: Option<String>,
     route_path: &str,
@@ -763,8 +763,8 @@ fn render_node_to_html(
     let runtime = RuntimeState::default();
     let mut env = Env::default();
     env.theme = site.theme.clone();
-    let mut lowering = LoweringContext::new(&env, &runtime, None, None);
-    let root = node.lower(&mut lowering);
+    let mut lowering = InternalLoweringCx::new(&env, &runtime, None, None);
+    let root = fission_core::internal::lower_widget(&node, &mut lowering);
     lowering.ir.set_root(root);
 
     let render_options = HtmlRenderOptions {

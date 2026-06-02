@@ -1,6 +1,6 @@
 use fission_core::op::{AlignItems, Fill, JustifyContent};
 use fission_core::ui::{Column, Container, Image, Row, Text};
-use fission_core::{AppState, BuildCtx, Node, View, Widget};
+use fission_core::{GlobalState, ViewHandle, Widget};
 use fission_ir::{Role, Semantics};
 use fission_theme::Tokens;
 use fission_widgets::MarkdownViewer;
@@ -40,7 +40,7 @@ pub(crate) struct SidebarLink {
 
 #[derive(Debug, Default)]
 pub(crate) struct SitePageState;
-impl AppState for SitePageState {}
+impl GlobalState for SitePageState {}
 
 pub(crate) struct DocumentationPage<'a> {
     pub site_title: &'a str,
@@ -52,25 +52,23 @@ pub(crate) struct DocumentationPage<'a> {
     pub all_routes: &'a [ContentRoute],
 }
 
-impl<'a> Widget<SitePageState> for DocumentationPage<'a> {
-    fn build(&self, ctx: &mut BuildCtx<SitePageState>, view: &View<SitePageState>) -> Node {
-        let tokens = &view.env.theme.tokens;
-        Container::new(
-            Column {
-                children: vec![self.header(tokens), self.document_grid(ctx, view)],
-                flex_grow: 1.0,
-                ..Default::default()
-            }
-            .into_node(),
-        )
+impl From<DocumentationPage<'_>> for Widget {
+    fn from(page: DocumentationPage<'_>) -> Widget {
+        let (_, view) = fission_core::build::current::<SitePageState>();
+        let tokens = &view.env().theme.tokens;
+        Container::new(Column {
+            children: vec![page.header(tokens), page.document_grid(view)],
+            flex_grow: 1.0,
+            ..Default::default()
+        })
         .min_height(tokens.spacing.xxxxl * 9.0)
         .bg_fill(Fill::Solid(tokens.colors.background))
-        .into_node()
+        .into()
     }
 }
 
 impl DocumentationPage<'_> {
-    fn header(&self, tokens: &Tokens) -> Node {
+    fn header(&self, tokens: &Tokens) -> Widget {
         let mut children = vec![sidebar_toggle(tokens), self.brand(tokens)];
         if !self.site_nav.is_empty() {
             children.push(
@@ -86,7 +84,7 @@ impl DocumentationPage<'_> {
                     semantics: Some(site_semantics("site-doc-nav")),
                     ..Default::default()
                 }
-                .into_node(),
+                .into(),
             );
         }
         if self.theme_switching {
@@ -95,17 +93,14 @@ impl DocumentationPage<'_> {
         if self.search_enabled {
             children.push(search_trigger(tokens));
         }
-        Container::new(
-            Row {
-                children,
-                gap: Some(tokens.spacing.m),
-                align_items: AlignItems::Center,
-                justify_content: JustifyContent::SpaceBetween,
-                semantics: Some(site_semantics("site-doc-header")),
-                ..Default::default()
-            }
-            .into_node(),
-        )
+        Container::new(Row {
+            children,
+            gap: Some(tokens.spacing.m),
+            align_items: AlignItems::Center,
+            justify_content: JustifyContent::SpaceBetween,
+            semantics: Some(site_semantics("site-doc-header")),
+            ..Default::default()
+        })
         .padding([
             tokens.spacing.xxxxl,
             tokens.spacing.xxxxl,
@@ -114,16 +109,16 @@ impl DocumentationPage<'_> {
         ])
         .bg_fill(Fill::Solid(tokens.colors.surface))
         .border(tokens.colors.border, 1.0)
-        .into_node()
+        .into()
     }
 
-    fn brand(&self, tokens: &Tokens) -> Node {
+    fn brand(&self, tokens: &Tokens) -> Widget {
         let mut children = Vec::new();
         if let Some(logo) = self.site_logo {
             children.push(
                 Image::asset(logo.to_string())
                     .size(tokens.spacing.xl, tokens.spacing.xl)
-                    .into_node(),
+                    .into(),
             );
         }
         children.push(
@@ -132,7 +127,7 @@ impl DocumentationPage<'_> {
                 .weight(tokens.typography.font_weight_bold)
                 .color(tokens.colors.heading)
                 .semantics_identifier("site-route:/")
-                .into_node(),
+                .into(),
         );
         Row {
             children,
@@ -140,26 +135,22 @@ impl DocumentationPage<'_> {
             align_items: AlignItems::Center,
             ..Default::default()
         }
-        .into_node()
+        .into()
     }
 
-    fn document_grid(&self, ctx: &mut BuildCtx<SitePageState>, view: &View<SitePageState>) -> Node {
-        let tokens = &view.env.theme.tokens;
+    fn document_grid(&self, view: ViewHandle<SitePageState>) -> Widget {
+        let tokens = &view.env().theme.tokens;
         Row {
-            children: vec![
-                self.sidebar(tokens),
-                self.article(ctx, view),
-                self.toc(tokens),
-            ],
+            children: vec![self.sidebar(tokens), self.article(view), self.toc(tokens)],
             semantics: Some(site_semantics("site-doc-layout")),
             gap: Some(tokens.spacing.xl),
             align_items: AlignItems::Stretch,
             ..Default::default()
         }
-        .into_node()
+        .into()
     }
 
-    fn sidebar(&self, tokens: &Tokens) -> Node {
+    fn sidebar(&self, tokens: &Tokens) -> Widget {
         let mut children = Vec::new();
         if self.route.sidebar.is_empty() {
             let section_prefix = section_prefix(&self.route.path);
@@ -191,26 +182,23 @@ impl DocumentationPage<'_> {
             }
         }
         Column {
-            children: vec![Container::new(
-                Column {
-                    children,
-                    gap: Some(tokens.spacing.s),
-                    ..Default::default()
-                }
-                .into_node(),
-            )
+            children: vec![Container::new(Column {
+                children,
+                gap: Some(tokens.spacing.s),
+                ..Default::default()
+            })
             .padding_all(tokens.spacing.l)
             .bg_fill(Fill::Solid(tokens.colors.surface))
             .border(tokens.colors.border, 1.0)
             .width(tokens.spacing.xxxxl * 3.0)
             .min_height(tokens.spacing.xxxxl * 9.0)
             .flex_shrink(0.0)
-            .into_node()],
+            .into()],
             semantics: Some(site_semantics("site-doc-sidebar")),
             flex_shrink: 0.0,
             ..Default::default()
         }
-        .into_node()
+        .into()
     }
 
     fn sidebar_item(
@@ -221,7 +209,7 @@ impl DocumentationPage<'_> {
         group: bool,
         index: usize,
         tokens: &Tokens,
-    ) -> Node {
+    ) -> Widget {
         let active = normalize_link_path(href) == self.route.path;
         let color = if active {
             tokens.colors.primary
@@ -241,8 +229,7 @@ impl DocumentationPage<'_> {
                     tokens.typography.font_weight_medium
                 })
                 .color(color)
-                .semantics_identifier(format!("site-route:{href}"))
-                .into_node(),
+                .semantics_identifier(format!("site-route:{href}")),
         )
         .padding([
             (level as f32 * tokens.spacing.m) + tokens.spacing.s,
@@ -255,17 +242,17 @@ impl DocumentationPage<'_> {
             item = item.bg_fill(Fill::Solid(tokens.colors.surface_raised));
         }
         Column {
-            children: vec![item.into_node()],
+            children: vec![item.into()],
             semantics: Some(site_semantics(format!(
                 "site-sidebar-item:{level}:{active}:{group}:{index}"
             ))),
             ..Default::default()
         }
-        .into_node()
+        .into()
     }
 
-    fn article(&self, ctx: &mut BuildCtx<SitePageState>, view: &View<SitePageState>) -> Node {
-        let tokens = &view.env.theme.tokens;
+    fn article(&self, view: ViewHandle<SitePageState>) -> Widget {
+        let tokens = &view.env().theme.tokens;
         let mut children = Vec::new();
         if let Some(breadcrumbs) = self.breadcrumbs(tokens) {
             children.push(breadcrumbs);
@@ -280,7 +267,7 @@ impl DocumentationPage<'_> {
                         tokens.typography.heading1_size * tokens.typography.line_height_heading,
                     )
                     .color(tokens.colors.heading)
-                    .into_node(),
+                    .into(),
             );
             if let Some(description) = &self.route.description {
                 children.push(
@@ -291,7 +278,7 @@ impl DocumentationPage<'_> {
                                 * tokens.typography.line_height_relaxed,
                         )
                         .color(tokens.colors.text_secondary)
-                        .into_node(),
+                        .into(),
                 );
             }
         }
@@ -299,30 +286,27 @@ impl DocumentationPage<'_> {
             markdown: self.route.body.clone(),
             show_scrollbar: false,
         };
-        children.push(markdown.build(ctx, view));
+        children.push(markdown.into());
 
         Column {
-            children: vec![Container::new(
-                Column {
-                    children,
-                    gap: Some(tokens.spacing.l),
-                    flex_grow: 1.0,
-                    ..Default::default()
-                }
-                .into_node(),
-            )
+            children: vec![Container::new(Column {
+                children,
+                gap: Some(tokens.spacing.l),
+                flex_grow: 1.0,
+                ..Default::default()
+            })
             .padding([0.0, 0.0, tokens.spacing.xxl, tokens.spacing.xxl])
             .bg_fill(Fill::Solid(tokens.colors.background))
             .flex_grow(1.0)
-            .into_node()],
+            .into()],
             semantics: Some(site_semantics("site-doc-main")),
             flex_grow: 1.0,
             ..Default::default()
         }
-        .into_node()
+        .into()
     }
 
-    fn breadcrumbs(&self, tokens: &Tokens) -> Option<Node> {
+    fn breadcrumbs(&self, tokens: &Tokens) -> Option<Widget> {
         let items = breadcrumb_items(&self.route.sidebar, &self.route.path);
         if items.is_empty() {
             return None;
@@ -334,21 +318,21 @@ impl DocumentationPage<'_> {
                 .weight(tokens.typography.font_weight_bold)
                 .color(tokens.colors.primary)
                 .semantics_identifier("site-route:/")
-                .into_node(),
+                .into(),
         );
         for (title, href) in items {
             children.push(
                 Text::new(">")
                     .size(tokens.typography.font_size_sm)
                     .color(tokens.colors.text_muted)
-                    .into_node(),
+                    .into(),
             );
             children.push(
                 Text::new(title)
                     .size(tokens.typography.font_size_sm)
                     .color(tokens.colors.text_link)
                     .semantics_identifier(format!("site-route:{href}"))
-                    .into_node(),
+                    .into(),
             );
         }
         Some(
@@ -358,11 +342,11 @@ impl DocumentationPage<'_> {
                 align_items: AlignItems::Center,
                 ..Default::default()
             }
-            .into_node(),
+            .into(),
         )
     }
 
-    fn toc(&self, tokens: &Tokens) -> Node {
+    fn toc(&self, tokens: &Tokens) -> Widget {
         let mut children = Vec::new();
         for heading in &self.route.headings {
             children.push(
@@ -370,27 +354,24 @@ impl DocumentationPage<'_> {
                     .size(tokens.typography.font_size_sm)
                     .color(tokens.colors.text_primary)
                     .semantics_identifier(format!("site-heading:{}", heading.anchor))
-                    .into_node(),
+                    .into(),
             );
         }
         Column {
-            children: vec![Container::new(
-                Column {
-                    children,
-                    gap: Some(tokens.spacing.s),
-                    ..Default::default()
-                }
-                .into_node(),
-            )
+            children: vec![Container::new(Column {
+                children,
+                gap: Some(tokens.spacing.s),
+                ..Default::default()
+            })
             .padding_all(tokens.spacing.l)
             .width(tokens.spacing.xxxxl * 2.75)
             .flex_shrink(0.0)
-            .into_node()],
+            .into()],
             semantics: Some(site_semantics("site-doc-toc")),
             flex_shrink: 0.0,
             ..Default::default()
         }
-        .into_node()
+        .into()
     }
 }
 
@@ -402,59 +383,59 @@ fn site_semantics(identifier: impl Into<String>) -> Semantics {
     }
 }
 
-fn nav_link(label: &str, href: &str, tokens: &Tokens) -> Node {
+fn nav_link(label: &str, href: &str, tokens: &Tokens) -> Widget {
     Text::new(label.to_string())
         .size(tokens.typography.label_large_size)
         .weight(tokens.typography.font_weight_semibold)
         .color(tokens.colors.text_link)
         .semantics_identifier(format!("site-route:{href}"))
-        .into_node()
+        .into()
 }
 
-fn theme_toggle(tokens: &Tokens) -> Node {
+fn theme_toggle(tokens: &Tokens) -> Widget {
     Text::new("Theme")
         .size(tokens.typography.label_large_size)
         .weight(tokens.typography.font_weight_semibold)
         .color(tokens.colors.text_link)
         .semantics_identifier("site-theme-toggle")
-        .into_node()
+        .into()
 }
 
-fn search_trigger(tokens: &Tokens) -> Node {
+fn search_trigger(tokens: &Tokens) -> Widget {
     Row {
         children: vec![
             Text::new("Search")
                 .size(tokens.typography.label_large_size)
                 .weight(tokens.typography.font_weight_semibold)
                 .color(tokens.colors.text_link)
-                .into_node(),
+                .into(),
             Text::new("Cmd K")
                 .size(tokens.typography.font_size_xs)
                 .family(tokens.typography.font_family_mono.clone())
                 .color(tokens.colors.text_muted)
-                .into_node(),
+                .into(),
         ],
         gap: Some(tokens.spacing.s),
         align_items: AlignItems::Center,
         semantics: Some(site_semantics("site-search-trigger")),
         ..Default::default()
     }
-    .into_node()
+    .into()
 }
 
-fn sidebar_toggle(tokens: &Tokens) -> Node {
+fn sidebar_toggle(tokens: &Tokens) -> Widget {
     Row {
         children: vec![Text::new("Menu")
             .size(tokens.typography.label_large_size)
             .weight(tokens.typography.font_weight_semibold)
             .color(tokens.colors.text_link)
-            .into_node()],
+            .into()],
         gap: Some(tokens.spacing.xs),
         align_items: AlignItems::Center,
         semantics: Some(site_semantics("site-sidebar-toggle")),
         ..Default::default()
     }
-    .into_node()
+    .into()
 }
 
 pub(crate) fn extract_page_links(markdown: &str) -> Vec<HeadingLink> {
